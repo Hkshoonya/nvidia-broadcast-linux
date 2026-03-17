@@ -1,101 +1,176 @@
-# NVIDIA Broadcast for Linux
+<p align="center">
+  <img src="data/icons/com.doczeus.NVBroadcast.svg" width="120" alt="NVIDIA Broadcast for Linux">
+</p>
 
-**by doczeus | AI Powered**
+<h1 align="center">NVIDIA Broadcast for Linux</h1>
 
-An open-source implementation of [NVIDIA Broadcast](https://www.nvidia.com/en-us/geforce/broadcasting/broadcast-app/) for Linux. Brings AI-powered virtual camera, background removal/blur/replacement, auto-framing, and noise cancellation to Linux desktops - features previously only available on Windows.
+<p align="center">
+  <strong>by Doczeus | AI Powered</strong>
+</p>
 
-> Created by **doczeus** - [github.com/doczeus](https://github.com/doczeus)
+<p align="center">
+  <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/stargazers"><img src="https://img.shields.io/github/stars/Hkshoonya/nvidia-broadcast-linux?style=for-the-badge&color=76b900&labelColor=1a1a1a" alt="Stars"></a>
+  <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-76b900?style=for-the-badge&labelColor=1a1a1a" alt="License"></a>
+  <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"><img src="https://img.shields.io/github/issues/Hkshoonya/nvidia-broadcast-linux?style=for-the-badge&color=76b900&labelColor=1a1a1a" alt="Issues"></a>
+  <a href="https://github.com/sponsors/Hkshoonya"><img src="https://img.shields.io/badge/Sponsor-Doczeus-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor"></a>
+</p>
+
+<p align="center">
+  <em>The NVIDIA Broadcast experience you loved on Windows — now on Linux. Open source. GPU accelerated. Built with passion.</em>
+</p>
 
 ---
 
-## Features
+## Why I Built This
 
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **Background Blur** | AI-powered Gaussian blur on background, person stays sharp | Working |
-| **Background Replace** | Replace background with any custom image | Working |
-| **Green Screen** | Solid green background for OBS chroma key | Working |
-| **Auto Frame** | Face tracking with smooth auto-zoom/pan | Working |
-| **Mic Noise Removal** | AI denoising for microphone input (RNNoise) | Working |
-| **Speaker Denoise** | Remove noise from incoming audio | Working |
-| **Virtual Camera** | Works with Chrome, Firefox, Zoom, Discord, OBS | Working |
-| **GPU Accelerated** | ONNX Runtime on NVIDIA RTX GPU | Working |
-| **Quality Presets** | Performance / Balanced / Quality / Ultra | Working |
-| **Auto-Start** | Launches on login, minimizes to background | Working |
-| **Settings Memory** | All settings persist across sessions | Working |
+I left Windows. Millions of Linux users left Windows. But we all missed one thing — **NVIDIA Broadcast**.
+
+That one app that made every video call look professional. Background blur that actually worked. Virtual backgrounds that didn't look like a PowerPoint slide. Noise cancellation that silenced your mechanical keyboard.
+
+On Linux? Nothing. You had to cobble together 5 different tools, fight with v4l2loopback configs, and still get janky edges. **That's over now.**
+
+I built this because I believe Linux users deserve the same broadcast-quality experience. Not a half-baked wrapper. Not a "good enough" hack. A real, proper implementation that uses your NVIDIA GPU to do what NVIDIA Broadcast does on Windows — **but open source, and in some ways, better.**
+
+> *"Not saying this is perfect. But I believe it will be."*
+>
+> This is fast. This is optimized. And the quality already rivals Windows Broadcast. With the community behind it, we'll surpass it.
+>
+> **— Doczeus**
+
+---
+
+## What It Does
+
+<table>
+<tr>
+<td width="50%">
+
+### Camera Effects
+- **Background Blur** — AI-powered, person stays crystal sharp
+- **Background Replace** — Any image, perfectly composited
+- **Green Screen** — Solid green for OBS chroma key
+- **Auto Frame** — Face tracking with smooth zoom/pan
+
+</td>
+<td width="50%">
+
+### Audio Effects
+- **Mic Noise Removal** — Kills keyboard, fan, environment noise
+- **Speaker Denoise** — Clean up incoming audio
+
+### System Integration
+- **Virtual Camera** — Works in Chrome, Firefox, Zoom, Discord, OBS
+- **Auto-Start** — Launches on login, runs in background
+- **Setup & Forget** — All settings persist forever
+
+</td>
+</tr>
+</table>
+
+---
 
 ## How It Works
 
 ```
-Webcam -> GStreamer Pipeline -> AI Effects (GPU) -> Virtual Camera
-                                    |
-                            RobustVideoMatting
-                            (ONNX Runtime + CUDA)
-                                    |
-                    +---------------+---------------+
-                    |               |               |
-              Background       Green Screen    Background
-                 Blur            Remove        Replacement
+                         NVIDIA Broadcast for Linux
+                         ─────────────────────────
+
+    ┌──────────┐     ┌────────────────────┐     ┌──────────────────┐
+    │  Webcam  │────▶│  GStreamer Pipeline │────▶│  Virtual Camera  │
+    │ (USB)    │     │                    │     │  /dev/video10    │
+    └──────────┘     │  ┌──────────────┐  │     └────────┬─────────┘
+                     │  │ RobustVideo  │  │              │
+                     │  │  Matting     │  │     ┌────────▼─────────┐
+                     │  │ (ONNX+CUDA) │  │     │  Chrome / Zoom   │
+                     │  └──────┬───────┘  │     │  Firefox / OBS   │
+                     │         │          │     │  Discord / Meet  │
+                     │  ┌──────▼───────┐  │     └──────────────────┘
+                     │  │  Alpha Matte │  │
+                     │  │  Compositing │  │
+                     │  └──────────────┘  │
+                     └────────────────────┘
+
+    ┌──────────┐     ┌────────────────────┐     ┌──────────────────┐
+    │   Mic    │────▶│  RNNoise Denoise  │────▶│  Virtual Mic     │
+    └──────────┘     └────────────────────┘     └──────────────────┘
 ```
 
-The app creates a **v4l2loopback virtual camera** device (`/dev/video10`) that appears as "NVIDIA Broadcast" in all applications. When streaming, browsers and video apps can select it as their camera source.
+### The Secret Sauce
 
-### Architecture
+| Component | What It Does | Why It's Fast |
+|-----------|-------------|---------------|
+| **RobustVideoMatting** | True alpha mattes (not binary masks) — natural hair/clothing edges | GPU inference via ONNX Runtime + CUDA |
+| **Dual-Mode Pipeline** | Passthrough mode = zero CPU; Effects mode = GPU processing | GStreamer handles passthrough in pure C |
+| **Frame Skipping** | AI runs every 2nd frame, reuses alpha matte on skipped frames | Halves GPU load without visible quality loss |
+| **uint16 Blending** | Integer math compositing instead of float32 | 4x faster than naive approach |
 
-- **Passthrough Mode** (no effects): Direct GStreamer C pipeline - zero Python overhead, near-zero CPU
-- **Effects Mode**: GStreamer appsink -> Python/ONNX processing -> appsrc -> v4l2sink
-- **RobustVideoMatting**: Produces true alpha mattes with temporal consistency via recurrent neural network
-- **Adaptive Pipeline**: Automatically switches between passthrough and effects mode
+---
 
-### AI Models
+## Quality Presets
 
-| Model | Purpose | Size | Speed (RTX 5060) |
-|-------|---------|------|-------------------|
-| RVM MobileNetV3 | Fast segmentation | 14 MB | 7ms inference |
-| RVM ResNet50 | High-quality segmentation | 103 MB | 15ms inference |
-| MediaPipe BlazeFace | Face detection (auto-frame) | 230 KB | <5ms inference |
-| RNNoise | Audio denoising | Built-in | <1ms per frame |
+| Preset | Model | Edge Quality | Speed | Best For |
+|--------|-------|:----------:|:-----:|----------|
+| **Performance** | MobileNetV3 | Good | ~7ms | Video calls with blur |
+| **Balanced** | MobileNetV3 | Better | ~10ms | Daily use |
+| **Quality** | ResNet50 | Excellent | ~12ms | Presentations |
+| **Ultra** | ResNet50 | Best | ~15ms | Recording & streaming |
 
-Models are downloaded automatically on first use.
+All presets run in real-time on any RTX GPU. Select in-app under Background > Quality.
 
 ---
 
 ## Requirements
 
 ### Hardware
-- **NVIDIA GPU**: Any RTX series (RTX 2060 or newer recommended)
-- **Webcam**: Any USB webcam (MJPEG or YUYV supported)
-- **Microphone**: Any audio input device
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| **GPU** | NVIDIA GTX 1060 | RTX 3060 or newer |
+| **VRAM** | 2 GB | 4 GB+ |
+| **Webcam** | Any USB camera | 720p+ with MJPEG |
+| **Mic** | Any audio input | — |
 
 ### Software
-- **OS**: Pop!_OS 22.04+, Ubuntu 22.04+, Fedora 38+, or any Linux with:
-  - NVIDIA Driver 525+ with CUDA support
-  - GTK4 and Libadwaita
-  - GStreamer 1.20+
-  - PipeWire (for audio effects)
-  - v4l2loopback kernel module
-- **Python**: 3.11+
+- **Linux** with NVIDIA driver 525+ (Pop!_OS, Ubuntu, Fedora, Arch, etc.)
+- **Python** 3.11+
+- **GStreamer** 1.20+ with plugins-base, plugins-good, plugins-bad
+- **GTK4** and **Libadwaita**
+- **v4l2loopback** kernel module
 
 ---
 
 ## Installation
 
-### Quick Install (Recommended)
+### One Command Install
 
 ```bash
-git clone https://github.com/doczeus/nvidia-broadcast-linux.git
+git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git
 cd nvidia-broadcast-linux
 ./install.sh
 ```
 
-The installer handles everything:
-1. Installs system dependencies (GStreamer, GTK4, v4l2loopback)
-2. Configures virtual camera (persists across reboots)
-3. Sets up Python environment with GPU-accelerated ML libraries
-4. Creates desktop launcher and system tray entry
-5. Enables auto-start on login
+The installer handles **everything**:
+
+```
+=========================================
+  NVIDIA Broadcast for Linux
+  by Doczeus | AI Powered
+=========================================
+
+[1/7] System dependencies ........... ✓
+[2/7] Virtual camera (v4l2loopback) . ✓
+[3/7] Python environment ............ ✓
+[4/7] Launcher scripts .............. ✓
+[5/7] Desktop entry & icon .......... ✓
+[6/7] Systemd service ............... ✓
+[7/7] Autostart on login ............ ✓
+
+Setup once, forget forever.
+```
 
 ### Manual Install
+
+<details>
+<summary>Click to expand manual steps</summary>
 
 ```bash
 # 1. System dependencies
@@ -109,91 +184,98 @@ sudo apt install v4l-utils v4l2loopback-dkms \
 sudo modprobe v4l2loopback devices=1 video_nr=10 \
     card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4
 
-# 3. Python environment
+# 3. Make it persistent across reboots
+echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4' | \
+    sudo tee /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
+echo "v4l2loopback" | sudo tee /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
+
+# 4. Python environment
 python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
 pip install -e .
 
-# 4. For GPU acceleration (CUDA/cuDNN for ONNX Runtime)
+# 5. GPU acceleration (recommended)
 pip install nvidia-cudnn-cu12 nvidia-cublas-cu12 nvidia-cuda-runtime-cu12
 
-# 5. Run
+# 6. Run
 python -m nvbroadcast
 ```
 
-### Making v4l2loopback Persistent
-
-```bash
-# Auto-load on boot
-echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4' | \
-    sudo tee /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
-echo "v4l2loopback" | sudo tee /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
-```
+</details>
 
 ---
 
 ## Usage
 
-### First Run
-
-```bash
-nvbroadcast
-```
-
-The app will:
-1. Auto-detect your webcam and GPU
-2. Start streaming to the virtual camera
-3. Show a live preview
-
 ### Setup Once, Forget Forever
 
-1. **Configure your effects** (background blur, image, quality preset)
-2. **Close the window** - app minimizes to background, virtual camera stays active
-3. **Open any video app** (Chrome, Zoom, Discord) - select "NVIDIA Broadcast" as camera
-4. **On next login** - app starts automatically with your saved settings
-
-### Headless Mode (No GUI)
-
 ```bash
-# Just the virtual camera, no window
-nvbroadcast-vcam
-
-# With specific settings
-nvbroadcast-vcam --device /dev/video0 --format yuy2
-nvbroadcast-vcam --format i420  # Better Firefox compatibility
+nvbroadcast          # Launch GUI (first time: configure your effects)
 ```
 
-### Systemd Service
+1. App starts and auto-begins streaming
+2. Configure background blur/replace/green-screen, select quality
+3. **Close the window** — app minimizes to background, virtual camera stays active
+4. Open **Chrome / Zoom / Discord / OBS** — select **"NVIDIA Broadcast"** as your camera
+5. **Next login** — app starts automatically with all your settings remembered
+
+### Headless Mode
 
 ```bash
-# Start/stop
-systemctl --user start nvbroadcast-vcam
-systemctl --user stop nvbroadcast-vcam
-
-# Enable auto-start on login
-systemctl --user enable nvbroadcast-vcam
+nvbroadcast-vcam                    # No GUI, just the virtual camera
+nvbroadcast-vcam --format i420      # Firefox-compatible format
 ```
 
-### Chrome Users
+### As a System Service
 
-If Chrome doesn't detect the virtual camera:
-1. Go to `chrome://flags`
-2. Search for "PipeWire"
-3. Disable "PipeWire Camera" flag
-4. Restart Chrome
+```bash
+systemctl --user enable nvbroadcast-vcam   # Auto-start on login
+systemctl --user start nvbroadcast-vcam    # Start now
+systemctl --user status nvbroadcast-vcam   # Check status
+```
 
 ---
 
-## Quality Presets
+## Troubleshooting
 
-| Preset | Model | Resolution | Speed | Best For |
-|--------|-------|-----------|-------|----------|
-| **Performance** | MobileNetV3, ds=0.25 | Fast | ~7ms | Video calls with effects |
-| **Balanced** | MobileNetV3, ds=0.5 | Medium | ~10ms | General use |
-| **Quality** | ResNet50, ds=0.375 | High | ~12ms | Presentations |
-| **Ultra** | ResNet50, ds=0.5 | Highest | ~15ms | Recording/streaming |
+<details>
+<summary><strong>Chrome doesn't see the virtual camera</strong></summary>
 
-Select in the app under Background > Quality dropdown.
+1. Go to `chrome://flags`
+2. Search **"PipeWire"**
+3. **Disable** "PipeWire Camera" flag
+4. Restart Chrome
+
+</details>
+
+<details>
+<summary><strong>"Device busy" error</strong></summary>
+
+Another app is using the camera. Close it or run:
+```bash
+fuser -k /dev/video0
+```
+
+</details>
+
+<details>
+<summary><strong>No GPU acceleration (running on CPU)</strong></summary>
+
+```bash
+pip install nvidia-cudnn-cu12 nvidia-cublas-cu12 nvidia-cuda-runtime-cu12
+```
+
+</details>
+
+<details>
+<summary><strong>v4l2loopback not loaded after reboot</strong></summary>
+
+```bash
+sudo modprobe v4l2loopback devices=1 video_nr=10 \
+    card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4
+```
+
+</details>
 
 ---
 
@@ -201,117 +283,84 @@ Select in the app under Background > Quality dropdown.
 
 ```
 nvidia-broadcast-linux/
-├── src/nvbroadcast/           # Main Python package
-│   ├── __init__.py            # Package metadata & attribution
-│   ├── __main__.py            # Entry point
-│   ├── app.py                 # GTK4/Adwaita application
+├── src/nvbroadcast/           # Main package (every file carries doczeus copyright)
+│   ├── app.py                 # GTK4 application with auto-start & minimize
 │   ├── vcam_service.py        # Headless virtual camera service
-│   ├── core/
-│   │   ├── config.py          # Settings persistence (TOML)
-│   │   ├── constants.py       # App constants, NVIDIA colors
-│   │   └── gpu.py             # GPU detection via nvidia-smi
-│   ├── video/
-│   │   ├── pipeline.py        # GStreamer dual-mode pipeline
-│   │   ├── effects.py         # RVM background removal/blur/replace
-│   │   ├── autoframe.py       # Face tracking + auto-zoom
-│   │   └── virtual_camera.py  # v4l2loopback management
-│   ├── audio/
-│   │   ├── effects.py         # RNNoise denoising
-│   │   ├── pipeline.py        # PipeWire audio pipeline
-│   │   ├── virtual_mic.py     # Virtual microphone
-│   │   └── monitor.py         # Speaker output denoising
-│   └── ui/
-│       ├── window.py          # Main window (NVIDIA Broadcast layout)
-│       ├── video_preview.py   # Live camera preview
-│       ├── controls.py        # Effect toggles, sliders, pickers
-│       ├── device_selector.py # Device dropdowns
-│       └── style.css          # NVIDIA dark theme
-├── models/                    # AI models (auto-downloaded)
-├── data/                      # Desktop entry, icons
-├── configs/                   # v4l2loopback, PipeWire configs
-├── scripts/                   # Setup scripts
-├── tests/                     # Integration tests
+│   ├── core/                  # Config, GPU detection, constants
+│   ├── video/                 # Pipeline, RVM effects, auto-frame, v4l2loopback
+│   ├── audio/                 # RNNoise denoising, PipeWire virtual mic
+│   └── ui/                    # Window, preview, controls (NVIDIA dark theme)
+├── models/                    # AI models (auto-downloaded on first run)
 ├── install.sh                 # One-command installer
-├── LICENSE                    # GPL-3.0
-├── pyproject.toml             # Python package config
-└── README.md                  # This file
-```
-
----
-
-## Troubleshooting
-
-### Camera not detected by browser
-- Make sure the app is running and streaming (camera LED should be on)
-- The virtual camera only appears while the app is actively streaming
-- Try refreshing the browser's camera list
-- Chrome: disable PipeWire Camera flag (see above)
-
-### "Device busy" error
-- Another application is using the camera
-- Close other video apps, or run: `fuser -k /dev/video0`
-
-### No GPU acceleration
-```bash
-# Check if CUDA is available
-python -c "import onnxruntime; print(onnxruntime.get_available_providers())"
-
-# Install CUDA libraries if missing
-pip install nvidia-cudnn-cu12 nvidia-cublas-cu12 nvidia-cuda-runtime-cu12
-```
-
-### v4l2loopback not loaded
-```bash
-sudo modprobe v4l2loopback devices=1 video_nr=10 \
-    card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4
-```
-
-### App won't start after reboot
-```bash
-# Re-run installer
-./install.sh
-
-# Or manually reload v4l2loopback
-sudo modprobe v4l2loopback devices=1 video_nr=10 \
-    card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4
+├── LICENSE                    # GPL-3.0 with attribution requirement
+└── README.md
 ```
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Keep the original author attribution intact (see LICENSE)
-4. Submit a pull request
+Contributions, feedback, and ideas are **warmly welcome**. This project is built for the Linux community, by the Linux community.
+
+### How to Contribute
+
+1. **Fork** this repository
+2. **Create a branch** for your feature (`git checkout -b feature/amazing-thing`)
+3. **Commit** your changes with clear messages
+4. **Open a Pull Request** — describe what you changed and why
+
+### Rules
+
+- All PRs require **review and approval** before merging
+- Keep the **original author attribution** intact (see [LICENSE](LICENSE))
+- Follow the existing code style and structure
+- Add tests for new features when possible
+- Be respectful in discussions — we're all here because we love Linux
+
+### Ideas for Contribution
+
+- [ ] Better segmentation models (NVIDIA Maxine SDK integration)
+- [ ] Eye contact correction
+- [ ] Virtual lighting / face relighting
+- [ ] System tray indicator with quick toggle
+- [ ] Flatpak / Snap packaging
+- [ ] Multi-camera support
+- [ ] Recording mode
+- [ ] Performance overlay (FPS, GPU usage)
 
 ---
 
-## Credits
+## Sponsor This Project
 
-**Created by [doczeus](https://github.com/doczeus)** - AI Powered
+If NVIDIA Broadcast for Linux saves you from going back to Windows, consider sponsoring the development:
 
-### Technologies Used
-- [RobustVideoMatting](https://github.com/PeterL1n/RobustVideoMatting) - Video matting model
-- [ONNX Runtime](https://onnxruntime.ai/) - GPU-accelerated inference
-- [MediaPipe](https://mediapipe.dev/) - Face detection
-- [RNNoise](https://github.com/xiph/rnnoise) - Audio noise suppression
-- [GStreamer](https://gstreamer.freedesktop.org/) - Media pipeline
-- [GTK4](https://gtk.org/) / [Libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/) - UI framework
-- [v4l2loopback](https://github.com/umlaeute/v4l2loopback) - Virtual camera
-- [PipeWire](https://pipewire.org/) - Audio routing
+<p align="center">
+  <a href="https://github.com/sponsors/Hkshoonya">
+    <img src="https://img.shields.io/badge/Sponsor_Doczeus-Support_Development-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor">
+  </a>
+</p>
 
-### Disclaimer
-This project is not affiliated with or endorsed by NVIDIA Corporation.
-NVIDIA, NVIDIA Broadcast, CUDA, TensorRT, and Maxine are trademarks of NVIDIA Corporation.
+Every contribution helps keep this project alive and improving.
 
 ---
 
 ## License
 
-**GPL-3.0** - see [LICENSE](LICENSE) file.
+**GPL-3.0** — see [LICENSE](LICENSE) for details.
 
-Copyright (c) 2026 **doczeus** ([github.com/doczeus](https://github.com/doczeus))
+Any redistribution or derivative work **must retain the original author attribution**.
 
-Any redistribution or derivative work must retain the original author attribution.
+---
+
+<p align="center">
+  <img src="data/icons/doczeus-logo.svg" width="48" alt="Doczeus">
+</p>
+
+<p align="center">
+  <strong>Created with passion by <a href="https://github.com/Hkshoonya">Doczeus</a></strong><br>
+  <em>Because Linux users deserve broadcast-quality video too.</em>
+</p>
+
+<p align="center">
+  <sub>Copyright (c) 2026 Doczeus. All rights reserved under GPL-3.0.</sub>
+</p>

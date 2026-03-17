@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 48" width="200" height="48">
+  <defs>
+    <linearGradient id="dz" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#76b900"/>
+      <stop offset="100%" stop-color="#5a8f00"/>
+    </linearGradient>
+  </defs>
+  <!-- D icon -->
+  <rect x="2" y="8" width="32" height="32" rx="8" fill="none" stroke="url(#dz)" stroke-width="3"/>
+  <circle cx="18" cy="24" r="6" fill="#76b900"/>
+  <!-- Text: oczeus -->
+  <text x="40" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="#e0e0e0" letter-spacing="1">oczeus</text>
+  <!-- Tagline -->
+  <text x="40" y="46" font-family="system-ui, sans-serif" font-size="9" fill="#76b900" letter-spacing="2">AI POWERED</text>
+</svg>
