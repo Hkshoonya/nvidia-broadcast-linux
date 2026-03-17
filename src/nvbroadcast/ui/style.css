@@ -1,0 +1,163 @@
+/* NVIDIA Broadcast - Dark Theme with NVIDIA Green Accents */
+
+window {
+    background-color: #1a1a1a;
+}
+
+headerbar {
+    background-color: #111111;
+    border-bottom: 1px solid #333333;
+}
+
+/* NVIDIA Green accent for active/suggested buttons */
+.nv-green {
+    color: #76b900;
+}
+
+.nv-green-bg {
+    background-color: #76b900;
+    color: #000000;
+}
+
+.suggested-action {
+    background-color: #76b900;
+    color: #000000;
+    font-weight: bold;
+}
+
+.destructive-action {
+    background-color: #cc3333;
+    color: white;
+    font-weight: bold;
+}
+
+/* Video Preview */
+.video-preview {
+    background-color: #000000;
+    border-radius: 6px;
+    border: 1px solid #333333;
+    min-height: 360px;
+}
+
+/* Section tabs (Camera / Audio) */
+.section-tab {
+    padding: 8px 24px;
+    font-weight: bold;
+    font-size: 13px;
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: #999999;
+}
+
+.section-tab:checked,
+.section-tab.active {
+    color: #76b900;
+    border-bottom-color: #76b900;
+}
+
+/* Effect Cards */
+.effect-card {
+    background-color: #2a2a2a;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 6px 0;
+    border: 1px solid #3a3a3a;
+}
+
+/* Device selector row */
+.device-row {
+    padding: 8px 0;
+}
+
+.device-label {
+    font-size: 12px;
+    color: #999999;
+    font-weight: 500;
+}
+
+/* Section headers */
+.section-header {
+    font-weight: bold;
+    font-size: 13px;
+    color: #76b900;
+    padding: 4px 0;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* GPU info */
+.gpu-label {
+    font-size: 11px;
+    opacity: 0.6;
+    font-family: monospace;
+}
+
+/* Status bar */
+.status-bar {
+    background-color: #111111;
+    padding: 6px 16px;
+    font-size: 11px;
+    color: #888888;
+    border-top: 1px solid #333333;
+}
+
+.status-active {
+    color: #76b900;
+}
+
+/* Title */
+.app-title {
+    font-weight: bold;
+    font-size: 14px;
+    color: #ffffff;
+}
+
+.app-subtitle {
+    font-size: 10px;
+    color: #76b900;
+    opacity: 0.9;
+}
+
+/* Slider styling */
+scale trough {
+    background-color: #3a3a3a;
+}
+
+scale trough highlight {
+    background-color: #76b900;
+}
+
+scale slider {
+    background-color: #76b900;
+}
+
+/* Switch styling */
+switch:checked {
+    background-color: #76b900;
+}
+
+/* Drop down styling */
+dropdown {
+    background-color: #2a2a2a;
+    border: 1px solid #444444;
+}
+
+/* Preferences group */
+preferencesgroup {
+    background-color: #222222;
+    border-radius: 8px;
+    border: 1px solid #333333;
+}
+
+/* Browse button */
+.browse-btn {
+    background-color: #3a3a3a;
+    border: 1px solid #555555;
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
+.browse-btn:hover {
+    background-color: #4a4a4a;
+}

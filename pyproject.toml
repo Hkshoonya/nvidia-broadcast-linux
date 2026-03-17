@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nvbroadcast"
+version = "0.1.0"
+description = "NVIDIA Broadcast for Linux by doczeus - AI-powered virtual camera, background removal, and noise cancellation"
+license = {text = "GPL-3.0-or-later"}
+requires-python = ">=3.11"
+authors = [
+    {name = "doczeus", email = "doczeus@users.noreply.github.com"},
+]
+maintainers = [
+    {name = "doczeus", email = "doczeus@users.noreply.github.com"},
+]
+keywords = ["nvidia", "broadcast", "virtual-camera", "background-removal", "noise-cancellation", "linux", "doczeus"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+    "numpy>=1.26",
+    "Pillow>=10.0",
+    "opencv-python-headless>=4.8",
+    "mediapipe>=0.10",
+    "onnxruntime-gpu>=1.16",
+    "pyrnnoise>=0.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/doczeus/nvidia-broadcast-linux"
+Repository = "https://github.com/doczeus/nvidia-broadcast-linux"
+Issues = "https://github.com/doczeus/nvidia-broadcast-linux/issues"
+
+[project.optional-dependencies]
+cuda = ["pycuda>=2024.1"]
+maxine = ["nvidia-vfx"]
+
+[project.scripts]
+nvbroadcast = "nvbroadcast.__main__:main"
+nvbroadcast-vcam = "nvbroadcast.vcam_service:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

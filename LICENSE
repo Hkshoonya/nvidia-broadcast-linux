@@ -1,0 +1,61 @@
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+Copyright (c) 2026 doczeus (https://github.com/doczeus)
+
+NVIDIA Broadcast for Linux - AI-powered virtual camera, background
+removal, noise cancellation, and auto-framing for Linux systems.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+===========================================================================
+
+ATTRIBUTION REQUIREMENT
+=======================
+
+This project was created by doczeus. Any redistribution, modification,
+or derivative work MUST retain the following:
+
+1. This LICENSE file in its entirety
+2. The copyright headers in all source files
+3. The "by doczeus" attribution in the application UI
+4. The __author__ = "doczeus" metadata in __init__.py
+5. The original project URL: https://github.com/doczeus/nvidia-broadcast-linux
+
+Removing or obscuring the original author attribution is a violation
+of this license.
+
+===========================================================================
+
+THIRD-PARTY COMPONENTS
+======================
+
+This software uses the following open-source components:
+
+- RobustVideoMatting (MIT License) - https://github.com/PeterL1n/RobustVideoMatting
+- MediaPipe (Apache 2.0) - https://github.com/google/mediapipe
+- RNNoise (BSD 3-Clause) - https://github.com/xiph/rnnoise
+- ONNX Runtime (MIT License) - https://github.com/microsoft/onnxruntime
+- GStreamer (LGPL 2.1) - https://gstreamer.freedesktop.org/
+- GTK4 (LGPL 2.1) - https://gtk.org/
+- OpenCV (Apache 2.0) - https://opencv.org/
+
+NVIDIA, NVIDIA Broadcast, CUDA, TensorRT, and Maxine are trademarks
+of NVIDIA Corporation. This project is not affiliated with or endorsed
+by NVIDIA Corporation.
+
+===========================================================================
+
+For the full text of the GNU General Public License v3, see:
+https://www.gnu.org/licenses/gpl-3.0.txt
