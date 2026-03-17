@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.so
+*.dylib
+
+# C++ build
+native/build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config
+*.env
+
+# NVIDIA models (large files, download separately)
+models/

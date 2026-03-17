@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=NVIDIA Broadcast
+Comment=AI-powered virtual camera, background removal, and noise cancellation - by doczeus
+Exec=nvbroadcast
+Icon=com.doczeus.NVBroadcast
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;
+Keywords=broadcast;camera;virtual;nvidia;background;noise;ai;
+StartupNotify=true
+StartupWMClass=com.doczeus.NVBroadcast

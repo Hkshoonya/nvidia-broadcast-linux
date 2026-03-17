@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#111111"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </linearGradient>
+    <linearGradient id="nv" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#76b900"/>
+      <stop offset="100%" stop-color="#5a8f00"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="128" height="128" rx="20" fill="url(#bg)"/>
+  <!-- Broadcast signal waves -->
+  <path d="M 24 64 A 40 40 0 0 1 104 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round" opacity="0.3"/>
+  <path d="M 32 64 A 32 32 0 0 1 96 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 40 64 A 24 24 0 0 1 88 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+  <!-- Camera body -->
+  <rect x="38" y="52" width="52" height="36" rx="6" fill="none" stroke="url(#nv)" stroke-width="3"/>
+  <!-- Camera lens -->
+  <circle cx="64" cy="70" r="12" fill="none" stroke="#76b900" stroke-width="2.5"/>
+  <circle cx="64" cy="70" r="6" fill="#76b900"/>
+  <!-- Camera top detail -->
+  <rect x="50" y="48" width="16" height="6" rx="2" fill="#76b900" opacity="0.6"/>
+  <!-- Recording dot -->
+  <circle cx="82" cy="58" r="3" fill="#ff3333" opacity="0.9"/>
+  <!-- NVIDIA eye shape (bottom) -->
+  <path d="M 40 100 Q 64 112 88 100" fill="none" stroke="#76b900" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="64" cy="103" r="2.5" fill="#76b900"/>
+</svg>
