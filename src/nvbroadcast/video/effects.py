@@ -76,12 +76,13 @@ QUALITY_PRESETS = {
 
 
 class VideoEffects:
-    def __init__(self, gpu_index: int = COMPUTE_GPU_INDEX):
+    def __init__(self, gpu_index: int = COMPUTE_GPU_INDEX, edge_config=None):
         self._gpu_index = gpu_index
         self._initialized = False
         self._session = None
         self._lock = threading.Lock()
         self._quality = "quality"
+        self._edge_config = edge_config
 
         # RVM recurrent states
         self._r1 = self._r2 = self._r3 = self._r4 = None
@@ -102,9 +103,8 @@ class VideoEffects:
         self._cached_alpha = None
         self._skip_interval = 1  # Run every frame (GPU is fast enough)
 
-        # Alpha refinement kernels (pre-allocated)
-        self._dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        self._erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        # Alpha refinement - use edge config or defaults
+        self._apply_edge_config(edge_config)
 
     @property
     def available(self) -> bool:
@@ -302,26 +302,58 @@ class VideoEffects:
             print(f"[NV Broadcast] RVM error: {e}")
             return None
 
-    def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
-        """Refine alpha matte for cleaner edges.
+    def _apply_edge_config(self, edge_config=None):
+        """Apply edge refinement parameters from config or defaults."""
+        if edge_config:
+            self._dilate_size = edge_config.dilate_size
+            self._blur_size = edge_config.blur_size
+            self._sigmoid_strength = edge_config.sigmoid_strength
+            self._sigmoid_midpoint = edge_config.sigmoid_midpoint
+        else:
+            self._dilate_size = 5
+            self._blur_size = 9
+            self._sigmoid_strength = 12.0
+            self._sigmoid_midpoint = 0.5
+        # Ensure odd sizes for kernels
+        ds = self._dilate_size if self._dilate_size % 2 == 1 else self._dilate_size + 1
+        self._dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ds, ds))
+        bs = self._blur_size if self._blur_size % 2 == 1 else self._blur_size + 1
+        self._blur_ksize = (bs, bs)
 
-        1. Dilate to expand person boundary (prevents edges eating into person)
-        2. Soft blur for smooth transitions (reduces green screen flicker)
-        3. Contrast boost at edges to sharpen the boundary
-        """
-        # Convert to uint8 for morphological ops
+    def update_edge_params(self, dilate_size=None, blur_size=None,
+                           sigmoid_strength=None, sigmoid_midpoint=None):
+        """Live-update edge refinement parameters (called from UI sliders)."""
+        if dilate_size is not None:
+            self._dilate_size = int(dilate_size)
+            ds = self._dilate_size if self._dilate_size % 2 == 1 else self._dilate_size + 1
+            self._dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ds, ds))
+        if blur_size is not None:
+            self._blur_size = int(blur_size)
+            bs = self._blur_size if self._blur_size % 2 == 1 else self._blur_size + 1
+            self._blur_ksize = (bs, bs)
+        if sigmoid_strength is not None:
+            self._sigmoid_strength = float(sigmoid_strength)
+        if sigmoid_midpoint is not None:
+            self._sigmoid_midpoint = float(sigmoid_midpoint)
+
+    def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
+        """Refine alpha matte using configurable parameters."""
         a8 = (np.clip(alpha, 0, 1) * 255).astype(np.uint8)
 
-        # Dilate: expand person mask slightly to protect edges
-        a8 = cv2.dilate(a8, self._dilate_kernel, iterations=1)
+        # Dilate: expand person mask to protect edges
+        if self._dilate_size > 0:
+            a8 = cv2.dilate(a8, self._dilate_kernel, iterations=1)
 
-        # Soft blur on the alpha for smooth edge transitions
-        a8 = cv2.GaussianBlur(a8, (5, 5), 0)
+        # Gaussian blur for smooth edge transitions
+        if self._blur_size > 1:
+            a8 = cv2.GaussianBlur(a8, self._blur_ksize, 0)
 
-        # Contrast boost: push midtones toward 0 or 1 for crisper boundary
-        # sigmoid-like: values > 0.5 pushed toward 1, < 0.5 toward 0
+        # Sigmoid for natural boundary
         alpha_out = a8.astype(np.float32) / 255.0
-        alpha_out = np.clip((alpha_out - 0.3) / 0.4, 0, 1)
+        if self._sigmoid_strength > 0:
+            alpha_out = 1.0 / (1.0 + np.exp(
+                -self._sigmoid_strength * (alpha_out - self._sigmoid_midpoint)
+            ))
 
         return alpha_out
 

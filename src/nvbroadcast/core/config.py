@@ -13,12 +13,22 @@ from nvbroadcast.core.constants import CONFIG_DIR, CONFIG_FILE
 
 
 @dataclass
+class EdgeConfig:
+    """Advanced edge refinement parameters - tunable per system."""
+    dilate_size: int = 5          # Expand person mask (pixels, odd number)
+    blur_size: int = 9            # Edge softness (pixels, odd number)
+    sigmoid_strength: float = 12.0  # Edge sharpness (higher = crisper, lower = softer)
+    sigmoid_midpoint: float = 0.5   # Where the edge transition center sits (0-1)
+
+
+@dataclass
 class VideoConfig:
     camera_device: str = "/dev/video0"
     width: int = 1280
     height: int = 720
     fps: int = 30
     output_format: str = "YUY2"
+    model: str = "rvm"
     quality_preset: str = "quality"
     background_removal: bool = False
     background_mode: str = "blur"
@@ -26,6 +36,7 @@ class VideoConfig:
     blur_intensity: float = 0.7
     auto_frame: bool = False
     auto_frame_zoom: float = 1.5
+    edge: EdgeConfig = field(default_factory=EdgeConfig)
 
 
 @dataclass
@@ -61,6 +72,10 @@ def load_config() -> AppConfig:
             for k, v in data["video"].items():
                 if hasattr(config.video, k):
                     setattr(config.video, k, v)
+        if "video" in data and "edge" in data["video"]:
+            for k, v in data["video"]["edge"].items():
+                if hasattr(config.video.edge, k):
+                    setattr(config.video.edge, k, v)
         if "audio" in data:
             for k, v in data["audio"].items():
                 if hasattr(config.audio, k):
@@ -84,6 +99,7 @@ def save_config(config: AppConfig) -> None:
         f"height = {config.video.height}",
         f"fps = {config.video.fps}",
         f'output_format = "{config.video.output_format}"',
+        f'model = "{config.video.model}"',
         f'quality_preset = "{config.video.quality_preset}"',
         f"background_removal = {'true' if config.video.background_removal else 'false'}",
         f'background_mode = "{config.video.background_mode}"',
@@ -91,6 +107,12 @@ def save_config(config: AppConfig) -> None:
         f"blur_intensity = {config.video.blur_intensity}",
         f"auto_frame = {'true' if config.video.auto_frame else 'false'}",
         f"auto_frame_zoom = {config.video.auto_frame_zoom}",
+        "",
+        "[video.edge]",
+        f"dilate_size = {config.video.edge.dilate_size}",
+        f"blur_size = {config.video.edge.blur_size}",
+        f"sigmoid_strength = {config.video.edge.sigmoid_strength}",
+        f"sigmoid_midpoint = {config.video.edge.sigmoid_midpoint}",
         "",
         "[audio]",
         f'mic_device = "{config.audio.mic_device}"',

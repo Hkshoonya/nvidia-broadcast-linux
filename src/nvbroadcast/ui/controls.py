@@ -157,36 +157,47 @@ class BackgroundImagePicker(Gtk.Box):
         return self._selected_path
 
     def _on_browse(self, button):
-        """Open a simple text entry dialog to type/paste image path."""
+        """Open native file chooser dialog for image selection."""
         window = self.get_root()
 
-        dialog = Adw.MessageDialog.new(window, "Background Image")
-        dialog.set_body("Enter the full path to an image file:")
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Select Background Image")
 
-        entry = Gtk.Entry()
-        entry.set_placeholder_text("/home/user/Pictures/background.jpg")
+        # Image file filter
+        img_filter = Gtk.FileFilter()
+        img_filter.set_name("Images")
+        img_filter.add_mime_type("image/png")
+        img_filter.add_mime_type("image/jpeg")
+        img_filter.add_mime_type("image/webp")
+        img_filter.add_mime_type("image/bmp")
+        img_filter.add_mime_type("image/tiff")
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(img_filter)
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All Files")
+        all_filter.add_pattern("*")
+        filters.append(all_filter)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(img_filter)
+
+        # Start in previous directory or Pictures
         if self._selected_path:
-            entry.set_text(self._selected_path)
-        entry.set_hexpand(True)
-        dialog.set_extra_child(entry)
+            start_dir = Gio.File.new_for_path(os.path.dirname(self._selected_path))
+        else:
+            pictures = os.path.expanduser("~/Pictures")
+            start_dir = Gio.File.new_for_path(pictures if os.path.isdir(pictures) else os.path.expanduser("~"))
+        dialog.set_initial_folder(start_dir)
 
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("ok", "Apply")
-        dialog.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("ok")
+        dialog.open(window, None, self._on_file_chosen)
 
-        dialog.connect("response", self._on_path_response, entry)
-        dialog.present()
-
-    def _on_path_response(self, dialog, response, entry):
-        if response == "ok":
-            path = entry.get_text().strip()
-            if path and os.path.isfile(path):
+    def _on_file_chosen(self, dialog, result):
+        try:
+            gfile = dialog.open_finish(result)
+            if gfile:
+                path = gfile.get_path()
                 self._selected_path = path
                 self._path_label.set_text(os.path.basename(path))
                 self._path_label.set_opacity(1.0)
                 self.emit("image-selected", path)
-            elif path:
-                self._path_label.set_text("File not found")
-                self._path_label.set_opacity(0.5)
-        dialog.close()
+        except Exception:
+            pass  # User cancelled
