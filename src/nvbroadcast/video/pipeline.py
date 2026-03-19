@@ -110,11 +110,17 @@ class VideoPipeline:
                 f"appsink name=preview emit-signals=true max-buffers=1 drop=true sync=false"
             )
 
+        # Use GPU JPEG decode in passthrough mode too
+        if self._has_gst_element("nvjpegdec"):
+            decoder = "nvjpegdec ! cudadownload"
+        else:
+            decoder = "jpegdec"
+
         self._pipeline = Gst.parse_launch(
             f"v4l2src device={self._source_device} ! "
             f"image/jpeg,width={self._width},height={self._height},"
             f"framerate={self._fps}/1 ! "
-            f"jpegdec ! "
+            f"{decoder} ! "
             f"{tee_branch}"
         )
 
@@ -128,11 +134,17 @@ class VideoPipeline:
 
     def _build_effects_pipeline(self, vcam_enabled: bool):
         """appsink/appsrc pipeline for Python effect processing."""
+        # Use NVIDIA GPU for JPEG decode — saves ~60% CPU vs software jpegdec
+        if self._has_gst_element("nvjpegdec"):
+            decoder = "nvjpegdec ! cudadownload ! videoconvert"
+        else:
+            decoder = "jpegdec ! videoconvert"
+
         self._pipeline = Gst.parse_launch(
             f"v4l2src device={self._source_device} ! "
             f"image/jpeg,width={self._width},height={self._height},"
             f"framerate={self._fps}/1 ! "
-            f"jpegdec ! videoconvert ! "
+            f"{decoder} ! "
             f"video/x-raw,format=BGRA,width={self._width},height={self._height} ! "
             f"appsink name=sink emit-signals=true max-buffers=2 drop=true sync=false"
         )
@@ -276,6 +288,12 @@ class VideoPipeline:
         if vcam:
             vcam.set_state(Gst.State.NULL)
             vcam.get_state(2 * Gst.SECOND)
+
+    @staticmethod
+    def _has_gst_element(name: str) -> bool:
+        """Check if a GStreamer element is available."""
+        factory = Gst.ElementFactory.find(name)
+        return factory is not None
 
     def _on_error(self, bus, msg):
         err, debug = msg.parse_error()

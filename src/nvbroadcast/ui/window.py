@@ -143,6 +143,22 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         ])
         box.append(self._format_selector)
 
+        # GPU selector
+        from nvbroadcast.core.gpu import detect_gpus
+        gpus = detect_gpus()
+        if len(gpus) > 1:
+            self._gpu_selector = DeviceSelector("GPU")
+            gpu_devices = [
+                {"name": f"GPU {g.index}: {g.name} ({g.memory_total_mb}MB)", "device": str(g.index)}
+                for g in gpus
+            ]
+            self._gpu_selector.set_devices(gpu_devices)
+            self._gpu_selector.set_selected_index(self._app.config.compute_gpu)
+            self._gpu_selector.connect("device-changed", self._on_gpu_changed)
+            box.append(self._gpu_selector)
+        else:
+            self._gpu_selector = None
+
         # Background effect card
         bg_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         bg_card.add_css_class("effect-card")
@@ -153,7 +169,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Model selector
         self._model_selector = DeviceSelector("Model")
         self._model_selector.set_devices([
-            {"name": "RVM - Person Matting (default)", "device": "rvm"},
+            {"name": "RVM - Person Matting (fastest)", "device": "rvm"},
+            {"name": "IS-Net - General Objects", "device": "isnet"},
+            {"name": "BiRefNet - Best Quality (heavy)", "device": "birefnet"},
         ])
         self._model_selector.set_sensitive(False)
         self._model_selector.set_selected_index(0)
@@ -212,6 +230,28 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._edge_midpoint.set_sensitive(False)
         self._edge_midpoint.connect("value-changed", self._on_edge_midpoint)
         adv_box.append(self._edge_midpoint)
+
+        # Separator
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep.set_margin_top(6)
+        sep.set_margin_bottom(2)
+        adv_box.append(sep)
+
+        perf_lbl = Gtk.Label(label="Performance")
+        perf_lbl.set_xalign(0)
+        perf_lbl.set_margin_start(16)
+        perf_lbl.add_css_class("device-label")
+        adv_box.append(perf_lbl)
+
+        self._skip_interval = EffectSlider("Frame Skip", 1.0, 1.0, 5.0)
+        self._skip_interval.set_sensitive(False)
+        self._skip_interval.connect("value-changed", self._on_skip_interval)
+        adv_box.append(self._skip_interval)
+
+        self._ema_weight = EffectSlider("Smoothing", 0.15, 0.0, 0.5)
+        self._ema_weight.set_sensitive(False)
+        self._ema_weight.connect("value-changed", self._on_ema_weight)
+        adv_box.append(self._ema_weight)
 
         adv_expander.set_child(adv_box)
         bg_card.append(adv_expander)
@@ -300,8 +340,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._edge_blur.set_sensitive(active)
         self._edge_strength.set_sensitive(active)
         self._edge_midpoint.set_sensitive(active)
+        self._skip_interval.set_sensitive(active)
+        self._ema_weight.set_sensitive(active)
         mode = self._bg_mode.mode
         self._bg_image_picker.set_sensitive(active and mode == "replace")
+
+    def _on_gpu_changed(self, selector, gpu_str):
+        self._app.set_compute_gpu(int(gpu_str))
 
     def _on_model_changed(self, selector, model):
         self._app.set_model(model)
@@ -330,6 +375,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_edge_midpoint(self, s, v):
         self._app.set_edge_param("sigmoid_midpoint", v)
+
+    def _on_skip_interval(self, s, v):
+        self._app.set_skip_interval(int(v))
+
+    def _on_ema_weight(self, s, v):
+        self._app.set_ema_weight(v)
 
     def _on_autoframe_toggled(self, t, active):
         self._app.set_autoframe(active)
@@ -371,6 +422,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         """Restore saved settings to all UI controls."""
         v = config.video
         a = config.audio
+
+        # Model (0=rvm, 1=isnet, 2=birefnet)
+        model_map = {"rvm": 0, "isnet": 1, "birefnet": 2}
+        if v.model in model_map:
+            self._model_selector.set_selected_index(model_map[v.model])
 
         # Quality preset (0=perf, 1=balanced, 2=quality, 3=ultra)
         quality_map = {"performance": 0, "balanced": 1, "quality": 2, "ultra": 3}
@@ -415,6 +471,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._edge_blur.set_sensitive(True)
             self._edge_strength.set_sensitive(True)
             self._edge_midpoint.set_sensitive(True)
+            self._skip_interval.set_sensitive(True)
+            self._ema_weight.set_sensitive(True)
             self._bg_image_picker.set_sensitive(v.background_mode == "replace")
 
         if v.auto_frame:
