@@ -283,9 +283,14 @@ fuser -k /dev/video0
 <details>
 <summary><strong>No GPU acceleration (running on CPU)</strong></summary>
 
+The CUDA 12 runtime libraries are included in requirements but may fail on some systems. Reinstall them:
 ```bash
-pip install nvidia-cudnn-cu12 nvidia-cublas-cu12 nvidia-cuda-runtime-cu12
+.venv/bin/pip install --force-reinstall nvidia-cublas-cu12 nvidia-cuda-runtime-cu12 \
+    nvidia-cudnn-cu12 nvidia-curand-cu12 nvidia-cufft-cu12 nvidia-cusparse-cu12 \
+    nvidia-cusolver-cu12 nvidia-nvjitlink-cu12
 ```
+
+Note: Your NVIDIA driver must support CUDA 12+ (driver 525+). The driver's "CUDA Version" in `nvidia-smi` shows the maximum supported — the pip packages provide the actual runtime libraries.
 
 </details>
 

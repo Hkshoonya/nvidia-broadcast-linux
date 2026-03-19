@@ -68,11 +68,9 @@ class VideoPipeline:
             self._effects_active = active
             return
 
-        # Rebuild pipeline in the new mode
+        # Rebuild pipeline in the new mode (deferred to avoid blocking GTK main loop)
         self._effects_active = active
-        self.stop()
-        self.build(vcam_enabled=self._vcam_enabled)
-        self.start()
+        GLib.idle_add(self._rebuild_pipeline)
 
     def build(self, vcam_enabled: bool = True) -> None:
         self._vcam_enabled = vcam_enabled
@@ -83,13 +81,13 @@ class VideoPipeline:
             self._build_passthrough_pipeline(vcam_enabled)
 
         if self._preview_callback:
-            GLib.timeout_add(50, self._tick_preview)  # ~20fps preview to save CPU
+            GLib.timeout_add(33, self._tick_preview)  # ~30fps preview
 
     def _build_passthrough_pipeline(self, vcam_enabled: bool):
         """Direct GStreamer pipeline - ZERO Python processing.
 
         webcam -> jpegdec -> tee -> videoconvert -> v4l2sink (virtual cam)
-                               \-> appsink (preview only, low priority)
+                               |-> appsink (preview only, low priority)
 
         CPU usage: near zero (all in GStreamer C code).
         """
@@ -104,13 +102,11 @@ class VideoPipeline:
                 f"v4l2sink device={self._vcam_device} sync=false "
                 f"t. ! queue max-size-buffers=1 leaky=downstream ! "
                 f"videoconvert ! video/x-raw,format=BGRA ! "
-                f"videorate ! video/x-raw,framerate=15/1 ! "
                 f"appsink name=preview emit-signals=true max-buffers=1 drop=true sync=false"
             )
         else:
             tee_branch = (
                 f"videoconvert ! video/x-raw,format=BGRA ! "
-                f"videorate ! video/x-raw,framerate=15/1 ! "
                 f"appsink name=preview emit-signals=true max-buffers=1 drop=true sync=false"
             )
 
@@ -252,6 +248,13 @@ class VideoPipeline:
 
         return True
 
+    def _rebuild_pipeline(self):
+        """Rebuild pipeline after mode change. Runs on GTK main loop via idle_add."""
+        self.stop()
+        self.build(vcam_enabled=self._vcam_enabled)
+        self.start()
+        return False  # Don't repeat
+
     def start(self):
         if self._vcam_pipeline:
             self._vcam_pipeline.set_state(Gst.State.PLAYING)
@@ -269,10 +272,10 @@ class VideoPipeline:
 
         if cap:
             cap.set_state(Gst.State.NULL)
-            cap.get_state(Gst.CLOCK_TIME_NONE)
+            cap.get_state(2 * Gst.SECOND)
         if vcam:
             vcam.set_state(Gst.State.NULL)
-            vcam.get_state(Gst.CLOCK_TIME_NONE)
+            vcam.get_state(2 * Gst.SECOND)
 
     def _on_error(self, bus, msg):
         err, debug = msg.parse_error()

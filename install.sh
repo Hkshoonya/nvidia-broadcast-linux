@@ -42,9 +42,9 @@ else
     ERRORS+=("python3 not found")
 fi
 
-# Check python3-venv
+# Check python3-venv (version-specific package on Debian/Ubuntu)
 if ! python3 -m venv --help &>/dev/null 2>&1; then
-    ERRORS+=("python3-venv not found (install: sudo apt install python3-venv)")
+    ERRORS+=("python3-venv not found (install: sudo apt install python3.${PY_MINOR}-venv)")
 fi
 
 # Check pip
@@ -223,6 +223,34 @@ if [ ${#FAILED_PY[@]} -gt 0 ]; then
     echo ""
     echo "WARNING: Some Python packages failed to import: ${FAILED_PY[*]}"
     echo "The app may not function correctly. Check errors above."
+fi
+
+# Verify GPU acceleration
+echo ""
+echo "Verifying GPU acceleration..."
+GPU_RESULT=$("$VENV_DIR/bin/python" -c "
+import onnxruntime as ort
+providers = ort.get_available_providers()
+if 'CUDAExecutionProvider' in providers:
+    # Test that CUDA actually loads
+    try:
+        opts = ort.SessionOptions()
+        opts.log_severity_level = 3
+        print('CUDA_OK')
+    except:
+        print('CUDA_FAIL')
+else:
+    print('CPU_ONLY')
+" 2>/dev/null)
+
+if [ "$GPU_RESULT" = "CUDA_OK" ]; then
+    echo "  CUDA acceleration ... OK"
+elif [ "$GPU_RESULT" = "CPU_ONLY" ]; then
+    echo "  WARNING: CUDA not available, will run on CPU (slower)"
+    echo "           Install NVIDIA CUDA toolkit for GPU acceleration"
+else
+    echo "  WARNING: CUDA libraries may not load correctly"
+    echo "           App will fall back to CPU if needed"
 fi
 
 # --- Step 4: Create Launcher Scripts ---
