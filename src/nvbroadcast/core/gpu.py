@@ -53,12 +53,60 @@ def detect_gpus() -> list[GpuInfo]:
     return gpus
 
 
-def select_compute_gpu(gpus: list[GpuInfo], preferred_index: int = 1) -> GpuInfo | None:
-    """Select the GPU for AI compute workloads.
+def get_cuda_device_id(nvsmi_index: int) -> int:
+    """Map an nvidia-smi GPU index to the CUDA device_id used by ONNX Runtime.
 
-    Prefers the specified index (default: device 1 / RTX 3080).
-    Falls back to any available GPU.
+    nvidia-smi and CUDA can enumerate GPUs in different orders.
+    This maps by matching UUIDs between nvidia-smi and CUDA's ordering.
     """
+    try:
+        # Get nvidia-smi UUID for the requested index
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"],
+            capture_output=True, text=True, check=True,
+        )
+        uuid_by_nvsmi = {}
+        for line in result.stdout.strip().split("\n"):
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 2:
+                uuid_by_nvsmi[int(parts[0])] = parts[1]
+
+        target_uuid = uuid_by_nvsmi.get(nvsmi_index)
+        if not target_uuid:
+            return nvsmi_index  # Fallback
+
+        # Get CUDA ordering via nvidia-smi topology
+        # CUDA enumerates by PCI bus ID by default
+        result2 = subprocess.run(
+            ["nvidia-smi", "--query-gpu=uuid", "--format=csv,noheader",
+             "--id=" + ",".join(str(i) for i in sorted(uuid_by_nvsmi.keys()))],
+            capture_output=True, text=True, check=True,
+        )
+
+        # Try to determine CUDA order from PCI bus IDs
+        result3 = subprocess.run(
+            ["nvidia-smi", "--query-gpu=pci.bus_id,uuid", "--format=csv,noheader"],
+            capture_output=True, text=True, check=True,
+        )
+        pci_uuid_pairs = []
+        for line in result3.stdout.strip().split("\n"):
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 2:
+                pci_uuid_pairs.append((parts[0], parts[1]))
+
+        # CUDA orders by PCI bus ID ascending
+        pci_uuid_pairs.sort(key=lambda x: x[0])
+        for cuda_id, (_, uuid) in enumerate(pci_uuid_pairs):
+            if uuid == target_uuid:
+                return cuda_id
+
+        return nvsmi_index  # Fallback
+    except Exception:
+        return nvsmi_index  # Fallback
+
+
+def select_compute_gpu(gpus: list[GpuInfo], preferred_index: int = 0) -> GpuInfo | None:
+    """Select the GPU for AI compute workloads."""
     if not gpus:
         return None
 

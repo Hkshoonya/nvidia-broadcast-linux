@@ -70,12 +70,14 @@ def load_config() -> AppConfig:
                 setattr(config, k, data[k])
         if "video" in data:
             for k, v in data["video"].items():
+                if k == "edge":
+                    continue  # Handled separately below
                 if hasattr(config.video, k):
                     setattr(config.video, k, v)
-        if "video" in data and "edge" in data["video"]:
-            for k, v in data["video"]["edge"].items():
-                if hasattr(config.video.edge, k):
-                    setattr(config.video.edge, k, v)
+            if "edge" in data["video"]:
+                for k, v in data["video"]["edge"].items():
+                    if hasattr(config.video.edge, k):
+                        setattr(config.video.edge, k, v)
         if "audio" in data:
             for k, v in data["audio"].items():
                 if hasattr(config.audio, k):

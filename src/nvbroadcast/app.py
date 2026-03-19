@@ -82,10 +82,7 @@ class NVBroadcastApp(Adw.Application):
             # Restore saved settings to UI
             self._restore_settings()
 
-            # Pre-load AI models in background
-            self._preload_effects()
-
-            # Auto-start broadcast
+            # Auto-start broadcast (initializes model on first frame)
             if self.config.auto_start and self._vcam_available:
                 GLib.idle_add(self._auto_start)
 
@@ -127,7 +124,8 @@ class NVBroadcastApp(Adw.Application):
         """Restore all saved settings to the UI and effects."""
         c = self.config
 
-        # Restore quality preset
+        # Restore model and quality preset
+        self._video_effects._model_type = c.video.model
         self._video_effects._quality = c.video.quality_preset
 
         # Restore background settings
@@ -239,15 +237,46 @@ class NVBroadcastApp(Adw.Application):
         self.config.video.blur_intensity = value
         save_config(self.config)
 
-    def set_model(self, model: str):
-        """Switch segmentation model (for future models)."""
-        self.config.video.model = model
+    def set_compute_gpu(self, gpu_index: int):
+        """Switch the GPU used for AI compute."""
+        if gpu_index == self.config.compute_gpu:
+            return
+        self.config.compute_gpu = gpu_index
+        self._video_effects._gpu_index = gpu_index
+        # Reload the model on the new GPU
+        if self._video_effects.available:
+            self._video_effects._cleanup_backend()
+            self._video_effects._cached_alpha = None
+            self._video_effects.initialize()
         save_config(self.config)
+        from nvbroadcast.core.gpu import detect_gpus
+        gpus = detect_gpus()
+        name = gpus[gpu_index].name if gpu_index < len(gpus) else f"GPU {gpu_index}"
+        if self._window:
+            self._window.set_status(f"Compute GPU: {name}")
+
+    def set_model(self, model: str):
+        """Switch segmentation model."""
+        self.config.video.model = model
+        self._video_effects.set_model(model)
+        save_config(self.config)
+        if self._window:
+            self._window.set_status(f"Model: {model}")
 
     def set_quality(self, quality: str):
         self._video_effects.quality = quality
         self.config.video.quality_preset = quality
         save_config(self.config)
+
+    def set_skip_interval(self, value: int):
+        """Set how many frames to skip between inferences."""
+        self._video_effects._skip_interval = max(1, value)
+
+    def set_ema_weight(self, value: float):
+        """Set temporal smoothing weight for single-frame models."""
+        backend = self._video_effects._backend
+        if backend and hasattr(backend, '_ema_weight'):
+            backend._ema_weight = max(0.0, min(0.5, value))
 
     def set_edge_param(self, param: str, value: float):
         """Update a single edge refinement parameter."""
