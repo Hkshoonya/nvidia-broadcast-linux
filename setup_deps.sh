@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Install system dependencies for NVIDIA Broadcast
+# by doczeus | AI Powered
 set -e
 
 echo "=== NVIDIA Broadcast Dependency Installer ==="
 
 # GStreamer packages
-echo "[1/4] Installing GStreamer packages..."
+echo "[1/5] Installing GStreamer packages..."
 sudo apt install -y \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
@@ -16,7 +17,7 @@ sudo apt install -y \
     gir1.2-gst-plugins-base-1.0
 
 # GTK4 / Libadwaita
-echo "[2/4] Installing GTK4/Adwaita packages..."
+echo "[2/5] Installing GTK4/Adwaita packages..."
 sudo apt install -y \
     libgtk-4-dev \
     libadwaita-1-dev \
@@ -26,13 +27,18 @@ sudo apt install -y \
     gir1.2-adw-1
 
 # v4l2 / virtual camera
-echo "[3/4] Installing video tools..."
+echo "[3/5] Installing video tools..."
 sudo apt install -y \
     v4l-utils \
     v4l2loopback-dkms
 
+# PipeWire (virtual microphone)
+echo "[4/5] Installing PipeWire utilities..."
+sudo apt install -y \
+    pipewire-utils
+
 # Python venv + packages
-echo "[4/4] Setting up Python environment..."
+echo "[5/5] Setting up Python environment..."
 python3 -m venv .venv --system-site-packages
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e .

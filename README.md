@@ -132,9 +132,13 @@ All presets run in real-time on any RTX GPU. Select in-app under Background > Qu
 ### Software
 - **Linux** with NVIDIA driver 525+ (Pop!_OS, Ubuntu, Fedora, Arch, etc.)
 - **Python** 3.11+
+- **PipeWire** (virtual microphone)
 - **GStreamer** 1.20+ with plugins-base, plugins-good, plugins-bad
 - **GTK4** and **Libadwaita**
 - **v4l2loopback** kernel module
+- **DKMS** and **kernel headers** (to build v4l2loopback)
+
+> The installer checks all requirements before proceeding and will tell you exactly what's missing.
 
 ---
 
@@ -148,7 +152,7 @@ cd nvidia-broadcast-linux
 ./install.sh
 ```
 
-The installer handles **everything**:
+The installer checks all requirements, installs what's missing, and sets everything up:
 
 ```
 =========================================
@@ -156,7 +160,15 @@ The installer handles **everything**:
   by Doczeus | AI Powered
 =========================================
 
-[1/7] System dependencies ........... ✓
+[Pre-flight] Checking system requirements...
+  Python 3.12 ... OK
+  PipeWire ... OK
+  pw-loopback ... OK
+  NVIDIA GPU ... OK (NVIDIA GeForce RTX 5060)
+  DKMS ... OK
+  Kernel headers ... OK
+
+[1/7] System packages .............. ✓
 [2/7] Virtual camera (v4l2loopback) . ✓
 [3/7] Python environment ............ ✓
 [4/7] Launcher scripts .............. ✓
@@ -174,7 +186,7 @@ Setup once, forget forever.
 
 ```bash
 # 1. System dependencies
-sudo apt install v4l-utils v4l2loopback-dkms \
+sudo apt install v4l-utils v4l2loopback-dkms pipewire-utils \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gir1.2-gtk-4.0 gir1.2-adw-1 \
     gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
@@ -234,6 +246,16 @@ systemctl --user start nvbroadcast-vcam    # Start now
 systemctl --user status nvbroadcast-vcam   # Check status
 ```
 
+### Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Removes everything the installer created: systemd service, autostart, desktop entry, launchers, v4l2loopback config, and the Python virtual environment.
+
+You'll be asked whether to also remove system packages (GStreamer, GTK4, v4l2loopback, etc.) — these are kept by default since other apps may depend on them.
+
 ---
 
 ## Troubleshooting
@@ -291,7 +313,9 @@ nvidia-broadcast-linux/
 │   ├── audio/                 # RNNoise denoising, PipeWire virtual mic
 │   └── ui/                    # Window, preview, controls (NVIDIA dark theme)
 ├── models/                    # AI models (auto-downloaded on first run)
-├── install.sh                 # One-command installer
+├── configs/                   # v4l2loopback & PipeWire configs
+├── install.sh                 # One-command installer (checks all requirements)
+├── uninstall.sh               # Clean removal of everything installed
 ├── LICENSE                    # GPL-3.0 with attribution requirement
 └── README.md
 ```
