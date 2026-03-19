@@ -41,7 +41,10 @@ class NVBroadcastApp(Adw.Application):
         self._video_pipeline = None
         self._audio_pipeline = None
         self._speaker_monitor = None
-        self._video_effects = VideoEffects(gpu_index=self.config.compute_gpu)
+        self._video_effects = VideoEffects(
+            gpu_index=self.config.compute_gpu,
+            edge_config=self.config.video.edge,
+        )
         self._autoframe = AutoFrame(gpu_index=self.config.compute_gpu)
         self._vcam_device = None
         self._vcam_available = False
@@ -79,6 +82,9 @@ class NVBroadcastApp(Adw.Application):
             # Restore saved settings to UI
             self._restore_settings()
 
+            # Pre-load AI models in background
+            self._preload_effects()
+
             # Auto-start broadcast
             if self.config.auto_start and self._vcam_available:
                 GLib.idle_add(self._auto_start)
@@ -93,6 +99,17 @@ class NVBroadcastApp(Adw.Application):
                 print("[NV Broadcast] Minimized to background - virtual camera still active")
             return True  # Prevent destruction
         return False  # Allow normal close
+
+    def _preload_effects(self):
+        """Pre-initialize AI models in background to eliminate first-use delay."""
+        import threading
+        def _init():
+            try:
+                if self.config.video.background_removal:
+                    self._video_effects.initialize()
+            except Exception as e:
+                print(f"[NV Broadcast] Background model preload failed: {e}")
+        threading.Thread(target=_init, daemon=True).start()
 
     def _auto_start(self):
         """Auto-start broadcast with saved settings."""
@@ -222,9 +239,20 @@ class NVBroadcastApp(Adw.Application):
         self.config.video.blur_intensity = value
         save_config(self.config)
 
+    def set_model(self, model: str):
+        """Switch segmentation model (for future models)."""
+        self.config.video.model = model
+        save_config(self.config)
+
     def set_quality(self, quality: str):
         self._video_effects.quality = quality
         self.config.video.quality_preset = quality
+        save_config(self.config)
+
+    def set_edge_param(self, param: str, value: float):
+        """Update a single edge refinement parameter."""
+        setattr(self.config.video.edge, param, value)
+        self._video_effects.update_edge_params(**{param: value})
         save_config(self.config)
 
     def set_autoframe(self, enabled: bool):

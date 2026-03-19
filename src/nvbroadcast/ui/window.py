@@ -150,6 +150,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._bg_toggle.connect("toggled", self._on_bg_toggled)
         bg_card.append(self._bg_toggle)
 
+        # Model selector
+        self._model_selector = DeviceSelector("Model")
+        self._model_selector.set_devices([
+            {"name": "RVM - Person Matting (default)", "device": "rvm"},
+        ])
+        self._model_selector.set_sensitive(False)
+        self._model_selector.set_selected_index(0)
+        self._model_selector.connect("device-changed", self._on_model_changed)
+        bg_card.append(self._model_selector)
+
         # Quality selector
         self._quality_selector = DeviceSelector("Quality")
         self._quality_selector.set_devices([
@@ -175,6 +185,38 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._blur_slider.set_sensitive(False)
         self._blur_slider.connect("value-changed", self._on_blur_changed)
         bg_card.append(self._blur_slider)
+
+        # Advanced Edge Tuning (collapsible)
+        adv_expander = Gtk.Expander(label="Advanced Edge Tuning")
+        adv_expander.set_margin_start(8)
+        adv_expander.set_margin_end(8)
+        adv_expander.set_margin_top(4)
+        adv_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        self._edge_dilate = EffectSlider("Dilate", 5.0, 0.0, 15.0)
+        self._edge_dilate.set_sensitive(False)
+        self._edge_dilate.connect("value-changed", self._on_edge_dilate)
+        adv_box.append(self._edge_dilate)
+
+        self._edge_blur = EffectSlider("Softness", 9.0, 1.0, 25.0)
+        self._edge_blur.set_sensitive(False)
+        self._edge_blur.connect("value-changed", self._on_edge_blur)
+        adv_box.append(self._edge_blur)
+
+        self._edge_strength = EffectSlider("Sharpness", 12.0, 1.0, 30.0)
+        self._edge_strength.set_sensitive(False)
+        self._edge_strength.connect("value-changed", self._on_edge_strength)
+        adv_box.append(self._edge_strength)
+
+        self._edge_midpoint = EffectSlider("Midpoint", 0.5, 0.1, 0.9)
+        self._edge_midpoint.set_sensitive(False)
+        self._edge_midpoint.connect("value-changed", self._on_edge_midpoint)
+        adv_box.append(self._edge_midpoint)
+
+        adv_expander.set_child(adv_box)
+        bg_card.append(adv_expander)
+        self._adv_expander = adv_expander
+
         box.append(bg_card)
 
         # Auto Frame card
@@ -253,8 +295,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._bg_mode.set_sensitive(active)
         self._blur_slider.set_sensitive(active)
         self._quality_selector.set_sensitive(active)
+        self._model_selector.set_sensitive(active)
+        self._edge_dilate.set_sensitive(active)
+        self._edge_blur.set_sensitive(active)
+        self._edge_strength.set_sensitive(active)
+        self._edge_midpoint.set_sensitive(active)
         mode = self._bg_mode.mode
         self._bg_image_picker.set_sensitive(active and mode == "replace")
+
+    def _on_model_changed(self, selector, model):
+        self._app.set_model(model)
 
     def _on_quality_changed(self, selector, quality):
         self._app.set_quality(quality)
@@ -268,6 +318,18 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_blur_changed(self, s, v):
         self._app.set_blur_intensity(v)
+
+    def _on_edge_dilate(self, s, v):
+        self._app.set_edge_param("dilate_size", int(v))
+
+    def _on_edge_blur(self, s, v):
+        self._app.set_edge_param("blur_size", int(v))
+
+    def _on_edge_strength(self, s, v):
+        self._app.set_edge_param("sigmoid_strength", v)
+
+    def _on_edge_midpoint(self, s, v):
+        self._app.set_edge_param("sigmoid_midpoint", v)
 
     def _on_autoframe_toggled(self, t, active):
         self._app.set_autoframe(active)
@@ -336,12 +398,23 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._blur_slider._scale.set_value(v.blur_intensity)
         self._zoom_slider._scale.set_value(v.auto_frame_zoom)
 
+        # Advanced edge tuning
+        self._edge_dilate._scale.set_value(v.edge.dilate_size)
+        self._edge_blur._scale.set_value(v.edge.blur_size)
+        self._edge_strength._scale.set_value(v.edge.sigmoid_strength)
+        self._edge_midpoint._scale.set_value(v.edge.sigmoid_midpoint)
+
         # Toggles - set without triggering signals first
         if v.background_removal:
             self._bg_toggle.active = True
             self._bg_mode.set_sensitive(True)
             self._blur_slider.set_sensitive(True)
             self._quality_selector.set_sensitive(True)
+            self._model_selector.set_sensitive(True)
+            self._edge_dilate.set_sensitive(True)
+            self._edge_blur.set_sensitive(True)
+            self._edge_strength.set_sensitive(True)
+            self._edge_midpoint.set_sensitive(True)
             self._bg_image_picker.set_sensitive(v.background_mode == "replace")
 
         if v.auto_frame:
