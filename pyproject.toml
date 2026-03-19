@@ -32,6 +32,14 @@ dependencies = [
     "mediapipe>=0.10",
     "onnxruntime-gpu>=1.16",
     "pyrnnoise>=0.4",
+    "nvidia-cublas-cu12",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cudnn-cu12",
+    "nvidia-curand-cu12",
+    "nvidia-cufft-cu12",
+    "nvidia-cusparse-cu12",
+    "nvidia-cusolver-cu12",
+    "nvidia-nvjitlink-cu12",
 ]
 
 [project.urls]

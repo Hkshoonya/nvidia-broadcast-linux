@@ -24,7 +24,9 @@ def _preload_cuda_libs():
     """Pre-load pip-installed NVIDIA libs for ONNX Runtime CUDA."""
     try:
         import importlib.util
-        for pkg in ("nvidia.cuda_runtime", "nvidia.cublas", "nvidia.cudnn"):
+        for pkg in ("nvidia.cuda_runtime", "nvidia.cublas", "nvidia.cudnn",
+                    "nvidia.curand", "nvidia.cufft", "nvidia.cusparse",
+                    "nvidia.cusolver", "nvidia.nvjitlink"):
             spec = importlib.util.find_spec(pkg)
             if spec and spec.submodule_search_locations:
                 lib_dir = Path(spec.submodule_search_locations[0]) / "lib"
@@ -95,12 +97,14 @@ class VideoEffects:
         self._frame_size = None
         self._resized_bg = None
         self._green_bg = None
-        self._temporal_smooth = 0.7
-
         # Frame skipping: run RVM every Nth frame, reuse alpha for others
         self._frame_counter = 0
         self._cached_alpha = None
-        self._skip_interval = 2  # Infer every 2nd frame
+        self._skip_interval = 1  # Run every frame (GPU is fast enough)
+
+        # Alpha refinement kernels (pre-allocated)
+        self._dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        self._erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
     @property
     def available(self) -> bool:
@@ -240,7 +244,7 @@ class VideoEffects:
         self._frame_counter += 1
 
         # Run RVM every Nth frame, reuse cached alpha on skipped frames
-        if self._frame_counter % self._skip_interval == 1 or self._cached_alpha is None:
+        if self._skip_interval <= 1 or self._frame_counter % self._skip_interval == 0 or self._cached_alpha is None:
             alpha = self._run_rvm(frame, width, height)
             if alpha is not None:
                 self._cached_alpha = alpha
@@ -258,11 +262,10 @@ class VideoEffects:
         return result.tobytes()
 
     def _run_rvm(self, frame: np.ndarray, width: int, height: int) -> np.ndarray | None:
-        """Run RVM at half resolution for speed, upscale alpha matte back.
+        """Run RVM at full resolution for sharp edges.
 
-        Half-res input: 4x less data for blobFromImage (7ms -> 2ms).
-        RVM internally downsamples further, so quality loss is minimal.
         Thread-safe with lock around session access.
+        Temporal smoothing blends with previous alpha to reduce flicker.
         """
         with self._lock:
             session = self._session
@@ -272,10 +275,7 @@ class VideoEffects:
             ds = self._downsample_ratio
 
         try:
-            # Downscale to half resolution for faster preprocessing
-            half_w, half_h = width // 2, height // 2
-            small = cv2.resize(frame, (half_w, half_h), interpolation=cv2.INTER_AREA)
-            rgb = cv2.cvtColor(small, cv2.COLOR_BGRA2RGB)
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
             src = cv2.dnn.blobFromImage(rgb, scalefactor=1.0 / 255.0)
 
             outputs = session.run(None, {
@@ -284,9 +284,12 @@ class VideoEffects:
                 'downsample_ratio': ds,
             })
 
-            # Upscale alpha matte back to full resolution
-            alpha_small = outputs[1][0, 0]
-            alpha = cv2.resize(alpha_small, (width, height), interpolation=cv2.INTER_LINEAR)
+            alpha = outputs[1][0, 0]
+            # Resize if RVM output doesn't match frame size
+            if alpha.shape[0] != height or alpha.shape[1] != width:
+                alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
+
+            alpha = self._refine_alpha(alpha)
 
             with self._lock:
                 if self._session is session:
@@ -298,6 +301,29 @@ class VideoEffects:
         except Exception as e:
             print(f"[NV Broadcast] RVM error: {e}")
             return None
+
+    def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
+        """Refine alpha matte for cleaner edges.
+
+        1. Dilate to expand person boundary (prevents edges eating into person)
+        2. Soft blur for smooth transitions (reduces green screen flicker)
+        3. Contrast boost at edges to sharpen the boundary
+        """
+        # Convert to uint8 for morphological ops
+        a8 = (np.clip(alpha, 0, 1) * 255).astype(np.uint8)
+
+        # Dilate: expand person mask slightly to protect edges
+        a8 = cv2.dilate(a8, self._dilate_kernel, iterations=1)
+
+        # Soft blur on the alpha for smooth edge transitions
+        a8 = cv2.GaussianBlur(a8, (5, 5), 0)
+
+        # Contrast boost: push midtones toward 0 or 1 for crisper boundary
+        # sigmoid-like: values > 0.5 pushed toward 1, < 0.5 toward 0
+        alpha_out = a8.astype(np.float32) / 255.0
+        alpha_out = np.clip((alpha_out - 0.3) / 0.4, 0, 1)
+
+        return alpha_out
 
     @staticmethod
     def _blend(fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
