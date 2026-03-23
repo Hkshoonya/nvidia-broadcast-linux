@@ -168,7 +168,7 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
     // MARK: - CMIOExtensionStreamSource
 
     var availableProperties: Set<CMIOExtensionProperty> {
-        return [.streamActiveFormatIndex, .streamFrameDuration]
+        return [.streamActiveFormatIndex]
     }
 
     func streamProperties(
@@ -179,13 +179,6 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
             props.setPropertyState(
                 CMIOExtensionPropertyState(value: NSNumber(value: 0)),
                 forProperty: .streamActiveFormatIndex
-            )
-        }
-        if properties.contains(.streamFrameDuration) {
-            let duration = CMTime(value: 1, timescale: CMTimeScale(_fps))
-            props.setPropertyState(
-                CMIOExtensionPropertyState(value: NSValue(timeMapping: CMTimeMapping(source: CMTimeRange(start: .zero, duration: duration), target: CMTimeRange(start: .zero, duration: duration)))),
-                forProperty: .streamFrameDuration
             )
         }
         return props
