@@ -28,7 +28,7 @@ class NVBroadcastDevice: NSObject, CMIOExtensionDeviceSource {
             localizedName: "NV Broadcast Video",
             streamID: streamID,
             direction: .source,
-            clockType: .hostTimeClock,
+            clockType: .hostTime,
             source: _streamSource
         )
 
