@@ -337,7 +337,7 @@ echo ""
 echo "========================================="
 echo "  Packages built: v${VERSION}-${REV}"
 echo "========================================="
-ls -lh dist/deb/*.deb dist/rpm/*.rpm dist/pkg/*.pkg 2>/dev/null
+ls -lh dist/deb/*.deb dist/rpm/*.rpm dist/pkg/*.pkg 2>/dev/null || true
 echo ""
 echo "  Install .deb:  sudo dpkg -i dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb && sudo apt -f install"
 echo "  Install .rpm:  sudo dnf install dist/rpm/nvbroadcast-${VERSION}-${REV}*.rpm"

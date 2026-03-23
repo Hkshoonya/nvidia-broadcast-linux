@@ -59,4 +59,12 @@ class NVBroadcastProvider: NSObject, CMIOExtensionProviderSource {
     ) throws {
         // Read-only provider
     }
+
+    func connect(to client: CMIOExtensionClient) throws {
+        // Client connected — nothing to do, device is always available
+    }
+
+    func disconnect(from client: CMIOExtensionClient) {
+        // Client disconnected — cleanup if needed
+    }
 }
