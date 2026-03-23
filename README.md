@@ -185,33 +185,53 @@ Setup once, forget forever.
 <summary>Click to expand manual steps</summary>
 
 ```bash
-# 1. System dependencies
-sudo apt install v4l-utils v4l2loopback-dkms pipewire-utils \
-    gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-    gstreamer1.0-plugins-bad gir1.2-gtk-4.0 gir1.2-adw-1 \
+# 1. System dependencies (cannot be installed via pip)
+#    These provide GTK4, GStreamer, virtual camera, and virtual microphone
+sudo apt install -y \
+    python3-gi python3-gi-cairo \
+    gir1.2-gtk-4.0 gir1.2-adw-1 \
     gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
-    python3-gi python3-gi-cairo
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    v4l-utils v4l2loopback-dkms \
+    pipewire-utils
 
-# 2. Virtual camera
+# 2. Python venv (install python3.X-venv if missing)
+sudo apt install -y python3.12-venv   # adjust version to match your Python
+python3 -m venv .venv --system-site-packages
+source .venv/bin/activate
+
+# 3. Install nvbroadcast + all Python dependencies (including CUDA 12 libs)
+pip install -e .
+
+# 4. Virtual camera
 sudo modprobe v4l2loopback devices=1 video_nr=10 \
     card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4
 
-# 3. Make it persistent across reboots
+# 5. Make virtual camera persistent across reboots
 echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4' | \
     sudo tee /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
 echo "v4l2loopback" | sudo tee /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
 
-# 4. Python environment
-python3 -m venv .venv --system-site-packages
-source .venv/bin/activate
-pip install -e .
-
-# 5. GPU acceleration (recommended)
-pip install nvidia-cudnn-cu12 nvidia-cublas-cu12 nvidia-cuda-runtime-cu12
-
 # 6. Run
 python -m nvbroadcast
 ```
+
+**What gets installed and why:**
+
+| Package | Source | Purpose |
+|---------|--------|---------|
+| `python3-gi`, `python3-gi-cairo` | apt | PyGObject bindings for GTK4 and GStreamer |
+| `gir1.2-gtk-4.0`, `gir1.2-adw-1` | apt | GTK4 and Libadwaita UI framework |
+| `gir1.2-gstreamer-1.0` | apt | GStreamer video/audio pipeline |
+| `gstreamer1.0-plugins-bad` | apt | GPU JPEG decode (nvjpegdec), advanced elements |
+| `v4l2loopback-dkms` | apt | Kernel module for virtual camera |
+| `pipewire-utils` | apt | `pw-loopback` for virtual microphone |
+| `numpy`, `opencv-python-headless` | pip | Image processing and array math |
+| `mediapipe` | pip | Face detection for auto-frame |
+| `onnxruntime-gpu` | pip | GPU inference engine for AI models |
+| `pyrnnoise` | pip | AI noise cancellation |
+| `nvidia-*-cu12` (8 packages) | pip | CUDA 12 runtime libraries for GPU acceleration |
 
 </details>
 
