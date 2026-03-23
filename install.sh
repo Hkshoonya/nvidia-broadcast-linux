@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # NVIDIA Broadcast for Linux - Installer
 # by doczeus | AI Powered
+#
+# Supports: Ubuntu, Debian, Pop!_OS, Linux Mint, Fedora, RHEL, CentOS,
+#           Arch, Manjaro, EndeavourOS, openSUSE, Gentoo, Void, NixOS
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,19 +16,152 @@ echo "  by doczeus | AI Powered"
 echo "========================================="
 echo ""
 
-# --- Pre-flight: System Requirements ---
+# ─── Distro Detection ───────────────────────────────────────────────────────
+
+detect_distro() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO_ID="${ID}"
+        DISTRO_ID_LIKE="${ID_LIKE:-}"
+        DISTRO_NAME="${PRETTY_NAME:-$ID}"
+    elif [ -f /etc/lsb-release ]; then
+        . /etc/lsb-release
+        DISTRO_ID="${DISTRIB_ID,,}"
+        DISTRO_NAME="${DISTRIB_DESCRIPTION:-$DISTRIB_ID}"
+    else
+        DISTRO_ID="unknown"
+        DISTRO_NAME="Unknown Linux"
+    fi
+
+    # Determine package manager family
+    if command -v apt &>/dev/null; then
+        PKG_MANAGER="apt"
+    elif command -v dnf &>/dev/null; then
+        PKG_MANAGER="dnf"
+    elif command -v yum &>/dev/null; then
+        PKG_MANAGER="yum"
+    elif command -v pacman &>/dev/null; then
+        PKG_MANAGER="pacman"
+    elif command -v zypper &>/dev/null; then
+        PKG_MANAGER="zypper"
+    elif command -v emerge &>/dev/null; then
+        PKG_MANAGER="portage"
+    elif command -v xbps-install &>/dev/null; then
+        PKG_MANAGER="xbps"
+    elif command -v nix-env &>/dev/null; then
+        PKG_MANAGER="nix"
+    else
+        PKG_MANAGER="unknown"
+    fi
+
+    echo "  Distro: $DISTRO_NAME"
+    echo "  Package manager: $PKG_MANAGER"
+}
+
+# ─── Package Name Mapping ────────────────────────────────────────────────────
+
+# Maps generic package names to distro-specific names
+get_packages() {
+    case "$PKG_MANAGER" in
+        apt)
+            # Debian, Ubuntu, Pop!_OS, Linux Mint
+            PKGS_VIRTUAL_CAM="v4l-utils v4l2loopback-dkms"
+            PKGS_GTK="gir1.2-gtk-4.0 gir1.2-adw-1"
+            PKGS_GST="gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad"
+            PKGS_PYTHON="python3-gi python3-gi-cairo"
+            # PipeWire: pipewire-bin (Ubuntu 24.04+) or pipewire-utils (older/Debian)
+            if apt-cache show pipewire-bin &>/dev/null 2>&1; then
+                PKGS_PIPEWIRE="pipewire-bin"
+            elif apt-cache show pipewire-utils &>/dev/null 2>&1; then
+                PKGS_PIPEWIRE="pipewire-utils"
+            else
+                PKGS_PIPEWIRE=""
+                echo "  WARNING: pipewire package not found. Install pw-loopback manually."
+            fi
+            PKGS_VENV="python3-venv"
+            ;;
+        dnf|yum)
+            # Fedora, RHEL, CentOS, Rocky, AlmaLinux
+            PKGS_VIRTUAL_CAM="v4l-utils v4l2loopback"
+            PKGS_GTK="gtk4-devel libadwaita-devel"
+            PKGS_GST="gstreamer1-devel gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free"
+            PKGS_PYTHON="python3-gobject python3-gobject-cairo"
+            PKGS_PIPEWIRE="pipewire-utils"
+            PKGS_VENV=""  # Included in python3 on Fedora
+            ;;
+        pacman)
+            # Arch, Manjaro, EndeavourOS
+            PKGS_VIRTUAL_CAM="v4l-utils v4l2loopback-dkms"
+            PKGS_GTK="gtk4 libadwaita"
+            PKGS_GST="gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad"
+            PKGS_PYTHON="python-gobject"
+            PKGS_PIPEWIRE="pipewire"
+            PKGS_VENV=""  # Included in python on Arch
+            ;;
+        zypper)
+            # openSUSE
+            PKGS_VIRTUAL_CAM="v4l-utils v4l2loopback-kmp-default"
+            PKGS_GTK="gtk4-devel libadwaita-devel typelib-1_0-Gtk-4_0 typelib-1_0-Adw-1"
+            PKGS_GST="gstreamer-devel gstreamer-plugins-base gstreamer-plugins-good gstreamer-plugins-bad"
+            PKGS_PYTHON="python3-gobject python3-gobject-cairo"
+            PKGS_PIPEWIRE="pipewire-tools"
+            PKGS_VENV=""
+            ;;
+        *)
+            # Unknown — set empty and show manual instructions
+            PKGS_VIRTUAL_CAM=""
+            PKGS_GTK=""
+            PKGS_GST=""
+            PKGS_PYTHON=""
+            PKGS_PIPEWIRE=""
+            PKGS_VENV=""
+            ;;
+    esac
+}
+
+# Install packages using the detected package manager
+install_packages() {
+    local pkgs="$1"
+    if [ -z "$pkgs" ]; then
+        return
+    fi
+
+    case "$PKG_MANAGER" in
+        apt)     sudo apt install -y $pkgs ;;
+        dnf)     sudo dnf install -y $pkgs ;;
+        yum)     sudo yum install -y $pkgs ;;
+        pacman)  sudo pacman -S --noconfirm --needed $pkgs ;;
+        zypper)  sudo zypper install -y $pkgs ;;
+        *)
+            echo "ERROR: Cannot auto-install packages with $PKG_MANAGER."
+            echo "Please install manually: $pkgs"
+            return 1
+            ;;
+    esac
+}
+
+# Check if a package is installed
+is_pkg_installed() {
+    local pkg="$1"
+    case "$PKG_MANAGER" in
+        apt)     dpkg -s "$pkg" &>/dev/null ;;
+        dnf|yum) rpm -q "$pkg" &>/dev/null ;;
+        pacman)  pacman -Qi "$pkg" &>/dev/null ;;
+        zypper)  rpm -q "$pkg" &>/dev/null ;;
+        *)       return 1 ;;
+    esac
+}
+
+# ─── Pre-flight Checks ──────────────────────────────────────────────────────
+
 echo "[Pre-flight] Checking system requirements..."
 
+detect_distro
 ERRORS=()
 
 # Check Linux
 if [[ "$(uname -s)" != "Linux" ]]; then
     ERRORS+=("This installer only supports Linux")
-fi
-
-# Check Debian/Ubuntu (apt-based)
-if ! command -v apt &>/dev/null; then
-    ERRORS+=("apt package manager not found (requires Debian/Ubuntu-based distro)")
 fi
 
 # Check Python 3.11+
@@ -42,30 +178,33 @@ else
     ERRORS+=("python3 not found")
 fi
 
-# Check python3-venv (version-specific package on Debian/Ubuntu)
+# Check python3-venv
 if ! python3 -m venv --help &>/dev/null 2>&1; then
-    ERRORS+=("python3-venv not found (install: sudo apt install python3.${PY_MINOR}-venv)")
+    case "$PKG_MANAGER" in
+        apt)    ERRORS+=("python3-venv not found (install: sudo apt install python3.${PY_MINOR}-venv)") ;;
+        dnf)    ERRORS+=("python3-venv not found (install: sudo dnf install python3-devel)") ;;
+        pacman) ERRORS+=("python3-venv not found (should be included with python)") ;;
+        *)      ERRORS+=("python3-venv not found") ;;
+    esac
 fi
 
 # Check pip
 if ! python3 -m pip --version &>/dev/null 2>&1; then
-    ERRORS+=("pip not found (install: sudo apt install python3-pip)")
+    case "$PKG_MANAGER" in
+        apt)    ERRORS+=("pip not found (install: sudo apt install python3-pip)") ;;
+        dnf)    ERRORS+=("pip not found (install: sudo dnf install python3-pip)") ;;
+        pacman) ERRORS+=("pip not found (install: sudo pacman -S python-pip)") ;;
+        *)      ERRORS+=("pip not found") ;;
+    esac
 fi
 
 # Check PipeWire
-if command -v pw-cli &>/dev/null; then
-    echo "  PipeWire ... OK"
-elif command -v pipewire &>/dev/null; then
-    echo "  PipeWire ... OK (pw-cli not in PATH)"
-else
-    ERRORS+=("PipeWire not found (required for virtual microphone)")
-fi
-
-# Check pw-loopback
 if command -v pw-loopback &>/dev/null; then
     echo "  pw-loopback ... OK"
+elif command -v pw-cli &>/dev/null; then
+    echo "  PipeWire ... OK (pw-loopback may be in a separate package)"
 else
-    ERRORS+=("pw-loopback not found (install: sudo apt install pipewire-utils)")
+    echo "  WARNING: PipeWire not found. Virtual microphone will not work."
 fi
 
 # Check NVIDIA GPU
@@ -77,11 +216,12 @@ else
     echo "           ONNX Runtime will fall back to CPU (much slower)."
 fi
 
-# Check DKMS (needed for v4l2loopback)
+# Check DKMS
 if command -v dkms &>/dev/null; then
     echo "  DKMS ... OK"
 else
-    ERRORS+=("dkms not found (install: sudo apt install dkms)")
+    echo "  WARNING: dkms not found. v4l2loopback may fail to build."
+    echo "           Install with your package manager: dkms"
 fi
 
 # Check kernel headers
@@ -90,8 +230,13 @@ if [ -d "/usr/src/linux-headers-${KERNEL_VER}" ] || [ -d "/lib/modules/${KERNEL_
     echo "  Kernel headers ... OK"
 else
     echo "  WARNING: Kernel headers for ${KERNEL_VER} may be missing."
-    echo "           v4l2loopback-dkms needs them to build. Install with:"
-    echo "           sudo apt install linux-headers-${KERNEL_VER}"
+    echo "           v4l2loopback needs them to build."
+    case "$PKG_MANAGER" in
+        apt)    echo "           Install: sudo apt install linux-headers-${KERNEL_VER}" ;;
+        dnf)    echo "           Install: sudo dnf install kernel-devel-${KERNEL_VER}" ;;
+        pacman) echo "           Install: sudo pacman -S linux-headers" ;;
+        zypper) echo "           Install: sudo zypper install kernel-devel" ;;
+    esac
 fi
 
 # Abort on errors
@@ -109,57 +254,54 @@ fi
 echo ""
 echo "All requirements met. Proceeding with installation..."
 
-# --- Step 1: System Dependencies ---
+# ─── Step 1: System Dependencies ────────────────────────────────────────────
+
 echo ""
 echo "[1/7] Checking system packages..."
 
-# All system packages needed by NVIDIA Broadcast
-REQUIRED_PKGS=(
-    # Virtual camera
-    v4l-utils
-    v4l2loopback-dkms
-    # GTK4 / Libadwaita UI
-    gir1.2-gtk-4.0
-    gir1.2-adw-1
-    # GStreamer
-    gir1.2-gstreamer-1.0
-    gir1.2-gst-plugins-base-1.0
-    gstreamer1.0-plugins-base
-    gstreamer1.0-plugins-good
-    gstreamer1.0-plugins-bad
-    # Python GObject bindings
-    python3-gi
-    python3-gi-cairo
-)
+get_packages
 
-# PipeWire package name varies by distro (pipewire-bin on Ubuntu, pipewire-utils on others)
-if apt-cache show pipewire-bin &>/dev/null 2>&1; then
-    REQUIRED_PKGS+=(pipewire-bin)
-elif apt-cache show pipewire-utils &>/dev/null 2>&1; then
-    REQUIRED_PKGS+=(pipewire-utils)
-else
-    echo "  WARNING: Could not find pipewire package (need pw-loopback for virtual mic)"
-fi
+ALL_PKGS="$PKGS_VIRTUAL_CAM $PKGS_GTK $PKGS_GST $PKGS_PYTHON $PKGS_PIPEWIRE $PKGS_VENV"
 
-MISSING_PKGS=()
-for pkg in "${REQUIRED_PKGS[@]}"; do
-    if dpkg -s "$pkg" &>/dev/null; then
-        echo "  $pkg ... installed"
-    else
-        MISSING_PKGS+=("$pkg")
-        echo "  $pkg ... MISSING"
-    fi
-done
-
-if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+if [ "$PKG_MANAGER" = "unknown" ]; then
     echo ""
-    echo "Installing ${#MISSING_PKGS[@]} missing package(s)..."
-    sudo apt install -y "${MISSING_PKGS[@]}"
+    echo "  Your package manager ($PKG_MANAGER) is not auto-supported."
+    echo "  Please install these dependencies manually:"
+    echo ""
+    echo "  Virtual camera:  v4l-utils, v4l2loopback (DKMS)"
+    echo "  GTK4 UI:         GTK4, libadwaita, GObject introspection"
+    echo "  GStreamer:        gstreamer, plugins-base, plugins-good, plugins-bad"
+    echo "  Python bindings: PyGObject (python-gobject / python3-gi)"
+    echo "  Audio:           PipeWire with pw-loopback"
+    echo ""
+    echo "  After installing, re-run this script."
+    echo ""
+    read -rp "  Continue without system packages? [y/N] " skip_sys
+    if [[ ! "$skip_sys" =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
 else
-    echo "All system packages are installed."
+    MISSING_PKGS=()
+    for pkg in $ALL_PKGS; do
+        if is_pkg_installed "$pkg"; then
+            echo "  $pkg ... installed"
+        else
+            MISSING_PKGS+=("$pkg")
+            echo "  $pkg ... MISSING"
+        fi
+    done
+
+    if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+        echo ""
+        echo "Installing ${#MISSING_PKGS[@]} missing package(s)..."
+        install_packages "${MISSING_PKGS[*]}"
+    else
+        echo "All system packages are installed."
+    fi
 fi
 
-# --- Step 2: v4l2loopback Configuration ---
+# ─── Step 2: v4l2loopback Configuration ─────────────────────────────────────
+
 echo ""
 echo "[2/7] Configuring virtual camera (v4l2loopback)..."
 
@@ -181,8 +323,8 @@ if [ ! -f "$V4L2_LOAD" ]; then
 fi
 
 if ! lsmod | grep -q v4l2loopback; then
-    sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4
-    echo "Loaded v4l2loopback module"
+    sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4 2>/dev/null || \
+        echo "WARNING: Could not load v4l2loopback. You may need to reboot or install kernel headers."
 else
     echo "v4l2loopback already loaded"
 fi
@@ -193,7 +335,8 @@ else
     echo "WARNING: /dev/video10 not found. You may need to reboot."
 fi
 
-# --- Step 3: Python Environment ---
+# ─── Step 3: Python Environment ─────────────────────────────────────────────
+
 echo ""
 echo "[3/7] Setting up Python environment..."
 
@@ -239,7 +382,6 @@ GPU_RESULT=$("$VENV_DIR/bin/python" -c "
 import onnxruntime as ort
 providers = ort.get_available_providers()
 if 'CUDAExecutionProvider' in providers:
-    # Test that CUDA actually loads
     try:
         opts = ort.SessionOptions()
         opts.log_severity_level = 3
@@ -260,7 +402,8 @@ else
     echo "           App will fall back to CPU if needed"
 fi
 
-# --- Step 4: Create Launcher Scripts ---
+# ─── Step 4: Create Launcher Scripts ─────────────────────────────────────────
+
 echo ""
 echo "[4/7] Creating launcher scripts..."
 
@@ -288,7 +431,8 @@ chmod +x "$INSTALL_PREFIX/bin/nvbroadcast-vcam"
 echo "Installed: $INSTALL_PREFIX/bin/nvbroadcast"
 echo "Installed: $INSTALL_PREFIX/bin/nvbroadcast-vcam"
 
-# --- Step 5: Desktop Entry ---
+# ─── Step 5: Desktop Entry ──────────────────────────────────────────────────
+
 echo ""
 echo "[5/7] Installing desktop entry..."
 
@@ -314,7 +458,8 @@ fi
 
 echo "Desktop entry and icon installed."
 
-# --- Step 6: Systemd User Service ---
+# ─── Step 6: Systemd User Service ───────────────────────────────────────────
+
 echo ""
 echo "[6/7] Installing systemd user service..."
 
@@ -323,6 +468,15 @@ mkdir -p "$SYSTEMD_DIR"
 
 # Remove old BluCast service
 rm -f "$SYSTEMD_DIR/blucast-vcam.service" 2>/dev/null
+
+# Detect GStreamer plugin path
+GST_PLUGIN_PATH="/usr/lib/x86_64-linux-gnu/gstreamer-1.0"
+if [ ! -d "$GST_PLUGIN_PATH" ]; then
+    GST_PLUGIN_PATH="/usr/lib64/gstreamer-1.0"
+fi
+if [ ! -d "$GST_PLUGIN_PATH" ]; then
+    GST_PLUGIN_PATH="/usr/lib/gstreamer-1.0"
+fi
 
 cat > "$SYSTEMD_DIR/nvbroadcast-vcam.service" << EOF
 [Unit]
@@ -334,7 +488,7 @@ Type=simple
 ExecStart=$INSTALL_PREFIX/bin/nvbroadcast-vcam
 Restart=on-failure
 RestartSec=3
-Environment=GST_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/gstreamer-1.0
+Environment=GST_PLUGIN_PATH=$GST_PLUGIN_PATH
 
 [Install]
 WantedBy=graphical-session.target
@@ -347,7 +501,8 @@ else
     echo "Service file installed (run 'systemctl --user daemon-reload && systemctl --user enable nvbroadcast-vcam' from your desktop session)"
 fi
 
-# --- Step 7: Desktop autostart (GUI app) ---
+# ─── Step 7: Desktop Autostart ──────────────────────────────────────────────
+
 echo ""
 echo "[7/7] Setting up autostart..."
 
@@ -371,6 +526,8 @@ echo "========================================="
 echo "  Installation Complete!"
 echo "  NVIDIA Broadcast for Linux"
 echo "========================================="
+echo ""
+echo "  Detected: $DISTRO_NAME ($PKG_MANAGER)"
 echo ""
 echo "  Setup once, forget forever:"
 echo "    - App auto-starts on login"
