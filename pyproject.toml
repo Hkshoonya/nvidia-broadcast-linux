@@ -9,10 +9,10 @@ description = "NVIDIA Broadcast for Linux by doczeus - AI-powered virtual camera
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11"
 authors = [
-    {name = "doczeus", email = "doczeus@users.noreply.github.com"},
+    {name = "doczeus", email = "harshit@kshoonya.com"},
 ]
 maintainers = [
-    {name = "doczeus", email = "doczeus@users.noreply.github.com"},
+    {name = "doczeus", email = "harshit@kshoonya.com"},
 ]
 keywords = ["nvidia", "broadcast", "virtual-camera", "background-removal", "noise-cancellation", "linux", "doczeus"]
 classifiers = [
