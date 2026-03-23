@@ -190,6 +190,30 @@ headerbar .title {
     border-color: @border_default;
 }
 
+/* Collapsible card header */
+.card-header-btn {
+    background: transparent;
+    border: none;
+    padding: 4px 2px;
+    border-radius: 8px;
+    transition: background-color 150ms ease;
+}
+
+.card-header-btn:hover {
+    background-color: @bg_card_hover;
+}
+
+.card-chevron {
+    color: @text_tertiary;
+    min-width: 16px;
+    min-height: 16px;
+    transition: color 150ms ease;
+}
+
+.card-header-btn:hover .card-chevron {
+    color: @text_secondary;
+}
+
 /* Active/enabled card gets accent border */
 .effect-card.active {
     border-color: rgba(118, 185, 0, 0.3);

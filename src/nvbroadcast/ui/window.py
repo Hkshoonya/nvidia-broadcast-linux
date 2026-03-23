@@ -24,6 +24,47 @@ from nvbroadcast.video.virtual_camera import (
 )
 
 
+def _collapsible_card(title: str, content: Gtk.Widget, expanded: bool = True) -> Gtk.Box:
+    """Wrap a card in a collapsible container with a clickable header."""
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    outer.add_css_class("effect-card")
+
+    # Header row: title + chevron
+    header_btn = Gtk.Button()
+    header_btn.add_css_class("card-header-btn")
+    header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    header_box.set_margin_start(2)
+    header_box.set_margin_end(2)
+    lbl = Gtk.Label(label=title, xalign=0, hexpand=True)
+    lbl.add_css_class("card-title")
+    header_box.append(lbl)
+    chevron = Gtk.Image.new_from_icon_name(
+        "pan-down-symbolic" if expanded else "pan-end-symbolic"
+    )
+    chevron.add_css_class("card-chevron")
+    header_box.append(chevron)
+    header_btn.set_child(header_box)
+    outer.append(header_btn)
+
+    # Content revealer
+    revealer = Gtk.Revealer()
+    revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+    revealer.set_transition_duration(200)
+    revealer.set_reveal_child(expanded)
+    revealer.set_child(content)
+    outer.append(revealer)
+
+    def _toggle(btn):
+        visible = not revealer.get_reveal_child()
+        revealer.set_reveal_child(visible)
+        chevron.set_from_icon_name(
+            "pan-down-symbolic" if visible else "pan-end-symbolic"
+        )
+
+    header_btn.connect("clicked", _toggle)
+    return outer
+
+
 class NVBroadcastWindow(Adw.ApplicationWindow):
     """Layout: large preview on top, Camera | Audio sections below."""
 
@@ -182,7 +223,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Input settings in a compact card
         input_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        input_card.add_css_class("effect-card")
 
         self._camera_selector = DeviceSelector("Source")
         input_card.append(self._camera_selector)
@@ -248,11 +288,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._fps_selector.connect("device-changed", self._on_fps_changed)
         input_card.append(self._fps_selector)
 
-        box.append(input_card)
+        box.append(_collapsible_card("Input", input_card, expanded=True))
 
         # Processing card (mode, GPU, mirror, edge refine)
         proc_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        proc_card.add_css_class("effect-card")
 
         from nvbroadcast.core.config import detect_compositing_backends
         backends = detect_compositing_backends()
@@ -318,11 +357,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._edge_refine_toggle.connect("toggled", self._on_edge_refine_toggled)
         proc_card.append(self._edge_refine_toggle)
 
-        box.append(proc_card)
+        box.append(_collapsible_card("Processing", proc_card, expanded=True))
 
         # Background effect card
         bg_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        bg_card.add_css_class("effect-card")
         self._bg_toggle = EffectToggle("Background", "Remove, blur, or replace background")
         self._bg_toggle.connect("toggled", self._on_bg_toggled)
         bg_card.append(self._bg_toggle)
@@ -418,11 +456,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         bg_card.append(adv_expander)
         self._adv_expander = adv_expander
 
-        box.append(bg_card)
+        box.append(_collapsible_card("Background", bg_card, expanded=False))
 
         # Auto Frame card
         af_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        af_card.add_css_class("effect-card")
         self._autoframe_toggle = EffectToggle("Auto Frame", "Track face and auto-zoom")
         self._autoframe_toggle.connect("toggled", self._on_autoframe_toggled)
         af_card.append(self._autoframe_toggle)
@@ -430,11 +467,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._zoom_slider.set_sensitive(False)
         self._zoom_slider.connect("value-changed", self._on_zoom_changed)
         af_card.append(self._zoom_slider)
-        box.append(af_card)
+        box.append(_collapsible_card("Auto Frame", af_card, expanded=False))
 
         # Video Enhancement card
         beauty_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        beauty_card.add_css_class("effect-card")
         self._beauty_toggle = EffectToggle(
             "Video Enhancement", "Skin smooth, denoise, enhance, sharpen, vignette"
         )
@@ -480,7 +516,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             beauty_card.append(row_box)
             self._beauty_controls[key] = {"toggle": toggle, "slider": slider, "default": default_val}
 
-        box.append(beauty_card)
+        box.append(_collapsible_card("Video Enhancement", beauty_card, expanded=False))
 
         return box
 
@@ -494,7 +530,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Mic card
         mic_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        mic_card.add_css_class("effect-card")
         mic_lbl = Gtk.Label(label="Microphone")
         mic_lbl.set_xalign(0)
         mic_lbl.add_css_class("device-label")
@@ -506,11 +541,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._noise_slider.set_sensitive(False)
         self._noise_slider.connect("value-changed", self._on_noise_intensity_changed)
         mic_card.append(self._noise_slider)
-        box.append(mic_card)
+        box.append(_collapsible_card("Microphone", mic_card, expanded=True))
 
         # Speaker card
         spk_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        spk_card.add_css_class("effect-card")
         spk_lbl = Gtk.Label(label="Speakers")
         spk_lbl.set_xalign(0)
         spk_lbl.add_css_class("device-label")
@@ -518,7 +552,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._speaker_toggle = EffectToggle("Noise Removal", "Remove noise from incoming audio")
         self._speaker_toggle.connect("toggled", self._on_speaker_toggled)
         spk_card.append(self._speaker_toggle)
-        box.append(spk_card)
+        box.append(_collapsible_card("Speakers", spk_card, expanded=True))
 
         box.append(Gtk.Box(vexpand=True))  # spacer
         return box
