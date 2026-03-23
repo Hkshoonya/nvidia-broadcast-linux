@@ -24,6 +24,7 @@ SYSTEM_PACKAGES=(
     libgtk-4-dev
     libadwaita-1-dev
     pipewire-utils
+    pipewire-bin
 )
 
 echo "========================================="
