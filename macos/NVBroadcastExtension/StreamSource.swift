@@ -9,7 +9,6 @@ import Foundation
 import CoreMediaIO
 import CoreVideo
 import Darwin
-import Darwin.notify
 
 class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
 
