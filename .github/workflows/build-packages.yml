@@ -1,0 +1,160 @@
+name: Build Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ─── Linux: .deb + .rpm ────────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev rpm python3
+
+      - name: Build .deb package
+        run: ./build-packages.sh deb
+
+      - name: Build .rpm package
+        run: ./build-packages.sh rpm
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            dist/deb/*.deb
+            dist/rpm/*.rpm
+
+  # ─── macOS: Camera Extension + .pkg ────────────────────────────────────────
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show build environment
+        run: |
+          sw_vers
+          xcodebuild -version
+          uname -m
+
+      - name: Build Camera Extension
+        run: ./macos/build.sh
+
+      - name: Build .pkg installer
+        run: ./build-packages.sh pkg
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-packages
+          path: |
+            dist/macos/NVBroadcastExtension.systemextension/**
+            dist/macos/frame_bridge.py
+            dist/pkg/*.pkg
+
+  # ─── Test: macOS platform + extension compilation ──────────────────────────
+  test-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python deps
+        run: pip install numpy opencv-python-headless onnxruntime mediapipe pyvirtualcam
+
+      - name: Test platform detection
+        run: |
+          PYTHONPATH=src python3 -c "
+          from nvbroadcast.core.platform import IS_MACOS, IS_LINUX, has_nvidia_gpu
+          from nvbroadcast.core.platform import get_gst_camera_source, get_onnx_providers
+          assert IS_MACOS == True
+          assert IS_LINUX == False
+          assert has_nvidia_gpu() == False
+          assert get_gst_camera_source() == 'avfvideosrc'
+          providers = get_onnx_providers()
+          assert providers[-1] == 'CPUExecutionProvider'
+          print('All macOS platform tests passed')
+          "
+
+      - name: Test frame bridge
+        run: |
+          PYTHONPATH=. python3 -c "
+          from macos.NVBroadcastHelper.frame_bridge import FrameBridge
+          import numpy as np
+          bridge = FrameBridge(width=640, height=480)
+          frame = np.zeros((480, 640, 4), dtype=np.uint8)
+          bridge.write_numpy_frame(frame)
+          bridge.close()
+          print('Frame bridge test: OK')
+          "
+
+      - name: Test Swift extension compilation
+        run: |
+          ./macos/build.sh
+          test -f .build/NVBroadcastExtension.systemextension/Contents/MacOS/NVBroadcastExtension
+          echo "Swift extension compiled successfully"
+
+  # ─── Test: Linux platform checks ───────────────────────────────────────────
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test platform detection
+        run: |
+          PYTHONPATH=src python3 -c "
+          from nvbroadcast.core.platform import IS_MACOS, IS_LINUX
+          from nvbroadcast.core.platform import get_gst_camera_source
+          assert IS_LINUX == True
+          assert IS_MACOS == False
+          assert get_gst_camera_source() == 'v4l2src'
+          print('Linux platform detection: OK')
+          "
+
+      - name: Syntax check all Python files
+        run: |
+          find src -name '*.py' -exec python3 -m py_compile {} \;
+          python3 -m py_compile macos/NVBroadcastHelper/frame_bridge.py
+          echo "All Python files compile: OK"
+
+  # ─── Release: Upload packages on tag push ──────────────────────────────────
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-macos, test-macos, test-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          generate_release_notes: true
+          files: |
+            artifacts/linux-packages/dist/deb/*.deb
+            artifacts/linux-packages/dist/rpm/*.rpm
+            artifacts/macos-packages/dist/pkg/*.pkg
