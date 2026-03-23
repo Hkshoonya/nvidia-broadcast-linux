@@ -1,0 +1,30 @@
+NV Broadcast macOS Camera Extension
+Copyright (c) 2024-2026 Doczeus (Harshit Sharma). All rights reserved.
+
+PROPRIETARY LICENSE
+
+This software and associated documentation files (the "Software") in this
+directory (macos/) are the proprietary work of Doczeus. The Software is
+licensed, not sold.
+
+Permission is hereby granted to use the Software as distributed in binary
+form as part of NV Broadcast. The source code is provided for reference
+and contribution purposes only.
+
+You MAY:
+- Use the compiled Camera Extension as part of NV Broadcast
+- Read the source code for learning purposes
+- Submit contributions (which transfer copyright to Doczeus)
+- Fork for personal, non-commercial use
+
+You MAY NOT:
+- Redistribute the Software or derivative works commercially
+- Use the Software in competing products
+- Remove or alter copyright notices
+- Distribute modified versions without explicit permission from Doczeus
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+IN NO EVENT SHALL DOCZEUS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY ARISING FROM THE USE OF THIS SOFTWARE.
+
+For licensing inquiries: harshit@kshoonya.com

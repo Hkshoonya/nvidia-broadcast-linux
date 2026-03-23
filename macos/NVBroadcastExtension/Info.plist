@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>NV Broadcast Camera</string>
+    <key>CFBundleExecutable</key>
+    <string>NVBroadcastExtension</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.doczeus.nvbroadcast.camera</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>NV Broadcast Camera</string>
+    <key>CFBundlePackageType</key>
+    <string>SYSX</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.2.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSSystemExtensionUsageDescription</key>
+    <string>NV Broadcast needs system extension access to provide a virtual camera for video calls.</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Doczeus. All rights reserved.</string>
+</dict>
+</plist>

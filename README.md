@@ -531,7 +531,8 @@ If NV Broadcast saves you from going back to Windows, consider sponsoring:
 
 ## License
 
-**GPL-3.0** — see [LICENSE](LICENSE) for details.
+- **Python app & Linux code:** GPL-3.0 — see [LICENSE](LICENSE)
+- **macOS Camera Extension** (`macos/`): Proprietary — see [macos/LICENSE](macos/LICENSE)
 
 Any redistribution or derivative work **must retain the original author attribution**.
 
