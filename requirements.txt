@@ -1,4 +1,4 @@
-# NVIDIA Broadcast for Linux - Python Dependencies
+# NV Broadcast - Python Dependencies
 # Install with: pip install -e .
 # System packages also required (see install.sh or README)
 
@@ -40,16 +40,31 @@ nvidia-cuda-nvrtc-cu12
 # tensorrt-cu12-libs
 
 # --------------------------------------------------------------------------
-# SYSTEM PACKAGES (cannot be installed via pip — use apt or your distro's
-# package manager). These are installed automatically by install.sh:
+# SYSTEM PACKAGES (cannot be installed via pip — installed by install.sh)
 #
+# Core UI & Pipeline:
 #   python3-gi python3-gi-cairo     — PyGObject (GTK4, GStreamer bindings)
 #   gir1.2-gtk-4.0 gir1.2-adw-1    — GTK4 and Libadwaita introspection
 #   gir1.2-gstreamer-1.0            — GStreamer introspection
 #   gir1.2-gst-plugins-base-1.0     — GStreamer plugins-base introspection
 #   gstreamer1.0-plugins-base       — Base GStreamer plugins
 #   gstreamer1.0-plugins-good       — Good GStreamer plugins
-#   gstreamer1.0-plugins-bad        — Bad GStreamer plugins (includes nvcodec)
+#   gstreamer1.0-plugins-bad        — Bad GStreamer plugins (nvcodec, GL)
+#
+# Virtual Camera:
 #   v4l-utils v4l2loopback-dkms     — Virtual camera kernel module
+#
+# Audio:
 #   pipewire-bin or pipewire-utils   — Virtual microphone (pw-loopback)
+#
+# System Tray:
+#   gir1.2-ayatanaappindicator3-0.1 — Tray icon (apt)
+#   libayatana-appindicator-gtk3    — Tray icon (dnf)
+#   libayatana-appindicator         — Tray icon (pacman)
+#
+# Camera Power Save:
+#   psmisc                          — Provides fuser (detect vcam consumers)
+#
+# Build Tools:
+#   dkms, linux-headers-$(uname -r) — Build v4l2loopback kernel module
 # --------------------------------------------------------------------------

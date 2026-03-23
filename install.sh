@@ -69,6 +69,8 @@ get_packages() {
             PKGS_GTK="gir1.2-gtk-4.0 gir1.2-adw-1"
             PKGS_GST="gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad"
             PKGS_PYTHON="python3-gi python3-gi-cairo"
+            PKGS_TRAY="gir1.2-ayatanaappindicator3-0.1"
+            PKGS_TOOLS="psmisc"  # provides fuser (camera power save)
             # PipeWire: pipewire-bin (Ubuntu 24.04+) or pipewire-utils (older/Debian)
             if apt-cache show pipewire-bin &>/dev/null 2>&1; then
                 PKGS_PIPEWIRE="pipewire-bin"
@@ -86,6 +88,8 @@ get_packages() {
             PKGS_GTK="gtk4-devel libadwaita-devel"
             PKGS_GST="gstreamer1-devel gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free"
             PKGS_PYTHON="python3-gobject python3-gobject-cairo"
+            PKGS_TRAY="libayatana-appindicator-gtk3"
+            PKGS_TOOLS="psmisc"
             PKGS_PIPEWIRE="pipewire-utils"
             PKGS_VENV=""  # Included in python3 on Fedora
             ;;
@@ -95,6 +99,8 @@ get_packages() {
             PKGS_GTK="gtk4 libadwaita"
             PKGS_GST="gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad"
             PKGS_PYTHON="python-gobject"
+            PKGS_TRAY="libayatana-appindicator"
+            PKGS_TOOLS="psmisc"
             PKGS_PIPEWIRE="pipewire"
             PKGS_VENV=""  # Included in python on Arch
             ;;
@@ -104,6 +110,8 @@ get_packages() {
             PKGS_GTK="gtk4-devel libadwaita-devel typelib-1_0-Gtk-4_0 typelib-1_0-Adw-1"
             PKGS_GST="gstreamer-devel gstreamer-plugins-base gstreamer-plugins-good gstreamer-plugins-bad"
             PKGS_PYTHON="python3-gobject python3-gobject-cairo"
+            PKGS_TRAY="typelib-1_0-AyatanaAppIndicator3-0_1"
+            PKGS_TOOLS="psmisc"
             PKGS_PIPEWIRE="pipewire-tools"
             PKGS_VENV=""
             ;;
@@ -113,6 +121,8 @@ get_packages() {
             PKGS_GTK=""
             PKGS_GST=""
             PKGS_PYTHON=""
+            PKGS_TRAY=""
+            PKGS_TOOLS=""
             PKGS_PIPEWIRE=""
             PKGS_VENV=""
             ;;
@@ -261,7 +271,7 @@ echo "[1/7] Checking system packages..."
 
 get_packages
 
-ALL_PKGS="$PKGS_VIRTUAL_CAM $PKGS_GTK $PKGS_GST $PKGS_PYTHON $PKGS_PIPEWIRE $PKGS_VENV"
+ALL_PKGS="$PKGS_VIRTUAL_CAM $PKGS_GTK $PKGS_GST $PKGS_PYTHON $PKGS_TRAY $PKGS_TOOLS $PKGS_PIPEWIRE $PKGS_VENV"
 
 if [ "$PKG_MANAGER" = "unknown" ]; then
     echo ""
@@ -273,6 +283,8 @@ if [ "$PKG_MANAGER" = "unknown" ]; then
     echo "  GStreamer:        gstreamer, plugins-base, plugins-good, plugins-bad"
     echo "  Python bindings: PyGObject (python-gobject / python3-gi)"
     echo "  Audio:           PipeWire with pw-loopback"
+    echo "  System tray:     libayatana-appindicator (GTK3 AppIndicator)"
+    echo "  Tools:           psmisc (fuser command for camera power save)"
     echo ""
     echo "  After installing, re-run this script."
     echo ""
