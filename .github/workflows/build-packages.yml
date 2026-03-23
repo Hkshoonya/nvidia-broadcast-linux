@@ -106,8 +106,9 @@ jobs:
       - name: Test Swift extension compilation
         run: |
           bash macos/build.sh
-          test -f .build/NVBroadcastExtension.systemextension/Contents/MacOS/NVBroadcastExtension
+          test -f macos/.build/NVBroadcastExtension.systemextension/Contents/MacOS/NVBroadcastExtension
           echo "Swift extension compiled successfully"
+          file macos/.build/NVBroadcastExtension.systemextension/Contents/MacOS/NVBroadcastExtension
 
   # ─── Test: Linux platform checks ───────────────────────────────────────────
   test-linux:
