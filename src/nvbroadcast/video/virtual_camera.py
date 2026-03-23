@@ -1,5 +1,5 @@
 # NVIDIA Broadcast for Linux
-# Copyright (c) 2026 doczeus (https://github.com/doczeus)
+# Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
@@ -72,6 +72,46 @@ def ensure_virtual_camera() -> str:
         "Try: sudo modprobe -r v4l2loopback && sudo modprobe v4l2loopback "
         f'devices=1 video_nr=10 card_label="{VIRTUAL_CAM_LABEL}" exclusive_caps=1 max_buffers=4'
     )
+
+
+def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
+    """Query camera supported resolutions and FPS in MJPEG mode.
+
+    Returns list of {"width": int, "height": int, "fps": [int, ...]} sorted by resolution.
+    """
+    modes = {}
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "-d", device, "--list-formats-ext"],
+            capture_output=True, text=True,
+        )
+        in_mjpg = False
+        current_res = None
+        for line in result.stdout.split("\n"):
+            stripped = line.strip()
+            if "'MJPG'" in stripped:
+                in_mjpg = True
+                continue
+            if in_mjpg and stripped.startswith("["):
+                in_mjpg = False
+                continue
+            if in_mjpg and stripped.startswith("Size: Discrete"):
+                res = stripped.split("Discrete")[1].strip()
+                w, h = res.split("x")
+                current_res = (int(w), int(h))
+                if current_res not in modes:
+                    modes[current_res] = []
+            if in_mjpg and current_res and "fps" in stripped:
+                # e.g. "Interval: Discrete 0.017s (60.000 fps)"
+                fps_str = stripped.split("(")[1].split(" fps")[0]
+                modes[current_res].append(int(float(fps_str)))
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    result = []
+    for (w, h), fps_list in sorted(modes.items(), key=lambda x: x[0][0] * x[0][1]):
+        result.append({"width": w, "height": h, "fps": sorted(set(fps_list))})
+    return result
 
 
 def list_camera_devices() -> list[dict[str, str]]:

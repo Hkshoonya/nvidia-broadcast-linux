@@ -1,5 +1,5 @@
 # NVIDIA Broadcast for Linux
-# Copyright (c) 2026 doczeus (https://github.com/doczeus)
+# Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
@@ -31,6 +31,7 @@ class DeviceSelector(Gtk.Box):
         self.append(self._dropdown)
 
         self._devices: list[dict[str, str]] = []
+        self._connected = False
         if devices:
             self.set_devices(devices)
 
@@ -40,7 +41,10 @@ class DeviceSelector(Gtk.Box):
         names = [d["name"] for d in devices]
         string_list = Gtk.StringList.new(names)
         self._dropdown.set_model(string_list)
-        self._dropdown.connect("notify::selected", self._on_selection_changed)
+        # Connect signal only ONCE (set_devices may be called multiple times)
+        if not self._connected:
+            self._dropdown.connect("notify::selected", self._on_selection_changed)
+            self._connected = True
 
     def get_selected_device(self) -> str:
         """Return the device path of the selected device."""

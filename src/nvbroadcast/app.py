@@ -1,5 +1,5 @@
 # NVIDIA Broadcast for Linux
-# Copyright (c) 2026 doczeus (https://github.com/doczeus)
+# Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
@@ -24,6 +24,7 @@ from nvbroadcast.core.config import load_config, save_config
 from nvbroadcast.video.pipeline import VideoPipeline
 from nvbroadcast.video.effects import VideoEffects
 from nvbroadcast.video.autoframe import AutoFrame
+from nvbroadcast.video.beautify import FaceBeautifier
 from nvbroadcast.video.virtual_camera import ensure_virtual_camera
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
@@ -47,8 +48,10 @@ class NVBroadcastApp(Adw.Application):
             compositing=self.config.compositing,
         )
         self._autoframe = AutoFrame(gpu_index=self.config.compute_gpu)
+        self._beautifier = FaceBeautifier(compositing=self.config.compositing)
         self._vcam_device = None
         self._vcam_available = False
+        self._mirror = True  # Default: mirror (like looking in a mirror)
         self._streaming = False
 
     def do_startup(self):
@@ -107,6 +110,7 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects._gpu_index = gpu_index
         self._video_effects._apply_edge_config(self.config.video.edge)
         self._video_effects.set_compositing(compositing)
+        self._beautifier.set_compositing(compositing)
         profile = PERFORMANCE_PROFILES[profile_name]
         self._video_effects._skip_interval = profile["skip_interval"]
 
@@ -194,30 +198,44 @@ class NVBroadcastApp(Adw.Application):
     # --- Video Pipeline ---
 
     def start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
-        was_running = self._streaming
-        self.stop_pipeline()
-
-        if was_running:
-            # Poll until old pipeline teardown finishes, then start new one
+        if self._streaming:
+            # Stop first, then restart after delay (same as user clicking Stop then Start)
+            self.stop_pipeline()
+            if self._window:
+                self._window._streaming = False
+                self._window._stream_btn.set_label("Start Broadcast")
+                self._window._stream_btn.remove_css_class("destructive-action")
+                self._window._stream_btn.add_css_class("suggested-action")
+                self._window.set_status("Restarting...")
             self._pending_start = (camera_device, output_format)
-            GLib.timeout_add(100, self._wait_and_start)
-            return
-        self._do_start_pipeline(camera_device, output_format)
+            GLib.timeout_add(2000, self._restart_after_stop)
+        else:
+            self._do_start_pipeline(camera_device, output_format)
 
-    def _wait_and_start(self):
-        """Poll until old pipeline is fully torn down, then start new one."""
-        if self._video_pipeline and not getattr(self._video_pipeline, '_teardown_done', True):
-            return True  # Keep polling
+    def _restart_after_stop(self):
+        """Restart pipeline 2 seconds after stop — simple, no race conditions."""
         if hasattr(self, '_pending_start'):
             cam, fmt = self._pending_start
             del self._pending_start
             self._do_start_pipeline(cam, fmt)
+            if self._streaming and self._window:
+                self._window._streaming = True
+                self._window._stream_btn.set_label("Stop Broadcast")
+                self._window._stream_btn.remove_css_class("suggested-action")
+                self._window._stream_btn.add_css_class("destructive-action")
         return False
 
     def _do_start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
         from nvbroadcast.core.config import PERFORMANCE_PROFILES
         profile = PERFORMANCE_PROFILES.get(self.config.performance_profile, {})
-        effects_fps = profile.get("effects_fps", 30)
+        # Validate fps before building pipeline
+        camera_fps = self._get_valid_fps(
+            self.config.video.width, self.config.video.height, self.config.video.fps
+        )
+        if camera_fps != self.config.video.fps:
+            self.config.video.fps = camera_fps
+            save_config(self.config)
+        effects_fps = max(5, int(profile.get("effects_ratio", 1.0) * camera_fps))
 
         self._video_pipeline = VideoPipeline()
         self._video_pipeline.configure(
@@ -235,6 +253,16 @@ class NVBroadcastApp(Adw.Application):
             lambda texture: self._window.update_preview(texture)
         )
 
+        # Reset all resolution-dependent state BEFORE new pipeline processes frames
+        self._video_effects._cached_alpha = None
+        if self._video_effects._backend:
+            self._video_effects._backend.reset_state()
+        self._beautifier._face_mask = None
+        self._beautifier._vignette_cache = None
+        self._beautifier._face_bbox = None
+        self._beautifier._face_center = None
+        self._beautifier._prev_frame = None
+
         # Start in effects mode if effects were previously enabled
         if self._any_video_effects_active():
             self._video_pipeline._effects_active = True
@@ -244,15 +272,19 @@ class NVBroadcastApp(Adw.Application):
             self._video_pipeline.start()
             self._streaming = True
 
-            status = f"Streaming: {camera_device}"
+            w, h = self.config.video.width, self.config.video.height
+            status = f"Streaming: {camera_device} {w}x{h}@{self.config.video.fps}fps"
             if self._vcam_available:
-                status += f" -> {self._vcam_device} ({output_format})"
+                status += f" -> {self._vcam_device}"
             self._window.set_status(status)
             self.config.video.camera_device = camera_device
             self.config.video.output_format = output_format
             save_config(self.config)
 
         except Exception as e:
+            if self._video_pipeline:
+                self._video_pipeline.stop()
+                self._video_pipeline = None
             self._window.set_status(f"Pipeline error: {e}")
             print(f"[NV Broadcast] Pipeline failed: {e}")
 
@@ -265,15 +297,24 @@ class NVBroadcastApp(Adw.Application):
         self._streaming = False
 
     def _process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
+        import cv2
         result = frame_data
         if self._video_effects.enabled:
             result = self._video_effects.process_frame(result, width, height)
+        if self._beautifier.enabled:
+            result = self._beautifier.process_frame(result, width, height)
         if self._autoframe.enabled:
             result = self._autoframe.process_frame(result, width, height)
+        # Mirror flip (horizontal) — applied last so all effects process unflipped
+        if self._mirror:
+            import numpy as np
+            frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4)
+            result = cv2.flip(frame, 1).tobytes()
         return result
 
     def _any_video_effects_active(self) -> bool:
-        return self._video_effects.enabled or self._autoframe.enabled
+        return (self._video_effects.enabled or self._autoframe.enabled or
+                self._beautifier.enabled)
 
     def _update_pipeline_mode(self):
         if self._video_pipeline:
@@ -305,28 +346,48 @@ class NVBroadcastApp(Adw.Application):
         self.config.video.blur_intensity = value
         save_config(self.config)
 
-    def set_performance_profile(self, profile_name: str):
-        """Switch performance profile — requires pipeline restart."""
+    def set_performance_profile(self, profile_name: str, compositing: str | None = None,
+                                use_tensorrt: bool = False, use_fused_kernel: bool = False,
+                                use_nvdec: bool = False):
+        """Switch performance profile. All changes apply live — no pipeline restart."""
         from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
         if profile_name not in PERFORMANCE_PROFILES:
             return
+
+        # Apply compositing change
+        if compositing and compositing != self.config.compositing:
+            self.config.compositing = compositing
+            self._video_effects.set_compositing(compositing)
+            self._beautifier.set_compositing(compositing)
+
+        # Apply engine mode (TensorRT / Fused CUDA kernel)
+        self._video_effects.set_engine_mode(use_tensorrt, use_fused_kernel)
+
+        # NVDEC: enable GPU JPEG decode in pipeline (Killer mode)
+        self._use_nvdec = use_nvdec
+
         apply_performance_profile(self.config, profile_name)
         profile = PERFORMANCE_PROFILES[profile_name]
 
-        # Apply to effects engine
+        # All settings apply immediately — no pipeline restart needed
         self._video_effects._skip_interval = profile["skip_interval"]
         self._video_effects._apply_edge_config(self.config.video.edge)
 
+        # Compute effects_fps from ratio * camera fps
+        effects_fps = max(5, int(profile["effects_ratio"] * self.config.video.fps))
+        if self._video_pipeline:
+            self._video_pipeline.set_effects_fps(effects_fps)
+
         save_config(self.config)
 
-        # Restart pipeline with new effects_fps if streaming
-        if self._streaming:
-            camera = self.config.video.camera_device
-            fmt = self.config.video.output_format
-            self.start_pipeline(camera, fmt)
+        b = self._video_effects._backend
+        infer_h = b._MAX_INFER_HEIGHT if b else "?"
+        print(f"[NV Broadcast] Mode: {profile_name} | infer={infer_h} skip={profile['skip_interval']} "
+              f"fused={use_fused_kernel} comp={self.config.compositing} "
+              f"efps={effects_fps}")
 
         if self._window:
-            self._window.set_status(f"Profile: {profile['label']}")
+            self._window.set_status(f"Mode: {profile['label']} | {infer_h}p")
 
     def set_compute_gpu(self, gpu_index: int):
         """Switch the GPU used for AI compute."""
@@ -369,11 +430,76 @@ class NVBroadcastApp(Adw.Application):
         if backend and hasattr(backend, '_ema_weight'):
             backend._ema_weight = max(0.0, min(0.5, value))
 
+    def set_mirror(self, enabled: bool):
+        """Toggle mirror (horizontal flip) on preview and vcam output."""
+        self._mirror = enabled
+
+    def set_edge_refine(self, enabled: bool):
+        """Toggle neural edge refinement for Zeus/Killer modes."""
+        self._video_effects._edge_refine_enabled = enabled
+
     def set_edge_param(self, param: str, value: float):
         """Update a single edge refinement parameter."""
         setattr(self.config.video.edge, param, value)
         self._video_effects.update_edge_params(**{param: value})
         save_config(self.config)
+
+    def _get_valid_fps(self, width: int, height: int, desired_fps: int) -> int:
+        """Return the closest supported FPS for the given resolution."""
+        from nvbroadcast.video.virtual_camera import list_camera_modes
+        modes = list_camera_modes(self.config.video.camera_device)
+        for mode in modes:
+            if mode["width"] == width and mode["height"] == height:
+                supported = mode["fps"]
+                if desired_fps in supported:
+                    return desired_fps
+                # Pick the closest supported fps
+                return min(supported, key=lambda f: abs(f - desired_fps))
+        return desired_fps  # Unknown resolution — try anyway
+
+    def set_resolution(self, width: int, height: int):
+        """Change capture resolution — validates FPS and restarts pipeline."""
+        if width == self.config.video.width and height == self.config.video.height:
+            return
+        self.config.video.width = width
+        self.config.video.height = height
+
+        # Clamp FPS to what the camera supports at the new resolution
+        valid_fps = self._get_valid_fps(width, height, self.config.video.fps)
+        if valid_fps != self.config.video.fps:
+            self.config.video.fps = valid_fps
+            print(f"[NV Broadcast] FPS clamped to {valid_fps} for {width}x{height}")
+
+        save_config(self.config)
+
+        # Caches are reset in _do_start_pipeline (after old pipeline stops)
+
+        if self._streaming:
+            camera = self.config.video.camera_device
+            fmt = self.config.video.output_format
+            self.start_pipeline(camera, fmt)
+
+        if self._window:
+            self._window.set_status(f"Resolution: {width}x{height} @ {self.config.video.fps}fps")
+
+    def set_fps(self, fps: int):
+        """Change camera FPS — validates against camera capabilities."""
+        if fps == self.config.video.fps:
+            return
+        # Validate against camera capabilities
+        valid_fps = self._get_valid_fps(
+            self.config.video.width, self.config.video.height, fps
+        )
+        self.config.video.fps = valid_fps
+        save_config(self.config)
+
+        if self._streaming:
+            camera = self.config.video.camera_device
+            fmt = self.config.video.output_format
+            self.start_pipeline(camera, fmt)
+
+        if self._window:
+            self._window.set_status(f"FPS: {valid_fps}")
 
     def set_autoframe(self, enabled: bool):
         self._autoframe.enabled = enabled
@@ -385,6 +511,16 @@ class NVBroadcastApp(Adw.Application):
         self._autoframe.zoom_level = value
         self.config.video.auto_frame_zoom = value
         save_config(self.config)
+
+    # --- Beautification ---
+
+    def set_beautify(self, enabled: bool):
+        self._beautifier.enabled = enabled
+        self._update_pipeline_mode()
+
+    def set_beautify_param(self, param: str, value: float):
+        """Set a beautification parameter (skin_smooth, denoise, edge_darken, enhance, sharpen)."""
+        setattr(self._beautifier, param, value)
 
     # --- Audio ---
 
@@ -432,4 +568,5 @@ class NVBroadcastApp(Adw.Application):
             self._speaker_monitor.stop()
         self._video_effects.cleanup()
         self._autoframe.cleanup()
+        self._beautifier.cleanup()
         Adw.Application.do_shutdown(self)

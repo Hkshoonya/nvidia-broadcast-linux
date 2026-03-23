@@ -1,5 +1,5 @@
 # NVIDIA Broadcast for Linux
-# Copyright (c) 2026 doczeus (https://github.com/doczeus)
+# Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
@@ -45,6 +45,10 @@ class VideoPipeline:
         self._latest_frame = None
         self._running = False
         self._teardown_done = True
+        self._throttle_acc = 0.0
+        self._last_effect_output = None
+        self._pending_frame = None       # Latest raw frame for effects thread
+        self._effects_busy = False       # True while effects thread is processing
 
     def configure(self, source_device, vcam_device,
                   width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT,
@@ -85,7 +89,8 @@ class VideoPipeline:
             self._build_passthrough_pipeline(vcam_enabled)
 
         if self._preview_callback:
-            GLib.timeout_add(33, self._tick_preview)  # ~30fps preview
+            preview_ms = max(16, 1000 // self._fps)  # Match camera fps (16ms = 60fps)
+            GLib.timeout_add(preview_ms, self._tick_preview)
 
     def _build_passthrough_pipeline(self, vcam_enabled: bool):
         """Direct GStreamer pipeline - ZERO Python processing.
@@ -144,21 +149,14 @@ class VideoPipeline:
         else:
             decoder = "jpegdec ! videoconvert"
 
-        # Throttle effects FPS via videorate — fewer frames = less CPU
-        # (camera still captures at full fps, but we drop frames before Python)
-        efps = self._effects_fps
-        if efps < self._fps:
-            throttle = f"videorate ! video/x-raw,framerate={efps}/1 ! "
-        else:
-            throttle = ""
-
+        # No videorate — frame throttling is done in Python (_on_effects_sample)
+        # so mode/profile changes never require a pipeline restart.
         self._pipeline = Gst.parse_launch(
             f"v4l2src device={self._source_device} ! "
             f"image/jpeg,width={self._width},height={self._height},"
             f"framerate={self._fps}/1 ! "
             f"{decoder} ! "
             f"video/x-raw,format=BGRA,width={self._width},height={self._height} ! "
-            f"{throttle}"
             f"appsink name=sink emit-signals=true max-buffers=2 drop=true sync=false"
         )
         sink = self._pipeline.get_by_name("sink")
@@ -205,8 +203,16 @@ class VideoPipeline:
         self._frame_count += 1
         return Gst.FlowReturn.OK
 
+    def set_effects_fps(self, efps: int):
+        """Change effects throttle at runtime — no pipeline restart needed."""
+        self._effects_fps = min(efps, self._fps)
+
     def _on_effects_sample(self, appsink):
-        """Full processing callback (effects mode)."""
+        """Capture callback — NEVER blocks. Effects run in a background thread.
+
+        This keeps preview/vcam at full camera fps with minimal latency.
+        Effects results are applied as soon as they're ready.
+        """
         if not self._running:
             return Gst.FlowReturn.EOS
         sample = appsink.emit("pull-sample")
@@ -225,19 +231,34 @@ class VideoPipeline:
         if len(frame_data) != expected:
             return Gst.FlowReturn.OK
 
-        # Apply effects
-        if self._effect_callback:
-            output = self._effect_callback(frame_data, self._width, self._height)
-            if output is None:
-                output = frame_data
-        else:
-            output = frame_data
+        self._frame_count += 1
 
-        # Store for preview
+        # Kick off effects processing in background (non-blocking)
+        if self._effect_callback and not self._effects_busy:
+            run_effects = True
+            if self._effects_fps < self._fps:
+                self._throttle_acc += 1.0 - (self._effects_fps / self._fps)
+                if self._throttle_acc >= 1.0:
+                    self._throttle_acc -= 1.0
+                    run_effects = False
+            if run_effects:
+                self._pending_frame = frame_data
+                self._effects_busy = True
+                threading.Thread(
+                    target=self._process_effects_bg,
+                    args=(frame_data, self._width, self._height, expected),
+                    daemon=True,
+                ).start()
+
+        # Output: latest processed frame, or raw if none ready yet
+        cached = self._last_effect_output
+        output = cached if (cached and len(cached) == expected) else frame_data
+
+        # Store for preview (always current — no lag)
         with self._lock:
             self._latest_frame = output
 
-        # Push to vcam
+        # Push to vcam at full fps
         if self._vcam_enabled and self._vcam_appsrc:
             vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
             vcam_buf.fill(0, output)
@@ -245,8 +266,19 @@ class VideoPipeline:
             vcam_buf.duration = buf.duration
             self._vcam_appsrc.emit("push-buffer", vcam_buf)
 
-        self._frame_count += 1
         return Gst.FlowReturn.OK
+
+    def _process_effects_bg(self, frame_data, width, height, expected):
+        """Run effects in background thread — never blocks the capture."""
+        try:
+            output = self._effect_callback(frame_data, width, height)
+            if output is not None and len(output) == expected:
+                self._last_effect_output = output
+        except Exception as e:
+            if self._frame_count <= 5:
+                print(f"[NV Broadcast] Effects error: {e}")
+        finally:
+            self._effects_busy = False
 
     def _tick_preview(self) -> bool:
         if self._pipeline is None:
@@ -316,12 +348,18 @@ class VideoPipeline:
         self._teardown_done = False
         if cap or vcam:
             def _teardown():
+                # Send EOS first to help v4l2 release the device cleanly
+                if cap:
+                    cap.send_event(Gst.Event.new_eos())
+                if vcam:
+                    vcam.send_event(Gst.Event.new_eos())
+                # Short timeout — don't block forever waiting for NULL
                 if cap:
                     cap.set_state(Gst.State.NULL)
-                    cap.get_state(5 * Gst.SECOND)
+                    cap.get_state(2 * Gst.SECOND)
                 if vcam:
                     vcam.set_state(Gst.State.NULL)
-                    vcam.get_state(5 * Gst.SECOND)
+                    vcam.get_state(2 * Gst.SECOND)
                 self._teardown_done = True
             threading.Thread(target=_teardown, daemon=True).start()
         else:

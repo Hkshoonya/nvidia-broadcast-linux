@@ -1,5 +1,5 @@
 # NVIDIA Broadcast for Linux
-# Copyright (c) 2026 doczeus (https://github.com/doczeus)
+# Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
@@ -18,7 +18,7 @@ from nvbroadcast.ui.controls import (
     EffectToggle, EffectSlider, BackgroundModeSelector, BackgroundImagePicker
 )
 from nvbroadcast.ui.device_selector import DeviceSelector
-from nvbroadcast.video.virtual_camera import list_camera_devices
+from nvbroadcast.video.virtual_camera import list_camera_devices, list_camera_modes
 
 
 class NVBroadcastWindow(Adw.ApplicationWindow):
@@ -26,7 +26,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def __init__(self, app):
         super().__init__(application=app, title=APP_NAME)
-        self.set_default_size(1100, 780)
+        self.set_default_size(1280, 900)
         self._app = app
         self._streaming = False
         self._build_ui()
@@ -79,17 +79,56 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._update_gpu_info()
         main_box.append(header)
 
-        # Video Preview (top, large)
+        # Resizable split: Preview (top) | Controls (bottom)
+        # Using Gtk.Paned for draggable divider between preview and controls
+        paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        paned.set_vexpand(True)
+        paned.set_shrink_start_child(True)
+        paned.set_shrink_end_child(False)
+        paned.set_resize_start_child(True)
+        paned.set_resize_end_child(True)
+
+        # Top: Preview + controls bar
+        preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
         preview_frame = Gtk.Frame()
         preview_frame.set_margin_start(16)
         preview_frame.set_margin_end(16)
         preview_frame.set_margin_top(8)
         self._preview = VideoPreview()
         self._preview.set_vexpand(True)
+        self._preview.set_size_request(-1, 200)  # Minimum height
         preview_frame.set_child(self._preview)
-        main_box.append(preview_frame)
+        self._preview_frame = preview_frame
+        preview_box.append(preview_frame)
 
-        # Controls: Camera | separator | Audio
+        # Preview controls bar
+        preview_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        preview_bar.set_margin_end(16)
+        preview_bar.set_margin_top(2)
+        preview_bar.append(Gtk.Box(hexpand=True))
+
+        self._freeze_btn = Gtk.ToggleButton(label="Pause View")
+        self._freeze_btn.set_tooltip_text("Freeze/resume camera preview")
+        self._freeze_btn.add_css_class("flat")
+        self._freeze_btn.connect("toggled", self._on_freeze_toggled)
+        self._preview_frozen = False
+        preview_bar.append(self._freeze_btn)
+
+        self._hide_btn = Gtk.ToggleButton(label="Hide Preview")
+        self._hide_btn.set_tooltip_text("Show/hide camera preview")
+        self._hide_btn.add_css_class("flat")
+        self._hide_btn.connect("toggled", self._on_hide_toggled)
+        preview_bar.append(self._hide_btn)
+
+        preview_box.append(preview_bar)
+        paned.set_start_child(preview_box)
+
+        # Bottom: Scrollable controls
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         controls.set_margin_start(16)
         controls.set_margin_end(16)
@@ -103,7 +142,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         aud = self._build_audio_section()
         aud.set_hexpand(True)
         controls.append(aud)
-        main_box.append(controls)
+
+        scroll.set_child(controls)
+        paned.set_end_child(scroll)
+
+        # Set initial divider position (60% preview, 40% controls)
+        paned.set_position(450)
+        main_box.append(paned)
 
         # Status bar with attribution
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -132,8 +177,47 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         hdr.set_xalign(0)
         box.append(hdr)
 
+        # Input settings in a compact card
+        input_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        input_card.add_css_class("effect-card")
+
         self._camera_selector = DeviceSelector("Source")
-        box.append(self._camera_selector)
+        input_card.append(self._camera_selector)
+
+        # Query camera capabilities
+        cam_device = self._app.config.video.camera_device
+        self._camera_modes = list_camera_modes(cam_device)
+        self._updating_ui = False  # Guard against signal cascades
+
+        # Resolution selector (from camera capabilities)
+        self._res_selector = DeviceSelector("Resolution")
+        res_devices = []
+        _RES_LABELS = {
+            (640, 360): "360p", (640, 480): "480p", (800, 600): "600p",
+            (1024, 576): "576p", (960, 720): "720p 4:3",
+            (1280, 720): "720p", (1280, 960): "960p",
+            (1920, 1080): "1080p", (2560, 1440): "1440p",
+            (3840, 2160): "4K",
+        }
+        for mode in self._camera_modes:
+            w, h = mode["width"], mode["height"]
+            label = _RES_LABELS.get((w, h), f"{w}x{h}")
+            max_fps = max(mode["fps"]) if mode["fps"] else 30
+            res_devices.append({
+                "name": f"{label} ({w}x{h}) {max_fps}fps",
+                "device": f"{w}x{h}",
+            })
+        if not res_devices:
+            res_devices = [{"name": "1280x720", "device": "1280x720"}]
+        self._res_selector.set_devices(res_devices)
+        # Select current resolution
+        current_res = f"{self._app.config.video.width}x{self._app.config.video.height}"
+        for i, d in enumerate(res_devices):
+            if d["device"] == current_res:
+                self._res_selector.set_selected_index(i)
+                break
+        self._res_selector.connect("device-changed", self._on_resolution_changed)
+        input_card.append(self._res_selector)
 
         self._format_selector = DeviceSelector("Format")
         self._format_selector.set_devices([
@@ -141,21 +225,35 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             {"name": "I420 (Firefox / WebRTC)", "device": "I420"},
             {"name": "NV12 (General)", "device": "NV12"},
         ])
-        box.append(self._format_selector)
+        input_card.append(self._format_selector)
 
-        # Processing mode selector (matches wizard unified modes)
+        # FPS selector — show what the current resolution supports
+        self._fps_selector = DeviceSelector("FPS")
+        self._refresh_fps_options()
+        self._fps_selector.connect("device-changed", self._on_fps_changed)
+        input_card.append(self._fps_selector)
+
+        box.append(input_card)
+
+        # Processing card (mode, GPU, mirror, edge refine)
+        proc_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        proc_card.add_css_class("effect-card")
+
         from nvbroadcast.core.config import detect_compositing_backends
         backends = detect_compositing_backends()
+        has_cuda = backends.get("cupy", False)
 
         self._mode_devices = []
-        if backends.get("cupy", False):
-            self._mode_devices.append({"name": "CUDA GPU - Maximum Quality", "device": "gpu_cuda_best"})
-        if backends.get("gstreamer_gl", False):
-            self._mode_devices.append({"name": "GPU OpenGL - Best Quality", "device": "gpu_quality"})
-            self._mode_devices.append({"name": "GPU OpenGL - Balanced", "device": "gpu_balanced"})
-        self._mode_devices.append({"name": "CPU - High Quality", "device": "cpu_quality"})
+        if has_cuda:
+            self._mode_devices.append({"name": "Killer - NVDEC + TensorRT + Fused CUDA", "device": "killer"})
+            self._mode_devices.append({"name": "Zeus - TensorRT Inference", "device": "zeus"})
+            self._mode_devices.append({"name": "DocZeus - Fused CUDA Kernel", "device": "doczeus"})
+            self._mode_devices.append({"name": "CUDA - Max Quality", "device": "cuda_max"})
+            self._mode_devices.append({"name": "CUDA - Balanced", "device": "cuda_balanced"})
+            self._mode_devices.append({"name": "CUDA - Performance", "device": "cuda_perf"})
+        self._mode_devices.append({"name": "CPU - Quality", "device": "cpu_quality"})
         self._mode_devices.append({"name": "CPU - Light", "device": "cpu_light"})
-        self._mode_devices.append({"name": "Low-End System", "device": "low_end"})
+        self._mode_devices.append({"name": "CPU - Low End", "device": "cpu_low"})
 
         self._profile_selector = DeviceSelector("Mode")
         self._profile_selector.set_devices(self._mode_devices)
@@ -170,7 +268,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 break
 
         self._profile_selector.connect("device-changed", self._on_mode_changed_selector)
-        box.append(self._profile_selector)
+        proc_card.append(self._profile_selector)
 
         # GPU selector
         from nvbroadcast.core.gpu import detect_gpus
@@ -184,9 +282,28 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._gpu_selector.set_devices(gpu_devices)
             self._gpu_selector.set_selected_index(self._app.config.compute_gpu)
             self._gpu_selector.connect("device-changed", self._on_gpu_changed)
-            box.append(self._gpu_selector)
+            proc_card.append(self._gpu_selector)
         else:
             self._gpu_selector = None
+
+        # Mirror toggle
+        self._mirror_toggle = EffectToggle(
+            "Mirror", "Flip video horizontally"
+        )
+        self._mirror_toggle.active = True
+        self._mirror_toggle.connect("toggled", self._on_mirror_toggled)
+        proc_card.append(self._mirror_toggle)
+
+        # Edge Refine toggle (visible only for Zeus/Killer)
+        self._edge_refine_toggle = EffectToggle(
+            "Edge Refine", "Neural edge refinement (Zeus/Killer)"
+        )
+        self._edge_refine_toggle.set_sensitive(False)
+        self._edge_refine_toggle.set_visible(False)
+        self._edge_refine_toggle.connect("toggled", self._on_edge_refine_toggled)
+        proc_card.append(self._edge_refine_toggle)
+
+        box.append(proc_card)
 
         # Background effect card
         bg_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -300,6 +417,56 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         af_card.append(self._zoom_slider)
         box.append(af_card)
 
+        # Video Enhancement card
+        beauty_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        beauty_card.add_css_class("effect-card")
+        self._beauty_toggle = EffectToggle(
+            "Video Enhancement", "Skin smooth, denoise, enhance, sharpen, vignette"
+        )
+        self._beauty_toggle.connect("toggled", self._on_beauty_toggled)
+        beauty_card.append(self._beauty_toggle)
+
+        # Preset dropdown
+        self._beauty_preset = DeviceSelector("Preset")
+        self._beauty_preset.set_devices([
+            {"name": "Natural (subtle)", "device": "natural"},
+            {"name": "Broadcast (professional)", "device": "broadcast"},
+            {"name": "Glamour (strong)", "device": "glamour"},
+            {"name": "Custom", "device": "custom"},
+        ])
+        self._beauty_preset.set_sensitive(False)
+        self._beauty_preset.set_selected_index(0)
+        self._beauty_preset.connect("device-changed", self._on_beauty_preset)
+        beauty_card.append(self._beauty_preset)
+
+        # Individual effect rows: each has a toggle + slider
+        self._beauty_controls = {}
+        beauty_effects = [
+            ("skin_smooth", "Skin Smooth", "Bilateral filter — smooths skin, preserves edges", 0.5),
+            ("denoise", "Denoise", "Temporal + spatial noise reduction", 0.3),
+            ("enhance", "Enhance", "Brightness, contrast, warmth on face", 0.4),
+            ("sharpen", "Sharpen", "Unsharp mask — crisper eyes and lips", 0.3),
+            ("edge_darken", "Edge Darken", "Vignette centered on face — studio look", 0.3),
+        ]
+
+        for key, title, subtitle, default_val in beauty_effects:
+            row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+
+            toggle = EffectToggle(title, subtitle)
+            toggle.set_sensitive(False)
+            toggle.connect("toggled", self._on_beauty_effect_toggled, key)
+            row_box.append(toggle)
+
+            slider = EffectSlider("Intensity", default_val)
+            slider.set_sensitive(False)
+            slider.connect("value-changed", self._on_beauty_effect_value, key)
+            row_box.append(slider)
+
+            beauty_card.append(row_box)
+            self._beauty_controls[key] = {"toggle": toggle, "slider": slider, "default": default_val}
+
+        box.append(beauty_card)
+
         return box
 
     def _build_audio_section(self) -> Gtk.Widget:
@@ -377,40 +544,83 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     @staticmethod
     def _profile_and_comp_to_mode(profile, compositing):
         """Map profile+compositing config to unified mode key."""
-        if compositing == "cupy":
-            return "gpu_cuda_best"
-        if compositing == "gstreamer_gl":
+        if compositing in ("cupy", "gstreamer_gl"):
             if profile == "max_quality":
-                return "gpu_quality"
-            return "gpu_balanced"
+                return "cuda_max"
+            if profile == "balanced":
+                return "cuda_balanced"
+            return "cuda_perf"
         if profile == "max_quality":
             return "cpu_quality"
-        if profile in ("performance",):
+        if profile in ("performance", "balanced"):
             return "cpu_light"
         if profile == "potato":
-            return "low_end"
+            return "cpu_low"
         return "cpu_quality"
 
+    # (profile, compositing, use_tensorrt, use_fused_kernel, use_nvdec)
     _MODE_MAP = {
-        "gpu_cuda_best": ("max_quality", "cupy"),
-        "gpu_quality": ("max_quality", "gstreamer_gl"),
-        "gpu_balanced": ("balanced", "gstreamer_gl"),
-        "cpu_quality": ("max_quality", "cpu"),
-        "cpu_light": ("performance", "cpu"),
-        "low_end": ("potato", "cpu"),
+        "killer":       ("max_quality", "cupy", True,  True,  True),
+        "zeus":         ("max_quality", "cupy", True,  False, False),
+        "doczeus":      ("max_quality", "cupy", False, True,  False),
+        "cuda_max":     ("max_quality", "cupy", False, False, False),
+        "cuda_balanced": ("balanced",   "cupy", False, False, False),
+        "cuda_perf":    ("performance", "cupy", False, False, False),
+        "cpu_quality":  ("max_quality", "cpu",  False, False, False),
+        "cpu_light":    ("performance", "cpu",  False, False, False),
+        "cpu_low":      ("potato",      "cpu",  False, False, False),
     }
 
     def _on_mode_changed_selector(self, selector, mode_key):
         if mode_key in self._MODE_MAP:
-            profile, comp = self._MODE_MAP[mode_key]
-            self._app.set_performance_profile(profile)
-            self._app.config.compositing = comp
-            self._app._video_effects.set_compositing(comp)
-            from nvbroadcast.core.config import save_config
-            save_config(self._app.config)
+            profile, comp, trt, fused, nvdec = self._MODE_MAP[mode_key]
+            self._app.set_performance_profile(
+                profile, compositing=comp,
+                use_tensorrt=trt, use_fused_kernel=fused, use_nvdec=nvdec,
+            )
+            # Show edge refine toggle only for premium speed modes
+            is_premium = mode_key in ("killer", "zeus")
+            self._edge_refine_toggle.set_visible(is_premium)
+            self._edge_refine_toggle.set_sensitive(is_premium)
+            if is_premium and not self._edge_refine_toggle.active:
+                self._edge_refine_toggle.active = True  # Enable by default
 
     def _on_gpu_changed(self, selector, gpu_str):
         self._app.set_compute_gpu(int(gpu_str))
+
+    def _refresh_fps_options(self):
+        """Rebuild FPS dropdown for the current resolution. Blocks signal cascade."""
+        w, h = self._app.config.video.width, self._app.config.video.height
+        available_fps = [30]
+        for mode in self._camera_modes:
+            if mode["width"] == w and mode["height"] == h:
+                available_fps = mode["fps"]
+                break
+        self._updating_ui = True  # Block signal cascade
+        devices = [{"name": f"{fps} fps", "device": str(fps)} for fps in available_fps]
+        self._fps_selector.set_devices(devices)
+        # Select current fps or highest available
+        current = self._app.config.video.fps
+        best_idx = len(devices) - 1  # Default to highest
+        for i, d in enumerate(devices):
+            if int(d["device"]) == current:
+                best_idx = i
+                break
+        self._fps_selector.set_selected_index(best_idx)
+        self._updating_ui = False
+
+    def _on_resolution_changed(self, selector, res_str):
+        if self._updating_ui:
+            return
+        w, h = res_str.split("x")
+        self._app.set_resolution(int(w), int(h))
+        # Update FPS options for new resolution (guarded — won't cascade)
+        self._refresh_fps_options()
+
+    def _on_fps_changed(self, selector, fps_str):
+        if self._updating_ui:
+            return
+        self._app.set_fps(int(fps_str))
 
     def _on_model_changed(self, selector, model):
         self._app.set_model(model)
@@ -445,6 +655,58 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_ema_weight(self, s, v):
         self._app.set_ema_weight(v)
+
+    def _on_mirror_toggled(self, t, active):
+        self._app.set_mirror(active)
+
+    def _on_edge_refine_toggled(self, t, active):
+        self._app.set_edge_refine(active)
+
+    # Beauty presets: (skin_smooth, denoise, enhance, sharpen, edge_darken)
+    _BEAUTY_PRESETS = {
+        "natural":   {"skin_smooth": 0.3, "denoise": 0.2, "enhance": 0.2, "sharpen": 0.2, "edge_darken": 0.15},
+        "broadcast": {"skin_smooth": 0.5, "denoise": 0.3, "enhance": 0.4, "sharpen": 0.3, "edge_darken": 0.3},
+        "glamour":   {"skin_smooth": 0.8, "denoise": 0.4, "enhance": 0.6, "sharpen": 0.4, "edge_darken": 0.5},
+        "custom":    None,  # Don't change sliders
+    }
+
+    def _on_beauty_toggled(self, t, active):
+        self._app.set_beautify(active)
+        self._beauty_preset.set_sensitive(active)
+        for ctrl in self._beauty_controls.values():
+            ctrl["toggle"].set_sensitive(active)
+            # Slider enabled only if master + individual toggle both on
+            ctrl["slider"].set_sensitive(active and ctrl["toggle"].active)
+        if active:
+            # Apply current preset
+            self._on_beauty_preset(None, self._beauty_preset.get_selected_device() or "natural")
+
+    def _on_beauty_preset(self, selector, preset_key):
+        values = self._BEAUTY_PRESETS.get(preset_key)
+        if values is None:
+            return  # Custom — don't touch sliders
+        for key, val in values.items():
+            ctrl = self._beauty_controls.get(key)
+            if ctrl:
+                ctrl["toggle"].active = val > 0
+                ctrl["slider"]._scale.set_value(val)
+                ctrl["slider"].set_sensitive(val > 0 and self._beauty_toggle.active)
+                self._app.set_beautify_param(key, val)
+
+    def _on_beauty_effect_toggled(self, toggle, active, key):
+        ctrl = self._beauty_controls[key]
+        ctrl["slider"].set_sensitive(active and self._beauty_toggle.active)
+        if active:
+            self._app.set_beautify_param(key, ctrl["slider"].value)
+        else:
+            self._app.set_beautify_param(key, 0.0)
+        # Switch preset to Custom when user manually toggles
+        self._beauty_preset.set_selected_index(3)  # Custom
+
+    def _on_beauty_effect_value(self, slider, value, key):
+        self._app.set_beautify_param(key, value)
+        # Switch preset to Custom when user manually adjusts
+        self._beauty_preset.set_selected_index(3)  # Custom
 
     def _on_autoframe_toggled(self, t, active):
         self._app.set_autoframe(active)
@@ -555,39 +817,44 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             transient_for=self,
             application_name=APP_NAME,
             application_icon="com.doczeus.NVBroadcast",
-            version="0.1.0",
+            version=__import__("nvbroadcast").__version__,
             developer_name="doczeus",
-            website="https://github.com/doczeus/nvidia-broadcast-linux",
-            issue_url="https://github.com/doczeus/nvidia-broadcast-linux/issues",
+            website="https://github.com/Hkshoonya/nvidia-broadcast-linux",
+            issue_url="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues",
             license_type=Gtk.License.GPL_3_0,
             copyright="Copyright (c) 2026 doczeus",
-            developers=["doczeus https://github.com/doczeus"],
+            developers=["doczeus https://github.com/Hkshoonya"],
             comments=(
                 "AI-powered virtual camera for Linux.\n\n"
                 "Background removal, blur, replacement, auto-framing, "
-                "and noise cancellation using GPU-accelerated deep learning.\n\n"
+                "video enhancement, and noise cancellation.\n"
+                "9 processing modes including Killer, Zeus, and DocZeus "
+                "with fused CUDA kernels and edge refinement.\n\n"
                 "Created by doczeus | AI Powered"
             ),
         )
         about.present()
 
     def rebuild_mode_selector(self, compositing: str, profile: str):
-        """Rebuild the Mode dropdown with currently available backends and select the right one."""
+        """Rebuild the Mode dropdown with currently available backends."""
         from nvbroadcast.core.config import detect_compositing_backends
         backends = detect_compositing_backends()
+        has_cuda = backends.get("cupy", False) or compositing == "cupy"
 
         self._mode_devices = []
-        if backends.get("cupy", False) or compositing == "cupy":
-            self._mode_devices.append({"name": "CUDA GPU - Maximum Quality", "device": "gpu_cuda_best"})
-        if backends.get("gstreamer_gl", False) or compositing == "gstreamer_gl":
-            self._mode_devices.append({"name": "GPU OpenGL - Best Quality", "device": "gpu_quality"})
-            self._mode_devices.append({"name": "GPU OpenGL - Balanced", "device": "gpu_balanced"})
-        self._mode_devices.append({"name": "CPU - High Quality", "device": "cpu_quality"})
+        if has_cuda:
+            self._mode_devices.append({"name": "Killer - NVDEC + TensorRT + Fused CUDA", "device": "killer"})
+            self._mode_devices.append({"name": "Zeus - TensorRT Inference", "device": "zeus"})
+            self._mode_devices.append({"name": "DocZeus - Fused CUDA Kernel", "device": "doczeus"})
+            self._mode_devices.append({"name": "CUDA - Max Quality", "device": "cuda_max"})
+            self._mode_devices.append({"name": "CUDA - Balanced", "device": "cuda_balanced"})
+            self._mode_devices.append({"name": "CUDA - Performance", "device": "cuda_perf"})
+        self._mode_devices.append({"name": "CPU - Quality", "device": "cpu_quality"})
         self._mode_devices.append({"name": "CPU - Light", "device": "cpu_light"})
-        self._mode_devices.append({"name": "Low-End System", "device": "low_end"})
+        self._mode_devices.append({"name": "CPU - Low End", "device": "cpu_low"})
 
         self._profile_selector.set_devices(self._mode_devices)
-        self._profile_selector.connect("device-changed", self._on_mode_changed_selector)
+        # Signal already connected in _build_camera_section — don't duplicate
 
         mode_key = self._profile_and_comp_to_mode(profile, compositing)
         for i, d in enumerate(self._mode_devices):
@@ -595,8 +862,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 self._profile_selector.set_selected_index(i)
                 break
 
+    def _on_freeze_toggled(self, btn):
+        self._preview_frozen = btn.get_active()
+        btn.set_label("Resume View" if self._preview_frozen else "Pause View")
+
+    def _on_hide_toggled(self, btn):
+        hidden = btn.get_active()
+        self._preview_frame.set_visible(not hidden)
+        btn.set_label("Show Preview" if hidden else "Hide Preview")
+        self._freeze_btn.set_sensitive(not hidden)
+
     def update_preview(self, texture):
-        self._preview.update_texture(texture)
+        if not self._preview_frozen:
+            self._preview.update_texture(texture)
 
     def set_status(self, text: str):
         self._status_bar.set_text(text)

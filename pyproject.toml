@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nvbroadcast"
-version = "0.1.0"
+version = "0.2.0"
 description = "NVIDIA Broadcast for Linux by doczeus - AI-powered virtual camera, background removal, and noise cancellation"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11"
@@ -32,6 +32,7 @@ dependencies = [
     "mediapipe>=0.10",
     "onnxruntime-gpu>=1.16",
     "pyrnnoise>=0.4",
+    "psutil>=5.9",
     "nvidia-cublas-cu12",
     "nvidia-cuda-runtime-cu12",
     "nvidia-cudnn-cu12",
@@ -44,13 +45,14 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/doczeus/nvidia-broadcast-linux"
-Repository = "https://github.com/doczeus/nvidia-broadcast-linux"
-Issues = "https://github.com/doczeus/nvidia-broadcast-linux/issues"
+Homepage = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
+Repository = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
+Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 
 [project.optional-dependencies]
 cuda = ["pycuda>=2024.1"]
 maxine = ["nvidia-vfx"]
+tensorrt = ["tensorrt", "tensorrt-cu12", "onnx"]
 
 [project.scripts]
 nvbroadcast = "nvbroadcast.__main__:main"
