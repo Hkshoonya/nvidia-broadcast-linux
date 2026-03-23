@@ -1,0 +1,10 @@
+# Force LF line endings for all text files
+* text=auto eol=lf
+
+# Explicitly mark binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.svg binary
+*.onnx binary
+*.tflite binary
