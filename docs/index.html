@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NV Broadcast - NVIDIA Broadcast for Linux by Doczeus</title>
+<meta name="description" content="AI-powered virtual camera with background removal, noise cancellation, and video enhancement for Linux. 9 processing modes from 48fps killer to CPU fallback.">
+<meta name="author" content="Doczeus">
+<meta name="keywords" content="nvidia broadcast, linux, virtual camera, background removal, noise cancellation, doczeus">
+<meta property="og:title" content="NV Broadcast - NVIDIA Broadcast for Linux">
+<meta property="og:description" content="AI-powered virtual camera with background removal, auto-frame, and video enhancement. 9 GPU/CPU modes. Open source by Doczeus.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hkshoonya.github.io/nvidia-broadcast-linux/">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='20' fill='%23111'/%3E%3Ccircle cx='64' cy='70' r='6' fill='%2376b900'/%3E%3C/svg%3E">
+<style>
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Tokens ── */
+:root {
+  --bg: #fafafa;
+  --bg-alt: #f0f0f0;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --text: #111111;
+  --text-secondary: #555555;
+  --text-muted: #777777;
+  --border: #d8d8d8;
+  --border-subtle: #e8e8e8;
+  --accent: #76b900;
+  --accent-hover: #8ad400;
+  --accent-text: #4a7400;
+  --accent-surface: #76b90012;
+  --code-bg: #f0f0f0;
+  --code-text: #1a1a1a;
+  --terminal-bg: #111111;
+  --terminal-text: #d4d4d4;
+  --terminal-border: #333333;
+  --card-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  --card-shadow-hover: 0 4px 12px rgba(0,0,0,0.1);
+  --red: #cc3333;
+  --rec-glow: #ff3333;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0c0c;
+    --bg-alt: #111111;
+    --surface: #161616;
+    --surface-raised: #1c1c1c;
+    --text: #e8e8e8;
+    --text-secondary: #999999;
+    --text-muted: #666666;
+    --border: #2a2a2a;
+    --border-subtle: #222222;
+    --accent: #76b900;
+    --accent-hover: #8ad400;
+    --accent-text: #76b900;
+    --accent-surface: #76b90010;
+    --code-bg: #1a1a1a;
+    --code-text: #d4d4d4;
+    --terminal-bg: #0a0a0a;
+    --terminal-border: #2a2a2a;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    --card-shadow-hover: 0 4px 16px rgba(0,0,0,0.4);
+  }
+}
+
+/* ── Base ── */
+html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+img { max-width: 100%; display: block; }
+code { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace; }
+
+/* ── Layout ── */
+.container { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+.section { padding: 96px 0; }
+.section-alt { background: var(--bg-alt); }
+
+/* ── Nav ── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+nav .container {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 56px;
+}
+.nav-brand {
+  display: flex; align-items: center; gap: 12px;
+  text-decoration: none; color: var(--text);
+}
+.nav-brand svg { width: 32px; height: 32px; }
+.nav-brand span { font-weight: 700; font-size: 15px; letter-spacing: 0.5px; }
+.nav-links { display: flex; align-items: center; gap: 28px; }
+.nav-links a {
+  font-size: 14px; font-weight: 500; color: var(--text-secondary);
+  text-decoration: none; transition: color 0.2s;
+}
+.nav-links a:hover { color: var(--accent); text-decoration: none; }
+.nav-cta {
+  background: var(--accent) !important; color: #000 !important;
+  padding: 7px 18px; border-radius: 6px; font-weight: 600; font-size: 13px;
+  transition: background 0.2s;
+}
+.nav-cta:hover { background: var(--accent-hover) !important; }
+
+/* ── Hero ── */
+.hero {
+  padding: 160px 0 100px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.hero > .container { position: relative; z-index: 1; }
+.hero-icon {
+  width: 88px; height: 88px;
+  margin: 0 auto 32px;
+}
+.hero-icon svg { width: 100%; height: 100%; }
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 16px;
+}
+.hero h1 .accent { color: var(--accent); }
+.hero .subtitle {
+  font-size: clamp(1rem, 2.5vw, 1.2rem);
+  color: var(--text-secondary);
+  max-width: 560px;
+  margin: 0 auto 40px;
+  line-height: 1.6;
+}
+.hero-ctas {
+  display: flex; align-items: center; justify-content: center;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 48px;
+}
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 28px; border-radius: 8px;
+  font-weight: 600; font-size: 15px;
+  text-decoration: none; cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+.btn:hover { text-decoration: none; }
+.btn-primary {
+  background: var(--accent); color: #000; border-color: var(--accent);
+}
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-secondary {
+  background: transparent; color: var(--text);
+  border-color: var(--border);
+}
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+.btn-icon { width: 18px; height: 18px; }
+
+/* ── Terminal ── */
+.terminal {
+  max-width: 640px; margin: 0 auto;
+  background: var(--terminal-bg);
+  border: 1px solid var(--terminal-border);
+  border-radius: 10px;
+  overflow: hidden;
+  text-align: left;
+}
+.terminal-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--terminal-border);
+}
+.terminal-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+}
+.terminal-dot.r { background: #ff5f57; }
+.terminal-dot.y { background: #febc2e; }
+.terminal-dot.g { background: #28c840; }
+.terminal-bar span {
+  flex: 1; text-align: center;
+  font-size: 12px; color: #666; font-weight: 500;
+}
+.terminal-body {
+  padding: 16px 20px;
+  font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--terminal-text);
+  min-height: 80px;
+}
+.terminal-line { white-space: nowrap; overflow: hidden; }
+.terminal-line .prompt { color: var(--accent); }
+.terminal-line .cmd { color: #e8e8e8; }
+.terminal-line .comment { color: #555; }
+.cursor {
+  display: inline-block; width: 8px; height: 16px;
+  background: var(--accent); vertical-align: text-bottom;
+  animation: blink-cursor 1s step-end infinite;
+}
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ── Hero Scene: Raw → Distorted → Enhanced ── */
+.hero-scene {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.scene-frame {
+  position: absolute;
+  width: 280px;
+  height: 170px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.scene-screen {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.scene-person { position: relative; z-index: 1; }
+.scene-person .p-head {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  margin: 0 auto 2px;
+}
+.scene-person .p-body {
+  width: 44px; height: 50px;
+  border-radius: 22px 22px 6px 6px;
+}
+.scene-label {
+  position: absolute;
+  bottom: 10px; left: 0; right: 0;
+  text-align: center;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+/* Raw frame */
+.frame-raw {
+  top: 16%; left: 6%;
+  transform: rotate(-5deg);
+  animation: float-a 7s ease-in-out infinite, vis-raw 10s ease-in-out infinite;
+}
+.frame-raw .scene-screen {
+  background: rgba(100,100,100,0.12);
+  border: 2px solid rgba(120,120,120,0.3);
+}
+.frame-raw .p-head { background: rgba(120,120,120,0.4); }
+.frame-raw .p-body { background: rgba(120,120,120,0.3); }
+.frame-raw .scene-label { color: var(--text-muted); }
+.frame-raw .scene-screen::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 18% 28%, rgba(100,100,100,0.2) 10px, transparent 10px),
+    radial-gradient(circle at 72% 22%, rgba(100,100,100,0.15) 14px, transparent 14px),
+    radial-gradient(circle at 82% 65%, rgba(100,100,100,0.18) 8px, transparent 8px),
+    radial-gradient(circle at 12% 72%, rgba(100,100,100,0.12) 12px, transparent 12px);
+}
+
+/* Distorted frame */
+.frame-bad {
+  top: 40%; left: 50%;
+  transform: translateX(-50%) rotate(1deg);
+  animation: float-b 6s ease-in-out infinite, vis-bad 10s ease-in-out infinite;
+}
+.frame-bad .scene-screen {
+  background: rgba(200,50,50,0.1);
+  border: 2px solid rgba(200,80,80,0.4);
+}
+.frame-bad .p-head { background: rgba(200,80,80,0.4); }
+.frame-bad .p-body { background: rgba(200,80,80,0.3); }
+.frame-bad .scene-label { color: rgba(200,80,80,0.9); }
+.frame-bad .scene-screen::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    0deg, transparent, transparent 2px,
+    rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 4px
+  );
+  z-index: 2;
+  animation: scanline-drift 4s linear infinite;
+}
+@keyframes scanline-drift {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(4px); }
+}
+.frame-bad .scene-screen::after {
+  content: '';
+  position: absolute; inset: 0;
+  z-index: 3;
+  animation: rgb-shift 3s step-end infinite;
+}
+@keyframes rgb-shift {
+  0%, 85% { box-shadow: inset 3px 0 rgba(255,0,0,0.2), inset -3px 0 rgba(0,200,255,0.2); }
+  88% { box-shadow: inset -5px 0 rgba(255,0,0,0.3), inset 5px 0 rgba(0,200,255,0.3); }
+  92% { box-shadow: inset 2px 0 rgba(255,0,0,0.15), inset -2px 0 rgba(0,200,255,0.15); }
+  95% { box-shadow: inset -6px 0 rgba(255,0,0,0.25), inset 6px 0 rgba(0,200,255,0.25); }
+}
+
+/* Enhanced frame */
+.frame-good {
+  top: 12%; right: 6%;
+  transform: rotate(4deg);
+  animation: float-c 8s ease-in-out infinite, vis-good 10s ease-in-out infinite;
+}
+.frame-good .scene-screen {
+  background: rgba(118,185,0,0.08);
+  border: 2px solid rgba(118,185,0,0.5);
+}
+.frame-good .p-head { background: rgba(118,185,0,0.45); }
+.frame-good .p-body { background: rgba(118,185,0,0.35); }
+.frame-good .scene-label { color: var(--accent); }
+.frame-good .scene-screen::before {
+  content: '';
+  position: absolute; inset: -1px;
+  border-radius: 12px;
+  box-shadow: 0 0 30px rgba(118,185,0,0.2), 0 0 60px rgba(118,185,0,0.1);
+}
+
+/* Float animations */
+@keyframes float-a {
+  0%, 100% { transform: rotate(-5deg) translateY(0); }
+  50% { transform: rotate(-5deg) translateY(-10px); }
+}
+@keyframes float-b {
+  0%, 100% { transform: translateX(-50%) rotate(1deg) translateY(0); }
+  50% { transform: translateX(-50%) rotate(1deg) translateY(-8px); }
+}
+@keyframes float-c {
+  0%, 100% { transform: rotate(4deg) translateY(0); }
+  50% { transform: rotate(4deg) translateY(-12px); }
+}
+
+/* Sequential highlight: Raw → Bad → Good */
+@keyframes vis-raw {
+  0%, 3% { opacity: 0.08; }
+  8%, 28% { opacity: 0.55; }
+  33%, 100% { opacity: 0.08; }
+}
+@keyframes vis-bad {
+  0%, 33% { opacity: 0.08; }
+  38%, 58% { opacity: 0.55; }
+  63%, 100% { opacity: 0.08; }
+}
+@keyframes vis-good {
+  0%, 63% { opacity: 0.08; }
+  68%, 92% { opacity: 0.65; }
+  97%, 100% { opacity: 0.08; }
+}
+
+/* Sponsor button */
+.btn-sponsor {
+  background: transparent; color: var(--text);
+  border-color: #db61a2;
+}
+.btn-sponsor:hover { border-color: #db61a2; color: #db61a2; }
+.btn-sponsor svg { fill: #db61a2; }
+
+/* ── Broadcast wave animation on icon ── */
+.wave { transition: opacity 0.3s; }
+@keyframes wave-pulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.7; }
+}
+.wave-1 { animation: wave-pulse 2.4s ease-in-out infinite; }
+.wave-2 { animation: wave-pulse 2.4s ease-in-out 0.4s infinite; }
+.wave-3 { animation: wave-pulse 2.4s ease-in-out 0.8s infinite; }
+@keyframes rec-blink {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.15; }
+}
+.rec-dot { animation: rec-blink 1.6s ease-in-out infinite; }
+
+/* ── Scroll reveal ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.reveal-delay-1 { transition-delay: 0.1s; }
+.reveal-delay-2 { transition-delay: 0.2s; }
+.reveal-delay-3 { transition-delay: 0.3s; }
+.reveal-delay-4 { transition-delay: 0.4s; }
+.reveal-delay-5 { transition-delay: 0.5s; }
+
+/* ── Section headers ── */
+.section-tag {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  text-transform: uppercase; letter-spacing: 2px;
+  margin-bottom: 12px;
+}
+.section-title {
+  font-size: clamp(1.5rem, 3.5vw, 2.2rem);
+  font-weight: 800; letter-spacing: -0.02em;
+  margin-bottom: 12px;
+}
+.section-desc {
+  font-size: 16px; color: var(--text-secondary);
+  max-width: 520px; margin: 0 auto 48px;
+  text-align: center;
+}
+
+/* ── Feature grid ── */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+.feature-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+}
+.feature-card:hover {
+  box-shadow: var(--card-shadow-hover);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.feature-icon {
+  width: 40px; height: 40px;
+  background: var(--accent-surface);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 16px;
+  font-size: 18px;
+}
+.feature-card h3 {
+  font-size: 16px; font-weight: 700;
+  margin-bottom: 8px;
+}
+.feature-card p {
+  font-size: 14px; color: var(--text-secondary); line-height: 1.6;
+}
+
+/* ── App Preview ── */
+.preview-window {
+  max-width: 720px; margin: 0 auto;
+  background: #1a1a1a;
+  border-radius: 12px;
+  border: 1px solid #333;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.25);
+}
+.preview-titlebar {
+  display: flex; align-items: center;
+  padding: 10px 16px;
+  background: #111;
+  border-bottom: 1px solid #333;
+  gap: 10px;
+}
+.preview-titlebar .dots { display: flex; gap: 6px; }
+.preview-titlebar .dot { width: 10px; height: 10px; border-radius: 50%; }
+.preview-titlebar .dot-r { background: #ff5f57; }
+.preview-titlebar .dot-y { background: #febc2e; }
+.preview-titlebar .dot-g { background: #28c840; }
+.preview-titlebar .title {
+  flex: 1; text-align: center;
+  font-size: 12px; color: #888; font-weight: 600;
+}
+.preview-titlebar .title .nv { color: #76b900; }
+.preview-content { padding: 16px; }
+.preview-video {
+  background: #000;
+  border-radius: 8px;
+  aspect-ratio: 16/9;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #2a2a2a;
+}
+.preview-video .silhouette {
+  position: relative; width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+}
+.preview-video .person {
+  width: 100px; height: 140px;
+  background: #76b90020;
+  border: 2px solid #76b90050;
+  border-radius: 50% 50% 8px 8px;
+  position: relative;
+}
+.preview-video .person::before {
+  content: '';
+  width: 50px; height: 50px;
+  background: #76b90025;
+  border: 2px solid #76b90050;
+  border-radius: 50%;
+  position: absolute; top: -30px; left: 50%; transform: translateX(-50%);
+}
+.preview-video .badge-live {
+  position: absolute; top: 12px; right: 12px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px; font-weight: 700;
+  padding: 3px 8px; border-radius: 4px;
+  letter-spacing: 1px;
+  animation: rec-blink 1.6s ease-in-out infinite;
+}
+.preview-video .badge-mode {
+  position: absolute; bottom: 12px; left: 12px;
+  background: #76b900;
+  color: #000;
+  font-size: 10px; font-weight: 700;
+  padding: 3px 10px; border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+.preview-video .badge-fps {
+  position: absolute; bottom: 12px; right: 12px;
+  background: #222;
+  color: #76b900;
+  font-size: 10px; font-weight: 600;
+  padding: 3px 8px; border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  border: 1px solid #333;
+}
+.preview-controls {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 10px; margin-top: 14px;
+}
+.preview-ctrl {
+  background: #222;
+  border-radius: 6px;
+  padding: 10px 14px;
+  border: 1px solid #333;
+}
+.preview-ctrl .label {
+  font-size: 10px; color: #76b900; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+.preview-ctrl .value {
+  font-size: 13px; color: #ccc; font-weight: 500;
+}
+.preview-status {
+  margin-top: 10px;
+  padding: 8px 14px;
+  background: #111;
+  border-radius: 6px;
+  border: 1px solid #222;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.preview-status .left {
+  font-size: 11px; color: #76b900; font-weight: 600;
+}
+.preview-status .right {
+  font-size: 11px; color: #666; font-family: ui-monospace, monospace;
+}
+
+/* ── Modes grid ── */
+.modes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.mode-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
+}
+.mode-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-2px);
+}
+.mode-card.featured {
+  border-color: var(--accent);
+  background: var(--accent-surface);
+}
+.mode-name {
+  font-size: 15px; font-weight: 700; margin-bottom: 4px;
+}
+.mode-badge {
+  display: inline-block;
+  font-size: 10px; font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+.mode-fps {
+  font-size: 28px; font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.mode-fps-label {
+  font-size: 12px; color: var(--text-muted); font-weight: 500;
+}
+.mode-detail {
+  font-size: 12px; color: var(--text-secondary);
+  margin-top: 10px; line-height: 1.5;
+}
+.mode-tag {
+  display: inline-block;
+  font-size: 10px; font-weight: 600;
+  padding: 2px 8px; border-radius: 4px;
+  margin-top: 8px;
+}
+.mode-tag.gpu {
+  background: var(--accent-surface); color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.mode-tag.cpu {
+  background: var(--bg-alt); color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+/* ── Pipeline ── */
+.pipeline {
+  display: flex; align-items: center; justify-content: center;
+  gap: 0; flex-wrap: wrap;
+  margin: 0 auto; max-width: 800px;
+}
+.pipeline-step {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 16px 20px; min-width: 120px;
+}
+.pipeline-step .icon {
+  width: 44px; height: 44px;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  margin-bottom: 8px;
+  background: var(--accent-surface);
+}
+.pipeline-step .step-label {
+  font-size: 12px; font-weight: 700;
+  color: var(--text);
+  text-align: center;
+}
+.pipeline-step .step-detail {
+  font-size: 11px; color: var(--text-muted); text-align: center;
+}
+.pipeline-arrow {
+  font-size: 18px; color: var(--accent);
+  font-weight: 700; padding: 0 4px;
+  align-self: center;
+}
+
+/* ── Install section ── */
+.install-tabs {
+  display: flex; justify-content: center;
+  gap: 8px; margin-bottom: 28px; flex-wrap: wrap;
+}
+.install-tab {
+  padding: 8px 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+.install-tab:hover { border-color: var(--accent); color: var(--accent); }
+.install-tab.active {
+  background: var(--accent); color: #000;
+  border-color: var(--accent);
+}
+.install-block {
+  max-width: 640px; margin: 0 auto;
+}
+.install-block .terminal { margin-bottom: 16px; }
+.install-pane { display: none; }
+.install-pane.active { display: block; }
+.copy-btn {
+  position: absolute; top: 8px; right: 8px;
+  background: #333; border: 1px solid #444;
+  color: #ccc; padding: 4px 10px;
+  border-radius: 4px; font-size: 11px;
+  cursor: pointer; font-weight: 600;
+  transition: all 0.2s;
+}
+.copy-btn:hover { background: #444; color: #fff; }
+.copy-btn.copied { background: var(--accent); color: #000; border-color: var(--accent); }
+.terminal-body { position: relative; }
+.install-note {
+  text-align: center;
+  font-size: 13px; color: var(--text-muted);
+  margin-top: 16px;
+}
+.install-note a { color: var(--accent-text); }
+
+/* ── Requirements ── */
+.req-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px; max-width: 800px; margin: 40px auto 0;
+}
+.req-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+.req-card h4 {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  text-transform: uppercase; letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.req-card ul {
+  list-style: none;
+  font-size: 13px; color: var(--text-secondary); line-height: 1.8;
+}
+.req-card li::before {
+  content: ''; display: inline-block;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  margin-right: 8px; vertical-align: middle;
+}
+
+/* ── Footer ── */
+footer {
+  padding: 48px 0;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+.footer-brand { margin-bottom: 16px; }
+.footer-brand svg { margin: 0 auto; }
+.footer-links {
+  display: flex; align-items: center; justify-content: center;
+  gap: 24px; margin-bottom: 16px;
+}
+.footer-links a {
+  font-size: 13px; font-weight: 500; color: var(--text-secondary);
+}
+.footer-links a:hover { color: var(--accent); }
+.footer-copy {
+  font-size: 12px; color: var(--text-muted);
+}
+
+/* ── Misc ── */
+.text-center { text-align: center; }
+.mono { font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .nav-links a:not(.nav-cta) { display: none; }
+  .hero-scene { display: none; }
+  .hero { padding: 120px 0 64px; }
+  .section { padding: 64px 0; }
+  .features-grid { grid-template-columns: 1fr; }
+  .modes-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .preview-controls { grid-template-columns: 1fr; }
+  .pipeline { flex-direction: column; }
+  .pipeline-arrow { transform: rotate(90deg); }
+  .req-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .hero-ctas { flex-direction: column; }
+  .btn { width: 100%; justify-content: center; }
+  .modes-grid { grid-template-columns: 1fr 1fr; }
+  .mode-fps { font-size: 22px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ─── Nav ─── -->
+<nav>
+  <div class="container">
+    <a href="#" class="nav-brand">
+      <svg viewBox="0 0 128 128" width="32" height="32">
+        <rect width="128" height="128" rx="20" fill="#111"/>
+        <path d="M 40 64 A 24 24 0 0 1 88 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+        <rect x="38" y="52" width="52" height="36" rx="6" fill="none" stroke="#76b900" stroke-width="3"/>
+        <circle cx="64" cy="70" r="6" fill="#76b900"/>
+      </svg>
+      <span>NV Broadcast</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#modes">Modes</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/sponsors/Hkshoonya" target="_blank" rel="noopener" style="color:#db61a2">Sponsor</a>
+      <a href="#install" class="nav-cta">Download</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ─── Hero ─── -->
+<section class="hero">
+  <!-- Background: Raw → Distorted → Enhanced progression -->
+  <div class="hero-scene" aria-hidden="true">
+    <div class="scene-frame frame-raw">
+      <div class="scene-screen">
+        <div class="scene-person"><div class="p-head"></div><div class="p-body"></div></div>
+      </div>
+      <div class="scene-label">Raw Feed</div>
+    </div>
+    <div class="scene-frame frame-bad">
+      <div class="scene-screen">
+        <div class="scene-person"><div class="p-head"></div><div class="p-body"></div></div>
+      </div>
+      <div class="scene-label">No Processing</div>
+    </div>
+    <div class="scene-frame frame-good">
+      <div class="scene-screen">
+        <div class="scene-person"><div class="p-head"></div><div class="p-body"></div></div>
+      </div>
+      <div class="scene-label">NV Broadcast</div>
+    </div>
+  </div>
+  <div class="container">
+
+    <div class="hero-icon reveal">
+      <svg viewBox="0 0 128 128">
+        <rect width="128" height="128" rx="20" fill="#111"/>
+        <path class="wave wave-1" d="M 24 64 A 40 40 0 0 1 104 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round"/>
+        <path class="wave wave-2" d="M 32 64 A 32 32 0 0 1 96 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round"/>
+        <path class="wave wave-3" d="M 40 64 A 24 24 0 0 1 88 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round"/>
+        <rect x="38" y="52" width="52" height="36" rx="6" fill="none" stroke="#76b900" stroke-width="3"/>
+        <circle cx="64" cy="70" r="12" fill="none" stroke="#76b900" stroke-width="2.5"/>
+        <circle cx="64" cy="70" r="6" fill="#76b900"/>
+        <rect x="50" y="48" width="16" height="6" rx="2" fill="#76b900" opacity="0.6"/>
+        <circle class="rec-dot" cx="82" cy="58" r="3" fill="#ff3333"/>
+        <path d="M 40 100 Q 64 112 88 100" fill="none" stroke="#76b900" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="64" cy="103" r="2.5" fill="#76b900"/>
+      </svg>
+    </div>
+
+    <h1 class="reveal reveal-delay-1">
+      NVIDIA Broadcast<br>for <span class="accent">Linux</span>
+    </h1>
+    <p class="subtitle reveal reveal-delay-2">
+      AI-powered virtual camera with background removal, auto-frame, video enhancement, and noise cancellation. 9 processing modes from 48 fps to CPU fallback.
+    </p>
+
+    <div class="hero-ctas reveal reveal-delay-3">
+      <a href="#install" class="btn btn-primary">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Install Now
+      </a>
+      <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux" target="_blank" rel="noopener" class="btn btn-secondary">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        View on GitHub
+      </a>
+      <a href="https://github.com/sponsors/Hkshoonya" target="_blank" rel="noopener" class="btn btn-sponsor">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="#db61a2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+        Sponsor
+      </a>
+    </div>
+
+    <div class="terminal reveal reveal-delay-4" id="hero-terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot r"></div>
+        <div class="terminal-dot y"></div>
+        <div class="terminal-dot g"></div>
+        <span>Terminal</span>
+      </div>
+      <div class="terminal-body">
+        <div class="terminal-line" id="term-line-1">
+          <span class="prompt">$ </span><span class="cmd" id="term-cmd-1"></span>
+        </div>
+        <div class="terminal-line" id="term-line-2" style="display:none">
+          <span class="prompt">$ </span><span class="cmd" id="term-cmd-2"></span>
+        </div>
+        <div class="terminal-line" id="term-line-3" style="display:none">
+          <span class="prompt">$ </span><span class="cmd" id="term-cmd-3"></span>
+        </div>
+        <span class="cursor" id="hero-cursor"></span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ─── Features ─── -->
+<section id="features" class="section section-alt">
+  <div class="container text-center">
+    <div class="section-tag reveal">Features</div>
+    <h2 class="section-title reveal">Everything NVIDIA Broadcast does, on Linux</h2>
+    <p class="section-desc reveal">Real-time AI processing with ONNX Runtime CUDA, CuPy compositing, and GStreamer pipelines. Works with Chrome, Zoom, OBS, and Discord.</p>
+
+    <div class="features-grid">
+
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </div>
+        <h3>Background Removal</h3>
+        <p>Three AI models: RVM for speed, IS-Net for objects, BiRefNet for edge quality. Real-time alpha matting with sigmoid refinement and dilate smoothing.</p>
+      </div>
+
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+        </div>
+        <h3>Virtual Camera</h3>
+        <p>v4l2loopback output on /dev/video10. Works with Chrome, Firefox, Zoom, OBS, Discord. MJPEG and YUY2 format support with exclusive_caps.</p>
+      </div>
+
+      <div class="feature-card reveal reveal-delay-2">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        </div>
+        <h3>Video Enhancement</h3>
+        <p>Five effects: skin smooth, denoise, enhance, sharpen, edge darken. Four presets: Natural, Broadcast, Glamour, Custom. MediaPipe face detection at half-res.</p>
+      </div>
+
+      <div class="feature-card reveal reveal-delay-3">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>
+        </div>
+        <h3>Auto-Frame</h3>
+        <p>Face tracking keeps you centered in frame. Smooth pan with configurable speed. Works with all processing modes and resolutions.</p>
+      </div>
+
+      <div class="feature-card reveal reveal-delay-4">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <h3>Edge Refiner</h3>
+        <p>Second neural network pass at 720p for hair and edge detail. 89.9% quality recovery. 80/20 temporal blending on skip frames for smooth output.</p>
+      </div>
+
+      <div class="feature-card reveal reveal-delay-5">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+        </div>
+        <h3>System Tray + Power Save</h3>
+        <p>AyatanaAppIndicator system tray with start/stop/quit. Camera power save polls /dev/video10 and auto-pauses when no consumer is connected.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─── App Preview ─── -->
+<section id="preview" class="section">
+  <div class="container text-center">
+    <div class="section-tag reveal">Preview</div>
+    <h2 class="section-title reveal">GTK4 + Adwaita, built for Linux</h2>
+    <p class="section-desc reveal">Dark-themed native interface with resizable preview, real-time controls, and status monitoring.</p>
+
+    <div class="preview-window reveal reveal-delay-1">
+      <div class="preview-titlebar">
+        <div class="dots">
+          <div class="dot dot-r"></div>
+          <div class="dot dot-y"></div>
+          <div class="dot dot-g"></div>
+        </div>
+        <div class="title"><span class="nv">NV</span> Broadcast</div>
+        <div style="width:50px"></div>
+      </div>
+      <div class="preview-content">
+        <div class="preview-video">
+          <div class="silhouette">
+            <div class="person"></div>
+          </div>
+          <div class="badge-live">REC</div>
+          <div class="badge-mode">ZEUS MODE</div>
+          <div class="badge-fps">33 fps</div>
+        </div>
+        <div class="preview-controls">
+          <div class="preview-ctrl">
+            <div class="label">Processing</div>
+            <div class="value">Zeus (480p + CuPy)</div>
+          </div>
+          <div class="preview-ctrl">
+            <div class="label">Camera</div>
+            <div class="value">EMEET SmartCam S600</div>
+          </div>
+          <div class="preview-ctrl">
+            <div class="label">Resolution</div>
+            <div class="value">1920 x 1080 @ 30fps</div>
+          </div>
+          <div class="preview-ctrl">
+            <div class="label">Background</div>
+            <div class="value">Blur (Strength: 70%)</div>
+          </div>
+        </div>
+        <div class="preview-status">
+          <div class="left">Broadcasting to /dev/video10</div>
+          <div class="right">GPU: RTX 3080 | VRAM: 1.2 GB</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Pipeline ─── -->
+<section class="section section-alt">
+  <div class="container text-center">
+    <div class="section-tag reveal">How It Works</div>
+    <h2 class="section-title reveal">Camera to virtual output in milliseconds</h2>
+    <p class="section-desc reveal">GStreamer captures, ONNX Runtime infers, CuPy composites, v4l2loopback outputs.</p>
+
+    <div class="pipeline reveal reveal-delay-1">
+      <div class="pipeline-step">
+        <div class="icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </div>
+        <div class="step-label">Camera</div>
+        <div class="step-detail">MJPEG capture</div>
+      </div>
+      <div class="pipeline-arrow">&rarr;</div>
+      <div class="pipeline-step">
+        <div class="icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
+        <div class="step-label">GStreamer</div>
+        <div class="step-detail">Decode + appsink</div>
+      </div>
+      <div class="pipeline-arrow">&rarr;</div>
+      <div class="pipeline-step">
+        <div class="icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5"/></svg>
+        </div>
+        <div class="step-label">AI Inference</div>
+        <div class="step-detail">ONNX + CUDA</div>
+      </div>
+      <div class="pipeline-arrow">&rarr;</div>
+      <div class="pipeline-step">
+        <div class="icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </div>
+        <div class="step-label">Composite</div>
+        <div class="step-detail">Fused CUDA kernel</div>
+      </div>
+      <div class="pipeline-arrow">&rarr;</div>
+      <div class="pipeline-step">
+        <div class="icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M15.6 11.6L22 7v10l-6.4-4.5v-1zM4 5h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7c0-1.1.9-2 2-2z"/></svg>
+        </div>
+        <div class="step-label">Virtual Cam</div>
+        <div class="step-detail">v4l2loopback</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Modes ─── -->
+<section id="modes" class="section">
+  <div class="container text-center">
+    <div class="section-tag reveal">Performance</div>
+    <h2 class="section-title reveal">9 modes, from killer to potato</h2>
+    <p class="section-desc reveal">Real benchmark numbers at 1080p. Pick the mode that fits your GPU. All numbers measured on RTX 3080.</p>
+
+    <div class="modes-grid">
+
+      <div class="mode-card featured reveal">
+        <div class="mode-name">Killer</div>
+        <div class="mode-badge">360p + Fused CUDA</div>
+        <div class="mode-fps">48</div>
+        <div class="mode-fps-label">fps @ 1080p</div>
+        <div class="mode-detail">20 ms frame time<br>TensorRT + Fused kernel</div>
+        <span class="mode-tag gpu">GPU</span>
+      </div>
+
+      <div class="mode-card featured reveal reveal-delay-1">
+        <div class="mode-name">Zeus</div>
+        <div class="mode-badge">480p + CuPy</div>
+        <div class="mode-fps">33</div>
+        <div class="mode-fps-label">fps @ 1080p</div>
+        <div class="mode-detail">30 ms frame time<br>TensorRT optimized</div>
+        <span class="mode-tag gpu">GPU</span>
+      </div>
+
+      <div class="mode-card featured reveal reveal-delay-2">
+        <div class="mode-name">DocZeus</div>
+        <div class="mode-badge">720p + Fused CUDA</div>
+        <div class="mode-fps">23</div>
+        <div class="mode-fps-label">fps @ 1080p</div>
+        <div class="mode-detail">44 ms frame time<br>Max quality fused</div>
+        <span class="mode-tag gpu">GPU</span>
+      </div>
+
+      <div class="mode-card reveal">
+        <div class="mode-name">CUDA Max</div>
+        <div class="mode-badge">720p Quality</div>
+        <div class="mode-fps">22</div>
+        <div class="mode-fps-label">fps @ 1080p</div>
+        <div class="mode-detail">45 ms frame time<br>Full resolution inference</div>
+        <span class="mode-tag gpu">GPU</span>
+      </div>
+
+      <div class="mode-card reveal reveal-delay-1">
+        <div class="mode-name">CUDA Balanced</div>
+        <div class="mode-badge">720p skip 2</div>
+        <div class="mode-fps">34</div>
+        <div class="mode-fps-label">fps @ 1080p</div>
+        <div class="mode-detail">29 ms avg<br>67% effects ratio</div>
+        <span class="mode-tag gpu">GPU</span>
+      </div>
+
+      <div class="mode-card reveal reveal-delay-2">
+        <div class="mode-name">CUDA Perf</div>
+        <div class="mode-badge">720p skip 2</div>
+        <div class="mode-fps">33</div>
+        <div class="mode-fps-label">fps @ 1080p</div>
+        <div class="mode-detail">30 ms avg<br>50% effects ratio</div>
+        <span class="mode-tag gpu">GPU</span>
+      </div>
+
+      <div class="mode-card reveal">
+        <div class="mode-name">CPU Quality</div>
+        <div class="mode-badge">720p OpenCV</div>
+        <div class="mode-fps">15</div>
+        <div class="mode-fps-label">fps @ 1080p</div>
+        <div class="mode-detail">66 ms frame time<br>SIMD optimized</div>
+        <span class="mode-tag cpu">CPU</span>
+      </div>
+
+      <div class="mode-card reveal reveal-delay-1">
+        <div class="mode-name">CPU Light</div>
+        <div class="mode-badge">720p skip 2</div>
+        <div class="mode-fps">33</div>
+        <div class="mode-fps-label">fps @ 1080p</div>
+        <div class="mode-detail">30 ms avg<br>Frame reuse</div>
+        <span class="mode-tag cpu">CPU</span>
+      </div>
+
+      <div class="mode-card reveal reveal-delay-2">
+        <div class="mode-name">CPU Low End</div>
+        <div class="mode-badge">720p skip 3</div>
+        <div class="mode-fps">37</div>
+        <div class="mode-fps-label">fps @ 1080p</div>
+        <div class="mode-detail">27 ms avg<br>Maximum skip</div>
+        <span class="mode-tag cpu">CPU</span>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─── Install ─── -->
+<section id="install" class="section section-alt">
+  <div class="container text-center">
+    <div class="section-tag reveal">Install</div>
+    <h2 class="section-title reveal">One command, any distro</h2>
+    <p class="section-desc reveal" id="os-detect-msg">Detecting your system...</p>
+
+    <div class="install-tabs reveal reveal-delay-1" id="install-tabs">
+      <button class="install-tab active" data-tab="source">Source Install</button>
+      <button class="install-tab" data-tab="deb">Debian / Ubuntu</button>
+      <button class="install-tab" data-tab="rpm">Fedora / RHEL</button>
+      <button class="install-tab" data-tab="arch">Arch</button>
+    </div>
+
+    <div class="install-block reveal reveal-delay-2">
+
+      <!-- Source -->
+      <div class="install-pane active" id="pane-source">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot r"></div>
+            <div class="terminal-dot y"></div>
+            <div class="terminal-dot g"></div>
+            <span>bash</span>
+          </div>
+          <div class="terminal-body">
+            <button class="copy-btn" onclick="copyCommand('source')">Copy</button>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd nvidia-broadcast-linux</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">./install.sh</span></div>
+          </div>
+        </div>
+        <p class="install-note">Works on all distros. The installer auto-detects your package manager and installs dependencies.</p>
+      </div>
+
+      <!-- DEB -->
+      <div class="install-pane" id="pane-deb">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot r"></div>
+            <div class="terminal-dot y"></div>
+            <div class="terminal-dot g"></div>
+            <span>bash</span>
+          </div>
+          <div class="terminal-body">
+            <button class="copy-btn" onclick="copyCommand('deb')">Copy</button>
+            <div class="terminal-line"><span class="comment"># Download the .deb from GitHub Releases</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_0.2.0-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_0.2.0-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo apt-get install -f</span></div>
+          </div>
+        </div>
+        <p class="install-note">For Ubuntu, Debian, Pop!_OS, Linux Mint, and derivatives. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases" target="_blank" rel="noopener">View all releases</a></p>
+      </div>
+
+      <!-- RPM -->
+      <div class="install-pane" id="pane-rpm">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot r"></div>
+            <div class="terminal-dot y"></div>
+            <div class="terminal-dot g"></div>
+            <span>bash</span>
+          </div>
+          <div class="terminal-body">
+            <button class="copy-btn" onclick="copyCommand('rpm')">Copy</button>
+            <div class="terminal-line"><span class="comment"># Download the .rpm from GitHub Releases</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-0.2.0-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-0.2.0-1.noarch.rpm</span></div>
+          </div>
+        </div>
+        <p class="install-note">For Fedora, RHEL, CentOS, Rocky, openSUSE. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases" target="_blank" rel="noopener">View all releases</a></p>
+      </div>
+
+      <!-- Arch -->
+      <div class="install-pane" id="pane-arch">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot r"></div>
+            <div class="terminal-dot y"></div>
+            <div class="terminal-dot g"></div>
+            <span>bash</span>
+          </div>
+          <div class="terminal-body">
+            <button class="copy-btn" onclick="copyCommand('arch')">Copy</button>
+            <div class="terminal-line"><span class="comment"># Install system deps then run the installer</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh</span></div>
+          </div>
+        </div>
+        <p class="install-note">For Arch, Manjaro, EndeavourOS. <a href="https://wiki.archlinux.org/title/V4l2loopback" target="_blank" rel="noopener">Arch wiki: v4l2loopback</a></p>
+      </div>
+
+    </div>
+
+    <!-- Requirements -->
+    <div class="req-grid reveal">
+      <div class="req-card">
+        <h4>GPU</h4>
+        <ul>
+          <li>NVIDIA GTX 1060+ (RTX 3060+ recommended)</li>
+          <li>2 GB VRAM minimum, 4 GB+ recommended</li>
+          <li>Driver 525+, CUDA 11.8+</li>
+        </ul>
+      </div>
+      <div class="req-card">
+        <h4>System</h4>
+        <ul>
+          <li>Linux (any distro with PipeWire)</li>
+          <li>Python 3.11+</li>
+          <li>GStreamer 1.20+, GTK4, Libadwaita</li>
+        </ul>
+      </div>
+      <div class="req-card">
+        <h4>Camera</h4>
+        <ul>
+          <li>USB webcam, 720p+ recommended</li>
+          <li>MJPEG preferred for best performance</li>
+          <li>360p to 4K supported</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ─── Footer ─── -->
+<footer>
+  <div class="container">
+    <div class="footer-brand">
+      <svg viewBox="0 0 200 48" width="140" height="34">
+        <rect x="2" y="8" width="32" height="32" rx="8" fill="none" stroke="#76b900" stroke-width="3"/>
+        <circle cx="18" cy="24" r="6" fill="#76b900"/>
+        <text x="40" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="currentColor" letter-spacing="1">oczeus</text>
+        <text x="40" y="46" font-family="system-ui, sans-serif" font-size="9" fill="#76b900" letter-spacing="2">AI POWERED</text>
+      </svg>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/sponsors/Hkshoonya" target="_blank" rel="noopener" style="color:#db61a2">Sponsor</a>
+      <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/LICENSE" target="_blank" rel="noopener">GPL-3.0 License</a>
+      <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+    </div>
+    <div class="footer-copy">
+      NV Broadcast &copy; 2024&ndash;2026 Doczeus. Not affiliated with NVIDIA Corporation.
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ── Scroll reveal ── */
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      observer.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+/* ── Hero terminal typing ── */
+const heroLines = [
+  'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git',
+  'cd nvidia-broadcast-linux',
+  './install.sh'
+];
+
+(function typeHero() {
+  const cursor = document.getElementById('hero-cursor');
+  let lineIdx = 0;
+
+  function typeLine() {
+    if (lineIdx >= heroLines.length) {
+      if (cursor) cursor.style.display = 'inline-block';
+      return;
+    }
+    const lineEl = document.getElementById('term-line-' + (lineIdx + 1));
+    const cmdEl = document.getElementById('term-cmd-' + (lineIdx + 1));
+    if (!lineEl || !cmdEl) return;
+    lineEl.style.display = 'block';
+    const text = heroLines[lineIdx];
+    let charIdx = 0;
+    if (cursor) cursor.style.display = 'none';
+
+    function typeChar() {
+      if (charIdx <= text.length) {
+        cmdEl.textContent = text.substring(0, charIdx);
+        charIdx++;
+        setTimeout(typeChar, 18 + Math.random() * 12);
+      } else {
+        lineIdx++;
+        if (cursor) cursor.style.display = 'inline-block';
+        setTimeout(typeLine, 400);
+      }
+    }
+    typeChar();
+  }
+
+  /* Wait until hero terminal is visible */
+  const termEl = document.getElementById('hero-terminal');
+  if (termEl) {
+    const tObs = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        tObs.disconnect();
+        setTimeout(typeLine, 600);
+      }
+    }, { threshold: 0.3 });
+    tObs.observe(termEl);
+  }
+})();
+
+/* ── Install tabs ── */
+document.querySelectorAll('.install-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.install-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.install-pane').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    const pane = document.getElementById('pane-' + tab.dataset.tab);
+    if (pane) pane.classList.add('active');
+  });
+});
+
+/* ── Copy command ── */
+const commands = {
+  source: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
+  deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_0.2.0-1_all.deb && sudo dpkg -i nvbroadcast_0.2.0-1_all.deb && sudo apt-get install -f',
+  rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-0.2.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-0.2.0-1.noarch.rpm',
+  arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh'
+};
+
+function copyCommand(type) {
+  const text = commands[type];
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copied';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copy';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+/* ── OS auto-detect ── */
+(function detectOS() {
+  const ua = navigator.userAgent.toLowerCase();
+  const platform = navigator.platform?.toLowerCase() || '';
+  const msgEl = document.getElementById('os-detect-msg');
+  let detected = 'source';
+  let label = 'your Linux system';
+
+  if (ua.includes('ubuntu') || ua.includes('debian') || ua.includes('pop')) {
+    detected = 'deb';
+    label = 'Debian/Ubuntu system';
+  } else if (ua.includes('fedora') || ua.includes('rhel') || ua.includes('centos') || ua.includes('red hat')) {
+    detected = 'rpm';
+    label = 'Fedora/RHEL system';
+  } else if (ua.includes('arch') || ua.includes('manjaro')) {
+    detected = 'arch';
+    label = 'Arch-based system';
+  } else if (platform.includes('linux') || ua.includes('linux')) {
+    detected = 'source';
+    label = 'Linux system';
+  } else if (platform.includes('win') || ua.includes('windows')) {
+    detected = 'source';
+    label = 'system. NV Broadcast is Linux-only';
+  } else if (platform.includes('mac') || ua.includes('mac')) {
+    detected = 'source';
+    label = 'system. NV Broadcast is Linux-only';
+  }
+
+  /* Auto-select the right tab */
+  document.querySelectorAll('.install-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.install-pane').forEach(p => p.classList.remove('active'));
+  const tab = document.querySelector('[data-tab="' + detected + '"]');
+  const pane = document.getElementById('pane-' + detected);
+  if (tab) tab.classList.add('active');
+  if (pane) pane.classList.add('active');
+
+  if (msgEl) {
+    msgEl.textContent = 'Detected ' + label + '. Showing recommended install method.';
+  }
+})();
+
+/* ── Smooth scroll for anchor links ── */
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    const href = a.getAttribute('href');
+    if (href === '#') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    const target = document.querySelector(href);
+    if (target) {
+      const offset = 72;
+      const pos = target.getBoundingClientRect().top + window.scrollY - offset;
+      window.scrollTo({ top: pos, behavior: 'smooth' });
+    }
+  });
+});
+</script>
+
+</body>
+</html>
