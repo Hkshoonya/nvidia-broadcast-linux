@@ -1,9 +1,22 @@
+# NVIDIA Broadcast for Linux - Python Dependencies
+# Install with: pip install -e .
+# System packages also required (see install.sh or README)
+
+# Core
 numpy>=1.26
 Pillow>=10.0
 opencv-python-headless>=4.8
+
+# AI / Inference
 mediapipe>=0.10
 onnxruntime-gpu>=1.16
+
+# Audio
 pyrnnoise>=0.4
+
+# CUDA 12 Runtime Libraries (required for GPU acceleration)
+# These provide the .so files that ONNX Runtime needs at runtime.
+# Your NVIDIA driver must support CUDA 12+ (driver 525+).
 nvidia-cublas-cu12
 nvidia-cuda-runtime-cu12
 nvidia-cudnn-cu12
@@ -12,3 +25,18 @@ nvidia-cufft-cu12
 nvidia-cusparse-cu12
 nvidia-cusolver-cu12
 nvidia-nvjitlink-cu12
+
+# --------------------------------------------------------------------------
+# SYSTEM PACKAGES (cannot be installed via pip — use apt or your distro's
+# package manager). These are installed automatically by install.sh:
+#
+#   python3-gi python3-gi-cairo     — PyGObject (GTK4, GStreamer bindings)
+#   gir1.2-gtk-4.0 gir1.2-adw-1    — GTK4 and Libadwaita introspection
+#   gir1.2-gstreamer-1.0            — GStreamer introspection
+#   gir1.2-gst-plugins-base-1.0     — GStreamer plugins-base introspection
+#   gstreamer1.0-plugins-base       — Base GStreamer plugins
+#   gstreamer1.0-plugins-good       — Good GStreamer plugins
+#   gstreamer1.0-plugins-bad        — Bad GStreamer plugins (includes nvcodec)
+#   v4l-utils v4l2loopback-dkms     — Virtual camera kernel module
+#   pipewire-utils                  — Virtual microphone (pw-loopback)
+# --------------------------------------------------------------------------
