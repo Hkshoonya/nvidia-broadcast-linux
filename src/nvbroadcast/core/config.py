@@ -1,5 +1,5 @@
 # NVIDIA Broadcast for Linux
-# Copyright (c) 2026 doczeus (https://github.com/doczeus)
+# Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
@@ -48,21 +48,22 @@ class AudioConfig:
 
 
 # Performance profiles: control where the workload runs (CPU vs GPU)
+# effects_ratio: fraction of camera fps used for effects (1.0 = every frame)
 PERFORMANCE_PROFILES = {
     "max_quality": {
-        "label": "Max Quality (GPU heavy, ~250% CPU)",
-        "description": "Full 30fps processing, every frame, full resolution",
-        "effects_fps": 30,
+        "label": "Max Quality",
+        "description": "Process every frame at full resolution",
+        "effects_ratio": 1.0,
         "skip_interval": 1,
-        "process_scale": 1.0,  # Full resolution
+        "process_scale": 1.0,
         "edge_dilate": 3,
         "edge_blur": 5,
         "edge_sigmoid": 14.0,
     },
     "balanced": {
-        "label": "Balanced (recommended, ~120% CPU)",
-        "description": "20fps effects, skip every other frame, full resolution",
-        "effects_fps": 20,
+        "label": "Balanced",
+        "description": "Process 2/3 of frames, full resolution",
+        "effects_ratio": 0.67,
         "skip_interval": 2,
         "process_scale": 1.0,
         "edge_dilate": 3,
@@ -70,19 +71,19 @@ PERFORMANCE_PROFILES = {
         "edge_sigmoid": 12.0,
     },
     "performance": {
-        "label": "Performance (CPU light, ~60% CPU)",
-        "description": "15fps effects, half resolution processing, fast edges",
-        "effects_fps": 15,
+        "label": "Performance",
+        "description": "Process half of frames, fast edges",
+        "effects_ratio": 0.5,
         "skip_interval": 2,
-        "process_scale": 0.5,  # Half resolution for processing
+        "process_scale": 0.5,
         "edge_dilate": 2,
         "edge_blur": 3,
         "edge_sigmoid": 10.0,
     },
     "potato": {
-        "label": "Low-End (minimal resources, ~30% CPU)",
-        "description": "10fps effects, half resolution, skip 3 frames",
-        "effects_fps": 10,
+        "label": "Low-End",
+        "description": "Process 1/3 of frames, minimal resources",
+        "effects_ratio": 0.33,
         "skip_interval": 3,
         "process_scale": 0.5,
         "edge_dilate": 1,
