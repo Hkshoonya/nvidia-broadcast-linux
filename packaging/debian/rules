@@ -1,0 +1,60 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	# Install application to /opt/nvbroadcast
+	install -d $(CURDIR)/debian/nvbroadcast/opt/nvbroadcast
+	cp -r src pyproject.toml requirements.txt LICENSE README.md \
+		$(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/
+
+	# Models directory (AI models downloaded on first run)
+	install -d $(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/models
+
+	# Data files (icons, backgrounds, configs)
+	cp -r data $(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/
+	cp -r configs $(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/ 2>/dev/null || true
+
+	# Desktop entry
+	install -d $(CURDIR)/debian/nvbroadcast/usr/share/applications
+	install -m 644 data/com.doczeus.NVBroadcast.desktop \
+		$(CURDIR)/debian/nvbroadcast/usr/share/applications/
+
+	# Icon
+	install -d $(CURDIR)/debian/nvbroadcast/usr/share/icons/hicolor/scalable/apps
+	install -m 644 data/icons/com.doczeus.NVBroadcast.svg \
+		$(CURDIR)/debian/nvbroadcast/usr/share/icons/hicolor/scalable/apps/
+
+	# Launcher script
+	install -d $(CURDIR)/debian/nvbroadcast/usr/bin
+	echo '#!/bin/bash' > $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast
+	echo 'exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast "$$@"' >> \
+		$(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast
+	chmod 755 $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast
+
+	echo '#!/bin/bash' > $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast-vcam
+	echo 'exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.vcam_service "$$@"' >> \
+		$(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast-vcam
+	chmod 755 $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast-vcam
+
+	# Systemd user service
+	install -d $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user
+	@echo '[Unit]' > $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo 'Description=NV Broadcast Virtual Camera Service' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo 'After=graphical-session.target' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo '' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo '[Service]' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo 'Type=simple' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo 'ExecStart=/usr/bin/nvbroadcast-vcam' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo 'Restart=on-failure' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo 'RestartSec=3' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo '' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo '[Install]' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo 'WantedBy=graphical-session.target' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+
+override_dh_auto_build:
+	# No build step needed
+
+override_dh_auto_test:
+	# Skip tests during package build

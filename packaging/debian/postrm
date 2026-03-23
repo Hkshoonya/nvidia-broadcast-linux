@@ -1,0 +1,24 @@
+#!/bin/bash
+# NV Broadcast post-removal script
+set -e
+
+case "$1" in
+    purge)
+        # Remove config and venv
+        rm -rf /opt/nvbroadcast/.venv
+        rm -rf /opt/nvbroadcast/models
+        rm -f /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
+        rm -f /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
+        # User config preserved in ~/.config/nvbroadcast
+        echo "NV Broadcast: Purged. User config kept in ~/.config/nvbroadcast"
+        ;;
+    remove)
+        echo "NV Broadcast: Removed. Config preserved. Run 'apt purge nvbroadcast' to remove all."
+        ;;
+esac
+
+if command -v update-desktop-database &>/dev/null; then
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+fi
+
+#DEBHELPER#

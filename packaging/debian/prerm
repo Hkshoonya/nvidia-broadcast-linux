@@ -1,0 +1,14 @@
+#!/bin/bash
+# NV Broadcast pre-removal script
+set -e
+
+# Stop any running instances
+pkill -f "nvbroadcast" 2>/dev/null || true
+
+# Disable systemd service
+if systemctl --user is-active nvbroadcast-vcam.service &>/dev/null; then
+    systemctl --user stop nvbroadcast-vcam.service 2>/dev/null || true
+    systemctl --user disable nvbroadcast-vcam.service 2>/dev/null || true
+fi
+
+#DEBHELPER#
