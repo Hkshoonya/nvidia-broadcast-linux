@@ -138,26 +138,31 @@ nav .container {
 }
 .hero h1 .accent { color: var(--accent); }
 
-/* macOS text reveal animation */
+/* macOS text reveal — starts hidden, JS adds .animate to trigger */
 .macos-reveal {
   display: inline-block;
   opacity: 0;
-  transform: translateX(-20px);
-  animation: macos-slide-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.6s forwards;
+  transform: translateY(12px) scale(0.9);
+  filter: blur(6px);
+  transition: none;
 }
-@keyframes macos-slide-in {
+.macos-reveal.animate {
+  animation: macos-arrive 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes macos-arrive {
   0% {
     opacity: 0;
-    transform: translateX(-20px);
-    filter: blur(8px);
+    transform: translateY(12px) scale(0.9);
+    filter: blur(6px);
   }
-  40% {
-    opacity: 0.6;
-    filter: blur(3px);
+  50% {
+    opacity: 0.8;
+    transform: translateY(-2px) scale(1.02);
+    filter: blur(1px);
   }
   100% {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
     filter: blur(0);
   }
 }
@@ -1367,6 +1372,25 @@ const observer = new IntersectionObserver((entries) => {
 }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
 
 document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+/* ── macOS text reveal — trigger after hero h1 becomes visible ── */
+(function() {
+  var macEl = document.querySelector('.macos-reveal');
+  if (!macEl) return;
+  var h1 = macEl.closest('h1');
+  if (!h1) return;
+  var mo = new MutationObserver(function() {
+    if (h1.classList.contains('visible')) {
+      mo.disconnect();
+      setTimeout(function() { macEl.classList.add('animate'); }, 800);
+    }
+  });
+  mo.observe(h1, { attributes: true, attributeFilter: ['class'] });
+  // If already visible (page load at top)
+  if (h1.classList.contains('visible')) {
+    setTimeout(function() { macEl.classList.add('animate'); }, 800);
+  }
+})();
 
 /* ── Hero terminal typing ── */
 const heroLines = [
