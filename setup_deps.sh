@@ -32,10 +32,15 @@ sudo apt install -y \
     v4l-utils \
     v4l2loopback-dkms
 
-# PipeWire (virtual microphone)
+# PipeWire (virtual microphone) — package name varies by distro
 echo "[4/5] Installing PipeWire utilities..."
-sudo apt install -y \
-    pipewire-utils
+if apt-cache show pipewire-bin &>/dev/null 2>&1; then
+    sudo apt install -y pipewire-bin
+elif apt-cache show pipewire-utils &>/dev/null 2>&1; then
+    sudo apt install -y pipewire-utils
+else
+    echo "WARNING: Could not find pipewire package. Install manually if pw-loopback is missing."
+fi
 
 # Python venv + packages
 echo "[5/5] Setting up Python environment..."
