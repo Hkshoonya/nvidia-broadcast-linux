@@ -1,6 +1,6 @@
 // NV Broadcast - CoreMediaIO Camera Extension
 // Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-// Licensed under GPL-3.0
+// Proprietary license — see macos/LICENSE
 //
 // CMIOExtensionDevice — represents the "NV Broadcast" virtual camera device.
 // Manages the video stream and device properties visible to apps.
@@ -10,20 +10,33 @@ import CoreMediaIO
 
 class NVBroadcastDevice: NSObject, CMIOExtensionDeviceSource {
 
+    private(set) var device: CMIOExtensionDevice!
     private var _streamSource: NVBroadcastStream!
     private var _cmioStream: CMIOExtensionStream!
+    private weak var _provider: CMIOExtensionProvider?
 
-    override init() {
+    init(provider: CMIOExtensionProvider) {
+        _provider = provider
         super.init()
+    }
+
+    func setupStream(for device: CMIOExtensionDevice) {
+        self.device = device
         let streamID = UUID()
         _streamSource = NVBroadcastStream()
         _cmioStream = CMIOExtensionStream(
-            localizedName: "NV Broadcast",
+            localizedName: "NV Broadcast Video",
             streamID: streamID,
             direction: .source,
             clockType: .hostTimeClock,
             source: _streamSource
         )
+
+        do {
+            try device.addStream(_cmioStream)
+        } catch {
+            print("[NV Broadcast] Failed to add stream: \(error)")
+        }
     }
 
     // MARK: - CMIOExtensionDeviceSource
@@ -37,7 +50,6 @@ class NVBroadcastDevice: NSObject, CMIOExtensionDeviceSource {
     ) throws -> CMIOExtensionDeviceProperties {
         let props = CMIOExtensionDeviceProperties(dictionary: [:])
         if properties.contains(.deviceTransportType) {
-            // Virtual device transport type
             props.setPropertyState(
                 CMIOExtensionPropertyState(value: NSNumber(value: 2)),
                 forProperty: .deviceTransportType
@@ -56,9 +68,5 @@ class NVBroadcastDevice: NSObject, CMIOExtensionDeviceSource {
         _ deviceProperties: CMIOExtensionDeviceProperties
     ) throws {
         // Read-only device
-    }
-
-    func streams() -> [CMIOExtensionStream] {
-        return [_cmioStream]
     }
 }

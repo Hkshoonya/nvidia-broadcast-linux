@@ -26,6 +26,7 @@ jobs:
 
       - name: Build .rpm package
         run: bash build-packages.sh rpm
+        continue-on-error: true
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4

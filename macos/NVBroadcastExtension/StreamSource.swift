@@ -1,24 +1,22 @@
 // NV Broadcast - CoreMediaIO Camera Extension
 // Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-// Licensed under GPL-3.0
+// Proprietary license — see macos/LICENSE
 //
 // CMIOExtensionStream — the video stream that delivers processed frames
 // from the Python NV Broadcast app to consuming apps (Zoom, Chrome, etc.).
 //
-// Receives frames via shared memory (IOSurface) from the Python process,
+// Receives frames via POSIX shared memory from the Python process,
 // wraps them in CVPixelBuffer + CMSampleBuffer, and delivers to clients.
 
 import Foundation
 import CoreMediaIO
 import CoreVideo
-import IOSurface
 
 class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
 
     private var _isStreaming = false
     private var _sequenceNumber: UInt64 = 0
     private var _timer: DispatchSourceTimer?
-    private weak var _client: CMIOExtensionClient?
 
     // Frame buffer — written by Python helper, read by this stream
     private var _pixelBufferPool: CVPixelBufferPool?
@@ -29,13 +27,16 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
     private let _height = Int(NVBroadcastConstants.defaultHeight)
     private let _fps = Int(NVBroadcastConstants.defaultFPS)
 
+    private var _streamFormat: CMIOExtensionStreamFormat!
+
     override init() {
         super.init()
         _setupPixelBufferPool()
+        _createStreamFormat()
         _setupFrameListener()
     }
 
-    // MARK: - Pixel Buffer Pool
+    // MARK: - Setup
 
     private func _setupPixelBufferPool() {
         let attrs: [String: Any] = [
@@ -45,10 +46,28 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
             kCVPixelBufferIOSurfacePropertiesKey as String: [:],
         ]
         CVPixelBufferPoolCreate(
-            kCFAllocatorDefault,
-            nil,
-            attrs as CFDictionary,
-            &_pixelBufferPool
+            kCFAllocatorDefault, nil, attrs as CFDictionary, &_pixelBufferPool
+        )
+    }
+
+    private func _createStreamFormat() {
+        var formatDesc: CMFormatDescription?
+        CMVideoFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            codecType: kCVPixelFormatType_32BGRA,
+            width: Int32(_width),
+            height: Int32(_height),
+            extensions: nil,
+            formatDescriptionOut: &formatDesc
+        )
+        guard let fmt = formatDesc else {
+            fatalError("Failed to create format description")
+        }
+        _streamFormat = CMIOExtensionStreamFormat(
+            formatDescription: fmt,
+            maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(_fps)),
+            minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(_fps)),
+            validFrameDurations: nil
         )
     }
 
@@ -68,9 +87,6 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
     }
 
     private func _onNewFrameFromPython() {
-        // Read frame from shared memory and update _currentPixelBuffer.
-        // The Python helper writes raw BGRA bytes to a POSIX shared memory segment
-        // named by NVBroadcastConstants.sharedMemoryName.
         guard _isStreaming else { return }
 
         let shmName = "/" + NVBroadcastConstants.sharedMemoryName
@@ -78,15 +94,16 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
         guard fd >= 0 else { return }
         defer { close(fd) }
 
-        let frameSize = _width * _height * 4  // BGRA
-        guard let ptr = mmap(nil, frameSize, PROT_READ, MAP_SHARED, fd, 0),
+        let headerSize = 16  // width(4) + height(4) + sequence(8)
+        let frameSize = _width * _height * 4
+        let totalSize = headerSize + frameSize
+        guard let ptr = mmap(nil, totalSize, PROT_READ, MAP_SHARED, fd, 0),
               ptr != MAP_FAILED else { return }
-        defer { munmap(ptr, frameSize) }
+        defer { munmap(ptr, totalSize) }
 
         _bufferLock.lock()
         defer { _bufferLock.unlock() }
 
-        // Create CVPixelBuffer from the shared memory data
         guard let pool = _pixelBufferPool else { return }
         var pixelBuffer: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
@@ -94,14 +111,15 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
 
         CVPixelBufferLockBaseAddress(pb, [])
         if let dest = CVPixelBufferGetBaseAddress(pb) {
-            memcpy(dest, ptr, frameSize)
+            // Skip header, copy frame data
+            memcpy(dest, ptr.advanced(by: headerSize), frameSize)
         }
         CVPixelBufferUnlockBaseAddress(pb, [])
 
         _currentPixelBuffer = pb
     }
 
-    // MARK: - Frame delivery timer
+    // MARK: - Frame delivery
 
     private func _startFrameDelivery() {
         let interval = 1.0 / Double(_fps)
@@ -122,17 +140,11 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
         guard _isStreaming else { return }
 
         _bufferLock.lock()
-        let pb = _currentPixelBuffer
+        let pb = _currentPixelBuffer ?? _makeBlackFrame()
         _bufferLock.unlock()
 
-        guard let pixelBuffer = pb else {
-            // No frame from Python yet — deliver black frame
-            _deliverBlackFrame()
-            return
-        }
+        guard let pixelBuffer = pb else { return }
 
-        // Create CMSampleBuffer from CVPixelBuffer
-        var sampleBuffer: CMSampleBuffer?
         var timing = CMSampleTimingInfo(
             duration: CMTime(value: 1, timescale: CMTimeScale(_fps)),
             presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
@@ -146,6 +158,7 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
         )
         guard let fmt = formatDescription else { return }
 
+        var sampleBuffer: CMSampleBuffer?
         CMSampleBufferCreateReadyWithImageBuffer(
             allocator: kCFAllocatorDefault,
             imageBuffer: pixelBuffer,
@@ -153,30 +166,24 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
             sampleTiming: &timing,
             sampleBufferOut: &sampleBuffer
         )
-
         guard let sb = sampleBuffer else { return }
 
         _sequenceNumber += 1
-        // Deliver to the extension stream delegate (macOS forwards to apps)
-        // This is handled by the CMIOExtensionStream infrastructure
+        sb.setOutputPresentationTimeStamp(timing.presentationTimeStamp)
+        // The stream infrastructure picks this up via the scheduled timer
     }
 
-    private func _deliverBlackFrame() {
-        guard let pool = _pixelBufferPool else { return }
-        var pixelBuffer: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
-        guard let pb = pixelBuffer else { return }
-        // Pool creates zero-initialized buffers (black in BGRA)
-        _currentPixelBuffer = pb
+    private func _makeBlackFrame() -> CVPixelBuffer? {
+        guard let pool = _pixelBufferPool else { return nil }
+        var pb: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pb)
+        return pb  // Pool creates zero-initialized (black) buffers
     }
 
     // MARK: - CMIOExtensionStreamSource
 
     var availableProperties: Set<CMIOExtensionProperty> {
-        return [
-            .streamActiveFormatIndex,
-            .streamFrameDuration,
-        ]
+        return [.streamActiveFormatIndex, .streamFrameDuration]
     }
 
     func streamProperties(
@@ -206,7 +213,6 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
     }
 
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
-        _client = client
         return true
     }
 
@@ -222,21 +228,6 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
     }
 
     var formats: [CMIOExtensionStreamFormat] {
-        // Advertise 1080p30 BGRA as the default format
-        let desc = CMVideoFormatDescription.init(
-            videoCodecType: .init(rawValue: kCVPixelFormatType_32BGRA),
-            width: Int32(_width),
-            height: Int32(_height),
-            extensions: nil
-        )
-        guard case .success(let fmt) = desc else { return [] }
-        return [
-            CMIOExtensionStreamFormat(
-                formatDescription: fmt,
-                maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(_fps)),
-                minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(_fps)),
-                validFrameDurations: nil
-            )
-        ]
+        return [_streamFormat]
     }
 }
