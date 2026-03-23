@@ -29,7 +29,7 @@ def _preload_cuda_libs():
         import importlib.util
         for pkg in ("nvidia.cuda_runtime", "nvidia.cublas", "nvidia.cudnn",
                     "nvidia.curand", "nvidia.cufft", "nvidia.cusparse",
-                    "nvidia.cusolver", "nvidia.nvjitlink"):
+                    "nvidia.cusolver", "nvidia.nvjitlink", "nvidia.cuda_nvrtc"):
             spec = importlib.util.find_spec(pkg)
             if spec and spec.submodule_search_locations:
                 lib_dir = Path(spec.submodule_search_locations[0]) / "lib"
@@ -58,7 +58,7 @@ MODELS = {
         "description": "Fast person-only matting with temporal consistency",
         "license": "GPL-3.0",
         "type": "recurrent",
-        "skip_interval": 2,
+        "skip_interval": 1,  # Every frame — RVM is fast and has temporal state
     },
     "isnet": {
         "name": "IS-Net - General Objects",
@@ -306,7 +306,8 @@ class _SingleFrameBackend:
 # ─── Main VideoEffects Class ─────────────────────────────────────────────────
 
 class VideoEffects:
-    def __init__(self, gpu_index: int = COMPUTE_GPU_INDEX, edge_config=None):
+    def __init__(self, gpu_index: int = COMPUTE_GPU_INDEX, edge_config=None,
+                 compositing: str = "cpu"):
         self._gpu_index = gpu_index
         self._initialized = False
         self._lock = threading.Lock()
@@ -314,6 +315,8 @@ class VideoEffects:
         self._model_type = "rvm"
         self._backend = None
         self._edge_config = edge_config
+        self._compositing = compositing
+        self._cupy = None  # Lazy-loaded cupy module
 
         # Effect state
         self._bg_removal_enabled = False
@@ -328,7 +331,6 @@ class VideoEffects:
         self._frame_counter = 0
         self._cached_alpha = None
         self._skip_interval = 1
-        self._cached_blur_bg = None  # Cache blurred background between frames
 
         # Alpha refinement
         self._apply_edge_config(edge_config)
@@ -548,25 +550,54 @@ class VideoEffects:
 
     # ─── Compositing ─────────────────────────────────────────────────────
 
+    def set_compositing(self, backend: str):
+        """Switch compositing backend (cpu, gstreamer_gl, cupy)."""
+        self._compositing = backend
+        if backend == "cupy" and self._cupy is None:
+            try:
+                import cupy
+                self._cupy = cupy
+                print("[NV Broadcast] CuPy GPU compositing enabled")
+            except ImportError:
+                print("[NV Broadcast] CuPy not installed, falling back to CPU")
+                self._compositing = "cpu"
+
+    def _blend(self, fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+        """Alpha blend using the configured backend."""
+        if self._compositing == "cupy" and self._cupy is not None:
+            return self._blend_cupy(fg, bg, alpha)
+        return self._blend_cpu(fg, bg, alpha)
+
     @staticmethod
-    def _blend(fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
-        """Alpha blend using cv2 for SIMD-optimized per-pixel operations."""
-        # Build 4-channel alpha mask (cv2 needs matching channels)
+    def _blend_cpu(fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+        """CPU blend using cv2 SIMD-optimized operations."""
         a8 = (np.clip(alpha, 0, 1) * 255).astype(np.uint8)
         a4 = cv2.merge([a8, a8, a8, a8])
         ia4 = cv2.bitwise_not(a4)
-        # fg * alpha + bg * (1-alpha) using cv2 multiply (SIMD optimized)
         fg_part = cv2.multiply(fg, a4, scale=1.0 / 255.0, dtype=cv2.CV_8U)
         bg_part = cv2.multiply(bg, ia4, scale=1.0 / 255.0, dtype=cv2.CV_8U)
         return cv2.add(fg_part, bg_part)
 
+    def _blend_cupy(self, fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+        """GPU blend using CuPy CUDA arrays — near-zero CPU usage."""
+        try:
+            cp = self._cupy
+            fg_gpu = cp.asarray(fg)
+            bg_gpu = cp.asarray(bg)
+            a_gpu = cp.asarray(alpha, dtype=cp.float32)[:, :, cp.newaxis]
+            result = (fg_gpu.astype(cp.float32) * a_gpu +
+                      bg_gpu.astype(cp.float32) * (1.0 - a_gpu))
+            return cp.asnumpy(result.astype(cp.uint8))
+        except Exception as e:
+            # Fallback to CPU if CuPy fails (missing nvrtc, OOM, etc.)
+            if self._frame_counter <= 2:
+                print(f"[NV Broadcast] CuPy blend failed, falling back to CPU: {e}")
+            self._compositing = "cpu"
+            return self._blend_cpu(fg, bg, alpha)
+
     def _apply_blur(self, frame: np.ndarray, alpha: np.ndarray) -> np.ndarray:
-        # Only recompute blur when alpha updated (skip frames reuse cached blur)
-        if self._frame_counter % max(self._skip_interval, 2) == 0 or self._cached_blur_bg is None:
-            self._cached_blur_bg = cv2.GaussianBlur(
-                frame, (self._blur_strength, self._blur_strength), 0
-            )
-        return self._blend(frame, self._cached_blur_bg, alpha)
+        blurred = cv2.GaussianBlur(frame, (self._blur_strength, self._blur_strength), 0)
+        return self._blend(frame, blurred, alpha)
 
     def _apply_green_screen(self, frame: np.ndarray, alpha: np.ndarray,
                             width: int, height: int) -> np.ndarray:

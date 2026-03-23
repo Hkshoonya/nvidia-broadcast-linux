@@ -40,6 +40,7 @@ dependencies = [
     "nvidia-cusparse-cu12",
     "nvidia-cusolver-cu12",
     "nvidia-nvjitlink-cu12",
+    "nvidia-cuda-nvrtc-cu12",
 ]
 
 [project.urls]
