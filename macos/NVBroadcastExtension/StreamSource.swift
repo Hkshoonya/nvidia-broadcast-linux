@@ -4,13 +4,12 @@
 //
 // CMIOExtensionStream — the video stream that delivers processed frames
 // from the Python NV Broadcast app to consuming apps (Zoom, Chrome, etc.).
-//
-// Receives frames via POSIX shared memory from the Python process,
-// wraps them in CVPixelBuffer + CMSampleBuffer, and delivers to clients.
 
 import Foundation
 import CoreMediaIO
 import CoreVideo
+import Darwin
+import Darwin.notify
 
 class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
 
@@ -18,7 +17,6 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
     private var _sequenceNumber: UInt64 = 0
     private var _timer: DispatchSourceTimer?
 
-    // Frame buffer — written by Python helper, read by this stream
     private var _pixelBufferPool: CVPixelBufferPool?
     private var _currentPixelBuffer: CVPixelBuffer?
     private let _bufferLock = NSLock()
@@ -43,11 +41,9 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: _width,
             kCVPixelBufferHeightKey as String: _height,
-            kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
         ]
-        CVPixelBufferPoolCreate(
-            kCFAllocatorDefault, nil, attrs as CFDictionary, &_pixelBufferPool
-        )
+        CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attrs as CFDictionary, &_pixelBufferPool)
     }
 
     private func _createStreamFormat() {
@@ -60,9 +56,7 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
             extensions: nil,
             formatDescriptionOut: &formatDesc
         )
-        guard let fmt = formatDesc else {
-            fatalError("Failed to create format description")
-        }
+        guard let fmt = formatDesc else { fatalError("Failed to create format description") }
         _streamFormat = CMIOExtensionStreamFormat(
             formatDescription: fmt,
             maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(_fps)),
@@ -74,10 +68,8 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
     // MARK: - IPC: Receive frames from Python
 
     private func _setupFrameListener() {
-        // Listen for "new frame ready" notifications from the Python helper.
-        // Uses Darwin notify API (matches notify_post on the Python side).
         var token: Int32 = 0
-        notify_register_dispatch(
+        Darwin.notify_register_dispatch(
             NVBroadcastConstants.frameNotificationName,
             &token,
             DispatchQueue.global(qos: .userInteractive)
@@ -90,16 +82,16 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
         guard _isStreaming else { return }
 
         let shmName = "/" + NVBroadcastConstants.sharedMemoryName
-        let fd = shm_open(shmName, O_RDONLY, 0)
+        let fd = Darwin.shm_open(shmName, O_RDONLY, 0)
         guard fd >= 0 else { return }
-        defer { close(fd) }
+        defer { Darwin.close(fd) }
 
-        let headerSize = 16  // width(4) + height(4) + sequence(8)
+        let headerSize = 16
         let frameSize = _width * _height * 4
         let totalSize = headerSize + frameSize
-        guard let ptr = mmap(nil, totalSize, PROT_READ, MAP_SHARED, fd, 0),
+        guard let ptr = Darwin.mmap(nil, totalSize, PROT_READ, MAP_SHARED, fd, 0),
               ptr != MAP_FAILED else { return }
-        defer { munmap(ptr, totalSize) }
+        defer { Darwin.munmap(ptr, totalSize) }
 
         _bufferLock.lock()
         defer { _bufferLock.unlock() }
@@ -111,11 +103,9 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
 
         CVPixelBufferLockBaseAddress(pb, [])
         if let dest = CVPixelBufferGetBaseAddress(pb) {
-            // Skip header, copy frame data
             memcpy(dest, ptr.advanced(by: headerSize), frameSize)
         }
         CVPixelBufferUnlockBaseAddress(pb, [])
-
         _currentPixelBuffer = pb
     }
 
@@ -125,9 +115,7 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
         let interval = 1.0 / Double(_fps)
         _timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
         _timer?.schedule(deadline: .now(), repeating: interval)
-        _timer?.setEventHandler { [weak self] in
-            self?._deliverFrame()
-        }
+        _timer?.setEventHandler { [weak self] in self?._deliverFrame() }
         _timer?.resume()
     }
 
@@ -166,18 +154,15 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
             sampleTiming: &timing,
             sampleBufferOut: &sampleBuffer
         )
-        guard let sb = sampleBuffer else { return }
-
+        guard sampleBuffer != nil else { return }
         _sequenceNumber += 1
-        sb.setOutputPresentationTimeStamp(timing.presentationTimeStamp)
-        // The stream infrastructure picks this up via the scheduled timer
     }
 
     private func _makeBlackFrame() -> CVPixelBuffer? {
         guard let pool = _pixelBufferPool else { return nil }
         var pb: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pb)
-        return pb  // Pool creates zero-initialized (black) buffers
+        return pb
     }
 
     // MARK: - CMIOExtensionStreamSource
@@ -199,22 +184,16 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
         if properties.contains(.streamFrameDuration) {
             let duration = CMTime(value: 1, timescale: CMTimeScale(_fps))
             props.setPropertyState(
-                CMIOExtensionPropertyState(value: NSValue(time: duration)),
+                CMIOExtensionPropertyState(value: duration as NSValue),
                 forProperty: .streamFrameDuration
             )
         }
         return props
     }
 
-    func setStreamProperties(
-        _ streamProperties: CMIOExtensionStreamProperties
-    ) throws {
-        // Handle format changes if needed
-    }
+    func setStreamProperties(_ streamProperties: CMIOExtensionStreamProperties) throws {}
 
-    func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
-        return true
-    }
+    func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool { return true }
 
     func startStream() throws {
         _isStreaming = true
@@ -227,7 +206,5 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
         _stopFrameDelivery()
     }
 
-    var formats: [CMIOExtensionStreamFormat] {
-        return [_streamFormat]
-    }
+    var formats: [CMIOExtensionStreamFormat] { return [_streamFormat] }
 }
