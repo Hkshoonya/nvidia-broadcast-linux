@@ -49,6 +49,9 @@ class VideoPipeline:
         self._last_effect_output = None
         self._pending_frame = None       # Latest raw frame for effects thread
         self._effects_busy = False       # True while effects thread is processing
+        self._recording = False
+        self._recording_pipeline = None
+        self._rec_appsrc = None
 
     def configure(self, source_device, vcam_device,
                   width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT,
@@ -314,6 +317,13 @@ class VideoPipeline:
                 )
                 self._pyvirtualcam.send(frame[:, :, :3])  # BGRA→BGR
 
+        # Push to recording if active
+        if self._recording and self._rec_appsrc:
+            rec_buf = Gst.Buffer.new_allocate(None, len(output), None)
+            rec_buf.fill(0, output)
+            rec_buf.pts = buf.pts if hasattr(buf, 'pts') else Gst.CLOCK_TIME_NONE
+            self._rec_appsrc.emit("push-buffer", rec_buf)
+
         return Gst.FlowReturn.OK
 
     def _process_effects_bg(self, frame_data, width, height, expected):
@@ -327,6 +337,55 @@ class VideoPipeline:
                 print(f"[NV Broadcast] Effects error: {e}")
         finally:
             self._effects_busy = False
+
+    def start_recording(self, filepath: str):
+        """Start recording the processed output to an MP4 file."""
+        if self._recording:
+            return
+
+        # Use NVENC if available, else x264
+        from nvbroadcast.core.platform import IS_MACOS
+        if not IS_MACOS and self._has_gst_element("nvh264enc"):
+            encoder = "nvh264enc preset=low-latency-hq bitrate=8000"
+        else:
+            encoder = "x264enc tune=zerolatency speed-preset=ultrafast bitrate=8000"
+
+        self._recording_pipeline = Gst.parse_launch(
+            f"appsrc name=recsrc is-live=true format=time "
+            f"caps=video/x-raw,format=BGRA,width={self._width},"
+            f"height={self._height},framerate={self._fps}/1 ! "
+            f"queue max-size-buffers=3 leaky=downstream ! "
+            f"videoconvert ! "
+            f"{encoder} ! "
+            f"h264parse ! "
+            f"mp4mux fragment-duration=1000 ! "
+            f"filesink location={filepath}"
+        )
+        self._rec_appsrc = self._recording_pipeline.get_by_name("recsrc")
+        self._recording_pipeline.set_state(Gst.State.PLAYING)
+        self._recording = True
+        print(f"[NV Broadcast] Recording started: {filepath}")
+
+    def stop_recording(self):
+        """Stop recording and finalize the MP4 file."""
+        if not self._recording:
+            return
+        self._recording = False
+        if self._rec_appsrc:
+            self._rec_appsrc.emit("end-of-stream")
+        # Wait for EOS to propagate
+        if self._recording_pipeline:
+            self._recording_pipeline.get_bus().timed_pop_filtered(
+                2 * Gst.SECOND, Gst.MessageType.EOS
+            )
+            self._recording_pipeline.set_state(Gst.State.NULL)
+        self._recording_pipeline = None
+        self._rec_appsrc = None
+        print("[NV Broadcast] Recording stopped")
+
+    @property
+    def is_recording(self) -> bool:
+        return self._recording
 
     def _tick_preview(self) -> bool:
         if self._pipeline is None:
@@ -379,6 +438,8 @@ class VideoPipeline:
 
     def stop(self):
         self._running = False
+        if self._recording:
+            self.stop_recording()
         cap = self._pipeline
         vcam = self._vcam_pipeline
         self._pipeline = None

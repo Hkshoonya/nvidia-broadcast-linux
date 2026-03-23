@@ -1,163 +1,503 @@
-/* NVIDIA Broadcast - Dark Theme with NVIDIA Green Accents */
+/* ═══════════════════════════════════════════════════════════════════════════
+   NV Broadcast v0.3.0 — Apple-inspired Dark Theme
+   by doczeus | AI Powered
 
+   Design tokens: 8px rhythm, 10px radius, system fonts, NVIDIA green accent
+   Inspired by macOS system preferences and Apple HIG
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Color tokens ─────────────────────────────────────────────────────────── */
+@define-color nv_green #76b900;
+@define-color nv_green_dim #5a8f00;
+@define-color nv_green_subtle rgba(118, 185, 0, 0.12);
+@define-color nv_green_hover rgba(118, 185, 0, 0.18);
+
+@define-color bg_primary #161616;
+@define-color bg_secondary #1c1c1c;
+@define-color bg_elevated #222222;
+@define-color bg_card rgba(255, 255, 255, 0.04);
+@define-color bg_card_hover rgba(255, 255, 255, 0.06);
+@define-color bg_input #1a1a1a;
+
+@define-color border_default rgba(255, 255, 255, 0.08);
+@define-color border_subtle rgba(255, 255, 255, 0.05);
+@define-color border_strong rgba(255, 255, 255, 0.12);
+
+@define-color text_primary rgba(255, 255, 255, 0.92);
+@define-color text_secondary rgba(255, 255, 255, 0.55);
+@define-color text_tertiary rgba(255, 255, 255, 0.35);
+
+@define-color danger #e53935;
+@define-color danger_subtle rgba(229, 57, 53, 0.15);
+@define-color recording #ff3b30;
+
+/* ── Window & headerbar ───────────────────────────────────────────────────── */
 window {
-    background-color: #1a1a1a;
+    background-color: @bg_primary;
+    color: @text_primary;
 }
 
 headerbar {
-    background-color: #111111;
-    border-bottom: 1px solid #333333;
+    background-color: @bg_secondary;
+    border-bottom: 1px solid @border_default;
+    padding: 0 8px;
+    min-height: 44px;
 }
 
-/* NVIDIA Green accent for active/suggested buttons */
-.nv-green {
-    color: #76b900;
+headerbar .title {
+    font-weight: 600;
+    font-size: 13px;
 }
 
-.nv-green-bg {
-    background-color: #76b900;
-    color: #000000;
-}
-
+/* ── Accent buttons ───────────────────────────────────────────────────────── */
 .suggested-action {
-    background-color: #76b900;
+    background-color: @nv_green;
     color: #000000;
-    font-weight: bold;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 6px 16px;
+    border: none;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.suggested-action:hover {
+    background-color: #8ad400;
+    box-shadow: 0 2px 8px rgba(118, 185, 0, 0.3);
+}
+
+.suggested-action:active {
+    background-color: @nv_green_dim;
 }
 
 .destructive-action {
-    background-color: #cc3333;
+    background-color: @danger;
     color: white;
-    font-weight: bold;
-}
-
-/* Video Preview */
-.video-preview {
-    background-color: #000000;
-    border-radius: 6px;
-    border: 1px solid #333333;
-    min-height: 360px;
-}
-
-/* Section tabs (Camera / Audio) */
-.section-tab {
-    padding: 8px 24px;
-    font-weight: bold;
-    font-size: 13px;
-    border-radius: 0;
-    border-bottom: 2px solid transparent;
-    background: transparent;
-    color: #999999;
-}
-
-.section-tab:checked,
-.section-tab.active {
-    color: #76b900;
-    border-bottom-color: #76b900;
-}
-
-/* Effect Cards */
-.effect-card {
-    background-color: #2a2a2a;
+    font-weight: 600;
     border-radius: 8px;
-    padding: 12px 16px;
-    margin: 6px 0;
-    border: 1px solid #3a3a3a;
+    border: none;
 }
 
-/* Device selector row */
-.device-row {
-    padding: 8px 0;
+/* Recording button */
+.recording-btn {
+    background-color: @recording;
+    color: white;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 6px 14px;
+    border: none;
+    animation: rec-pulse 1.5s ease-in-out infinite;
 }
 
-.device-label {
-    font-size: 12px;
-    color: #999999;
-    font-weight: 500;
+@keyframes rec-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 
-/* Section headers */
-.section-header {
-    font-weight: bold;
-    font-size: 13px;
-    color: #76b900;
-    padding: 4px 0;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+.recording-btn.idle {
+    background-color: @bg_elevated;
+    color: @text_secondary;
+    border: 1px solid @border_default;
+    animation: none;
 }
 
-/* GPU info */
-.gpu-label {
-    font-size: 11px;
-    opacity: 0.6;
-    font-family: monospace;
-}
-
-/* Status bar */
-.status-bar {
-    background-color: #111111;
-    padding: 6px 16px;
-    font-size: 11px;
-    color: #888888;
-    border-top: 1px solid #333333;
-}
-
-.status-active {
-    color: #76b900;
-}
-
-/* Title */
+/* ── App title ────────────────────────────────────────────────────────────── */
 .app-title {
-    font-weight: bold;
+    font-weight: 700;
     font-size: 14px;
-    color: #ffffff;
+    color: @text_primary;
+    letter-spacing: 0.3px;
 }
 
 .app-subtitle {
     font-size: 10px;
-    color: #76b900;
-    opacity: 0.9;
+    color: @nv_green;
+    opacity: 0.85;
+    letter-spacing: 0.5px;
 }
 
-/* Slider styling */
+.nv-green { color: @nv_green; }
+.nv-green-bg { background-color: @nv_green; color: #000; }
+
+/* ── Video preview ────────────────────────────────────────────────────────── */
+.video-preview {
+    background-color: #000000;
+    border-radius: 10px;
+    border: 1px solid @border_default;
+    min-height: 320px;
+}
+
+.preview-controls {
+    background-color: @bg_secondary;
+    border-radius: 0 0 10px 10px;
+    padding: 6px 12px;
+    border-top: 1px solid @border_subtle;
+}
+
+.preview-controls button {
+    background: transparent;
+    border: none;
+    color: @text_secondary;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    transition: all 150ms ease;
+}
+
+.preview-controls button:hover {
+    background-color: @bg_card_hover;
+    color: @text_primary;
+}
+
+/* ── Section headers ──────────────────────────────────────────────────────── */
+.section-header {
+    font-weight: 700;
+    font-size: 11px;
+    color: @nv_green;
+    padding: 12px 4px 6px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+/* ── Section tabs ─────────────────────────────────────────────────────────── */
+.section-tab {
+    padding: 8px 20px;
+    font-weight: 600;
+    font-size: 13px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: @text_tertiary;
+    transition: all 150ms ease;
+}
+
+.section-tab:hover {
+    background-color: @bg_card;
+    color: @text_secondary;
+}
+
+.section-tab:checked,
+.section-tab.active {
+    color: @nv_green;
+    background-color: @nv_green_subtle;
+}
+
+/* ── Effect cards — glassmorphism-inspired ─────────────────────────────────── */
+.effect-card {
+    background-color: @bg_card;
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin: 4px 0;
+    border: 1px solid @border_subtle;
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.effect-card:hover {
+    background-color: @bg_card_hover;
+    border-color: @border_default;
+}
+
+/* Active/enabled card gets accent border */
+.effect-card.active {
+    border-color: rgba(118, 185, 0, 0.3);
+    background-color: @nv_green_subtle;
+}
+
+/* Card title row */
+.card-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: @text_primary;
+}
+
+.card-subtitle {
+    font-size: 11px;
+    color: @text_tertiary;
+}
+
+/* ── Device selector rows ─────────────────────────────────────────────────── */
+.device-row {
+    padding: 6px 0;
+}
+
+.device-label {
+    font-size: 12px;
+    color: @text_secondary;
+    font-weight: 500;
+    min-width: 80px;
+}
+
+/* ── Dropdowns ────────────────────────────────────────────────────────────── */
+dropdown,
+combobox {
+    background-color: @bg_input;
+    border: 1px solid @border_default;
+    border-radius: 8px;
+    padding: 2px 4px;
+    min-height: 32px;
+    transition: border-color 150ms ease;
+}
+
+dropdown:focus,
+combobox:focus {
+    border-color: @nv_green;
+    outline: 2px solid rgba(118, 185, 0, 0.2);
+    outline-offset: -1px;
+}
+
+/* ── Switches ─────────────────────────────────────────────────────────────── */
+switch {
+    border-radius: 14px;
+    min-width: 42px;
+    min-height: 24px;
+    transition: background-color 200ms ease;
+}
+
+switch:checked {
+    background-color: @nv_green;
+    background-image: none;
+}
+
+switch:checked slider {
+    background-color: white;
+}
+
+/* ── Sliders / Scales ─────────────────────────────────────────────────────── */
+scale {
+    padding: 4px 0;
+}
+
 scale trough {
-    background-color: #3a3a3a;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    min-height: 4px;
 }
 
 scale trough highlight {
-    background-color: #76b900;
+    background-color: @nv_green;
+    border-radius: 4px;
 }
 
 scale slider {
-    background-color: #76b900;
+    background-color: @nv_green;
+    border-radius: 50%;
+    min-width: 16px;
+    min-height: 16px;
+    margin: -6px;
+    border: 2px solid @bg_primary;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    transition: all 150ms ease;
 }
 
-/* Switch styling */
-switch:checked {
-    background-color: #76b900;
+scale slider:hover {
+    background-color: #8ad400;
+    box-shadow: 0 2px 6px rgba(118, 185, 0, 0.3);
 }
 
-/* Drop down styling */
-dropdown {
-    background-color: #2a2a2a;
-    border: 1px solid #444444;
-}
-
-/* Preferences group */
-preferencesgroup {
-    background-color: #222222;
+/* ── Text entries / inputs ────────────────────────────────────────────────── */
+entry {
+    background-color: @bg_input;
+    border: 1px solid @border_default;
     border-radius: 8px;
-    border: 1px solid #333333;
+    padding: 6px 10px;
+    color: @text_primary;
+    transition: border-color 150ms ease;
 }
 
-/* Browse button */
-.browse-btn {
-    background-color: #3a3a3a;
-    border: 1px solid #555555;
-    padding: 4px 12px;
+entry:focus {
+    border-color: @nv_green;
+    outline: 2px solid rgba(118, 185, 0, 0.2);
+    outline-offset: -1px;
+}
+
+/* ── Browse / secondary buttons ───────────────────────────────────────────── */
+.browse-btn,
+button.flat {
+    background-color: @bg_elevated;
+    border: 1px solid @border_default;
+    padding: 4px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 8px;
+    color: @text_secondary;
+    transition: all 150ms ease;
+}
+
+.browse-btn:hover,
+button.flat:hover {
+    background-color: @bg_card_hover;
+    border-color: @border_strong;
+    color: @text_primary;
+}
+
+/* ── GPU info label ───────────────────────────────────────────────────────── */
+.gpu-label {
+    font-size: 11px;
+    color: @text_tertiary;
+    font-family: monospace;
+}
+
+/* ── Status bar — performance overlay ─────────────────────────────────────── */
+.status-bar {
+    background-color: @bg_secondary;
+    padding: 6px 16px;
+    font-size: 11px;
+    color: @text_tertiary;
+    border-top: 1px solid @border_subtle;
+    font-family: monospace;
+}
+
+.status-active {
+    color: @nv_green;
+    font-weight: 600;
+}
+
+.status-fps {
+    color: @nv_green;
+    font-weight: 700;
+    font-family: monospace;
+}
+
+.status-gpu {
+    color: @text_secondary;
+    font-family: monospace;
+}
+
+.status-vram {
+    color: @text_secondary;
+    font-family: monospace;
+}
+
+.status-recording {
+    color: @recording;
+    font-weight: 700;
+}
+
+/* ── Preferences group (Adwaita native) ───────────────────────────────────── */
+preferencesgroup {
+    background-color: @bg_card;
+    border-radius: 12px;
+    border: 1px solid @border_subtle;
+    margin: 4px 0;
+}
+
+preferencesgroup > box > label {
+    font-weight: 700;
+    font-size: 11px;
+    color: @nv_green;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    padding: 12px 18px 4px;
+}
+
+/* Adwaita action rows */
+row.action-row {
+    padding: 4px 18px;
+    min-height: 40px;
+    border-bottom: 1px solid @border_subtle;
+}
+
+row.action-row:last-child {
+    border-bottom: none;
+}
+
+/* ── Expander rows ────────────────────────────────────────────────────────── */
+row.expander {
+    padding: 4px 18px;
+}
+
+row.expander > box > label {
+    font-weight: 500;
+    color: @text_secondary;
+}
+
+/* ── Tooltips ─────────────────────────────────────────────────────────────── */
+tooltip {
+    background-color: @bg_elevated;
+    border: 1px solid @border_default;
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: @text_primary;
     font-size: 12px;
 }
 
-.browse-btn:hover {
-    background-color: #4a4a4a;
+/* ── Scrollbars ───────────────────────────────────────────────────────────── */
+scrollbar slider {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    min-width: 6px;
+}
+
+scrollbar slider:hover {
+    background-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ── Separators ───────────────────────────────────────────────────────────── */
+separator {
+    background-color: @border_subtle;
+    min-height: 1px;
+    min-width: 1px;
+    margin: 4px 0;
+}
+
+/* ── Popovers / menus ─────────────────────────────────────────────────────── */
+popover,
+popover.menu {
+    background-color: @bg_elevated;
+    border: 1px solid @border_default;
+    border-radius: 12px;
+    padding: 4px;
+}
+
+popover modelbutton {
+    border-radius: 8px;
+    padding: 6px 12px;
+    transition: background-color 100ms ease;
+}
+
+popover modelbutton:hover {
+    background-color: @nv_green_subtle;
+}
+
+/* ── Dialog / wizard ──────────────────────────────────────────────────────── */
+dialog,
+messagedialog {
+    background-color: @bg_elevated;
+    border-radius: 14px;
+    border: 1px solid @border_default;
+}
+
+/* ── Mode badge (for processing mode indicator) ───────────────────────────── */
+.mode-badge {
+    background-color: @nv_green_subtle;
+    color: @nv_green;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.mode-badge.cpu {
+    background-color: rgba(255, 255, 255, 0.06);
+    color: @text_secondary;
+}
+
+/* ── Animations ───────────────────────────────────────────────────────────── */
+@keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slide-up {
+    from { opacity: 0; margin-top: 8px; }
+    to { opacity: 1; margin-top: 0; }
+}
+
+.fade-in {
+    animation: fade-in 200ms ease-out;
+}
+
+.slide-up {
+    animation: slide-up 250ms cubic-bezier(0.4, 0, 0.2, 1);
 }

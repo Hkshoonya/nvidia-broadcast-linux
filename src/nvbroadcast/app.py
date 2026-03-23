@@ -26,6 +26,9 @@ from nvbroadcast.video.effects import VideoEffects
 from nvbroadcast.video.autoframe import AutoFrame
 from nvbroadcast.video.beautify import FaceBeautifier
 from nvbroadcast.video.virtual_camera import ensure_virtual_camera
+from nvbroadcast.video.eye_contact import EyeContactCorrector
+from nvbroadcast.video.relighting import FaceRelighter
+from nvbroadcast.video.perf_monitor import PerfMonitor
 from nvbroadcast.core.platform import IS_MACOS, IS_LINUX
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
@@ -50,6 +53,9 @@ class NVBroadcastApp(Adw.Application):
         )
         self._autoframe = AutoFrame(gpu_index=self.config.compute_gpu)
         self._beautifier = FaceBeautifier(compositing=self.config.compositing)
+        self._eye_contact = EyeContactCorrector()
+        self._relighter = FaceRelighter()
+        self._perf_monitor = PerfMonitor()
         self._vcam_device = None
         self._vcam_available = False
         self._mirror = True  # Default: mirror (like looking in a mirror)
@@ -95,6 +101,9 @@ class NVBroadcastApp(Adw.Application):
 
             # Camera power save: poll for vcam consumers
             GLib.timeout_add(5000, self._check_vcam_consumers)
+
+            # Start performance monitor
+            self._perf_monitor.start()
 
             # Intercept window close -> minimize to background instead of quit
             self._window.connect("close-request", self._on_close_request)
@@ -384,23 +393,42 @@ class NVBroadcastApp(Adw.Application):
 
     def _process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
         import cv2
+        import numpy as np
+
+        self._perf_monitor.tick()
         result = frame_data
+
         if self._video_effects.enabled:
             result = self._video_effects.process_frame(result, width, height)
+
+        # Eye contact correction (after background removal, before beautify)
+        if self._eye_contact.enabled:
+            frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4).copy()
+            frame = self._eye_contact.process_frame(frame)
+            result = frame.tobytes()
+
+        # Face relighting (uses alpha from video_effects if available)
+        if self._relighter.enabled:
+            frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4).copy()
+            alpha = getattr(self._video_effects, '_last_alpha', None)
+            frame = self._relighter.process_frame(frame, alpha)
+            result = frame.tobytes()
+
         if self._beautifier.enabled:
             result = self._beautifier.process_frame(result, width, height)
         if self._autoframe.enabled:
             result = self._autoframe.process_frame(result, width, height)
+
         # Mirror flip (horizontal) — applied last so all effects process unflipped
         if self._mirror:
-            import numpy as np
             frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4)
             result = cv2.flip(frame, 1).tobytes()
         return result
 
     def _any_video_effects_active(self) -> bool:
         return (self._video_effects.enabled or self._autoframe.enabled or
-                self._beautifier.enabled)
+                self._beautifier.enabled or self._eye_contact.enabled or
+                self._relighter.enabled)
 
     def _update_pipeline_mode(self):
         if self._video_pipeline:
@@ -608,6 +636,64 @@ class NVBroadcastApp(Adw.Application):
         """Set a beautification parameter (skin_smooth, denoise, edge_darken, enhance, sharpen)."""
         setattr(self._beautifier, param, value)
 
+    # --- Eye Contact ---
+
+    def set_eye_contact(self, enabled: bool):
+        self._eye_contact.enabled = enabled
+        self._update_pipeline_mode()
+
+    def set_eye_contact_intensity(self, value: float):
+        self._eye_contact.intensity = value
+
+    # --- Face Relighting ---
+
+    def set_relighting(self, enabled: bool):
+        self._relighter.enabled = enabled
+        self._update_pipeline_mode()
+
+    def set_relighting_intensity(self, value: float):
+        self._relighter.intensity = value
+
+    # --- Recording ---
+
+    def start_recording(self):
+        """Start recording to ~/Videos/NVBroadcast_<timestamp>.mp4."""
+        import time
+        from pathlib import Path
+        videos_dir = Path.home() / "Videos"
+        videos_dir.mkdir(exist_ok=True)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filepath = str(videos_dir / f"NVBroadcast_{timestamp}.mp4")
+        if self._video_pipeline:
+            self._video_pipeline.start_recording(filepath)
+        return filepath
+
+    def stop_recording(self):
+        if self._video_pipeline:
+            self._video_pipeline.stop_recording()
+
+    @property
+    def is_recording(self) -> bool:
+        return self._video_pipeline and self._video_pipeline.is_recording
+
+    # --- Multi-camera ---
+
+    def switch_camera(self, device: str):
+        """Hot-switch to a different camera device."""
+        if self.config.video.camera_device == device:
+            return
+        self.config.video.camera_device = device
+        save_config(self.config)
+        if self._streaming:
+            self._stop_broadcast()
+            GLib.timeout_add(500, self._start_broadcast)
+
+    # --- Performance Monitor ---
+
+    @property
+    def perf_monitor(self) -> PerfMonitor:
+        return self._perf_monitor
+
     # --- Audio ---
 
     def set_noise_removal(self, enabled: bool):
@@ -655,4 +741,5 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects.cleanup()
         self._autoframe.cleanup()
         self._beautifier.cleanup()
+        self._perf_monitor.stop()
         Adw.Application.do_shutdown(self)
