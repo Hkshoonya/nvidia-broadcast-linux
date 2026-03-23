@@ -143,6 +143,35 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         ])
         box.append(self._format_selector)
 
+        # Processing mode selector (matches wizard unified modes)
+        from nvbroadcast.core.config import detect_compositing_backends
+        backends = detect_compositing_backends()
+
+        self._mode_devices = []
+        if backends.get("cupy", False):
+            self._mode_devices.append({"name": "CUDA GPU - Maximum Quality", "device": "gpu_cuda_best"})
+        if backends.get("gstreamer_gl", False):
+            self._mode_devices.append({"name": "GPU OpenGL - Best Quality", "device": "gpu_quality"})
+            self._mode_devices.append({"name": "GPU OpenGL - Balanced", "device": "gpu_balanced"})
+        self._mode_devices.append({"name": "CPU - High Quality", "device": "cpu_quality"})
+        self._mode_devices.append({"name": "CPU - Light", "device": "cpu_light"})
+        self._mode_devices.append({"name": "Low-End System", "device": "low_end"})
+
+        self._profile_selector = DeviceSelector("Mode")
+        self._profile_selector.set_devices(self._mode_devices)
+
+        # Map current config to the right index
+        comp = self._app.config.compositing
+        prof = self._app.config.performance_profile
+        current_key = self._profile_and_comp_to_mode(prof, comp)
+        for i, d in enumerate(self._mode_devices):
+            if d["device"] == current_key:
+                self._profile_selector.set_selected_index(i)
+                break
+
+        self._profile_selector.connect("device-changed", self._on_mode_changed_selector)
+        box.append(self._profile_selector)
+
         # GPU selector
         from nvbroadcast.core.gpu import detect_gpus
         gpus = detect_gpus()
@@ -345,6 +374,41 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         mode = self._bg_mode.mode
         self._bg_image_picker.set_sensitive(active and mode == "replace")
 
+    @staticmethod
+    def _profile_and_comp_to_mode(profile, compositing):
+        """Map profile+compositing config to unified mode key."""
+        if compositing == "cupy":
+            return "gpu_cuda_best"
+        if compositing == "gstreamer_gl":
+            if profile == "max_quality":
+                return "gpu_quality"
+            return "gpu_balanced"
+        if profile == "max_quality":
+            return "cpu_quality"
+        if profile in ("performance",):
+            return "cpu_light"
+        if profile == "potato":
+            return "low_end"
+        return "cpu_quality"
+
+    _MODE_MAP = {
+        "gpu_cuda_best": ("max_quality", "cupy"),
+        "gpu_quality": ("max_quality", "gstreamer_gl"),
+        "gpu_balanced": ("balanced", "gstreamer_gl"),
+        "cpu_quality": ("max_quality", "cpu"),
+        "cpu_light": ("performance", "cpu"),
+        "low_end": ("potato", "cpu"),
+    }
+
+    def _on_mode_changed_selector(self, selector, mode_key):
+        if mode_key in self._MODE_MAP:
+            profile, comp = self._MODE_MAP[mode_key]
+            self._app.set_performance_profile(profile)
+            self._app.config.compositing = comp
+            self._app._video_effects.set_compositing(comp)
+            from nvbroadcast.core.config import save_config
+            save_config(self._app.config)
+
     def _on_gpu_changed(self, selector, gpu_str):
         self._app.set_compute_gpu(int(gpu_str))
 
@@ -506,6 +570,30 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             ),
         )
         about.present()
+
+    def rebuild_mode_selector(self, compositing: str, profile: str):
+        """Rebuild the Mode dropdown with currently available backends and select the right one."""
+        from nvbroadcast.core.config import detect_compositing_backends
+        backends = detect_compositing_backends()
+
+        self._mode_devices = []
+        if backends.get("cupy", False) or compositing == "cupy":
+            self._mode_devices.append({"name": "CUDA GPU - Maximum Quality", "device": "gpu_cuda_best"})
+        if backends.get("gstreamer_gl", False) or compositing == "gstreamer_gl":
+            self._mode_devices.append({"name": "GPU OpenGL - Best Quality", "device": "gpu_quality"})
+            self._mode_devices.append({"name": "GPU OpenGL - Balanced", "device": "gpu_balanced"})
+        self._mode_devices.append({"name": "CPU - High Quality", "device": "cpu_quality"})
+        self._mode_devices.append({"name": "CPU - Light", "device": "cpu_light"})
+        self._mode_devices.append({"name": "Low-End System", "device": "low_end"})
+
+        self._profile_selector.set_devices(self._mode_devices)
+        self._profile_selector.connect("device-changed", self._on_mode_changed_selector)
+
+        mode_key = self._profile_and_comp_to_mode(profile, compositing)
+        for i, d in enumerate(self._mode_devices):
+            if d["device"] == mode_key:
+                self._profile_selector.set_selected_index(i)
+                break
 
     def update_preview(self, texture):
         self._preview.update_texture(texture)

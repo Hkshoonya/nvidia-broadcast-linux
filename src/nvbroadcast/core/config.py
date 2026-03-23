@@ -15,10 +15,10 @@ from nvbroadcast.core.constants import CONFIG_DIR, CONFIG_FILE
 @dataclass
 class EdgeConfig:
     """Advanced edge refinement parameters - tunable per system."""
-    dilate_size: int = 5          # Expand person mask (pixels, odd number)
-    blur_size: int = 9            # Edge softness (pixels, odd number)
-    sigmoid_strength: float = 12.0  # Edge sharpness (higher = crisper, lower = softer)
-    sigmoid_midpoint: float = 0.5   # Where the edge transition center sits (0-1)
+    dilate_size: int = 3          # Expand person mask (pixels, odd — smaller = less lag)
+    blur_size: int = 5            # Edge softness (pixels, odd — smaller = crisper in motion)
+    sigmoid_strength: float = 14.0  # Edge sharpness (higher = crisper boundary)
+    sigmoid_midpoint: float = 0.45  # Edge transition center (lower = keeps more of person)
 
 
 @dataclass
@@ -47,11 +47,79 @@ class AudioConfig:
     speaker_denoise: bool = False
 
 
+# Performance profiles: control where the workload runs (CPU vs GPU)
+PERFORMANCE_PROFILES = {
+    "max_quality": {
+        "label": "Max Quality (GPU heavy, ~250% CPU)",
+        "description": "Full 30fps processing, every frame, full resolution",
+        "effects_fps": 30,
+        "skip_interval": 1,
+        "process_scale": 1.0,  # Full resolution
+        "edge_dilate": 3,
+        "edge_blur": 5,
+        "edge_sigmoid": 14.0,
+    },
+    "balanced": {
+        "label": "Balanced (recommended, ~120% CPU)",
+        "description": "20fps effects, skip every other frame, full resolution",
+        "effects_fps": 20,
+        "skip_interval": 2,
+        "process_scale": 1.0,
+        "edge_dilate": 3,
+        "edge_blur": 5,
+        "edge_sigmoid": 12.0,
+    },
+    "performance": {
+        "label": "Performance (CPU light, ~60% CPU)",
+        "description": "15fps effects, half resolution processing, fast edges",
+        "effects_fps": 15,
+        "skip_interval": 2,
+        "process_scale": 0.5,  # Half resolution for processing
+        "edge_dilate": 2,
+        "edge_blur": 3,
+        "edge_sigmoid": 10.0,
+    },
+    "potato": {
+        "label": "Low-End (minimal resources, ~30% CPU)",
+        "description": "10fps effects, half resolution, skip 3 frames",
+        "effects_fps": 10,
+        "skip_interval": 3,
+        "process_scale": 0.5,
+        "edge_dilate": 1,
+        "edge_blur": 3,
+        "edge_sigmoid": 8.0,
+    },
+}
+
+
+# Compositing backends
+COMPOSITING_BACKENDS = {
+    "cpu": {
+        "label": "CPU (works everywhere)",
+        "description": "NumPy/OpenCV compositing — compatible with all systems",
+        "requires": [],
+    },
+    "gstreamer_gl": {
+        "label": "GStreamer OpenGL (GPU — recommended)",
+        "description": "GPU blur + blend via OpenGL — dramatically reduces CPU usage",
+        "requires": ["glvideomixer", "gleffects_blur", "glupload"],
+    },
+    "cupy": {
+        "label": "CuPy CUDA (GPU — maximum performance)",
+        "description": "CUDA GPU arrays for compositing — requires cupy-cuda12x (~800MB)",
+        "requires": ["cupy"],
+    },
+}
+
+
 @dataclass
 class AppConfig:
     compute_gpu: int = 0
-    auto_start: bool = True  # Start broadcast automatically on launch
-    minimize_on_close: bool = True  # Minimize to tray instead of quitting
+    performance_profile: str = "balanced"  # max_quality, balanced, performance, potato
+    compositing: str = "cpu"  # cpu, gstreamer_gl, cupy
+    auto_start: bool = True
+    minimize_on_close: bool = True
+    first_run: bool = True  # Show setup wizard on first launch
     video: VideoConfig = field(default_factory=VideoConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
 
@@ -65,7 +133,7 @@ def load_config() -> AppConfig:
             data = tomllib.load(f)
 
         config = AppConfig()
-        for k in ("compute_gpu", "auto_start", "minimize_on_close"):
+        for k in ("compute_gpu", "performance_profile", "compositing", "auto_start", "minimize_on_close", "first_run"):
             if k in data:
                 setattr(config, k, data[k])
         if "video" in data:
@@ -92,8 +160,11 @@ def save_config(config: AppConfig) -> None:
 
     lines = [
         f"compute_gpu = {config.compute_gpu}",
+        f'performance_profile = "{config.performance_profile}"',
+        f'compositing = "{config.compositing}"',
         f"auto_start = {'true' if config.auto_start else 'false'}",
         f"minimize_on_close = {'true' if config.minimize_on_close else 'false'}",
+        f"first_run = {'true' if config.first_run else 'false'}",
         "",
         "[video]",
         f'camera_device = "{config.video.camera_device}"',
@@ -124,3 +195,111 @@ def save_config(config: AppConfig) -> None:
     ]
 
     CONFIG_FILE.write_text("\n".join(lines) + "\n")
+
+
+def detect_system_capabilities() -> dict:
+    """Detect system hardware and recommend the best configuration."""
+    import os
+    import subprocess
+
+    caps = {
+        "cpu_cores": os.cpu_count() or 4,
+        "gpu_name": "Unknown",
+        "gpu_vram_mb": 0,
+        "has_nvidia": False,
+        "has_gl_compositor": False,
+        "has_cupy": False,
+        "recommended_mode": "cpu_quality",
+    }
+
+    # GPU detection
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, check=True,
+        )
+        line = result.stdout.strip().split("\n")[0]
+        parts = [p.strip() for p in line.split(",")]
+        caps["gpu_name"] = parts[0]
+        caps["gpu_vram_mb"] = int(parts[1])
+        caps["has_nvidia"] = True
+    except Exception:
+        pass
+
+    # GStreamer GL
+    try:
+        import gi
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst
+        Gst.init(None)
+        caps["has_gl_compositor"] = all(
+            Gst.ElementFactory.find(e) is not None
+            for e in ["glvideomixer", "glupload", "gldownload"]
+        )
+    except Exception:
+        pass
+
+    # CuPy
+    try:
+        import cupy  # noqa: F401
+        caps["has_cupy"] = True
+    except ImportError:
+        pass
+
+    # Auto-recommend based on hardware
+    if caps["has_nvidia"]:
+        if caps["has_cupy"]:
+            caps["recommended_mode"] = "gpu_cuda_best"
+        elif caps["has_gl_compositor"]:
+            caps["recommended_mode"] = "gpu_balanced"
+        elif caps["gpu_vram_mb"] >= 4096:
+            caps["recommended_mode"] = "gpu_balanced"  # Can install GL
+        else:
+            caps["recommended_mode"] = "cpu_quality"
+    elif caps["cpu_cores"] >= 8:
+        caps["recommended_mode"] = "cpu_quality"
+    elif caps["cpu_cores"] >= 4:
+        caps["recommended_mode"] = "cpu_light"
+    else:
+        caps["recommended_mode"] = "low_end"
+
+    return caps
+
+
+def detect_compositing_backends() -> dict[str, bool]:
+    """Detect which compositing backends are available on this system."""
+    available = {"cpu": True}
+
+    # Check GStreamer GL
+    try:
+        import gi
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst
+        Gst.init(None)
+        gl_ok = all(
+            Gst.ElementFactory.find(e) is not None
+            for e in ["glvideomixer", "glupload", "gldownload"]
+        )
+        available["gstreamer_gl"] = gl_ok
+    except Exception:
+        available["gstreamer_gl"] = False
+
+    # Check CuPy
+    try:
+        import cupy  # noqa: F401
+        available["cupy"] = True
+    except ImportError:
+        available["cupy"] = False
+
+    return available
+
+
+def apply_performance_profile(config: AppConfig, profile_name: str) -> None:
+    """Apply a performance profile to the config."""
+    if profile_name not in PERFORMANCE_PROFILES:
+        return
+    p = PERFORMANCE_PROFILES[profile_name]
+    config.performance_profile = profile_name
+    config.video.edge.dilate_size = p["edge_dilate"]
+    config.video.edge.blur_size = p["edge_blur"]
+    config.video.edge.sigmoid_strength = p["edge_sigmoid"]
