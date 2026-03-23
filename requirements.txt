@@ -6,13 +6,18 @@
 numpy>=1.26
 Pillow>=10.0
 opencv-python-headless>=4.8
+psutil>=5.9
 
 # AI / Inference
 mediapipe>=0.10
 onnxruntime-gpu>=1.16
+onnx>=1.14
 
 # Audio
 pyrnnoise>=0.4
+
+# GPU Compositing (recommended — 150x faster blend)
+cupy-cuda12x
 
 # CUDA 12 Runtime Libraries (required for GPU acceleration)
 # These provide the .so files that ONNX Runtime needs at runtime.
@@ -26,6 +31,13 @@ nvidia-cusparse-cu12
 nvidia-cusolver-cu12
 nvidia-nvjitlink-cu12
 nvidia-cuda-nvrtc-cu12
+
+# Optional: TensorRT (for Zeus/Killer premium modes)
+# Uncomment to install (~4GB):
+# tensorrt
+# tensorrt-cu12
+# tensorrt-cu12-bindings
+# tensorrt-cu12-libs
 
 # --------------------------------------------------------------------------
 # SYSTEM PACKAGES (cannot be installed via pip — use apt or your distro's

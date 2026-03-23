@@ -32,6 +32,8 @@ dependencies = [
     "mediapipe>=0.10",
     "onnxruntime-gpu>=1.16",
     "pyrnnoise>=0.4",
+    "onnx>=1.14",
+    "cupy-cuda12x",
     "psutil>=5.9",
     "nvidia-cublas-cu12",
     "nvidia-cuda-runtime-cu12",
