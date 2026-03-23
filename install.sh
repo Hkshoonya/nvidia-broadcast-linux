@@ -300,13 +300,7 @@ else
     fi
 fi
 
-# ─── Compositing Engine Selection ────────────────────────────────────────────
-
-echo ""
-echo "[Compositing] How should blur/blend compositing run?"
-echo ""
-
-# Auto-detect available options
+# Auto-detect GPU capabilities for optional packages
 HAS_GL=false
 HAS_NVIDIA=false
 GPU_VRAM=0
@@ -320,136 +314,6 @@ if command -v gst-inspect-1.0 &>/dev/null; then
         HAS_GL=true
     fi
 fi
-
-echo "  Your system:"
-if [ "$HAS_NVIDIA" = true ]; then
-    echo "    NVIDIA GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1) (${GPU_VRAM} MB)"
-else
-    echo "    NVIDIA GPU: not detected"
-fi
-echo "    GStreamer GL: $( [ "$HAS_GL" = true ] && echo "available" || echo "not available" )"
-echo ""
-
-echo "  1) CPU compositing (works everywhere, ~200% CPU usage)"
-if [ "$HAS_GL" = true ]; then
-    echo "  2) GStreamer OpenGL GPU (recommended, ~60% CPU)"
-else
-    echo "  2) GStreamer OpenGL GPU [not available — missing GL plugins]"
-fi
-if [ "$HAS_NVIDIA" = true ]; then
-    echo "  3) CuPy CUDA GPU (best quality, ~30% CPU — downloads ~800MB)"
-else
-    echo "  3) CuPy CUDA GPU [not available — needs NVIDIA GPU]"
-fi
-echo ""
-
-# Auto-determine default
-DEFAULT_COMP=1
-if [ "$HAS_GL" = true ]; then
-    DEFAULT_COMP=2
-fi
-
-read -rp "  Select [1/2/3] (default: ${DEFAULT_COMP}): " comp_choice
-comp_choice="${comp_choice:-$DEFAULT_COMP}"
-
-case "$comp_choice" in
-    3)
-        if [ "$HAS_NVIDIA" != true ]; then
-            echo ""
-            echo "  ERROR: CuPy CUDA requires an NVIDIA GPU."
-            echo "  Falling back to CPU compositing."
-            COMPOSITING="cpu"
-        else
-            COMPOSITING="cupy"
-            echo ""
-            echo "  Installing CuPy CUDA compositing (~800MB download)..."
-            echo "  This may take a few minutes..."
-            echo ""
-            CUPY_LOG=$("$VENV_DIR/bin/pip" install cupy-cuda12x nvidia-cuda-nvrtc-cu12 2>&1)
-            CUPY_EXIT=$?
-            if [ $CUPY_EXIT -eq 0 ]; then
-                # Verify CuPy actually works
-                CUPY_TEST=$("$VENV_DIR/bin/python" -c "
-import cupy as cp
-import numpy as np
-a = np.ones((10,10), dtype=np.float32)
-b = cp.asarray(a)
-c = (b * 2.0).astype(cp.uint8)
-print('OK')
-" 2>&1)
-                if [ "$CUPY_TEST" = "OK" ]; then
-                    echo "  CuPy CUDA compositing installed and verified!"
-                else
-                    echo ""
-                    echo "  WARNING: CuPy installed but CUDA kernel compilation failed."
-                    echo ""
-                    echo "  Common causes:"
-                    echo "    - Missing NVIDIA CUDA toolkit: sudo apt install nvidia-cuda-toolkit"
-                    echo "    - Driver too old: need NVIDIA driver 525+ for CUDA 12"
-                    echo "    - CUDA version mismatch: pip install cupy-cuda11x (for CUDA 11)"
-                    echo ""
-                    echo "  Error details:"
-                    echo "  $CUPY_TEST" | tail -3
-                    echo ""
-                    if [ "$HAS_GL" = true ]; then
-                        echo "  Falling back to GStreamer OpenGL GPU compositing."
-                        COMPOSITING="gstreamer_gl"
-                    else
-                        echo "  Falling back to CPU compositing."
-                        COMPOSITING="cpu"
-                    fi
-                fi
-            else
-                echo ""
-                echo "  WARNING: CuPy installation failed."
-                echo ""
-                echo "  Common causes:"
-                echo "    - No internet connection"
-                echo "    - pip version too old: $VENV_DIR/bin/pip install --upgrade pip"
-                echo "    - Disk space: CuPy needs ~800MB free"
-                echo "    - Python version: CuPy supports Python 3.9-3.12"
-                echo ""
-                echo "  Install log (last 5 lines):"
-                echo "$CUPY_LOG" | tail -5
-                echo ""
-                echo "  To retry later: $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
-                echo ""
-                if [ "$HAS_GL" = true ]; then
-                    echo "  Falling back to GStreamer OpenGL GPU compositing."
-                    COMPOSITING="gstreamer_gl"
-                else
-                    echo "  Falling back to CPU compositing."
-                    COMPOSITING="cpu"
-                fi
-            fi
-        fi
-        ;;
-    2)
-        if [ "$HAS_GL" = true ]; then
-            COMPOSITING="gstreamer_gl"
-            echo "  GStreamer OpenGL GPU compositing selected."
-        else
-            echo ""
-            echo "  GStreamer GL plugins not available."
-            echo "  To install them:"
-            case "$PKG_MANAGER" in
-                apt)    echo "    sudo apt install gstreamer1.0-plugins-bad gstreamer1.0-gl" ;;
-                dnf)    echo "    sudo dnf install gstreamer1-plugins-bad-free-gl" ;;
-                pacman) echo "    sudo pacman -S gst-plugins-bad gst-plugin-opengl" ;;
-                *)      echo "    Install GStreamer GL/OpenGL plugins for your distro" ;;
-            esac
-            echo ""
-            echo "  Using CPU compositing instead."
-            COMPOSITING="cpu"
-        fi
-        ;;
-    *)
-        COMPOSITING="cpu"
-        echo "  CPU compositing selected."
-        ;;
-esac
-echo ""
-echo "  Compositing engine: $COMPOSITING"
 
 # ─── Step 2: v4l2loopback Configuration ─────────────────────────────────────
 
@@ -497,13 +361,13 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 "$VENV_DIR/bin/pip" install --upgrade pip -q
 "$VENV_DIR/bin/pip" install -e "$SCRIPT_DIR" -q
-echo "Python packages installed."
+echo "Core packages installed."
 
 # Verify critical Python packages
 echo ""
-echo "Verifying Python dependencies..."
+echo "Verifying core dependencies..."
 FAILED_PY=()
-for mod in numpy cv2 mediapipe onnxruntime PIL; do
+for mod in numpy cv2 mediapipe onnxruntime PIL psutil onnx; do
     if "$VENV_DIR/bin/python" -c "import $mod" 2>/dev/null; then
         echo "  $mod ... OK"
     else
@@ -512,7 +376,6 @@ for mod in numpy cv2 mediapipe onnxruntime PIL; do
     fi
 done
 
-# pyrnnoise has a different import name
 if "$VENV_DIR/bin/python" -c "from pyrnnoise import rnnoise" 2>/dev/null; then
     echo "  pyrnnoise ... OK"
 else
@@ -522,8 +385,7 @@ fi
 
 if [ ${#FAILED_PY[@]} -gt 0 ]; then
     echo ""
-    echo "WARNING: Some Python packages failed to import: ${FAILED_PY[*]}"
-    echo "The app may not function correctly. Check errors above."
+    echo "WARNING: Some packages failed: ${FAILED_PY[*]}"
 fi
 
 # Verify GPU acceleration
@@ -533,24 +395,111 @@ GPU_RESULT=$("$VENV_DIR/bin/python" -c "
 import onnxruntime as ort
 providers = ort.get_available_providers()
 if 'CUDAExecutionProvider' in providers:
-    try:
-        opts = ort.SessionOptions()
-        opts.log_severity_level = 3
-        print('CUDA_OK')
-    except:
-        print('CUDA_FAIL')
+    print('CUDA_OK')
+elif 'TensorrtExecutionProvider' in providers:
+    print('TRT_OK')
 else:
     print('CPU_ONLY')
 " 2>/dev/null)
 
-if [ "$GPU_RESULT" = "CUDA_OK" ]; then
+if [ "$GPU_RESULT" = "CUDA_OK" ] || [ "$GPU_RESULT" = "TRT_OK" ]; then
     echo "  CUDA acceleration ... OK"
-elif [ "$GPU_RESULT" = "CPU_ONLY" ]; then
-    echo "  WARNING: CUDA not available, will run on CPU (slower)"
-    echo "           Install NVIDIA CUDA toolkit for GPU acceleration"
 else
-    echo "  WARNING: CUDA libraries may not load correctly"
-    echo "           App will fall back to CPU if needed"
+    echo "  WARNING: CUDA not available, will run on CPU (slower)"
+fi
+
+# ─── Optional Packages ────────────────────────────────────────────────────
+echo ""
+echo "─────────────────────────────────────────"
+echo "  Optional Packages"
+echo "─────────────────────────────────────────"
+echo ""
+echo "  These unlock premium features. You can install them now or later."
+echo "  If skipped, the app will prompt when you select a mode that needs them."
+echo ""
+
+# CuPy (GPU compositing + fused kernel)
+CUPY_INSTALLED=false
+if "$VENV_DIR/bin/python" -c "import cupy" 2>/dev/null; then
+    echo "  [installed] CuPy CUDA — GPU compositing + fused CUDA kernel"
+    CUPY_INSTALLED=true
+else
+    echo "  1) CuPy CUDA (~800MB) — Unlocks:"
+    echo "     - Killer mode (48fps, fused CUDA kernel compositing)"
+    echo "     - Zeus mode (33fps, GPU-optimized inference)"
+    echo "     - DocZeus mode (full quality + 0.1ms fused compositing)"
+    echo "     - GPU alpha blending (150x faster than CPU)"
+    echo ""
+    if [ "$HAS_NVIDIA" = true ]; then
+        read -rp "  Install CuPy? [Y/n] " install_cupy
+        install_cupy="${install_cupy:-Y}"
+        if [[ "$install_cupy" =~ ^[Yy]$ ]]; then
+            echo "  Installing CuPy (this may take a few minutes)..."
+            if "$VENV_DIR/bin/pip" install cupy-cuda12x nvidia-cuda-nvrtc-cu12 -q 2>&1; then
+                CUPY_TEST=$("$VENV_DIR/bin/python" -c "import cupy; a=cupy.ones(10); print('OK')" 2>&1)
+                if [ "$CUPY_TEST" = "OK" ]; then
+                    echo "  CuPy installed and verified!"
+                    CUPY_INSTALLED=true
+                else
+                    echo "  WARNING: CuPy installed but verification failed."
+                    echo "  You can retry later: $VENV_DIR/bin/pip install cupy-cuda12x"
+                fi
+            else
+                echo "  WARNING: CuPy installation failed. Skipping."
+                echo "  Retry later: $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+            fi
+        else
+            echo "  Skipped. Install later: $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+        fi
+    else
+        echo "  [skipped] No NVIDIA GPU detected."
+    fi
+fi
+echo ""
+
+# TensorRT (Zeus/Killer inference optimization)
+TRT_INSTALLED=false
+if "$VENV_DIR/bin/python" -c "import tensorrt" 2>/dev/null; then
+    echo "  [installed] TensorRT — Optimized inference for Zeus/Killer modes"
+    TRT_INSTALLED=true
+else
+    echo "  2) TensorRT (~4GB) — Unlocks:"
+    echo "     - Optimized model inference (future TRT engine support)"
+    echo "     - Potential 2-5x inference speedup on supported models"
+    echo ""
+    if [ "$HAS_NVIDIA" = true ]; then
+        read -rp "  Install TensorRT? [y/N] " install_trt
+        install_trt="${install_trt:-N}"
+        if [[ "$install_trt" =~ ^[Yy]$ ]]; then
+            echo "  Installing TensorRT (this may take several minutes)..."
+            if "$VENV_DIR/bin/pip" install tensorrt tensorrt-cu12 tensorrt-cu12-bindings tensorrt-cu12-libs onnx -q 2>&1; then
+                echo "  TensorRT installed!"
+                TRT_INSTALLED=true
+            else
+                echo "  WARNING: TensorRT installation failed. Skipping."
+                echo "  Retry later: $VENV_DIR/bin/pip install tensorrt tensorrt-cu12"
+            fi
+        else
+            echo "  Skipped. Install later: $VENV_DIR/bin/pip install tensorrt tensorrt-cu12 tensorrt-cu12-bindings tensorrt-cu12-libs"
+        fi
+    else
+        echo "  [skipped] No NVIDIA GPU detected."
+    fi
+fi
+echo ""
+
+# Summary of optional packages
+echo "  Optional packages summary:"
+echo "    CuPy:     $( [ "$CUPY_INSTALLED" = true ] && echo "INSTALLED (Killer/Zeus/DocZeus modes)" || echo "NOT INSTALLED (CPU modes only)" )"
+echo "    TensorRT: $( [ "$TRT_INSTALLED" = true ] && echo "INSTALLED (optimized inference)" || echo "NOT INSTALLED (standard CUDA inference)" )"
+
+# Set compositing based on what's installed
+if [ "$CUPY_INSTALLED" = true ]; then
+    COMPOSITING="cupy"
+elif [ "$HAS_GL" = true ]; then
+    COMPOSITING="gstreamer_gl"
+else
+    COMPOSITING="cpu"
 fi
 
 # Write initial config with installer choices
@@ -716,20 +665,31 @@ echo "Autostart entry installed (launches on login)"
 
 echo ""
 echo "========================================="
-echo "  Installation Complete!"
+echo "  Installation Complete! v0.2.0"
 echo "  NVIDIA Broadcast for Linux"
+echo "  by doczeus | AI Powered"
 echo "========================================="
 echo ""
-echo "  Detected: $DISTRO_NAME ($PKG_MANAGER)"
+echo "  System: $DISTRO_NAME ($PKG_MANAGER)"
+echo "  Compositing: $COMPOSITING"
+echo "  CuPy: $( [ "$CUPY_INSTALLED" = true ] && echo "YES (Killer/Zeus/DocZeus modes)" || echo "NO (install later for GPU modes)" )"
+echo "  TensorRT: $( [ "$TRT_INSTALLED" = true ] && echo "YES" || echo "NO (install later for optimized inference)" )"
 echo ""
-echo "  Setup once, forget forever:"
-echo "    - App auto-starts on login"
-echo "    - Closing the window minimizes to background"
-echo "    - Virtual camera stays active for browsers/apps"
-echo "    - All settings are remembered"
+echo "  Available modes:"
+if [ "$CUPY_INSTALLED" = true ]; then
+    echo "    Killer  — 48fps fused CUDA (fastest)"
+    echo "    Zeus    — 33fps GPU-optimized"
+    echo "    DocZeus — 23fps full quality + fused kernel"
+fi
+echo "    CUDA Max/Balanced/Perf — standard GPU modes"
+echo "    CPU Quality/Light/Low  — CPU fallback"
+echo ""
+echo "  To install optional packages later:"
+echo "    CuPy:     $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt tensorrt-cu12 tensorrt-cu12-bindings tensorrt-cu12-libs"
 echo ""
 echo "  First run:"
 echo "    nvbroadcast"
 echo ""
-echo "  To fully quit: click the exit icon in the header bar"
+echo "  Setup once, forget forever."
 echo ""
