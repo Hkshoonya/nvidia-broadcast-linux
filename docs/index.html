@@ -147,7 +147,7 @@ nav .container {
   transition: none;
 }
 .macos-reveal.animate {
-  animation: macos-arrive 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: macos-arrive 1.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 @keyframes macos-arrive {
   0% {
@@ -1382,13 +1382,13 @@ document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
   var mo = new MutationObserver(function() {
     if (h1.classList.contains('visible')) {
       mo.disconnect();
-      setTimeout(function() { macEl.classList.add('animate'); }, 800);
+      setTimeout(function() { macEl.classList.add('animate'); }, 1200);
     }
   });
   mo.observe(h1, { attributes: true, attributeFilter: ['class'] });
   // If already visible (page load at top)
   if (h1.classList.contains('visible')) {
-    setTimeout(function() { macEl.classList.add('animate'); }, 800);
+    setTimeout(function() { macEl.classList.add('animate'); }, 1200);
   }
 })();
 
