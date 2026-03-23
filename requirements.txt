@@ -10,14 +10,18 @@ psutil>=5.9
 
 # AI / Inference
 mediapipe>=0.10
-onnxruntime-gpu>=1.16
+onnxruntime-gpu>=1.16; sys_platform == "linux"
+onnxruntime>=1.16; sys_platform == "darwin"
 onnx>=1.14
+
+# Cross-platform virtual camera (macOS: OBS Virtual Camera backend)
+pyvirtualcam>=0.4; sys_platform == "darwin"
 
 # Audio
 pyrnnoise>=0.4
 
-# GPU Compositing (recommended — 150x faster blend)
-cupy-cuda12x
+# GPU Compositing (recommended — 150x faster blend, Linux/NVIDIA only)
+cupy-cuda12x; sys_platform == "linux"
 
 # CUDA 12 Runtime Libraries (required for GPU acceleration)
 # These provide the .so files that ONNX Runtime needs at runtime.

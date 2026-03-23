@@ -12,8 +12,11 @@ Supported models:
 """
 
 import os
-# Force CUDA device ordering to match nvidia-smi (PCI bus ID order)
-os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+import platform as _platform
+
+# Force CUDA device ordering to match nvidia-smi (PCI bus ID order) — Linux only
+if _platform.system() != "Darwin":
+    os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 
 import ctypes
 import threading
@@ -24,7 +27,12 @@ import cv2
 
 
 def _preload_cuda_libs():
-    """Pre-load pip-installed NVIDIA libs for ONNX Runtime CUDA + TensorRT."""
+    """Pre-load pip-installed NVIDIA libs for ONNX Runtime CUDA + TensorRT.
+
+    Skipped on macOS where CUDA is not available.
+    """
+    if _platform.system() == "Darwin":
+        return
     try:
         import importlib.util
         # CUDA runtime libs
@@ -135,27 +143,11 @@ def _create_session(model_path: str, gpu_index: int,
 
     use_tensorrt=True enables TensorRT EP (Zeus/Killer modes) for 3-5x faster inference.
     First run builds the TRT engine (~30s), cached for instant subsequent loads.
+
+    On macOS: uses CoreML EP (Apple Silicon) or CPU EP as fallback.
     """
-    providers = []
-    if use_tensorrt and 'TensorrtExecutionProvider' in ort.get_available_providers():
-        cache_dir = str(_MODELS_DIR / "trt_cache")
-        Path(cache_dir).mkdir(parents=True, exist_ok=True)
-        providers.append(('TensorrtExecutionProvider', {
-            'device_id': gpu_index,
-            'trt_max_workspace_size': 2 * 1024 * 1024 * 1024,
-            'trt_fp16_enable': True,
-            'trt_engine_cache_enable': True,
-            'trt_engine_cache_path': cache_dir,
-            'trt_builder_optimization_level': 3,
-        }))
-    providers.append(('CUDAExecutionProvider', {
-        'device_id': gpu_index,
-        'arena_extend_strategy': 'kSameAsRequested',
-        'gpu_mem_limit': 2 * 1024 * 1024 * 1024,
-        'cudnn_conv_algo_search': 'HEURISTIC',
-        'do_copy_in_default_stream': True,
-    }))
-    providers.append('CPUExecutionProvider')
+    from nvbroadcast.core.platform import get_onnx_providers
+    providers = get_onnx_providers(gpu_index, use_tensorrt)
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     opts.log_severity_level = 3

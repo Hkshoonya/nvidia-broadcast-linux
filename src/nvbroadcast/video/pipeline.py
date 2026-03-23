@@ -100,8 +100,10 @@ class VideoPipeline:
 
         CPU usage: near zero (all in GStreamer C code).
         """
+        from nvbroadcast.core.platform import IS_MACOS, get_gst_camera_caps
+
         tee_branch = ""
-        if vcam_enabled:
+        if vcam_enabled and not IS_MACOS:
             tee_branch = (
                 f"tee name=t "
                 f"t. ! queue max-size-buffers=2 leaky=downstream ! "
@@ -119,16 +121,21 @@ class VideoPipeline:
                 f"appsink name=preview emit-signals=true max-buffers=1 drop=true sync=false"
             )
 
-        # Use GPU JPEG decode in passthrough mode too
-        if self._has_gst_element("nvjpegdec"):
+        # Camera source — platform-aware
+        camera_src = get_gst_camera_caps(
+            self._source_device, self._width, self._height, self._fps
+        )
+
+        if IS_MACOS:
+            # macOS: avfvideosrc outputs raw video, no JPEG decode needed
+            decoder = "videoconvert"
+        elif self._has_gst_element("nvjpegdec"):
             decoder = "nvjpegdec ! cudadownload"
         else:
             decoder = "jpegdec"
 
         self._pipeline = Gst.parse_launch(
-            f"v4l2src device={self._source_device} ! "
-            f"image/jpeg,width={self._width},height={self._height},"
-            f"framerate={self._fps}/1 ! "
+            f"{camera_src} ! "
             f"{decoder} ! "
             f"{tee_branch}"
         )
@@ -143,8 +150,15 @@ class VideoPipeline:
 
     def _build_effects_pipeline(self, vcam_enabled: bool):
         """appsink/appsrc pipeline for Python effect processing."""
-        # Use NVIDIA GPU for JPEG decode — saves ~60% CPU vs software jpegdec
-        if self._has_gst_element("nvjpegdec"):
+        from nvbroadcast.core.platform import IS_MACOS, get_gst_camera_caps
+
+        camera_src = get_gst_camera_caps(
+            self._source_device, self._width, self._height, self._fps
+        )
+
+        if IS_MACOS:
+            decoder = "videoconvert"
+        elif self._has_gst_element("nvjpegdec"):
             decoder = "nvjpegdec ! cudadownload ! videoconvert"
         else:
             decoder = "jpegdec ! videoconvert"
@@ -152,9 +166,7 @@ class VideoPipeline:
         # No videorate — frame throttling is done in Python (_on_effects_sample)
         # so mode/profile changes never require a pipeline restart.
         self._pipeline = Gst.parse_launch(
-            f"v4l2src device={self._source_device} ! "
-            f"image/jpeg,width={self._width},height={self._height},"
-            f"framerate={self._fps}/1 ! "
+            f"{camera_src} ! "
             f"{decoder} ! "
             f"video/x-raw,format=BGRA,width={self._width},height={self._height} ! "
             f"appsink name=sink emit-signals=true max-buffers=2 drop=true sync=false"
@@ -167,21 +179,37 @@ class VideoPipeline:
         bus.connect("message::error", self._on_error)
 
         if vcam_enabled:
-            self._vcam_pipeline = Gst.parse_launch(
-                f"appsrc name=src is-live=true format=time "
-                f"caps=video/x-raw,format=BGRA,width={self._width},"
-                f"height={self._height},framerate={self._fps}/1 ! "
-                f"queue max-size-buffers=2 leaky=downstream ! "
-                f"videoconvert ! "
-                f"video/x-raw,format={self._output_format},width={self._width},"
-                f"height={self._height},framerate={self._fps}/1 ! "
-                f"v4l2sink device={self._vcam_device} sync=false"
-            )
-            self._vcam_appsrc = self._vcam_pipeline.get_by_name("src")
+            if IS_MACOS:
+                # macOS: use pyvirtualcam (OBS Virtual Camera) for vcam output
+                self._vcam_pipeline = None
+                self._vcam_appsrc = None
+                try:
+                    import pyvirtualcam
+                    self._pyvirtualcam = pyvirtualcam.Camera(
+                        width=self._width, height=self._height,
+                        fps=self._fps, backend="obs",
+                    )
+                    print(f"[NV Broadcast] macOS virtual camera: {self._pyvirtualcam.device}")
+                except Exception as e:
+                    print(f"[NV Broadcast] pyvirtualcam not available: {e}")
+                    self._pyvirtualcam = None
+            else:
+                self._pyvirtualcam = None
+                self._vcam_pipeline = Gst.parse_launch(
+                    f"appsrc name=src is-live=true format=time "
+                    f"caps=video/x-raw,format=BGRA,width={self._width},"
+                    f"height={self._height},framerate={self._fps}/1 ! "
+                    f"queue max-size-buffers=2 leaky=downstream ! "
+                    f"videoconvert ! "
+                    f"video/x-raw,format={self._output_format},width={self._width},"
+                    f"height={self._height},framerate={self._fps}/1 ! "
+                    f"v4l2sink device={self._vcam_device} sync=false"
+                )
+                self._vcam_appsrc = self._vcam_pipeline.get_by_name("src")
 
-            vbus = self._vcam_pipeline.get_bus()
-            vbus.add_signal_watch()
-            vbus.connect("message::error", self._on_vcam_error)
+                vbus = self._vcam_pipeline.get_bus()
+                vbus.add_signal_watch()
+                vbus.connect("message::error", self._on_vcam_error)
 
     def _on_preview_sample(self, appsink):
         """Lightweight preview-only callback (passthrough mode)."""

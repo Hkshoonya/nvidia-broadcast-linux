@@ -16,10 +16,14 @@ DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 DEFAULT_FPS = 30
 
-VIRTUAL_CAM_DEVICE = "/dev/video10"
+import platform as _pf
+VIRTUAL_CAM_DEVICE = "/dev/video10" if _pf.system() != "Darwin" else "pyvirtualcam"
 VIRTUAL_CAM_LABEL = "NVIDIA Broadcast"
 
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "nvbroadcast"
+if _pf.system() == "Darwin":
+    CONFIG_DIR = Path.home() / "Library" / "Application Support" / "nvbroadcast"
+else:
+    CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "nvbroadcast"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 MAXINE_VFX_PATH = Path("/usr/local/VideoFX")

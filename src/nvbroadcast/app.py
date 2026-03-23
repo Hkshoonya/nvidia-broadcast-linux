@@ -26,6 +26,7 @@ from nvbroadcast.video.effects import VideoEffects
 from nvbroadcast.video.autoframe import AutoFrame
 from nvbroadcast.video.beautify import FaceBeautifier
 from nvbroadcast.video.virtual_camera import ensure_virtual_camera
+from nvbroadcast.core.platform import IS_MACOS, IS_LINUX
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
 from nvbroadcast.ui.window import NVBroadcastWindow
@@ -167,9 +168,14 @@ class NVBroadcastApp(Adw.Application):
 
         When no app is reading from /dev/video10, pause the camera to save
         power/CPU/GPU. Resume automatically when a consumer connects.
+        macOS: fuser not available, skip power-save polling.
         """
         if not self._camera_power_save or not self._vcam_available:
             return True  # Keep polling
+
+        if IS_MACOS:
+            # macOS: no fuser, no /dev/video* — skip consumer polling
+            return True
 
         import subprocess
         try:

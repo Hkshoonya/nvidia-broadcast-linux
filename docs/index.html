@@ -856,10 +856,10 @@ footer {
     </div>
 
     <h1 class="reveal reveal-delay-1">
-      NVIDIA Broadcast<br>for <span class="accent">Linux</span>
+      NVIDIA Broadcast<br>for <span class="accent">Linux</span> &amp; <span class="accent">macOS</span>
     </h1>
     <p class="subtitle reveal reveal-delay-2">
-      AI-powered virtual camera with background removal, auto-frame, video enhancement, and noise cancellation. 9 processing modes from 48 fps to CPU fallback.
+      AI-powered virtual camera with background removal, auto-frame, video enhancement, and noise cancellation. 9 processing modes from 48 fps to CPU fallback. Linux and macOS.
     </p>
 
     <div class="hero-ctas reveal reveal-delay-3">
@@ -1172,6 +1172,7 @@ footer {
       <button class="install-tab" data-tab="deb">Debian / Ubuntu</button>
       <button class="install-tab" data-tab="rpm">Fedora / RHEL</button>
       <button class="install-tab" data-tab="arch">Arch</button>
+      <button class="install-tab" data-tab="macos">macOS</button>
     </div>
 
     <div class="install-block reveal reveal-delay-2">
@@ -1251,6 +1252,26 @@ footer {
           </div>
         </div>
         <p class="install-note">For Arch, Manjaro, EndeavourOS. <a href="https://wiki.archlinux.org/title/V4l2loopback" target="_blank" rel="noopener">Arch wiki: v4l2loopback</a></p>
+      </div>
+
+      <!-- macOS -->
+      <div class="install-pane" id="pane-macos">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot r"></div>
+            <div class="terminal-dot y"></div>
+            <div class="terminal-dot g"></div>
+            <span>zsh</span>
+          </div>
+          <div class="terminal-body">
+            <button class="copy-btn" onclick="copyCommand('macos')">Copy</button>
+            <div class="terminal-line"><span class="comment"># macOS (Apple Silicon + Intel)</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd nvidia-broadcast-linux</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">./install_macos.sh</span></div>
+          </div>
+        </div>
+        <p class="install-note">Requires macOS 12+, Homebrew. CPU modes with CoreML acceleration on Apple Silicon. Built-in virtual camera support.</p>
       </div>
 
     </div>
@@ -1390,7 +1411,8 @@ const commands = {
   source: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
   deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_0.2.0-1_all.deb && sudo dpkg -i nvbroadcast_0.2.0-1_all.deb && sudo apt-get install -f',
   rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-0.2.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-0.2.0-1.noarch.rpm',
-  arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh'
+  arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
+  macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'
 };
 
 function copyCommand(type) {
@@ -1428,10 +1450,10 @@ function copyCommand(type) {
     label = 'Linux system';
   } else if (platform.includes('win') || ua.includes('windows')) {
     detected = 'source';
-    label = 'system. NV Broadcast is Linux-only';
+    label = 'Windows system. Use official NVIDIA Broadcast for Windows';
   } else if (platform.includes('mac') || ua.includes('mac')) {
-    detected = 'source';
-    label = 'system. NV Broadcast is Linux-only';
+    detected = 'macos';
+    label = 'macOS system';
   }
 
   /* Auto-select the right tab */

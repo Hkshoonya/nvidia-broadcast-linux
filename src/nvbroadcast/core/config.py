@@ -202,18 +202,28 @@ def detect_system_capabilities() -> dict:
     """Detect system hardware and recommend the best configuration."""
     import os
     import subprocess
+    from nvbroadcast.core.platform import IS_MACOS, IS_LINUX
 
     caps = {
         "cpu_cores": os.cpu_count() or 4,
         "gpu_name": "Unknown",
         "gpu_vram_mb": 0,
         "has_nvidia": False,
+        "has_apple_silicon": False,
         "has_gl_compositor": False,
         "has_cupy": False,
         "recommended_mode": "cpu_quality",
     }
 
-    # GPU detection
+    if IS_MACOS:
+        # Detect Apple Silicon
+        import platform as _pf
+        caps["gpu_name"] = f"Apple {_pf.processor() or 'Silicon'}"
+        caps["has_apple_silicon"] = _pf.machine() == "arm64"
+        caps["recommended_mode"] = "cpu_quality"
+        return caps
+
+    # GPU detection (Linux — nvidia-smi)
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],

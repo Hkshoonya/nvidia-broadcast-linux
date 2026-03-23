@@ -3,13 +3,14 @@
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
-"""V4L2 loopback virtual camera management."""
+"""Virtual camera management — v4l2loopback (Linux) / pyvirtualcam (macOS)."""
 
 import subprocess
 import os
 from pathlib import Path
 
 from nvbroadcast.core.constants import VIRTUAL_CAM_DEVICE, VIRTUAL_CAM_LABEL
+from nvbroadcast.core.platform import IS_LINUX, IS_MACOS
 
 
 def is_v4l2loopback_loaded() -> bool:
@@ -50,10 +51,22 @@ def get_virtual_camera_device() -> str | None:
 
 
 def ensure_virtual_camera() -> str:
-    """Ensure a v4l2loopback device exists and return its path.
+    """Ensure a virtual camera device exists and return its path/identifier.
 
-    If no device exists, attempts to create one (requires sudo).
+    Linux: v4l2loopback device at /dev/video10
+    macOS: pyvirtualcam (OBS Virtual Camera) — returns "pyvirtualcam" sentinel
     """
+    if IS_MACOS:
+        try:
+            import pyvirtualcam  # noqa: F401
+            return "pyvirtualcam"
+        except ImportError:
+            raise RuntimeError(
+                "Virtual camera requires pyvirtualcam + OBS on macOS.\n"
+                "Install: pip install pyvirtualcam\n"
+                "Also install OBS Studio: brew install --cask obs"
+            )
+
     device = get_virtual_camera_device()
     if device:
         return device
@@ -75,16 +88,11 @@ def ensure_virtual_camera() -> str:
 
 
 def get_firefox_profiles() -> list[str]:
-    """Find all Firefox profile directories (regular, snap, flatpak)."""
-    from pathlib import Path
-    home = Path.home()
-    search = [
-        home / ".mozilla" / "firefox",
-        home / "snap" / "firefox" / "common" / ".mozilla" / "firefox",
-        home / ".var" / "app" / "org.mozilla.firefox" / ".mozilla" / "firefox",
-    ]
+    """Find all Firefox profile directories (regular, snap, flatpak, macOS)."""
+    from nvbroadcast.core.platform import get_firefox_profile_dirs
     profiles = []
-    for base in search:
+    for base in get_firefox_profile_dirs():
+        base = Path(base)
         if base.is_dir():
             for p in base.iterdir():
                 if (p / "prefs.js").exists():
@@ -220,7 +228,15 @@ def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
 
 
 def list_camera_devices() -> list[dict[str, str]]:
-    """List available physical camera devices (one per physical camera)."""
+    """List available physical camera devices (one per physical camera).
+
+    Linux: uses v4l2-ctl
+    macOS: uses system_profiler
+    """
+    if IS_MACOS:
+        from nvbroadcast.core.platform import list_cameras_macos
+        return list_cameras_macos()
+
     cameras = []
     try:
         result = subprocess.run(

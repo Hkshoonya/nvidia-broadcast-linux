@@ -273,13 +273,26 @@ When Edge Refine is toggled ON (Zeus/Killer modes):
 
 ## Installation
 
-### One Command Install
+### Linux — One Command Install
 
 ```bash
 git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git
 cd nvidia-broadcast-linux
 ./install.sh
 ```
+
+### macOS — One Command Install
+
+```bash
+git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git
+cd nvidia-broadcast-linux
+./install_macos.sh
+```
+
+Requires macOS 12+, Homebrew, Python 3.11+. Installs GStreamer, GTK4 via Homebrew.
+CPU modes with CoreML acceleration on Apple Silicon. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
+
+### Linux Installer Details
 
 The installer:
 1. **Detects your distro** and package manager
