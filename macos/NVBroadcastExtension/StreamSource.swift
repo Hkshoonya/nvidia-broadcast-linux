@@ -2,13 +2,12 @@
 // Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 // Proprietary license — see macos/LICENSE
 //
-// CMIOExtensionStream — the video stream that delivers processed frames
-// from the Python NV Broadcast app to consuming apps (Zoom, Chrome, etc.).
+// CMIOExtensionStream — delivers processed frames to video apps.
+// Reads frames from a shared file written by the Python app.
 
 import Foundation
 import CoreMediaIO
 import CoreVideo
-import Darwin
 
 class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
 
@@ -25,12 +24,18 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
     private let _fps = Int(NVBroadcastConstants.defaultFPS)
 
     private var _streamFormat: CMIOExtensionStreamFormat!
+    private var _lastSequence: UInt64 = 0
+
+    // Shared frame file path (written by Python, read by extension)
+    private let _frameFilePath: String = {
+        let tmpDir = NSTemporaryDirectory()
+        return (tmpDir as NSString).appendingPathComponent("nvbroadcast_frame.raw")
+    }()
 
     override init() {
         super.init()
         _setupPixelBufferPool()
         _createStreamFormat()
-        _setupFrameListener()
     }
 
     // MARK: - Setup
@@ -64,33 +69,24 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
         )
     }
 
-    // MARK: - IPC: Receive frames from Python
+    // MARK: - Frame reading from shared file
 
-    private func _setupFrameListener() {
-        var token: Int32 = 0
-        Darwin.notify_register_dispatch(
-            NVBroadcastConstants.frameNotificationName,
-            &token,
-            DispatchQueue.global(qos: .userInteractive)
-        ) { [weak self] _ in
-            self?._onNewFrameFromPython()
-        }
-    }
-
-    private func _onNewFrameFromPython() {
-        guard _isStreaming else { return }
-
-        let shmName = "/" + NVBroadcastConstants.sharedMemoryName
-        let fd = Darwin.shm_open(shmName, O_RDONLY, 0)
-        guard fd >= 0 else { return }
-        defer { Darwin.close(fd) }
-
-        let headerSize = 16
+    private func _readFrameFromFile() {
+        let headerSize = 16  // width(4) + height(4) + sequence(8)
         let frameSize = _width * _height * 4
         let totalSize = headerSize + frameSize
-        guard let ptr = Darwin.mmap(nil, totalSize, PROT_READ, MAP_SHARED, fd, 0),
-              ptr != MAP_FAILED else { return }
-        defer { Darwin.munmap(ptr, totalSize) }
+
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: _frameFilePath)),
+              data.count >= totalSize else { return }
+
+        // Read sequence number from header (bytes 8-16, little-endian UInt64)
+        let sequence = data.withUnsafeBytes { ptr -> UInt64 in
+            ptr.load(fromByteOffset: 8, as: UInt64.self)
+        }
+
+        // Skip if we already processed this frame
+        guard sequence > _lastSequence else { return }
+        _lastSequence = sequence
 
         _bufferLock.lock()
         defer { _bufferLock.unlock() }
@@ -102,7 +98,9 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
 
         CVPixelBufferLockBaseAddress(pb, [])
         if let dest = CVPixelBufferGetBaseAddress(pb) {
-            memcpy(dest, ptr.advanced(by: headerSize), frameSize)
+            data.withUnsafeBytes { ptr in
+                _ = memcpy(dest, ptr.baseAddress!.advanced(by: headerSize), frameSize)
+            }
         }
         CVPixelBufferUnlockBaseAddress(pb, [])
         _currentPixelBuffer = pb
@@ -125,6 +123,9 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
 
     private func _deliverFrame() {
         guard _isStreaming else { return }
+
+        // Poll for new frames from the Python app
+        _readFrameFromFile()
 
         _bufferLock.lock()
         let pb = _currentPixelBuffer ?? _makeBlackFrame()
@@ -183,7 +184,7 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
         if properties.contains(.streamFrameDuration) {
             let duration = CMTime(value: 1, timescale: CMTimeScale(_fps))
             props.setPropertyState(
-                CMIOExtensionPropertyState(value: duration as NSValue),
+                CMIOExtensionPropertyState(value: NSValue(timeMapping: CMTimeMapping(source: CMTimeRange(start: .zero, duration: duration), target: CMTimeRange(start: .zero, duration: duration)))),
                 forProperty: .streamFrameDuration
             )
         }
@@ -191,12 +192,12 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
     }
 
     func setStreamProperties(_ streamProperties: CMIOExtensionStreamProperties) throws {}
-
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool { return true }
 
     func startStream() throws {
         _isStreaming = true
         _sequenceNumber = 0
+        _lastSequence = 0
         _startFrameDelivery()
     }
 
