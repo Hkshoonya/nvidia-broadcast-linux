@@ -18,7 +18,10 @@ from nvbroadcast.ui.controls import (
     EffectToggle, EffectSlider, BackgroundModeSelector, BackgroundImagePicker
 )
 from nvbroadcast.ui.device_selector import DeviceSelector
-from nvbroadcast.video.virtual_camera import list_camera_devices, list_camera_modes
+from nvbroadcast.video.virtual_camera import (
+    list_camera_devices, list_camera_modes,
+    get_firefox_profiles, is_firefox_pipewire_disabled, set_firefox_pipewire,
+)
 
 
 class NVBroadcastWindow(Adw.ApplicationWindow):
@@ -226,6 +229,18 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             {"name": "NV12 — OBS, VLC, GStreamer apps", "device": "NV12"},
         ])
         input_card.append(self._format_selector)
+
+        # Firefox compatibility toggle (only shown if Firefox is installed)
+        if get_firefox_profiles():
+            self._firefox_toggle = EffectToggle(
+                "Firefox Mode", "Auto-configure Firefox for virtual camera"
+            )
+            pw_disabled = is_firefox_pipewire_disabled()
+            self._firefox_toggle.active = pw_disabled if pw_disabled else False
+            self._firefox_toggle.connect("toggled", self._on_firefox_toggled)
+            input_card.append(self._firefox_toggle)
+        else:
+            self._firefox_toggle = None
 
         # FPS selector — show what the current resolution supports
         self._fps_selector = DeviceSelector("FPS")
@@ -655,6 +670,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_ema_weight(self, s, v):
         self._app.set_ema_weight(v)
+
+    def _on_firefox_toggled(self, t, active):
+        ok, msg = set_firefox_pipewire(disabled=active)
+        if ok:
+            self.set_status(msg)
+            # Auto-switch format to I420 for Firefox when enabled
+            if active:
+                for i, d in enumerate(self._format_selector._devices):
+                    if d["device"] == "I420":
+                        self._format_selector.set_selected_index(i)
+                        break
+        else:
+            self.set_status(f"Firefox config failed: {msg}")
 
     def _on_mirror_toggled(self, t, active):
         self._app.set_mirror(active)

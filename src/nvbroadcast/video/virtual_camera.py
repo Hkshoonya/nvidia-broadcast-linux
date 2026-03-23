@@ -74,6 +74,87 @@ def ensure_virtual_camera() -> str:
     )
 
 
+def get_firefox_profiles() -> list[str]:
+    """Find all Firefox profile directories (regular, snap, flatpak)."""
+    from pathlib import Path
+    home = Path.home()
+    search = [
+        home / ".mozilla" / "firefox",
+        home / "snap" / "firefox" / "common" / ".mozilla" / "firefox",
+        home / ".var" / "app" / "org.mozilla.firefox" / ".mozilla" / "firefox",
+    ]
+    profiles = []
+    for base in search:
+        if base.is_dir():
+            for p in base.iterdir():
+                if (p / "prefs.js").exists():
+                    profiles.append(str(p))
+    return profiles
+
+
+def is_firefox_pipewire_disabled() -> bool | None:
+    """Check if Firefox PipeWire camera is disabled. None = no Firefox found."""
+    profiles = get_firefox_profiles()
+    if not profiles:
+        return None
+    for prof in profiles:
+        # Check user.js first (overrides prefs.js)
+        user_js = os.path.join(prof, "user.js")
+        if os.path.exists(user_js):
+            with open(user_js) as f:
+                content = f.read()
+                if "allow-pipewire" in content and "false" in content:
+                    return True
+        # Check prefs.js
+        prefs_js = os.path.join(prof, "prefs.js")
+        if os.path.exists(prefs_js):
+            with open(prefs_js) as f:
+                content = f.read()
+                if 'allow-pipewire", false' in content:
+                    return True
+    return False
+
+
+def set_firefox_pipewire(disabled: bool) -> tuple[bool, str]:
+    """Enable/disable PipeWire camera in Firefox for v4l2loopback compatibility.
+
+    Writes to user.js in ALL Firefox profiles. Firefox must be restarted.
+    Returns (success, message).
+    """
+    profiles = get_firefox_profiles()
+    if not profiles:
+        return False, "No Firefox profiles found"
+
+    line = f'user_pref("media.webrtc.camera.allow-pipewire", {str(not disabled).lower()});\n'
+    updated = 0
+
+    for prof in profiles:
+        user_js = os.path.join(prof, "user.js")
+        try:
+            # Read existing user.js
+            existing = ""
+            if os.path.exists(user_js):
+                with open(user_js) as f:
+                    existing = f.read()
+
+            # Remove old pipewire lines
+            lines = [l for l in existing.splitlines()
+                     if "allow-pipewire" not in l]
+            lines.append(line.strip())
+
+            with open(user_js, "w") as f:
+                f.write("\n".join(lines) + "\n")
+            updated += 1
+        except Exception:
+            pass
+
+    if updated == 0:
+        return False, "Could not write to any Firefox profile"
+
+    action = "disabled" if disabled else "enabled"
+    return True, f"PipeWire camera {action} in {updated} profile(s). Restart Firefox to apply."
+
+
 def reset_virtual_camera() -> bool:
     """Reset v4l2loopback device to accept new format/resolution.
 
