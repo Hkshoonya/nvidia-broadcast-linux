@@ -52,6 +52,9 @@ class NVBroadcastApp(Adw.Application):
         self._vcam_device = None
         self._vcam_available = False
         self._mirror = True  # Default: mirror (like looking in a mirror)
+        self._tray = None
+        self._vcam_consumers = 0  # Track virtual camera consumers
+        self._camera_power_save = True  # Stop camera when no consumers
         self._streaming = False
 
     def do_startup(self):
@@ -79,6 +82,18 @@ class NVBroadcastApp(Adw.Application):
     def do_activate(self):
         if self._window is None:
             self._window = NVBroadcastWindow(self)
+
+            # System tray icon
+            try:
+                from nvbroadcast.ui.tray import TrayIcon
+                self._tray = TrayIcon(self)
+                if self._tray.available:
+                    print("[NV Broadcast] System tray icon active")
+            except Exception as e:
+                print(f"[NV Broadcast] Tray icon not available: {e}")
+
+            # Camera power save: poll for vcam consumers
+            GLib.timeout_add(5000, self._check_vcam_consumers)
 
             # Intercept window close -> minimize to background instead of quit
             self._window.connect("close-request", self._on_close_request)
@@ -135,13 +150,75 @@ class NVBroadcastApp(Adw.Application):
             GLib.idle_add(self._auto_start)
 
     def _on_close_request(self, window):
-        """Minimize to background instead of quitting."""
+        """Minimize to tray instead of quitting."""
         if self.config.minimize_on_close:
             window.set_visible(False)
-            if self._streaming:
-                print("[NV Broadcast] Minimized to background - virtual camera still active")
+            status = "streaming" if self._streaming else "idle"
+            if self._tray and self._tray.available:
+                self._tray.update_status(self._streaming, status)
+                print(f"[NV Broadcast] Minimized to tray ({status})")
+            else:
+                print(f"[NV Broadcast] Minimized to background ({status})")
             return True  # Prevent destruction
         return False  # Allow normal close
+
+    def _check_vcam_consumers(self):
+        """Poll virtual camera device for active consumers.
+
+        When no app is reading from /dev/video10, pause the camera to save
+        power/CPU/GPU. Resume automatically when a consumer connects.
+        """
+        if not self._camera_power_save or not self._vcam_available:
+            return True  # Keep polling
+
+        import subprocess
+        try:
+            # Count processes reading from the vcam device (exclude our own)
+            result = subprocess.run(
+                ["fuser", self._vcam_device or "/dev/video10"],
+                capture_output=True, text=True, timeout=2,
+            )
+            pids = result.stdout.strip().split()
+            import os
+            own_pid = str(os.getpid())
+            consumers = [p for p in pids if p.strip() and p.strip() != own_pid]
+            new_count = len(consumers)
+        except Exception:
+            new_count = self._vcam_consumers  # Keep current state on error
+
+        if new_count != self._vcam_consumers:
+            old = self._vcam_consumers
+            self._vcam_consumers = new_count
+
+            if new_count > 0 and old == 0:
+                # Consumer connected — resume camera if not streaming
+                if not self._streaming and self.config.auto_start:
+                    print(f"[NV Broadcast] Consumer detected — starting camera")
+                    cam = self.config.video.camera_device
+                    fmt = self.config.video.output_format
+                    self._do_start_pipeline(cam, fmt)
+                    if self._window:
+                        self._window._streaming = True
+                        self._window._stream_btn.set_label("Stop Broadcast")
+                        self._window._stream_btn.remove_css_class("suggested-action")
+                        self._window._stream_btn.add_css_class("destructive-action")
+
+            elif new_count == 0 and old > 0 and self._streaming:
+                # All consumers gone — pause camera to save power
+                print("[NV Broadcast] No consumers — pausing camera (power save)")
+                self.stop_pipeline()
+                if self._window:
+                    self._window._streaming = False
+                    self._window._stream_btn.set_label("Start Broadcast")
+                    self._window._stream_btn.remove_css_class("destructive-action")
+                    self._window._stream_btn.add_css_class("suggested-action")
+                    self._window.set_status("Power save — waiting for consumer")
+
+            if self._tray and self._tray.available:
+                status = f"streaming ({new_count} consumer{'s' if new_count != 1 else ''})" if self._streaming else "idle"
+                self._tray.update_status(self._streaming, status)
+
+        return True  # Keep polling
 
     def _preload_effects(self):
         """Pre-initialize AI models in background to eliminate first-use delay."""
@@ -280,6 +357,9 @@ class NVBroadcastApp(Adw.Application):
             self.config.video.camera_device = camera_device
             self.config.video.output_format = output_format
             save_config(self.config)
+
+            if self._tray and self._tray.available:
+                self._tray.update_status(True, status)
 
         except Exception as e:
             if self._video_pipeline:
