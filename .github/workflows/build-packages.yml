@@ -22,10 +22,10 @@ jobs:
           sudo apt-get install -y dpkg-dev rpm python3
 
       - name: Build .deb package
-        run: ./build-packages.sh deb
+        run: bash build-packages.sh deb
 
       - name: Build .rpm package
-        run: ./build-packages.sh rpm
+        run: bash build-packages.sh rpm
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -48,10 +48,10 @@ jobs:
           uname -m
 
       - name: Build Camera Extension
-        run: ./macos/build.sh
+        run: bash macos/build.sh
 
       - name: Build .pkg installer
-        run: ./build-packages.sh pkg
+        run: bash build-packages.sh pkg
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -104,7 +104,7 @@ jobs:
 
       - name: Test Swift extension compilation
         run: |
-          ./macos/build.sh
+          bash macos/build.sh
           test -f .build/NVBroadcastExtension.systemextension/Contents/MacOS/NVBroadcastExtension
           echo "Swift extension compiled successfully"
 

@@ -62,25 +62,17 @@ class FrameBridge:
         self._mmap = mmap.mmap(self._shm_fd, self.total_size)
 
     def _setup_notify(self):
-        """Set up Darwin notification posting (CFNotificationCenter)."""
-        try:
-            self._cf = ctypes.CDLL(
-                "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
-            )
-            # Get Darwin notify center
-            self._cf.CFNotificationCenterGetDarwinNotifyCenter.restype = ctypes.c_void_p
-            self._notify_center = self._cf.CFNotificationCenterGetDarwinNotifyCenter()
+        """Set up Darwin notification posting via notify_post (simpler than CFNotification).
 
-            # Create CFString for notification name
-            self._cf.CFStringCreateWithCString.restype = ctypes.c_void_p
-            self._cf.CFStringCreateWithCString.argtypes = [
-                ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32
-            ]
-            self._notify_name = self._cf.CFStringCreateWithCString(
-                None, NOTIFY_NAME.encode(), 0x08000100  # kCFStringEncodingUTF8
-            )
+        Uses the libSystem notify API which is safe to call from any process.
+        """
+        self._notify_lib = None
+        try:
+            self._notify_lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+            self._notify_lib.notify_post.argtypes = [ctypes.c_char_p]
+            self._notify_lib.notify_post.restype = ctypes.c_uint32
         except Exception:
-            self._notify_center = None
+            self._notify_lib = None
 
     def write_frame(self, frame_bgra: bytes | memoryview):
         """Write a BGRA frame to shared memory and notify the extension.
@@ -99,14 +91,8 @@ class FrameBridge:
         self._mmap.write(frame_bgra[:self.frame_size])
 
         # Post Darwin notification to wake the extension
-        if self._notify_center:
-            self._cf.CFNotificationCenterPostNotification(
-                self._notify_center,
-                self._notify_name,
-                None,
-                None,
-                1,  # deliverImmediately
-            )
+        if self._notify_lib:
+            self._notify_lib.notify_post(NOTIFY_NAME.encode())
 
     def write_numpy_frame(self, frame):
         """Write a numpy BGRA array to shared memory.

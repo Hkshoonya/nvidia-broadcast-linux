@@ -56,22 +56,15 @@ class NVBroadcastStream: NSObject, CMIOExtensionStreamSource {
 
     private func _setupFrameListener() {
         // Listen for "new frame ready" notifications from the Python helper.
-        // The helper writes BGRA data to shared memory, then posts this notification.
-        let center = CFNotificationCenterGetDarwinNotifyCenter()
-        let name = NVBroadcastConstants.frameNotificationName as CFString
-
-        CFNotificationCenterAddObserver(
-            center,
-            Unmanaged.passUnretained(self).toOpaque(),
-            { (_, observer, _, _, _) in
-                guard let observer = observer else { return }
-                let stream = Unmanaged<NVBroadcastStream>.fromOpaque(observer).takeUnretainedValue()
-                stream._onNewFrameFromPython()
-            },
-            name,
-            nil,
-            .deliverImmediately
-        )
+        // Uses Darwin notify API (matches notify_post on the Python side).
+        var token: Int32 = 0
+        notify_register_dispatch(
+            NVBroadcastConstants.frameNotificationName,
+            &token,
+            DispatchQueue.global(qos: .userInteractive)
+        ) { [weak self] _ in
+            self?._onNewFrameFromPython()
+        }
     }
 
     private func _onNewFrameFromPython() {
