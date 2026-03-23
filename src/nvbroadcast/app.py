@@ -44,6 +44,7 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects = VideoEffects(
             gpu_index=self.config.compute_gpu,
             edge_config=self.config.video.edge,
+            compositing=self.config.compositing,
         )
         self._autoframe = AutoFrame(gpu_index=self.config.compute_gpu)
         self._vcam_device = None
@@ -82,11 +83,52 @@ class NVBroadcastApp(Adw.Application):
             # Restore saved settings to UI
             self._restore_settings()
 
-            # Auto-start broadcast (initializes model on first frame)
-            if self.config.auto_start and self._vcam_available:
+            # First-run setup wizard
+            if self.config.first_run:
+                from nvbroadcast.ui.setup_wizard import SetupWizard
+                wizard = SetupWizard(self._window)
+                wizard.connect("setup-complete", self._on_setup_complete)
+                wizard.present()
+            elif self.config.auto_start and self._vcam_available:
                 GLib.idle_add(self._auto_start)
 
         self._window.present()
+
+    def _on_setup_complete(self, wizard, profile_name, gpu_index, compositing):
+        """Called when first-run wizard finishes."""
+        from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
+        # Apply profile
+        apply_performance_profile(self.config, profile_name)
+        self.config.compute_gpu = gpu_index
+        self.config.compositing = compositing
+        self.config.first_run = False
+
+        # Apply to effects engine
+        self._video_effects._gpu_index = gpu_index
+        self._video_effects._apply_edge_config(self.config.video.edge)
+        self._video_effects.set_compositing(compositing)
+        profile = PERFORMANCE_PROFILES[profile_name]
+        self._video_effects._skip_interval = profile["skip_interval"]
+
+        save_config(self.config)
+        print(f"[NV Broadcast] Profile: {profile['label']} | GPU: {gpu_index} | Compositing: {compositing}")
+
+        # Rebuild mode dropdown with updated backends (e.g. CuPy just installed)
+        self._window.rebuild_mode_selector(compositing, profile_name)
+        if hasattr(self._window, '_gpu_selector') and self._window._gpu_selector:
+            self._window._gpu_selector.set_selected_index(gpu_index)
+
+        # Update edge tuning sliders
+        self._window._edge_dilate._scale.set_value(self.config.video.edge.dilate_size)
+        self._window._edge_blur._scale.set_value(self.config.video.edge.blur_size)
+        self._window._edge_strength._scale.set_value(self.config.video.edge.sigmoid_strength)
+        self._window._edge_midpoint._scale.set_value(self.config.video.edge.sigmoid_midpoint)
+
+        self._window.set_status(f"Setup complete: {profile['label']} | {compositing} compositing")
+
+        # Now auto-start
+        if self.config.auto_start and self._vcam_available:
+            GLib.idle_add(self._auto_start)
 
     def _on_close_request(self, window):
         """Minimize to background instead of quitting."""
@@ -152,7 +194,30 @@ class NVBroadcastApp(Adw.Application):
     # --- Video Pipeline ---
 
     def start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
+        was_running = self._streaming
         self.stop_pipeline()
+
+        if was_running:
+            # Poll until old pipeline teardown finishes, then start new one
+            self._pending_start = (camera_device, output_format)
+            GLib.timeout_add(100, self._wait_and_start)
+            return
+        self._do_start_pipeline(camera_device, output_format)
+
+    def _wait_and_start(self):
+        """Poll until old pipeline is fully torn down, then start new one."""
+        if self._video_pipeline and not getattr(self._video_pipeline, '_teardown_done', True):
+            return True  # Keep polling
+        if hasattr(self, '_pending_start'):
+            cam, fmt = self._pending_start
+            del self._pending_start
+            self._do_start_pipeline(cam, fmt)
+        return False
+
+    def _do_start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
+        from nvbroadcast.core.config import PERFORMANCE_PROFILES
+        profile = PERFORMANCE_PROFILES.get(self.config.performance_profile, {})
+        effects_fps = profile.get("effects_fps", 30)
 
         self._video_pipeline = VideoPipeline()
         self._video_pipeline.configure(
@@ -162,6 +227,7 @@ class NVBroadcastApp(Adw.Application):
             height=self.config.video.height,
             fps=self.config.video.fps,
             output_format=output_format,
+            effects_fps=effects_fps,
         )
 
         self._video_pipeline.set_effect_callback(self._process_frame)
@@ -189,6 +255,8 @@ class NVBroadcastApp(Adw.Application):
         except Exception as e:
             self._window.set_status(f"Pipeline error: {e}")
             print(f"[NV Broadcast] Pipeline failed: {e}")
+
+        return False  # Don't repeat (for GLib.timeout_add)
 
     def stop_pipeline(self):
         if self._video_pipeline:
@@ -236,6 +304,29 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects.intensity = value
         self.config.video.blur_intensity = value
         save_config(self.config)
+
+    def set_performance_profile(self, profile_name: str):
+        """Switch performance profile — requires pipeline restart."""
+        from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
+        if profile_name not in PERFORMANCE_PROFILES:
+            return
+        apply_performance_profile(self.config, profile_name)
+        profile = PERFORMANCE_PROFILES[profile_name]
+
+        # Apply to effects engine
+        self._video_effects._skip_interval = profile["skip_interval"]
+        self._video_effects._apply_edge_config(self.config.video.edge)
+
+        save_config(self.config)
+
+        # Restart pipeline with new effects_fps if streaming
+        if self._streaming:
+            camera = self.config.video.camera_device
+            fmt = self.config.video.output_format
+            self.start_pipeline(camera, fmt)
+
+        if self._window:
+            self._window.set_status(f"Profile: {profile['label']}")
 
     def set_compute_gpu(self, gpu_index: int):
         """Switch the GPU used for AI compute."""

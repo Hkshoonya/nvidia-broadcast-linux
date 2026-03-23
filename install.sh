@@ -300,6 +300,157 @@ else
     fi
 fi
 
+# ─── Compositing Engine Selection ────────────────────────────────────────────
+
+echo ""
+echo "[Compositing] How should blur/blend compositing run?"
+echo ""
+
+# Auto-detect available options
+HAS_GL=false
+HAS_NVIDIA=false
+GPU_VRAM=0
+
+if command -v nvidia-smi &>/dev/null; then
+    HAS_NVIDIA=true
+    GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
+fi
+if command -v gst-inspect-1.0 &>/dev/null; then
+    if gst-inspect-1.0 glvideomixer &>/dev/null 2>&1 && gst-inspect-1.0 glupload &>/dev/null 2>&1; then
+        HAS_GL=true
+    fi
+fi
+
+echo "  Your system:"
+if [ "$HAS_NVIDIA" = true ]; then
+    echo "    NVIDIA GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1) (${GPU_VRAM} MB)"
+else
+    echo "    NVIDIA GPU: not detected"
+fi
+echo "    GStreamer GL: $( [ "$HAS_GL" = true ] && echo "available" || echo "not available" )"
+echo ""
+
+echo "  1) CPU compositing (works everywhere, ~200% CPU usage)"
+if [ "$HAS_GL" = true ]; then
+    echo "  2) GStreamer OpenGL GPU (recommended, ~60% CPU)"
+else
+    echo "  2) GStreamer OpenGL GPU [not available — missing GL plugins]"
+fi
+if [ "$HAS_NVIDIA" = true ]; then
+    echo "  3) CuPy CUDA GPU (best quality, ~30% CPU — downloads ~800MB)"
+else
+    echo "  3) CuPy CUDA GPU [not available — needs NVIDIA GPU]"
+fi
+echo ""
+
+# Auto-determine default
+DEFAULT_COMP=1
+if [ "$HAS_GL" = true ]; then
+    DEFAULT_COMP=2
+fi
+
+read -rp "  Select [1/2/3] (default: ${DEFAULT_COMP}): " comp_choice
+comp_choice="${comp_choice:-$DEFAULT_COMP}"
+
+case "$comp_choice" in
+    3)
+        if [ "$HAS_NVIDIA" != true ]; then
+            echo ""
+            echo "  ERROR: CuPy CUDA requires an NVIDIA GPU."
+            echo "  Falling back to CPU compositing."
+            COMPOSITING="cpu"
+        else
+            COMPOSITING="cupy"
+            echo ""
+            echo "  Installing CuPy CUDA compositing (~800MB download)..."
+            echo "  This may take a few minutes..."
+            echo ""
+            CUPY_LOG=$("$VENV_DIR/bin/pip" install cupy-cuda12x nvidia-cuda-nvrtc-cu12 2>&1)
+            CUPY_EXIT=$?
+            if [ $CUPY_EXIT -eq 0 ]; then
+                # Verify CuPy actually works
+                CUPY_TEST=$("$VENV_DIR/bin/python" -c "
+import cupy as cp
+import numpy as np
+a = np.ones((10,10), dtype=np.float32)
+b = cp.asarray(a)
+c = (b * 2.0).astype(cp.uint8)
+print('OK')
+" 2>&1)
+                if [ "$CUPY_TEST" = "OK" ]; then
+                    echo "  CuPy CUDA compositing installed and verified!"
+                else
+                    echo ""
+                    echo "  WARNING: CuPy installed but CUDA kernel compilation failed."
+                    echo ""
+                    echo "  Common causes:"
+                    echo "    - Missing NVIDIA CUDA toolkit: sudo apt install nvidia-cuda-toolkit"
+                    echo "    - Driver too old: need NVIDIA driver 525+ for CUDA 12"
+                    echo "    - CUDA version mismatch: pip install cupy-cuda11x (for CUDA 11)"
+                    echo ""
+                    echo "  Error details:"
+                    echo "  $CUPY_TEST" | tail -3
+                    echo ""
+                    if [ "$HAS_GL" = true ]; then
+                        echo "  Falling back to GStreamer OpenGL GPU compositing."
+                        COMPOSITING="gstreamer_gl"
+                    else
+                        echo "  Falling back to CPU compositing."
+                        COMPOSITING="cpu"
+                    fi
+                fi
+            else
+                echo ""
+                echo "  WARNING: CuPy installation failed."
+                echo ""
+                echo "  Common causes:"
+                echo "    - No internet connection"
+                echo "    - pip version too old: $VENV_DIR/bin/pip install --upgrade pip"
+                echo "    - Disk space: CuPy needs ~800MB free"
+                echo "    - Python version: CuPy supports Python 3.9-3.12"
+                echo ""
+                echo "  Install log (last 5 lines):"
+                echo "$CUPY_LOG" | tail -5
+                echo ""
+                echo "  To retry later: $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+                echo ""
+                if [ "$HAS_GL" = true ]; then
+                    echo "  Falling back to GStreamer OpenGL GPU compositing."
+                    COMPOSITING="gstreamer_gl"
+                else
+                    echo "  Falling back to CPU compositing."
+                    COMPOSITING="cpu"
+                fi
+            fi
+        fi
+        ;;
+    2)
+        if [ "$HAS_GL" = true ]; then
+            COMPOSITING="gstreamer_gl"
+            echo "  GStreamer OpenGL GPU compositing selected."
+        else
+            echo ""
+            echo "  GStreamer GL plugins not available."
+            echo "  To install them:"
+            case "$PKG_MANAGER" in
+                apt)    echo "    sudo apt install gstreamer1.0-plugins-bad gstreamer1.0-gl" ;;
+                dnf)    echo "    sudo dnf install gstreamer1-plugins-bad-free-gl" ;;
+                pacman) echo "    sudo pacman -S gst-plugins-bad gst-plugin-opengl" ;;
+                *)      echo "    Install GStreamer GL/OpenGL plugins for your distro" ;;
+            esac
+            echo ""
+            echo "  Using CPU compositing instead."
+            COMPOSITING="cpu"
+        fi
+        ;;
+    *)
+        COMPOSITING="cpu"
+        echo "  CPU compositing selected."
+        ;;
+esac
+echo ""
+echo "  Compositing engine: $COMPOSITING"
+
 # ─── Step 2: v4l2loopback Configuration ─────────────────────────────────────
 
 echo ""
@@ -400,6 +551,48 @@ elif [ "$GPU_RESULT" = "CPU_ONLY" ]; then
 else
     echo "  WARNING: CUDA libraries may not load correctly"
     echo "           App will fall back to CPU if needed"
+fi
+
+# Write initial config with installer choices
+CONFIG_DIR="$HOME/.config/nvbroadcast"
+mkdir -p "$CONFIG_DIR"
+if [ ! -f "$CONFIG_DIR/config.toml" ]; then
+    cat > "$CONFIG_DIR/config.toml" << CONF
+compute_gpu = 0
+performance_profile = "balanced"
+compositing = "${COMPOSITING}"
+auto_start = true
+minimize_on_close = true
+first_run = false
+
+[video]
+camera_device = "/dev/video0"
+width = 1280
+height = 720
+fps = 30
+output_format = "YUY2"
+model = "rvm"
+quality_preset = "balanced"
+background_removal = false
+background_mode = "blur"
+background_image = ""
+blur_intensity = 0.7
+auto_frame = false
+auto_frame_zoom = 1.5
+
+[video.edge]
+dilate_size = 3
+blur_size = 5
+sigmoid_strength = 14.0
+sigmoid_midpoint = 0.45
+
+[audio]
+mic_device = ""
+noise_removal = false
+noise_intensity = 1.0
+speaker_denoise = false
+CONF
+    echo "Initial config created with compositing=$COMPOSITING"
 fi
 
 # ─── Step 4: Create Launcher Scripts ─────────────────────────────────────────
