@@ -38,5 +38,5 @@ nvidia-nvjitlink-cu12
 #   gstreamer1.0-plugins-good       — Good GStreamer plugins
 #   gstreamer1.0-plugins-bad        — Bad GStreamer plugins (includes nvcodec)
 #   v4l-utils v4l2loopback-dkms     — Virtual camera kernel module
-#   pipewire-utils                  — Virtual microphone (pw-loopback)
+#   pipewire-bin or pipewire-utils   — Virtual microphone (pw-loopback)
 # --------------------------------------------------------------------------

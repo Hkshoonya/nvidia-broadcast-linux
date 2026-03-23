@@ -130,9 +130,16 @@ REQUIRED_PKGS=(
     # Python GObject bindings
     python3-gi
     python3-gi-cairo
-    # PipeWire utilities
-    pipewire-utils
 )
+
+# PipeWire package name varies by distro (pipewire-bin on Ubuntu, pipewire-utils on others)
+if apt-cache show pipewire-bin &>/dev/null 2>&1; then
+    REQUIRED_PKGS+=(pipewire-bin)
+elif apt-cache show pipewire-utils &>/dev/null 2>&1; then
+    REQUIRED_PKGS+=(pipewire-utils)
+else
+    echo "  WARNING: Could not find pipewire package (need pw-loopback for virtual mic)"
+fi
 
 MISSING_PKGS=()
 for pkg in "${REQUIRED_PKGS[@]}"; do
