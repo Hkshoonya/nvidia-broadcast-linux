@@ -137,6 +137,30 @@ nav .container {
   margin-bottom: 16px;
 }
 .hero h1 .accent { color: var(--accent); }
+
+/* macOS text reveal animation */
+.macos-reveal {
+  display: inline-block;
+  opacity: 0;
+  transform: translateX(-20px);
+  animation: macos-slide-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.6s forwards;
+}
+@keyframes macos-slide-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-20px);
+    filter: blur(8px);
+  }
+  40% {
+    opacity: 0.6;
+    filter: blur(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+}
 .hero .subtitle {
   font-size: clamp(1rem, 2.5vw, 1.2rem);
   color: var(--text-secondary);
@@ -856,7 +880,7 @@ footer {
     </div>
 
     <h1 class="reveal reveal-delay-1">
-      NVIDIA Broadcast<br>for <span class="accent">Linux</span> &amp; <span class="accent">macOS</span>
+      NVIDIA Broadcast<br>for <span class="accent">Linux</span> <span class="macos-reveal">&amp; <span class="accent">macOS</span></span>
     </h1>
     <p class="subtitle reveal reveal-delay-2">
       AI-powered virtual camera with background removal, auto-frame, video enhancement, and noise cancellation. 9 processing modes from 48 fps to CPU fallback. Linux and macOS.
