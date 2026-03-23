@@ -633,7 +633,13 @@ class VideoEffects:
             self._bg_image = None
             self._bg_image_path = ""
             return False
-        img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+
+        # SVG support via librsvg (renders to raster at high quality)
+        if image_path.lower().endswith('.svg') or image_path.lower().endswith('.svgz'):
+            img = self._load_svg(image_path)
+        else:
+            img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+
         if img is None:
             return False
         if len(img.shape) == 2:
@@ -644,6 +650,39 @@ class VideoEffects:
         self._bg_image_path = image_path
         self._frame_size = None
         return True
+
+    @staticmethod
+    def _load_svg(path: str) -> np.ndarray | None:
+        """Render SVG to BGRA numpy array using GdkPixbuf."""
+        try:
+            import gi
+            gi.require_version('GdkPixbuf', '2.0')
+            from gi.repository import GdkPixbuf
+
+            # Load SVG at high resolution
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 1920, -1, True)
+            if pixbuf is None:
+                return None
+
+            w = pixbuf.get_width()
+            h = pixbuf.get_height()
+            channels = pixbuf.get_n_channels()
+            rowstride = pixbuf.get_rowstride()
+            data = pixbuf.get_pixels()
+
+            # GdkPixbuf gives RGBA, convert to BGRA for OpenCV
+            img = np.frombuffer(data, dtype=np.uint8).reshape(h, rowstride // channels, channels)
+            img = img[:h, :w, :].copy()
+            if channels >= 3:
+                img[:, :, [0, 2]] = img[:, :, [2, 0]]  # RGB → BGR
+            if channels == 3:
+                # Add alpha channel
+                alpha = np.full((h, w, 1), 255, dtype=np.uint8)
+                img = np.concatenate([img, alpha], axis=2)
+            return img
+        except Exception as e:
+            print(f"[NV Broadcast] SVG load failed: {e}")
+            return None
 
     def initialize(self) -> bool:
         """Initialize the active model backend."""

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="data/icons/com.doczeus.NVBroadcast.svg" width="120" alt="NVIDIA Broadcast for Linux">
+  <img src="data/icons/com.doczeus.NVBroadcast.svg" width="120" alt="NV Broadcast">
 </p>
 
-<h1 align="center">NVIDIA Broadcast for Linux</h1>
+<h1 align="center">NV Broadcast</h1>
 
 <p align="center">
   <strong>by DocZeus | AI Powered</strong>
@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <em>The NVIDIA Broadcast experience you loved on Windows — now on Linux. Open source. GPU accelerated. Built with passion.</em>
+  <em>NV Broadcast — Unofficial NV Broadcast and other OS. Open source. GPU accelerated. Built with passion.</em>
 </p>
 
 ---
@@ -141,7 +141,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 ## Architecture
 
 ```
-                         NVIDIA Broadcast for Linux v0.2.0
+                         NV Broadcast v0.2.0
                          ─────────────────────────────────
 
   ┌───────────┐      ┌──────────────────────────────────────────┐      ┌──────────────┐
@@ -506,7 +506,7 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 
 ## Sponsor This Project
 
-If NVIDIA Broadcast for Linux saves you from going back to Windows, consider sponsoring:
+If NV Broadcast saves you from going back to Windows, consider sponsoring:
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya">

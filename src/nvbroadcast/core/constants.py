@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 APP_ID = "com.doczeus.NVBroadcast"
-APP_NAME = "NVIDIA Broadcast"
+APP_NAME = "NV Broadcast"
 APP_SUBTITLE = "by doczeus | AI Powered"
 
 DEFAULT_WIDTH = 1280

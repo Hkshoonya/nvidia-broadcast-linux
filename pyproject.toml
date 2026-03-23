@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nvbroadcast"
 version = "0.2.0"
-description = "NVIDIA Broadcast for Linux by doczeus - AI-powered virtual camera, background removal, and noise cancellation"
+description = "NV Broadcast - Unofficial NVIDIA Broadcast for Linux and other OS by doczeus - AI-powered virtual camera, background removal, and noise cancellation"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11"
 authors = [

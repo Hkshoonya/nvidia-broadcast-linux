@@ -171,6 +171,7 @@ class BackgroundImagePicker(Gtk.Box):
         img_filter.add_mime_type("image/webp")
         img_filter.add_mime_type("image/bmp")
         img_filter.add_mime_type("image/tiff")
+        img_filter.add_mime_type("image/svg+xml")
         filters = Gio.ListStore.new(Gtk.FileFilter)
         filters.append(img_filter)
         all_filter = Gtk.FileFilter()

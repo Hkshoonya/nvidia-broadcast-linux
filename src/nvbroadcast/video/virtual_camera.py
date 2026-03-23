@@ -74,6 +74,30 @@ def ensure_virtual_camera() -> str:
     )
 
 
+def reset_virtual_camera() -> bool:
+    """Reset v4l2loopback device to accept new format/resolution.
+
+    Needed when changing output format (YUY2/I420/NV12) or resolution,
+    because v4l2loopback with exclusive_caps=1 locks the format after
+    the first producer writes. Close all consumers (browsers) first.
+    """
+    try:
+        subprocess.run(
+            ["sudo", "modprobe", "-r", "v4l2loopback"],
+            capture_output=True, timeout=5,
+        )
+        subprocess.run(
+            ["sudo", "modprobe", "v4l2loopback",
+             "devices=1", "video_nr=10",
+             f'card_label={VIRTUAL_CAM_LABEL}',
+             "exclusive_caps=1", "max_buffers=4"],
+            capture_output=True, timeout=5,
+        )
+        return os.path.exists(VIRTUAL_CAM_DEVICE)
+    except Exception:
+        return False
+
+
 def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
     """Query camera supported resolutions and FPS in MJPEG mode.
 

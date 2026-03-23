@@ -221,9 +221,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         self._format_selector = DeviceSelector("Format")
         self._format_selector.set_devices([
-            {"name": "YUY2 (Chrome / Zoom)", "device": "YUY2"},
-            {"name": "I420 (Firefox / WebRTC)", "device": "I420"},
-            {"name": "NV12 (General)", "device": "NV12"},
+            {"name": "YUY2 — Chrome, Edge, Zoom, Discord, Meet", "device": "YUY2"},
+            {"name": "I420 — Firefox, Teams, WebRTC (most compatible)", "device": "I420"},
+            {"name": "NV12 — OBS, VLC, GStreamer apps", "device": "NV12"},
         ])
         input_card.append(self._format_selector)
 
@@ -813,10 +813,22 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._speaker_toggle.active = True
 
     def _show_about(self, button):
+        from pathlib import Path
+
+        # Load app icon from SVG file
+        icon_path = Path(__file__).parent.parent.parent.parent / "data" / "icons" / "com.doczeus.NVBroadcast.svg"
+        icon_name = "com.doczeus.NVBroadcast"
+        if icon_path.exists():
+            # Register the icon with GTK's icon theme so AboutWindow can find it
+            display = self.get_display()
+            if display:
+                icon_theme = Gtk.IconTheme.get_for_display(display)
+                icon_theme.add_search_path(str(icon_path.parent))
+
         about = Adw.AboutWindow(
             transient_for=self,
             application_name=APP_NAME,
-            application_icon="com.doczeus.NVBroadcast",
+            application_icon=icon_name,
             version=__import__("nvbroadcast").__version__,
             developer_name="doczeus",
             website="https://github.com/Hkshoonya/nvidia-broadcast-linux",
@@ -825,9 +837,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             copyright="Copyright (c) 2026 doczeus",
             developers=["doczeus https://github.com/Hkshoonya"],
             comments=(
-                "AI-powered virtual camera for Linux.\n\n"
-                "Background removal, blur, replacement, auto-framing, "
-                "video enhancement, and noise cancellation.\n"
+                "Unofficial NVIDIA Broadcast for Linux and other OS.\n\n"
+                "AI-powered virtual camera with background removal, blur, "
+                "replacement, auto-framing, video enhancement, and noise "
+                "cancellation using GPU-accelerated deep learning.\n\n"
                 "9 processing modes including Killer, Zeus, and DocZeus "
                 "with fused CUDA kernels and edge refinement.\n\n"
                 "Created by doczeus | AI Powered"
