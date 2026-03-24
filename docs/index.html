@@ -442,7 +442,7 @@ nav .container {
 
 /* ── Section headers ── */
 .section-tag {
-  font-size: 13px; font-weight: 700; color: var(--accent);
+  font-size: 13px; font-weight: 700; color: var(--accent-text);
   text-transform: uppercase; letter-spacing: 2px;
   margin-bottom: 12px;
 }
@@ -841,6 +841,32 @@ footer {
   font-size: 12px; color: var(--text-muted);
 }
 
+/* ── Accessibility ── */
+.skip-link {
+  position: absolute; top: -40px; left: 0;
+  background: var(--accent); color: #000;
+  padding: 8px 16px; z-index: 200;
+  font-weight: 600; border-radius: 0 0 8px 0;
+  transition: top 0.2s;
+}
+.skip-link:focus { top: 0; }
+
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
 /* ── Misc ── */
 .text-center { text-align: center; }
 .mono { font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
@@ -866,15 +892,25 @@ footer {
   .modes-grid { grid-template-columns: 1fr 1fr; }
   .mode-fps { font-size: 22px; }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { transition: none; opacity: 1; transform: none; }
+  .macos-reveal { animation: none; opacity: 1; transform: none; filter: none; }
+  .hero-feature-icon { transition: none; }
+  .feature-card { transition: none; }
+  * { transition-duration: 0.01ms !important; }
+}
 </style>
 </head>
 <body>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
 
 <!-- ─── Nav ─── -->
 <nav>
   <div class="container">
     <a href="#" class="nav-brand">
-      <svg viewBox="0 0 128 128" width="32" height="32">
+      <svg viewBox="0 0 128 128" width="32" height="32" role="img" aria-label="NV Broadcast logo">
         <rect width="128" height="128" rx="20" fill="#111"/>
         <path d="M 40 64 A 24 24 0 0 1 88 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
         <rect x="38" y="52" width="52" height="36" rx="6" fill="none" stroke="#76b900" stroke-width="3"/>
@@ -893,8 +929,9 @@ footer {
   </div>
 </nav>
 
+<main>
 <!-- ─── Hero ─── -->
-<section class="hero">
+<section class="hero" id="main-content">
   <!-- Background: Raw → Distorted → Enhanced progression -->
   <div class="hero-scene" aria-hidden="true">
     <div class="scene-frame frame-raw">
@@ -919,7 +956,7 @@ footer {
   <div class="container">
 
     <div class="hero-icon reveal">
-      <svg viewBox="0 0 128 128">
+      <svg viewBox="0 0 128 128" role="img" aria-label="NV Broadcast camera icon with broadcast waves">
         <rect width="128" height="128" rx="20" fill="#111"/>
         <path class="wave wave-1" d="M 24 64 A 40 40 0 0 1 104 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round"/>
         <path class="wave wave-2" d="M 32 64 A 32 32 0 0 1 96 64" fill="none" stroke="#76b900" stroke-width="3" stroke-linecap="round"/>
@@ -943,27 +980,27 @@ footer {
 
     <div class="hero-ctas reveal reveal-delay-3">
       <a href="#install" class="btn btn-primary">
-        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Install Now
       </a>
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux" target="_blank" rel="noopener" class="btn btn-secondary">
-        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
         View on GitHub
       </a>
       <a href="https://github.com/sponsors/Hkshoonya" target="_blank" rel="noopener" class="btn btn-sponsor">
-        <svg class="btn-icon" viewBox="0 0 24 24" fill="#db61a2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="#db61a2" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
         Sponsor
       </a>
     </div>
 
-    <div class="terminal reveal reveal-delay-4" id="hero-terminal">
+    <div class="terminal reveal reveal-delay-4" id="hero-terminal" role="region" aria-label="Terminal command">
       <div class="terminal-bar">
-        <div class="terminal-dot r"></div>
-        <div class="terminal-dot y"></div>
-        <div class="terminal-dot g"></div>
+        <div class="terminal-dot r" aria-hidden="true"></div>
+        <div class="terminal-dot y" aria-hidden="true"></div>
+        <div class="terminal-dot g" aria-hidden="true"></div>
         <span>Terminal</span>
       </div>
-      <div class="terminal-body">
+      <div class="terminal-body" role="code">
         <div class="terminal-line" id="term-line-1">
           <span class="prompt">$ </span><span class="cmd" id="term-cmd-1"></span>
         </div>
@@ -981,7 +1018,7 @@ footer {
 </section>
 
 <!-- ─── Features ─── -->
-<section id="features" class="section section-alt">
+<section id="features" class="section section-alt" role="region" aria-label="Features">
   <div class="container text-center">
     <div class="section-tag reveal">Features</div>
     <h2 class="section-title reveal">Look professional. Sound professional.</h2>
@@ -999,21 +1036,21 @@ footer {
     <div class="hero-features reveal">
       <div class="hero-feature" data-cat="video">
         <div class="hero-feature-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
         </div>
         <h3>Blur your background</h3>
         <p>3 AI models. Real-time.</p>
       </div>
       <div class="hero-feature" data-cat="audio">
         <div class="hero-feature-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
         </div>
         <h3>Sound like a studio</h3>
         <p>Bass, warmth, compression. GPU.</p>
       </div>
       <div class="hero-feature" data-cat="meeting">
         <div class="hero-feature-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         </div>
         <h3>AI writes your notes</h3>
         <p>Whisper + summarizer. Local.</p>
@@ -1023,89 +1060,89 @@ footer {
     <!-- Feature grid — scannable one-liners -->
     <div class="features-grid" id="features-grid">
 
-      <div class="feature-card reveal" data-cat="video">
+      <div class="feature-card reveal" data-cat="video" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
         </div>
         <h3>Background Removal</h3>
         <p>Blur, replace, or remove. Three AI models to choose from.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="video">
+      <div class="feature-card reveal" data-cat="video" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/></svg>
         </div>
         <h3>Eye Contact</h3>
         <p>Look at the camera even when reading your screen.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="video">
+      <div class="feature-card reveal" data-cat="video" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>
         </div>
         <h3>Face Relighting</h3>
         <p>Auto-match your face lighting to the background.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="video">
+      <div class="feature-card reveal" data-cat="video" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42"/></svg>
         </div>
         <h3>Video Enhancement</h3>
         <p>Skin smooth, denoise, sharpen. Four beauty presets.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="video">
+      <div class="feature-card reveal" data-cat="video" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M5 3l14 9-14 9V3z"/></svg>
         </div>
         <h3>Auto-Frame</h3>
         <p>AI keeps you centered when you move around.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="video">
+      <div class="feature-card reveal" data-cat="video" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
         </div>
         <h3>Virtual Camera</h3>
         <p>Shows up in Zoom, Chrome, OBS, Discord automatically.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="audio">
+      <div class="feature-card reveal" data-cat="audio" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
         </div>
         <h3>Voice Studio</h3>
         <p>Bass, treble, warmth, compression. 6 presets. GPU-accelerated.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="audio">
+      <div class="feature-card reveal" data-cat="audio" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
         </div>
         <h3>Noise Removal</h3>
         <p>AI removes background noise from your mic in real-time.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="audio">
+      <div class="feature-card reveal" data-cat="audio" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </div>
         <h3>Mic Test + VU Meter</h3>
         <p>Record 5 seconds, play it back. See your live audio level.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="meeting">
+      <div class="feature-card reveal" data-cat="meeting" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         </div>
         <h3>AI Meeting Notes</h3>
         <p>Whisper transcribes. AI extracts action items. 100% local.</p>
       </div>
 
-      <div class="feature-card reveal" data-cat="meeting">
+      <div class="feature-card reveal" data-cat="meeting" role="article">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
         </div>
         <h3>Recording + NVENC</h3>
         <p>Record video + audio to MP4. Hardware encoding. One click.</p>
@@ -1178,7 +1215,7 @@ footer {
     <div class="pipeline reveal reveal-delay-1">
       <div class="pipeline-step">
         <div class="icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         </div>
         <div class="step-label">Camera</div>
         <div class="step-detail">MJPEG capture</div>
@@ -1186,7 +1223,7 @@ footer {
       <div class="pipeline-arrow">&rarr;</div>
       <div class="pipeline-step">
         <div class="icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </div>
         <div class="step-label">GStreamer</div>
         <div class="step-detail">Decode + appsink</div>
@@ -1194,7 +1231,7 @@ footer {
       <div class="pipeline-arrow">&rarr;</div>
       <div class="pipeline-step">
         <div class="icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5"/></svg>
         </div>
         <div class="step-label">AI Inference</div>
         <div class="step-detail">ONNX + CUDA</div>
@@ -1202,7 +1239,7 @@ footer {
       <div class="pipeline-arrow">&rarr;</div>
       <div class="pipeline-step">
         <div class="icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
         </div>
         <div class="step-label">Composite</div>
         <div class="step-detail">Fused CUDA kernel</div>
@@ -1210,7 +1247,7 @@ footer {
       <div class="pipeline-arrow">&rarr;</div>
       <div class="pipeline-step">
         <div class="icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M15.6 11.6L22 7v10l-6.4-4.5v-1zM4 5h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7c0-1.1.9-2 2-2z"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><path d="M15.6 11.6L22 7v10l-6.4-4.5v-1zM4 5h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7c0-1.1.9-2 2-2z"/></svg>
         </div>
         <div class="step-label">Virtual Cam</div>
         <div class="step-detail">v4l2loopback</div>
@@ -1220,7 +1257,7 @@ footer {
 </section>
 
 <!-- ─── Modes ─── -->
-<section id="modes" class="section">
+<section id="modes" class="section" role="region" aria-label="Performance Modes">
   <div class="container text-center">
     <div class="section-tag reveal">Performance</div>
     <h2 class="section-title reveal">9 modes, from killer to potato</h2>
@@ -1228,7 +1265,7 @@ footer {
 
     <div class="modes-grid">
 
-      <div class="mode-card featured reveal">
+      <div class="mode-card featured reveal" aria-label="Killer mode: 48 frames per second at 1080p">
         <div class="mode-name">Killer</div>
         <div class="mode-badge">360p + Fused CUDA</div>
         <div class="mode-fps">48</div>
@@ -1237,7 +1274,7 @@ footer {
         <span class="mode-tag gpu">GPU</span>
       </div>
 
-      <div class="mode-card featured reveal reveal-delay-1">
+      <div class="mode-card featured reveal reveal-delay-1" aria-label="Zeus mode: 33 frames per second at 1080p">
         <div class="mode-name">Zeus</div>
         <div class="mode-badge">480p + CuPy</div>
         <div class="mode-fps">33</div>
@@ -1246,7 +1283,7 @@ footer {
         <span class="mode-tag gpu">GPU</span>
       </div>
 
-      <div class="mode-card featured reveal reveal-delay-2">
+      <div class="mode-card featured reveal reveal-delay-2" aria-label="DocZeus mode: 23 frames per second at 1080p">
         <div class="mode-name">DocZeus</div>
         <div class="mode-badge">720p + Fused CUDA</div>
         <div class="mode-fps">23</div>
@@ -1255,7 +1292,7 @@ footer {
         <span class="mode-tag gpu">GPU</span>
       </div>
 
-      <div class="mode-card reveal">
+      <div class="mode-card reveal" aria-label="CUDA Max mode: 22 frames per second at 1080p">
         <div class="mode-name">CUDA Max</div>
         <div class="mode-badge">720p Quality</div>
         <div class="mode-fps">22</div>
@@ -1264,7 +1301,7 @@ footer {
         <span class="mode-tag gpu">GPU</span>
       </div>
 
-      <div class="mode-card reveal reveal-delay-1">
+      <div class="mode-card reveal reveal-delay-1" aria-label="CUDA Balanced mode: 34 frames per second at 1080p">
         <div class="mode-name">CUDA Balanced</div>
         <div class="mode-badge">720p skip 2</div>
         <div class="mode-fps">34</div>
@@ -1273,7 +1310,7 @@ footer {
         <span class="mode-tag gpu">GPU</span>
       </div>
 
-      <div class="mode-card reveal reveal-delay-2">
+      <div class="mode-card reveal reveal-delay-2" aria-label="CUDA Perf mode: 33 frames per second at 1080p">
         <div class="mode-name">CUDA Perf</div>
         <div class="mode-badge">720p skip 2</div>
         <div class="mode-fps">33</div>
@@ -1282,7 +1319,7 @@ footer {
         <span class="mode-tag gpu">GPU</span>
       </div>
 
-      <div class="mode-card reveal">
+      <div class="mode-card reveal" aria-label="CPU Quality mode: 15 frames per second at 1080p">
         <div class="mode-name">CPU Quality</div>
         <div class="mode-badge">720p OpenCV</div>
         <div class="mode-fps">15</div>
@@ -1291,7 +1328,7 @@ footer {
         <span class="mode-tag cpu">CPU</span>
       </div>
 
-      <div class="mode-card reveal reveal-delay-1">
+      <div class="mode-card reveal reveal-delay-1" aria-label="CPU Light mode: 33 frames per second at 1080p">
         <div class="mode-name">CPU Light</div>
         <div class="mode-badge">720p skip 2</div>
         <div class="mode-fps">33</div>
@@ -1300,7 +1337,7 @@ footer {
         <span class="mode-tag cpu">CPU</span>
       </div>
 
-      <div class="mode-card reveal reveal-delay-2">
+      <div class="mode-card reveal reveal-delay-2" aria-label="CPU Low End mode: 37 frames per second at 1080p">
         <div class="mode-name">CPU Low End</div>
         <div class="mode-badge">720p skip 3</div>
         <div class="mode-fps">37</div>
@@ -1314,7 +1351,7 @@ footer {
 </section>
 
 <!-- ─── Install ─── -->
-<section id="install" class="section section-alt">
+<section id="install" class="section section-alt" role="region" aria-label="Installation">
   <div class="container text-center">
     <div class="section-tag reveal">Install</div>
     <h2 class="section-title reveal">One command, any distro</h2>
@@ -1332,15 +1369,15 @@ footer {
 
       <!-- Source -->
       <div class="install-pane active" id="pane-source">
-        <div class="terminal">
+        <div class="terminal" role="region" aria-label="Terminal command">
           <div class="terminal-bar">
-            <div class="terminal-dot r"></div>
-            <div class="terminal-dot y"></div>
-            <div class="terminal-dot g"></div>
+            <div class="terminal-dot r" aria-hidden="true"></div>
+            <div class="terminal-dot y" aria-hidden="true"></div>
+            <div class="terminal-dot g" aria-hidden="true"></div>
             <span>bash</span>
           </div>
-          <div class="terminal-body">
-            <button class="copy-btn" onclick="copyCommand('source')">Copy</button>
+          <div class="terminal-body" role="code">
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('source')">Copy</button>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd nvidia-broadcast-linux</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">./install.sh</span></div>
@@ -1351,15 +1388,15 @@ footer {
 
       <!-- DEB -->
       <div class="install-pane" id="pane-deb">
-        <div class="terminal">
+        <div class="terminal" role="region" aria-label="Terminal command">
           <div class="terminal-bar">
-            <div class="terminal-dot r"></div>
-            <div class="terminal-dot y"></div>
-            <div class="terminal-dot g"></div>
+            <div class="terminal-dot r" aria-hidden="true"></div>
+            <div class="terminal-dot y" aria-hidden="true"></div>
+            <div class="terminal-dot g" aria-hidden="true"></div>
             <span>bash</span>
           </div>
-          <div class="terminal-body">
-            <button class="copy-btn" onclick="copyCommand('deb')">Copy</button>
+          <div class="terminal-body" role="code">
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('deb')">Copy</button>
             <div class="terminal-line"><span class="comment"># Download the .deb from GitHub Releases</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.0.0-1_all.deb</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_1.0.0-1_all.deb</span></div>
@@ -1371,15 +1408,15 @@ footer {
 
       <!-- RPM -->
       <div class="install-pane" id="pane-rpm">
-        <div class="terminal">
+        <div class="terminal" role="region" aria-label="Terminal command">
           <div class="terminal-bar">
-            <div class="terminal-dot r"></div>
-            <div class="terminal-dot y"></div>
-            <div class="terminal-dot g"></div>
+            <div class="terminal-dot r" aria-hidden="true"></div>
+            <div class="terminal-dot y" aria-hidden="true"></div>
+            <div class="terminal-dot g" aria-hidden="true"></div>
             <span>bash</span>
           </div>
-          <div class="terminal-body">
-            <button class="copy-btn" onclick="copyCommand('rpm')">Copy</button>
+          <div class="terminal-body" role="code">
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('rpm')">Copy</button>
             <div class="terminal-line"><span class="comment"># Download the .rpm from GitHub Releases</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.0.0-1.noarch.rpm</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-1.0.0-1.noarch.rpm</span></div>
@@ -1390,15 +1427,15 @@ footer {
 
       <!-- Arch -->
       <div class="install-pane" id="pane-arch">
-        <div class="terminal">
+        <div class="terminal" role="region" aria-label="Terminal command">
           <div class="terminal-bar">
-            <div class="terminal-dot r"></div>
-            <div class="terminal-dot y"></div>
-            <div class="terminal-dot g"></div>
+            <div class="terminal-dot r" aria-hidden="true"></div>
+            <div class="terminal-dot y" aria-hidden="true"></div>
+            <div class="terminal-dot g" aria-hidden="true"></div>
             <span>bash</span>
           </div>
-          <div class="terminal-body">
-            <button class="copy-btn" onclick="copyCommand('arch')">Copy</button>
+          <div class="terminal-body" role="code">
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('arch')">Copy</button>
             <div class="terminal-line"><span class="comment"># Install system deps then run the installer</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh</span></div>
@@ -1409,15 +1446,15 @@ footer {
 
       <!-- macOS -->
       <div class="install-pane" id="pane-macos">
-        <div class="terminal">
+        <div class="terminal" role="region" aria-label="Terminal command">
           <div class="terminal-bar">
-            <div class="terminal-dot r"></div>
-            <div class="terminal-dot y"></div>
-            <div class="terminal-dot g"></div>
+            <div class="terminal-dot r" aria-hidden="true"></div>
+            <div class="terminal-dot y" aria-hidden="true"></div>
+            <div class="terminal-dot g" aria-hidden="true"></div>
             <span>zsh</span>
           </div>
-          <div class="terminal-body">
-            <button class="copy-btn" onclick="copyCommand('macos')">Copy</button>
+          <div class="terminal-body" role="code">
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('macos')">Copy</button>
             <div class="terminal-line"><span class="comment"># macOS (Apple Silicon + Intel)</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd nvidia-broadcast-linux</span></div>
@@ -1463,11 +1500,13 @@ footer {
   </div>
 </section>
 
+</main>
+
 <!-- ─── Footer ─── -->
 <footer>
   <div class="container">
     <div class="footer-brand">
-      <svg viewBox="0 0 200 48" width="140" height="34">
+      <svg viewBox="0 0 200 48" width="140" height="34" aria-hidden="true">
         <rect x="2" y="8" width="32" height="32" rx="8" fill="none" stroke="#76b900" stroke-width="3"/>
         <circle cx="18" cy="24" r="6" fill="#76b900"/>
         <text x="40" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="currentColor" letter-spacing="1">oczeus</text>
