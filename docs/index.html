@@ -750,6 +750,19 @@ nav .container {
 }
 
 /* ── Install section ── */
+/* ── OS detection banner ── */
+.os-detect-banner {
+  display: inline-block;
+  background: var(--accent-surface);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-text);
+  margin-bottom: 24px;
+}
+
 .install-tabs {
   display: flex; justify-content: center;
   gap: 8px; margin-bottom: 28px; flex-wrap: wrap;
@@ -1355,7 +1368,7 @@ button:focus-visible, a:focus-visible {
   <div class="container text-center">
     <div class="section-tag reveal">Install</div>
     <h2 class="section-title reveal">One command, any distro</h2>
-    <p class="section-desc reveal" id="os-detect-msg">Detecting your system...</p>
+    <div class="os-detect-banner reveal" id="os-detect-msg">Detecting your system...</div>
 
     <div class="install-tabs reveal reveal-delay-1" id="install-tabs">
       <button class="install-tab active" data-tab="source">Source Install</button>
@@ -1472,26 +1485,28 @@ button:focus-visible, a:focus-visible {
     <!-- Requirements -->
     <div class="req-grid reveal">
       <div class="req-card">
-        <h4>GPU</h4>
+        <h4>Linux</h4>
         <ul>
-          <li>NVIDIA GTX 1060+ (RTX 3060+ recommended)</li>
-          <li>2 GB VRAM minimum, 4 GB+ recommended</li>
-          <li>Driver 525+, CUDA 11.8+</li>
+          <li>Any distro (Ubuntu, Fedora, Arch, Pop!_OS...)</li>
+          <li>NVIDIA GTX 1060+ for GPU modes</li>
+          <li>Python 3.11+, GStreamer, GTK4</li>
+          <li>PipeWire for virtual mic</li>
         </ul>
       </div>
       <div class="req-card">
-        <h4>System</h4>
+        <h4>macOS</h4>
         <ul>
-          <li>Linux (any distro with PipeWire)</li>
-          <li>Python 3.11+</li>
-          <li>GStreamer 1.20+, GTK4, Libadwaita</li>
+          <li>macOS 12 Monterey or newer</li>
+          <li>Apple Silicon (M1+) or Intel</li>
+          <li>Homebrew, Python 3.11+</li>
+          <li>CPU modes (no NVIDIA needed)</li>
         </ul>
       </div>
       <div class="req-card">
-        <h4>Camera</h4>
+        <h4>Camera + Audio</h4>
         <ul>
           <li>USB webcam, 720p+ recommended</li>
-          <li>MJPEG preferred for best performance</li>
+          <li>Any microphone (USB, built-in)</li>
           <li>360p to 4K supported</li>
         </ul>
       </div>
@@ -1695,7 +1710,8 @@ function copyCommand(type) {
   if (pane) pane.classList.add('active');
 
   if (msgEl) {
-    msgEl.textContent = 'Detected ' + label + '. Showing recommended install method.';
+    /* All values are hardcoded strings, no user input — safe to set textContent */
+    msgEl.textContent = 'Detected ' + label + ' — showing your install command below';
   }
 })();
 
