@@ -458,22 +458,70 @@ nav .container {
 }
 
 /* ── Feature grid ── */
+/* ── Feature category tabs ── */
+.feature-tabs {
+  display: flex; justify-content: center;
+  gap: 8px; margin-bottom: 32px; flex-wrap: wrap;
+}
+.feature-tab {
+  padding: 7px 18px; border: 1px solid var(--border);
+  border-radius: 20px; font-size: 13px; font-weight: 600;
+  cursor: pointer; background: var(--surface); color: var(--text-secondary);
+  transition: all 0.2s;
+}
+.feature-tab:hover { border-color: var(--accent); color: var(--accent); }
+.feature-tab.active {
+  background: var(--accent); color: #000; border-color: var(--accent);
+}
+
+/* ── Hero features — the big 3 ── */
+.hero-features {
+  display: flex; justify-content: center; gap: 32px;
+  margin-bottom: 40px; flex-wrap: wrap;
+}
+.hero-feature {
+  text-align: center; max-width: 200px;
+}
+.hero-feature-icon {
+  width: 56px; height: 56px;
+  background: var(--accent-surface); border: 1px solid var(--accent);
+  border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 12px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.hero-feature:hover .hero-feature-icon {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 16px rgba(118, 185, 0, 0.2);
+}
+.hero-feature h3 {
+  font-size: 15px; font-weight: 700; margin-bottom: 4px;
+}
+.hero-feature p {
+  font-size: 12px; color: var(--text-secondary);
+}
+
+/* ── Feature grid ── */
 .features-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
 }
 .feature-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 28px;
-  transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+  padding: 20px 24px;
+  text-align: left;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease, opacity 0.3s ease;
 }
 .feature-card:hover {
   box-shadow: var(--card-shadow-hover);
   border-color: var(--accent);
   transform: translateY(-2px);
+}
+.feature-card.hidden {
+  display: none;
 }
 .feature-icon {
   width: 40px; height: 40px;
@@ -804,6 +852,8 @@ footer {
   .hero { padding: 120px 0 64px; }
   .section { padding: 64px 0; }
   .features-grid { grid-template-columns: 1fr; }
+  .hero-features { flex-direction: column; align-items: center; gap: 20px; }
+  .feature-tabs { gap: 6px; }
   .modes-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
   .preview-controls { grid-template-columns: 1fr; }
   .pipeline { flex-direction: column; }
@@ -934,97 +984,131 @@ footer {
 <section id="features" class="section section-alt">
   <div class="container text-center">
     <div class="section-tag reveal">Features</div>
-    <h2 class="section-title reveal">Everything NVIDIA Broadcast does, on Linux</h2>
-    <p class="section-desc reveal">Real-time AI processing with ONNX Runtime CUDA, CuPy compositing, and GStreamer pipelines. Eye contact correction, relighting, recording, and profile management. Works with Chrome, Zoom, OBS, and Discord.</p>
+    <h2 class="section-title reveal">Look professional. Sound professional.</h2>
+    <p class="section-desc reveal">Works with Zoom, Chrome, OBS, Discord, FaceTime. One app does it all.</p>
 
-    <div class="features-grid">
+    <!-- Category filter tabs -->
+    <div class="feature-tabs reveal" id="feature-tabs">
+      <button class="feature-tab active" data-category="all">All</button>
+      <button class="feature-tab" data-category="video">Video AI</button>
+      <button class="feature-tab" data-category="audio">Audio</button>
+      <button class="feature-tab" data-category="meeting">Meeting</button>
+    </div>
 
-      <div class="feature-card reveal">
+    <!-- Hero features — the 3 that matter most -->
+    <div class="hero-features reveal">
+      <div class="hero-feature" data-cat="video">
+        <div class="hero-feature-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </div>
+        <h3>Blur your background</h3>
+        <p>3 AI models. Real-time.</p>
+      </div>
+      <div class="hero-feature" data-cat="audio">
+        <div class="hero-feature-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+        </div>
+        <h3>Sound like a studio</h3>
+        <p>Bass, warmth, compression. GPU.</p>
+      </div>
+      <div class="hero-feature" data-cat="meeting">
+        <div class="hero-feature-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <h3>AI writes your notes</h3>
+        <p>Whisper + summarizer. Local.</p>
+      </div>
+    </div>
+
+    <!-- Feature grid — scannable one-liners -->
+    <div class="features-grid" id="features-grid">
+
+      <div class="feature-card reveal" data-cat="video">
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
         </div>
         <h3>Background Removal</h3>
-        <p>Three AI models: RVM for speed, IS-Net for objects, BiRefNet for edge quality. Real-time alpha matting with sigmoid refinement and dilate smoothing.</p>
+        <p>Blur, replace, or remove. Three AI models to choose from.</p>
       </div>
 
-      <div class="feature-card reveal reveal-delay-1">
+      <div class="feature-card reveal" data-cat="video">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/></svg>
         </div>
-        <h3>Virtual Camera</h3>
-        <p>v4l2loopback output on /dev/video10. Works with Chrome, Firefox, Zoom, OBS, Discord. MJPEG and YUY2 format support with exclusive_caps.</p>
+        <h3>Eye Contact</h3>
+        <p>Look at the camera even when reading your screen.</p>
       </div>
 
-      <div class="feature-card reveal reveal-delay-2">
+      <div class="feature-card reveal" data-cat="video">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>
+        </div>
+        <h3>Face Relighting</h3>
+        <p>Auto-match your face lighting to the background.</p>
+      </div>
+
+      <div class="feature-card reveal" data-cat="video">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42"/></svg>
         </div>
         <h3>Video Enhancement</h3>
-        <p>Five effects: skin smooth, denoise, enhance, sharpen, edge darken. Four presets: Natural, Broadcast, Glamour, Custom. MediaPipe face detection at half-res.</p>
+        <p>Skin smooth, denoise, sharpen. Four beauty presets.</p>
       </div>
 
-      <div class="feature-card reveal reveal-delay-3">
+      <div class="feature-card reveal" data-cat="video">
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>
         </div>
         <h3>Auto-Frame</h3>
-        <p>Face tracking keeps you centered in frame. Smooth pan with configurable speed. Works with all processing modes and resolutions.</p>
+        <p>AI keeps you centered when you move around.</p>
       </div>
 
-      <div class="feature-card reveal reveal-delay-4">
+      <div class="feature-card reveal" data-cat="video">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
         </div>
-        <h3>Edge Refiner</h3>
-        <p>Second neural network pass at 720p for hair and edge detail. 89.9% quality recovery. 80/20 temporal blending on skip frames for smooth output.</p>
+        <h3>Virtual Camera</h3>
+        <p>Shows up in Zoom, Chrome, OBS, Discord automatically.</p>
       </div>
 
-      <div class="feature-card reveal reveal-delay-5">
+      <div class="feature-card reveal" data-cat="audio">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
         </div>
-        <h3>System Tray + Power Save</h3>
-        <p>AyatanaAppIndicator system tray with start/stop/quit. Camera power save polls /dev/video10 and auto-pauses when no consumer is connected.</p>
+        <h3>Voice Studio</h3>
+        <p>Bass, treble, warmth, compression. 6 presets. GPU-accelerated.</p>
       </div>
 
-      <div class="feature-card reveal">
+      <div class="feature-card reveal" data-cat="audio">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
         </div>
-        <h3>Eye Contact Correction</h3>
-        <p>MediaPipe face mesh with iris tracking redirects your gaze to look directly at the camera. Natural-looking affine warp with adjustable intensity.</p>
+        <h3>Noise Removal</h3>
+        <p>AI removes background noise from your mic in real-time.</p>
       </div>
 
-      <div class="feature-card reveal reveal-delay-1">
+      <div class="feature-card reveal" data-cat="audio">
         <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </div>
-        <h3>Face Relighting</h3>
-        <p>Analyzes background luminance and adjusts face brightness and color temperature to match the scene. Zone-based processing for natural results.</p>
+        <h3>Mic Test + VU Meter</h3>
+        <p>Record 5 seconds, play it back. See your live audio level.</p>
       </div>
 
-      <div class="feature-card reveal reveal-delay-2">
+      <div class="feature-card reveal" data-cat="meeting">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <h3>AI Meeting Notes</h3>
+        <p>Whisper transcribes. AI extracts action items. 100% local.</p>
+      </div>
+
+      <div class="feature-card reveal" data-cat="meeting">
         <div class="feature-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
         </div>
         <h3>Recording + NVENC</h3>
-        <p>Record your broadcast to MP4 with hardware NVENC encoding. One-click start/stop. Performance overlay shows FPS, GPU usage, VRAM, and temperature.</p>
-      </div>
-
-      <div class="feature-card reveal">
-        <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        </div>
-        <h3>AI Meeting Notes</h3>
-        <p>Local Whisper transcription with AI summarization. Extracts action items, questions, and key points. TXT, SRT, and JSON export. No cloud, no data leaves your machine.</p>
-      </div>
-
-      <div class="feature-card reveal reveal-delay-1">
-        <div class="feature-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-        </div>
-        <h3>Voice Studio</h3>
-        <p>Bass boost, treble, warmth, compression, noise gate with GPU acceleration. 6 presets: Natural, Radio, Podcast, Deep Voice, Bright, Studio. Mic test with record and playback.</p>
+        <p>Record video + audio to MP4. Hardware encoding. One click.</p>
       </div>
 
     </div>
@@ -1485,6 +1569,22 @@ const heroLines = [
     tObs.observe(termEl);
   }
 })();
+
+/* ── Feature category filter ── */
+document.querySelectorAll('.feature-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.feature-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    var cat = tab.dataset.category;
+    document.querySelectorAll('.feature-card[data-cat]').forEach(card => {
+      if (cat === 'all' || card.dataset.cat === cat) {
+        card.classList.remove('hidden');
+      } else {
+        card.classList.add('hidden');
+      }
+    });
+  });
+});
 
 /* ── Install tabs ── */
 document.querySelectorAll('.install-tab').forEach(tab => {
