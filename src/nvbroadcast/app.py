@@ -401,17 +401,20 @@ class NVBroadcastApp(Adw.Application):
         if self._video_effects.enabled:
             result = self._video_effects.process_frame(result, width, height)
 
-        # Eye contact correction (after background removal, before beautify)
-        if self._eye_contact.enabled:
+        # Convert to numpy once for face-based effects (eye contact + relighting)
+        # They share a single FaceLandmarker — passing the SAME array object
+        # means landmark detection runs only once (cached by frame id).
+        need_face = self._eye_contact.enabled or self._relighter.enabled
+        if need_face:
             frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4).copy()
-            frame = self._eye_contact.process_frame(frame)
-            result = frame.tobytes()
 
-        # Face relighting (uses alpha from video_effects if available)
-        if self._relighter.enabled:
-            frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4).copy()
-            alpha = getattr(self._video_effects, '_last_alpha', None)
-            frame = self._relighter.process_frame(frame, alpha)
+            if self._eye_contact.enabled:
+                frame = self._eye_contact.process_frame(frame)
+
+            if self._relighter.enabled:
+                alpha = getattr(self._video_effects, '_last_alpha', None)
+                frame = self._relighter.process_frame(frame, alpha)
+
             result = frame.tobytes()
 
         if self._beautifier.enabled:
