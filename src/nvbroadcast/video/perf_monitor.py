@@ -32,7 +32,7 @@ class PerfMonitor:
         self._frame_count += 1
         now = time.monotonic()
         elapsed = now - self._last_fps_time
-        if elapsed >= 1.0:
+        if elapsed >= 0.5:
             self._fps = self._frame_count / elapsed
             self._frame_count = 0
             self._last_fps_time = now
