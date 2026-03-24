@@ -26,15 +26,15 @@ confinement: strict
 license: GPL-3.0
 icon: data/icons/com.doczeus.NVBroadcast.svg
 
-architectures:
-  - build-on: amd64
+platforms:
+  amd64:
+    build-on: [amd64]
+    build-for: [amd64]
 
 apps:
   nvbroadcast:
     command: bin/nvbroadcast-wrapper
     extensions: [gnome]
-    command-chain:
-      - snap/command-chain/desktop-launch
     plugs:
       - home
       - network
