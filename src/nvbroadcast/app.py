@@ -286,9 +286,13 @@ class NVBroadcastApp(Adw.Application):
         # Tell window to restore UI controls FIRST (may fire toggle callbacks)
         self._window.restore_settings(c)
 
-        # Then force-set all effect states from config (overrides any
-        # callbacks that toggled effects off during UI restore)
+        # Then force-set ALL effect states from config (overrides any
+        # callbacks that toggled effects off or changed modes during UI restore)
         self._video_effects.enabled = c.video.background_removal
+        self._video_effects.mode = c.video.background_mode
+        self._video_effects.intensity = c.video.blur_intensity
+        if c.video.background_image:
+            self._video_effects.set_background_image(c.video.background_image)
         self._eye_contact.enabled = c.video.eye_contact
         self._eye_contact.intensity = c.video.eye_contact_intensity
         self._relighter.enabled = c.video.relighting
@@ -462,6 +466,8 @@ class NVBroadcastApp(Adw.Application):
         save_config(self.config)
 
     def set_bg_mode(self, mode: str):
+        if getattr(self, '_restoring', False):
+            return
         self._video_effects.mode = mode
         self.config.video.background_mode = mode
         save_config(self.config)
