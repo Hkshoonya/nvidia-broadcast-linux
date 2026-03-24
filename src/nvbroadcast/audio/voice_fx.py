@@ -168,45 +168,33 @@ class VoiceFX:
 
     def _bass_filter(self, audio: np.ndarray, amount: float,
                      sample_rate: int) -> np.ndarray:
-        """Low-shelf filter for bass boost/cut."""
-        # Simple 1-pole low-shelf at ~200Hz
+        """Low-shelf filter for bass boost/cut — vectorized."""
+        from scipy.signal import lfilter
         fc = 200.0
         w0 = 2 * np.pi * fc / sample_rate
         alpha = w0 / (w0 + 1)
-        gain = 1.0 + amount * 0.8  # ±80% gain at bass
+        gain = 1.0 + amount * 0.8
 
-        result = np.empty_like(audio)
-        y_prev = self._bass_state[0]
-
-        for i in range(len(audio)):
-            # Low-pass component
-            lp = y_prev + alpha * (audio[i] - y_prev)
-            y_prev = lp
-            # Mix: original + boosted low frequencies
-            result[i] = audio[i] + (gain - 1.0) * lp
-
-        self._bass_state[0] = y_prev
-        return result
+        # 1-pole low-pass: y[n] = alpha*x[n] + (1-alpha)*y[n-1]
+        b = [alpha]
+        a = [1, -(1 - alpha)]
+        lp, self._bass_state[:1] = lfilter(b, a, audio, zi=self._bass_state[:1])
+        return audio + (gain - 1.0) * lp
 
     def _treble_filter(self, audio: np.ndarray, amount: float,
                        sample_rate: int) -> np.ndarray:
-        """High-shelf filter for treble boost/cut."""
+        """High-shelf filter for treble boost/cut — vectorized."""
+        from scipy.signal import lfilter
         fc = 4000.0
         w0 = 2 * np.pi * fc / sample_rate
         alpha = w0 / (w0 + 1)
-        gain = 1.0 + amount * 0.6  # ±60% gain at treble
+        gain = 1.0 + amount * 0.6
 
-        result = np.empty_like(audio)
-        y_prev = self._treble_state[0]
-
-        for i in range(len(audio)):
-            lp = y_prev + alpha * (audio[i] - y_prev)
-            y_prev = lp
-            hp = audio[i] - lp  # High-pass = original minus low-pass
-            result[i] = audio[i] + (gain - 1.0) * hp
-
-        self._treble_state[0] = y_prev
-        return result
+        b = [alpha]
+        a = [1, -(1 - alpha)]
+        lp, self._treble_state[:1] = lfilter(b, a, audio, zi=self._treble_state[:1])
+        hp = audio - lp
+        return audio + (gain - 1.0) * hp
 
     def _warmth(self, audio: np.ndarray, amount: float) -> np.ndarray:
         """Tape-style harmonic saturation for warmth."""
@@ -217,38 +205,24 @@ class VoiceFX:
 
     def _compress(self, audio: np.ndarray, amount: float,
                   sample_rate: int) -> np.ndarray:
-        """Simple RMS compressor."""
-        threshold_db = -20 + (1 - amount) * 10  # -20dB at max, -10dB at min
+        """RMS compressor — vectorized with block processing."""
+        threshold_db = -20 + (1 - amount) * 10
         threshold = 10 ** (threshold_db / 20)
-        ratio = 1.0 + amount * 5.0  # 1:1 to 1:6
-        attack = 0.005 * sample_rate  # 5ms
-        release = 0.05 * sample_rate  # 50ms
-        attack_coeff = 1.0 / max(1, attack)
-        release_coeff = 1.0 / max(1, release)
-
-        result = np.empty_like(audio)
-        env = self._comp_env
-
-        for i in range(len(audio)):
-            level = abs(audio[i])
-            if level > env:
-                env += attack_coeff * (level - env)
-            else:
-                env += release_coeff * (level - env)
-
-            if env > threshold:
-                gain_reduction = threshold / env
-                gain_reduction = gain_reduction ** (1 - 1 / ratio)
-                result[i] = audio[i] * gain_reduction
-            else:
-                result[i] = audio[i]
-
-        # Makeup gain (compensate for compression)
+        ratio = 1.0 + amount * 5.0
         makeup = 1.0 + amount * 0.5
-        result *= makeup
 
-        self._comp_env = env
-        return result
+        # Block-based compression (process in 256-sample blocks for speed)
+        block_size = 256
+        result = audio.copy()
+        for start in range(0, len(audio), block_size):
+            end = min(start + block_size, len(audio))
+            block = audio[start:end]
+            rms = np.sqrt(np.mean(block ** 2))
+            if rms > threshold:
+                gain_reduction = (threshold / rms) ** (1 - 1 / ratio)
+                result[start:end] = block * gain_reduction
+
+        return result * makeup
 
 
 # Presets for common use cases
