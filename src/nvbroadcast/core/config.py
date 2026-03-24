@@ -66,7 +66,10 @@ class AudioConfig:
 
 
 # Performance profiles: control where the workload runs (CPU vs GPU)
-# effects_ratio: fraction of camera fps used for effects (1.0 = every frame)
+# effects_ratio: fraction of camera fps used for alpha inference.
+# With split architecture (background inference + inline compositing),
+# all profiles can run alpha updates at full rate — compositing is
+# always inline on every frame regardless of this setting.
 PERFORMANCE_PROFILES = {
     "max_quality": {
         "label": "Max Quality",
@@ -80,9 +83,9 @@ PERFORMANCE_PROFILES = {
     },
     "balanced": {
         "label": "Balanced",
-        "description": "Process 2/3 of frames, full resolution",
-        "effects_ratio": 0.67,
-        "skip_interval": 2,
+        "description": "Full-rate alpha, balanced inference",
+        "effects_ratio": 1.0,
+        "skip_interval": 1,
         "process_scale": 1.0,
         "edge_dilate": 3,
         "edge_blur": 5,
@@ -90,22 +93,22 @@ PERFORMANCE_PROFILES = {
     },
     "performance": {
         "label": "Performance",
-        "description": "Process half of frames, fast edges",
-        "effects_ratio": 0.5,
-        "skip_interval": 2,
+        "description": "Full-rate alpha, fast inference",
+        "effects_ratio": 1.0,
+        "skip_interval": 1,
         "process_scale": 0.5,
-        "edge_dilate": 2,
-        "edge_blur": 3,
+        "edge_dilate": 3,
+        "edge_blur": 5,
         "edge_sigmoid": 10.0,
     },
     "potato": {
         "label": "Low-End",
-        "description": "Process 1/3 of frames, minimal resources",
-        "effects_ratio": 0.33,
-        "skip_interval": 3,
+        "description": "Full-rate alpha, minimal resources",
+        "effects_ratio": 1.0,
+        "skip_interval": 1,
         "process_scale": 0.5,
-        "edge_dilate": 1,
-        "edge_blur": 3,
+        "edge_dilate": 3,
+        "edge_blur": 5,
         "edge_sigmoid": 8.0,
     },
 }

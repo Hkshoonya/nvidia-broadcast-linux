@@ -316,35 +316,26 @@ class _RVMBackend:
         self._r1, self._r2 = outputs[2], outputs[3]
         self._r3, self._r4 = outputs[4], outputs[5]
 
-        # For aggressive downsample modes (Zeus/Killer): refine at low-res
-        # then upscale with cubic. Stronger sigmoid compensates for low-res edges.
-        if self._MAX_INFER_HEIGHT < 720 and (alpha.shape[0] != height or alpha.shape[1] != width):
+        # Upscale to frame resolution if needed (low-res inference modes)
+        if alpha.shape[0] != height or alpha.shape[1] != width:
             alpha = np.clip(alpha, 0, 1)
-            t = (alpha - 0.45) * -16.0  # Stronger sigmoid for crisp edges
-            np.exp(t, out=t)
-            np.add(t, 1.0, out=t)
-            np.reciprocal(t, out=t)
-            # Dilate slightly to avoid cutting into person silhouette
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            t_u8 = (t * 255).astype(np.uint8)
-            t_u8 = cv2.dilate(t_u8, kernel, iterations=1)
-            t = t_u8.astype(np.float32) / 255.0
-            # Cubic upscale preserves edge sharpness better than linear
-            alpha = cv2.resize(t, (width, height), interpolation=cv2.INTER_CUBIC)
+            alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_CUBIC)
             alpha = np.clip(alpha, 0, 1)
-            self._lowres_refined = True
-        else:
-            if alpha.shape[0] != height or alpha.shape[1] != width:
-                alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
-            self._lowres_refined = False
+        # Always let _refine_alpha handle edge processing — it has the
+        # improved pipeline (morph close, bilateral, matte hardening).
+        self._lowres_refined = False
 
         return alpha
 
     def reset_state(self):
+        """Reset recurrent states for resolution change.
+        Zero (1,1,1,1) tensors trigger RVM's built-in shape auto-detection.
+        """
         self._r1 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r2 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r3 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
+        print("[NV Broadcast] RVM recurrent states reset", flush=True)
 
     def cleanup(self):
         _release_session(self.session)
@@ -410,9 +401,19 @@ class _SingleFrameBackend:
         # Resize back to frame size
         alpha = cv2.resize(alpha_small, (width, height), interpolation=cv2.INTER_LINEAR)
 
-        # Temporal smoothing (EMA) to reduce flicker
+        # Light temporal smoothing at inference level — just enough to reduce
+        # model noise, NOT enough to cause visible lag during movement.
+        # Heavy flicker reduction is handled by bilateral filter + compositing layer.
         if self._prev_alpha is not None:
-            alpha = self._ema_weight * self._prev_alpha + (1.0 - self._ema_weight) * alpha
+            dropping = alpha < self._prev_alpha
+            diff = np.abs(alpha - self._prev_alpha).mean()
+            # During motion, almost no smoothing. When still, light smoothing.
+            motion_scale = max(0.0, 1.0 - diff * 8.0)
+            weight = np.where(
+                dropping, 0.02,
+                0.12 * motion_scale,
+            ).astype(np.float32)
+            alpha = weight * self._prev_alpha + (1.0 - weight) * alpha
         self._prev_alpha = alpha
 
         return alpha
@@ -535,9 +536,11 @@ class VideoEffects:
         self._intensity = 0.7
         self._frame_size = None
         self._resized_bg = None
+        self._bg_resized = None  # Used by fused kernel path (_get_bg_image)
         self._green_bg = None
         self._frame_counter = 0
         self._cached_alpha = None
+        self._stable_alpha = None  # Extra-smoothed alpha for image replacement
         self._skip_interval = 1
 
         # Alpha refinement
@@ -617,7 +620,7 @@ class VideoEffects:
         self._skip_interval = model_info.get("skip_interval", 1)
         if self._initialized:
             self._cleanup_backend()
-            self._cached_alpha = None
+            # Keep _cached_alpha — it gets resized in composite_only if needed
             self.initialize()
 
     def set_background_image(self, image_path: str) -> bool:
@@ -698,7 +701,8 @@ class VideoEffects:
             with self._lock:
                 self._backend = backend
                 self._initialized = True
-                self._cached_alpha = None
+                # Keep _cached_alpha across model switches — composite_only
+                # handles size mismatch via resize. Prevents effects flash-off.
 
             print(f"[NV Broadcast] {msg}")
             return True
@@ -707,25 +711,45 @@ class VideoEffects:
             print(f"[NV Broadcast] Failed to initialize model: {e}")
             return False
 
-    def process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
+    def update_alpha(self, frame_data: bytes, width: int, height: int) -> None:
+        """Run inference to update the cached alpha mask. Call from background thread."""
         if not self._bg_removal_enabled or not self._initialized:
-            return frame_data
+            return
 
         frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
         if not frame.flags.writeable:
             frame = frame.copy()
 
-        self._frame_counter += 1
+        alpha = self._run_inference(frame, width, height)
+        if alpha is not None:
+            self._cached_alpha = alpha
 
-        if self._skip_interval <= 1 or self._frame_counter % self._skip_interval == 0 or self._cached_alpha is None:
-            alpha = self._run_inference(frame, width, height)
-            if alpha is not None:
-                self._cached_alpha = alpha
-            elif self._cached_alpha is None:
-                return frame_data
+    def composite_only(self, frame_data: bytes, width: int, height: int) -> bytes:
+        """Composite current frame with cached alpha. Fast — no inference."""
+        if not self._bg_removal_enabled or not self._initialized:
+            return frame_data
         alpha = self._cached_alpha
+        if alpha is None:
+            return frame_data
 
-        # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass for composite
+        # Resolution changed — alpha is wrong size, resize it
+        if alpha.shape[0] != height or alpha.shape[1] != width:
+            alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
+
+        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
+        if not frame.flags.writeable:
+            frame = frame.copy()
+
+        return self._composite(frame, alpha, width, height)
+
+    def _composite(self, frame: np.ndarray, alpha: np.ndarray,
+                   width: int, height: int) -> bytes:
+        """Apply alpha mask to frame — shared by process_frame and composite_only."""
+        # Ensure alpha matches frame dimensions
+        if alpha.shape[0] != height or alpha.shape[1] != width:
+            alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
+
+        # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass
         if self._use_fused_kernel and self._cupy is not None:
             result = self._composite_fused(frame, alpha, width, height)
             if result is not None:
@@ -738,8 +762,32 @@ class VideoEffects:
             result = self._apply_green_screen(frame, alpha, width, height)
         else:
             result = self._apply_replace(frame, alpha, width, height)
-
         return result.tobytes()
+
+    def process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
+        if not self._bg_removal_enabled or not self._initialized:
+            return frame_data
+
+        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
+        if not frame.flags.writeable:
+            frame = frame.copy()
+
+        self._frame_counter += 1
+
+        run_inference = (
+            self._skip_interval <= 1
+            or self._frame_counter % self._skip_interval == 0
+            or self._cached_alpha is None
+        )
+        if run_inference:
+            alpha = self._run_inference(frame, width, height)
+            if alpha is not None:
+                self._cached_alpha = alpha
+            elif self._cached_alpha is None:
+                return frame_data
+        alpha = self._cached_alpha
+
+        return self._composite(frame, alpha, width, height)
 
     def _run_inference(self, frame: np.ndarray, width: int, height: int) -> np.ndarray | None:
         """Run the active backend's inference and refine the alpha."""
@@ -800,22 +848,56 @@ class VideoEffects:
             self._sigmoid_midpoint = float(sigmoid_midpoint)
 
     def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
-        # Stay in uint8 for morphological ops (skip float conversion)
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
+
+        # 1. Morphological close: fill holes in hair/fine detail
+        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        a8 = cv2.morphologyEx(a8, cv2.MORPH_CLOSE, close_kernel)
+
+        # 2. Dilate: expand mask slightly to cover edge fringe
         if self._dilate_size > 0:
             a8 = cv2.dilate(a8, self._dilate_kernel, iterations=1)
-        if self._blur_size > 1:
-            a8 = cv2.GaussianBlur(a8, self._blur_ksize, 0)
-        if self._sigmoid_strength > 0:
-            # Sigmoid in float32
-            t = a8.astype(np.float32) * (1.0 / 255.0)
-            np.subtract(t, self._sigmoid_midpoint, out=t)
-            np.multiply(t, -self._sigmoid_strength, out=t)
+
+        # 3. Two-pass blur: wide Gaussian for smooth feathering,
+        #    then bilateral to preserve real edges while smoothing noise.
+        #    This creates a natural gradient at edges instead of hard steps.
+        a8 = cv2.GaussianBlur(a8, (9, 9), 0)
+        a8 = cv2.bilateralFilter(a8, d=9, sigmaColor=60, sigmaSpace=9)
+
+        # 4. Gentler sigmoid: shapes the transition without making it binary.
+        #    Use strength * 0.6 so edges stay soft and natural.
+        t = a8.astype(np.float32) * (1.0 / 255.0)
+        sig = self._sigmoid_strength * 0.6  # Softer than user's raw value
+        mid = self._sigmoid_midpoint
+        if sig > 0:
+            np.subtract(t, mid, out=t)
+            np.multiply(t, -sig, out=t)
             np.exp(t, out=t)
             np.add(t, 1.0, out=t)
             np.reciprocal(t, out=t)
-            return t
-        return a8.astype(np.float32) * (1.0 / 255.0)
+
+        # 5. Selective matte hardening: only harden where alpha is solidly
+        #    person (>0.5). Below that, pixels contain webcam background
+        #    color contamination — hardening them creates white halos.
+        result = t
+        inner = result > 0.5
+        result[inner] = np.power(result[inner], 0.5)
+        # Outer fringe (0.15-0.5): very gentle — let most fade to background
+        outer = (result > 0.15) & (result <= 0.5)
+        result[outer] = np.power(result[outer], 0.92)
+        # Thin fringe (<0.15): suppress further to kill remaining white edge
+        thin = (result > 0.01) & (result <= 0.15)
+        result[thin] = result[thin] * 0.5
+
+        # 6. Final feathering: smooth the hardened edge for a natural transition
+        r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
+        r_u8 = cv2.GaussianBlur(r_u8, (7, 7), 0)
+        result = r_u8.astype(np.float32) * (1.0 / 255.0)
+
+        # 7. Core protection: push high-alpha firmly toward 1.0
+        high = result > 0.6
+        result[high] = 1.0 - (1.0 - result[high]) ** 2.0
+        return result
 
     # ─── Fused CUDA Kernel (DocZeus/Killer) ─────────────────────────────
 
@@ -874,10 +956,10 @@ class VideoEffects:
             bg = np.full_like(frame, 128)
             bg[:, :, 3] = 255
             return bg
-        if self._frame_size != (width, height):
-            self._bg_resized = cv2.resize(self._bg_image, (width, height))
+        if self._resized_bg is None or self._frame_size != (width, height):
+            self._resized_bg = self._resize_bg(self._bg_image, width, height)
             self._frame_size = (width, height)
-        return self._bg_resized
+        return self._resized_bg
 
     # ─── Compositing ─────────────────────────────────────────────────────
 
@@ -896,12 +978,13 @@ class VideoEffects:
                 new_h = 480   # Zeus
             else:
                 new_h = 720   # Standard/DocZeus
-            # ALWAYS reset state on mode change to prevent shape mismatch
             with self._lock:
+                old_h = self._backend._MAX_INFER_HEIGHT
                 self._backend._MAX_INFER_HEIGHT = new_h
-                self._backend.reset_state()
-                self._cached_alpha = None
-            self._edge_refiner.reset()
+                # Only reset recurrent states if resolution actually changed
+                if old_h != new_h:
+                    self._backend.reset_state()
+                    print(f"[NV Broadcast] Inference resolution: {old_h}p → {new_h}p")
 
     def set_compositing(self, backend: str):
         """Switch compositing backend (cpu, gstreamer_gl, cupy)."""
@@ -968,6 +1051,9 @@ class VideoEffects:
         if self._frame_size != (width, height):
             self._resized_bg = self._resize_bg(self._bg_image, width, height)
             self._frame_size = (width, height)
+        # Zero compositing-level temporal lag — use alpha directly.
+        # Spatial smoothing (bilateral filter + morph close in _refine_alpha)
+        # handles flicker. Inference-level EMA handles minimal temporal smoothing.
         return self._blend(frame, self._resized_bg, alpha)
 
     def _resize_bg(self, bg: np.ndarray, target_w: int, target_h: int) -> np.ndarray:

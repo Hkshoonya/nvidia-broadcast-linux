@@ -4,7 +4,8 @@
 #
 # Supports: Ubuntu, Debian, Pop!_OS, Linux Mint, Fedora, RHEL, CentOS,
 #           Arch, Manjaro, EndeavourOS, openSUSE, Gentoo, Void, NixOS
-set -e
+set -eE
+trap 'echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $?)"; echo "Please report this issue with the output above."; exit 1' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_PREFIX="${HOME}/.local"
@@ -306,7 +307,10 @@ else
     if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
         echo ""
         echo "Installing ${#MISSING_PKGS[@]} missing package(s)..."
-        install_packages "${MISSING_PKGS[*]}"
+        if ! install_packages "${MISSING_PKGS[*]}"; then
+            echo "WARNING: Some system packages failed to install. The app may still work."
+            echo "  Missing: ${MISSING_PKGS[*]}"
+        fi
     else
         echo "All system packages are installed."
     fi
@@ -336,17 +340,23 @@ V4L2_CONF="/etc/modprobe.d/nvbroadcast-v4l2loopback.conf"
 V4L2_LOAD="/etc/modules-load.d/nvbroadcast-v4l2loopback.conf"
 
 # Remove old BluCast configs if present
-sudo rm -f /etc/modprobe.d/blucast-v4l2loopback.conf 2>/dev/null
-sudo rm -f /etc/modules-load.d/blucast-v4l2loopback.conf 2>/dev/null
+sudo rm -f /etc/modprobe.d/blucast-v4l2loopback.conf 2>/dev/null || true
+sudo rm -f /etc/modules-load.d/blucast-v4l2loopback.conf 2>/dev/null || true
 
 if [ ! -f "$V4L2_CONF" ]; then
-    echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4' | sudo tee "$V4L2_CONF" > /dev/null
-    echo "Created $V4L2_CONF"
+    if echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4' | sudo tee "$V4L2_CONF" > /dev/null; then
+        echo "Created $V4L2_CONF"
+    else
+        echo "WARNING: Could not create $V4L2_CONF (sudo failed). Virtual camera may not auto-load."
+    fi
 fi
 
 if [ ! -f "$V4L2_LOAD" ]; then
-    echo "v4l2loopback" | sudo tee "$V4L2_LOAD" > /dev/null
-    echo "Created $V4L2_LOAD (auto-load on boot)"
+    if echo "v4l2loopback" | sudo tee "$V4L2_LOAD" > /dev/null; then
+        echo "Created $V4L2_LOAD (auto-load on boot)"
+    else
+        echo "WARNING: Could not create $V4L2_LOAD (sudo failed)."
+    fi
 fi
 
 if ! lsmod | grep -q v4l2loopback; then
@@ -593,21 +603,50 @@ echo "[5/7] Installing desktop entry..."
 mkdir -p "$INSTALL_PREFIX/share/applications"
 
 # Remove old BluCast desktop entry
-rm -f "$INSTALL_PREFIX/share/applications/com.blucast.Broadcast.desktop" 2>/dev/null
+rm -f "$INSTALL_PREFIX/share/applications/com.blucast.Broadcast.desktop" 2>/dev/null || true
 
-cp "$SCRIPT_DIR/data/com.doczeus.NVBroadcast.desktop" "$INSTALL_PREFIX/share/applications/"
-sed -i "s|Exec=nvbroadcast|Exec=$INSTALL_PREFIX/bin/nvbroadcast|g" \
-    "$INSTALL_PREFIX/share/applications/com.doczeus.NVBroadcast.desktop"
+if [ -f "$SCRIPT_DIR/data/com.doczeus.NVBroadcast.desktop" ]; then
+    cp "$SCRIPT_DIR/data/com.doczeus.NVBroadcast.desktop" "$INSTALL_PREFIX/share/applications/"
+    sed -i "s|Exec=nvbroadcast|Exec=$INSTALL_PREFIX/bin/nvbroadcast|g" \
+        "$INSTALL_PREFIX/share/applications/com.doczeus.NVBroadcast.desktop"
+else
+    echo "WARNING: Desktop entry file not found at $SCRIPT_DIR/data/com.doczeus.NVBroadcast.desktop"
+fi
 
 ICON_DIR="$INSTALL_PREFIX/share/icons/hicolor/scalable/apps"
 mkdir -p "$ICON_DIR"
-cp "$SCRIPT_DIR/data/icons/com.doczeus.NVBroadcast.svg" "$ICON_DIR/"
+if [ -f "$SCRIPT_DIR/data/icons/com.doczeus.NVBroadcast.svg" ]; then
+    cp "$SCRIPT_DIR/data/icons/com.doczeus.NVBroadcast.svg" "$ICON_DIR/"
+else
+    echo "WARNING: Icon file not found at $SCRIPT_DIR/data/icons/com.doczeus.NVBroadcast.svg"
+fi
+
+# Ensure icon theme index exists (needed for gtk-update-icon-cache)
+if [ ! -f "$INSTALL_PREFIX/share/icons/hicolor/index.theme" ]; then
+    if [ -f /usr/share/icons/hicolor/index.theme ]; then
+        cp /usr/share/icons/hicolor/index.theme "$INSTALL_PREFIX/share/icons/hicolor/"
+    fi
+fi
 
 if command -v update-desktop-database &>/dev/null; then
     update-desktop-database "$INSTALL_PREFIX/share/applications" 2>/dev/null || true
 fi
 if command -v gtk-update-icon-cache &>/dev/null; then
     gtk-update-icon-cache "$INSTALL_PREFIX/share/icons/hicolor" 2>/dev/null || true
+fi
+
+# Ensure ~/.local/share is in XDG_DATA_DIRS so GNOME finds the .desktop file
+if [[ ":${XDG_DATA_DIRS}:" != *":$INSTALL_PREFIX/share:"* ]]; then
+    PROFILE_FILE="$HOME/.profile"
+    if [ -f "$HOME/.bash_profile" ]; then
+        PROFILE_FILE="$HOME/.bash_profile"
+    fi
+    if ! grep -q 'XDG_DATA_DIRS.*\.local/share' "$PROFILE_FILE" 2>/dev/null; then
+        echo "" >> "$PROFILE_FILE"
+        echo "# Added by NV Broadcast installer — show app in desktop menu" >> "$PROFILE_FILE"
+        echo 'export XDG_DATA_DIRS="$HOME/.local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"' >> "$PROFILE_FILE"
+        echo "  Added XDG_DATA_DIRS to $PROFILE_FILE (takes effect on next login)"
+    fi
 fi
 
 echo "Desktop entry and icon installed."
@@ -677,7 +716,7 @@ echo "Autostart entry installed (launches on login)"
 
 echo ""
 echo "========================================="
-echo "  Installation Complete! v1.0.0"
+echo "  Installation Complete! v1.0.1"
 echo "  NVIDIA Broadcast for Linux"
 echo "  by doczeus | AI Powered"
 echo "========================================="
@@ -696,7 +735,7 @@ fi
 echo "    CUDA Max/Balanced/Perf — standard GPU modes"
 echo "    CPU Quality/Light/Low  — CPU fallback"
 echo ""
-echo "  v1.0.0 features:"
+echo "  v1.0.1 features:"
 echo "    AI Meeting Transcription — local Whisper, no cloud needed"
 echo "    Voice Effects            — real-time audio processing"
 echo "    Mic Selection            — choose input microphone"
@@ -710,7 +749,31 @@ echo "    CuPy:     $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu1
 echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt tensorrt-cu12 tensorrt-cu12-bindings tensorrt-cu12-libs"
 echo ""
 echo "  First run:"
-echo "    nvbroadcast"
+if [[ ":$PATH:" != *":$INSTALL_PREFIX/bin:"* ]]; then
+    echo "    WARNING: $INSTALL_PREFIX/bin is not on your PATH."
+    echo "    Add this to your ~/.bashrc or ~/.zshrc:"
+    echo "      export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo "    Then run: source ~/.bashrc"
+    echo ""
+    echo "    Or run directly:"
+    echo "      $INSTALL_PREFIX/bin/nvbroadcast"
+else
+    echo "    nvbroadcast"
+fi
+echo ""
+# Verify critical files were created
+INSTALL_OK=true
+for f in "$INSTALL_PREFIX/bin/nvbroadcast" \
+         "$INSTALL_PREFIX/share/applications/com.doczeus.NVBroadcast.desktop" \
+         "$HOME/.config/autostart/com.doczeus.NVBroadcast.desktop"; do
+    if [ ! -f "$f" ]; then
+        echo "  WARNING: Missing: $f"
+        INSTALL_OK=false
+    fi
+done
+if [ "$INSTALL_OK" = true ]; then
+    echo "  All files installed successfully."
+fi
 echo ""
 echo "  Setup once, forget forever."
 echo ""

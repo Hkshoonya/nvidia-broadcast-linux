@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later

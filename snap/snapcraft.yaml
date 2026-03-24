@@ -1,6 +1,6 @@
 name: nvbroadcast
 base: core24
-version: '1.0.0'
+version: '1.0.1'
 summary: AI-powered virtual camera, background removal, and meeting transcription
 description: |
   NV Broadcast brings NVIDIA Broadcast features to Linux and macOS.
