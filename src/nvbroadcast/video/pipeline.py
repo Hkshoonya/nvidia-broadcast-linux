@@ -349,8 +349,9 @@ class VideoPipeline:
         try:
             self._alpha_callback(frame_data, width, height)
         except Exception as e:
-            if self._frame_count <= 5:
-                print(f"[NV Broadcast] Alpha inference error: {e}")
+            # Always log — silent errors cause blank video
+            if self._frame_count <= 10 or self._frame_count % 300 == 0:
+                print(f"[NV Broadcast] Alpha/effects error: {e}", flush=True)
         finally:
             self._effects_busy = False
 
@@ -465,8 +466,15 @@ class VideoPipeline:
         return False
 
     def start(self):
+        # Start vcam first — if it fails, disable it but keep streaming
         if self._vcam_pipeline:
-            self._vcam_pipeline.set_state(Gst.State.PLAYING)
+            ret = self._vcam_pipeline.set_state(Gst.State.PLAYING)
+            if ret == Gst.StateChangeReturn.FAILURE:
+                print("[NV Broadcast] VCam pipeline failed to start — disabling vcam", flush=True)
+                self._vcam_pipeline.set_state(Gst.State.NULL)
+                self._vcam_pipeline = None
+                self._vcam_appsrc = None
+                self._vcam_enabled = False
         if self._pipeline:
             self._pipeline.set_state(Gst.State.PLAYING)
         self._running = True

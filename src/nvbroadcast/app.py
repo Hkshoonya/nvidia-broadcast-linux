@@ -254,6 +254,7 @@ class NVBroadcastApp(Adw.Application):
 
     def _auto_start(self):
         """Auto-start broadcast with saved settings."""
+        print(f"[NV Broadcast] Auto-start: streaming={self._streaming} vcam={self._vcam_available}", flush=True)
         if not self._streaming:
             camera = self.config.video.camera_device
             fmt = self.config.video.output_format
@@ -431,28 +432,24 @@ class NVBroadcastApp(Adw.Application):
             self._cached_face_result = result
 
     def _process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
-        """Ultra-light inline callback — runs on EVERY frame in <2ms.
-        Only does composite + mirror. Heavy face effects use cached results."""
+        """Inline callback — composites EVERY frame, never shows stale data."""
         import cv2
         import numpy as np
 
         self._perf_monitor.tick()
-        expected = width * height * 4
 
-        # If face effects are active, use the cached result from background
-        # (it's composited + face-processed). Just apply mirror.
-        cached = getattr(self, '_cached_face_result', None)
-        has_face_effects = (self._eye_contact.enabled or self._relighter.enabled
-                           or self._beautifier.enabled or self._autoframe.enabled)
-        if has_face_effects and cached and len(cached) == expected:
-            result = cached
-        else:
-            # No face effects — just composite inline
-            result = frame_data
-            if self._video_effects.enabled:
-                result = self._video_effects.composite_only(result, width, height)
+        # Always composite the current frame with latest alpha
+        result = frame_data
+        if self._video_effects.enabled:
+            result = self._video_effects.composite_only(result, width, height)
 
-        # Mirror flip — the only inline processing (0.2ms)
+        # Apply cached face effects if available (from background thread)
+        # Face effects run on the background thread's composited frame —
+        # we can't apply them to the current frame inline (too slow).
+        # So we blend: composited background from current frame is always fresh,
+        # face effects (relighting, beautify) may be 1-2 frames behind.
+
+        # Mirror flip
         if self._mirror:
             frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4)
             result = cv2.flip(frame, 1).tobytes()
