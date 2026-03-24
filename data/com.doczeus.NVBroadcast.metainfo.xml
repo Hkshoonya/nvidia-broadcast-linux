@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.doczeus.NVBroadcast</id>
+  <name>NV Broadcast</name>
+  <summary>AI-powered virtual camera with background removal and meeting transcription</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="com.doczeus">
+    <name>Doczeus</name>
+  </developer>
+
+  <description>
+    <p>
+      NV Broadcast brings NVIDIA Broadcast features to Linux. AI-powered virtual
+      camera with background removal, eye contact correction, face relighting,
+      voice studio, and meeting transcription — all running locally on your GPU.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Background blur, replace, or remove with 3 AI models</li>
+      <li>Eye contact correction — look at camera while reading your screen</li>
+      <li>Face relighting — auto-match face lighting to background</li>
+      <li>Voice studio — bass, treble, warmth, compression with GPU acceleration</li>
+      <li>AI meeting transcription — local Whisper, no cloud</li>
+      <li>AI meeting summarizer — action items, questions, key points</li>
+      <li>Recording with NVENC hardware encoding to MP4</li>
+      <li>9 processing modes from 48fps Killer to CPU fallback</li>
+      <li>5 built-in profiles: Meeting, Streaming, Presentation, Gaming, Clean</li>
+      <li>Works with Zoom, Chrome, OBS, Discord, FaceTime</li>
+    </ul>
+  </description>
+
+  <url type="homepage">https://nvbroadcast.domjarvis.com</url>
+  <url type="bugtracker">https://github.com/Hkshoonya/nvidia-broadcast-linux/issues</url>
+  <url type="vcs-browser">https://github.com/Hkshoonya/nvidia-broadcast-linux</url>
+  <url type="donation">https://github.com/sponsors/Hkshoonya</url>
+
+  <launchable type="desktop-id">com.doczeus.NVBroadcast.desktop</launchable>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+  </categories>
+
+  <keywords>
+    <keyword>broadcast</keyword>
+    <keyword>camera</keyword>
+    <keyword>virtual</keyword>
+    <keyword>nvidia</keyword>
+    <keyword>background</keyword>
+    <keyword>noise</keyword>
+    <keyword>ai</keyword>
+    <keyword>meeting</keyword>
+    <keyword>transcription</keyword>
+  </keywords>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#76b900</color>
+    <color type="primary" scheme_preference="dark">#1a1a1a</color>
+  </branding>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="1.0.0" date="2026-03-24">
+      <description>
+        <p>AI Release — v1.0.0</p>
+        <ul>
+          <li>AI meeting transcription (local Whisper, GPU-accelerated)</li>
+          <li>AI meeting summarizer (action items, key points)</li>
+          <li>Voice studio with 6 presets and GPU acceleration</li>
+          <li>Microphone and speaker selection</li>
+          <li>Audio VU meter and mic test</li>
+          <li>Recording with audio (NVENC + AAC)</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.3.0" date="2026-03-23">
+      <description>
+        <p>Eye contact, relighting, Apple-like UI, profiles, macOS support</p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-03-22">
+      <description>
+        <p>9 processing modes, edge refinement, video enhancement, system tray</p>
+      </description>
+    </release>
+  </releases>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+</component>

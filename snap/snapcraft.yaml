@@ -1,0 +1,100 @@
+name: nvbroadcast
+base: core22
+version: '1.0.0'
+summary: AI-powered virtual camera, background removal, and meeting transcription
+description: |
+  NV Broadcast brings NVIDIA Broadcast features to Linux and macOS.
+  AI-powered virtual camera with background removal, eye contact correction,
+  face relighting, voice studio, and meeting transcription — all running
+  locally on your GPU. No cloud, no data leaves your machine.
+
+  Features:
+  - Background blur/replace/remove (3 AI models)
+  - Eye contact correction (look at camera while reading)
+  - Face relighting (match lighting to background)
+  - Voice studio (bass, treble, warmth, compression, 6 presets)
+  - AI meeting transcription (local Whisper)
+  - AI meeting summarizer (action items, key points)
+  - Recording with NVENC hardware encoding
+  - 9 processing modes from 48fps to CPU fallback
+  - Works with Zoom, Chrome, OBS, Discord
+
+  By Doczeus | https://nvbroadcast.domjarvis.com
+
+grade: stable
+confinement: strict
+license: GPL-3.0
+icon: data/icons/com.doczeus.NVBroadcast.svg
+
+architectures:
+  - build-on: amd64
+
+apps:
+  nvbroadcast:
+    command: bin/nvbroadcast-wrapper
+    extensions: [gnome]
+    plugs:
+      - home
+      - network
+      - camera
+      - audio-playback
+      - audio-record
+      - opengl
+      - hardware-observe
+      - process-control
+      - system-observe
+    environment:
+      PYTHONPATH: $SNAP/lib/python3/dist-packages:$SNAP/usr/lib/python3/dist-packages
+      GST_PLUGIN_PATH: $SNAP/usr/lib/x86_64-linux-gnu/gstreamer-1.0
+      GI_TYPELIB_PATH: $SNAP/usr/lib/x86_64-linux-gnu/girepository-1.0
+
+parts:
+  nvbroadcast:
+    plugin: python
+    source: .
+    python-packages:
+      - numpy
+      - opencv-python-headless
+      - mediapipe
+      - onnxruntime
+      - openai-whisper
+      - scipy
+      - pyrnnoise
+      - psutil
+      - Pillow
+      - requests
+    stage-packages:
+      - python3-gi
+      - python3-gi-cairo
+      - gir1.2-gtk-4.0
+      - gir1.2-adw-1
+      - gir1.2-gstreamer-1.0
+      - gir1.2-gst-plugins-base-1.0
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-plugins-bad
+      - v4l-utils
+      - libayatana-appindicator3-1
+      - gir1.2-ayatanaappindicator3-0.1
+    override-build: |
+      craftctl default
+      # Create wrapper script
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      cat > $CRAFT_PART_INSTALL/bin/nvbroadcast-wrapper << 'EOF'
+      #!/bin/bash
+      cd $SNAP
+      exec python3 -m nvbroadcast "$@"
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/bin/nvbroadcast-wrapper
+
+  # NVIDIA GPU support (for users with NVIDIA drivers)
+  nvidia-support:
+    plugin: nil
+    stage-packages:
+      - libgl1-mesa-glx
+      - libgles2-mesa
+    after: [nvbroadcast]
+
+layout:
+  /usr/share/libdrm:
+    bind: $SNAP/usr/share/libdrm
