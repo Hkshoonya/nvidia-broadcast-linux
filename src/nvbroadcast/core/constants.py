@@ -25,6 +25,7 @@ if _pf.system() == "Darwin":
 else:
     CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "nvbroadcast"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
+PROFILES_DIR = CONFIG_DIR / "profiles"
 
 MAXINE_VFX_PATH = Path("/usr/local/VideoFX")
 MAXINE_AFX_PATH = Path("/usr/local/AudioFX")

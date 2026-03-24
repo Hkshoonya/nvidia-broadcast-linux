@@ -22,6 +22,18 @@ class EdgeConfig:
 
 
 @dataclass
+class BeautyConfig:
+    """Video enhancement / beautification settings."""
+    enabled: bool = False
+    preset: str = "natural"
+    skin_smooth: float = 0.5
+    denoise: float = 0.3
+    enhance: float = 0.4
+    sharpen: float = 0.3
+    edge_darken: float = 0.2
+
+
+@dataclass
 class VideoConfig:
     camera_device: str = "/dev/video0"
     width: int = 1280
@@ -36,7 +48,13 @@ class VideoConfig:
     blur_intensity: float = 0.7
     auto_frame: bool = False
     auto_frame_zoom: float = 1.5
+    mirror: bool = True
+    eye_contact: bool = False
+    eye_contact_intensity: float = 0.7
+    relighting: bool = False
+    relighting_intensity: float = 0.5
     edge: EdgeConfig = field(default_factory=EdgeConfig)
+    beauty: BeautyConfig = field(default_factory=BeautyConfig)
 
 
 @dataclass
@@ -125,77 +143,226 @@ class AppConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
 
 
+def _load_from_toml(filepath: Path) -> AppConfig:
+    """Load an AppConfig from a TOML file."""
+    with open(filepath, "rb") as f:
+        data = tomllib.load(f)
+
+    config = AppConfig()
+    for k in ("compute_gpu", "performance_profile", "compositing",
+              "auto_start", "minimize_on_close", "first_run"):
+        if k in data:
+            setattr(config, k, data[k])
+    if "video" in data:
+        for k, v in data["video"].items():
+            if k in ("edge", "beauty"):
+                continue
+            if hasattr(config.video, k):
+                setattr(config.video, k, v)
+        if "edge" in data["video"]:
+            for k, v in data["video"]["edge"].items():
+                if hasattr(config.video.edge, k):
+                    setattr(config.video.edge, k, v)
+        if "beauty" in data["video"]:
+            for k, v in data["video"]["beauty"].items():
+                if hasattr(config.video.beauty, k):
+                    setattr(config.video.beauty, k, v)
+    if "audio" in data:
+        for k, v in data["audio"].items():
+            if hasattr(config.audio, k):
+                setattr(config.audio, k, v)
+    return config
+
+
 def load_config() -> AppConfig:
     if not CONFIG_FILE.exists():
         return AppConfig()
-
     try:
-        with open(CONFIG_FILE, "rb") as f:
-            data = tomllib.load(f)
-
-        config = AppConfig()
-        for k in ("compute_gpu", "performance_profile", "compositing", "auto_start", "minimize_on_close", "first_run"):
-            if k in data:
-                setattr(config, k, data[k])
-        if "video" in data:
-            for k, v in data["video"].items():
-                if k == "edge":
-                    continue  # Handled separately below
-                if hasattr(config.video, k):
-                    setattr(config.video, k, v)
-            if "edge" in data["video"]:
-                for k, v in data["video"]["edge"].items():
-                    if hasattr(config.video.edge, k):
-                        setattr(config.video.edge, k, v)
-        if "audio" in data:
-            for k, v in data["audio"].items():
-                if hasattr(config.audio, k):
-                    setattr(config.audio, k, v)
-        return config
+        return _load_from_toml(CONFIG_FILE)
     except Exception:
         return AppConfig()
 
 
-def save_config(config: AppConfig) -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+def _bool(val: bool) -> str:
+    return "true" if val else "false"
 
+
+def _config_to_toml(config: AppConfig) -> str:
+    """Serialize AppConfig to TOML string (complete — all fields)."""
+    v = config.video
+    a = config.audio
+    b = v.beauty
+    e = v.edge
     lines = [
         f"compute_gpu = {config.compute_gpu}",
         f'performance_profile = "{config.performance_profile}"',
         f'compositing = "{config.compositing}"',
-        f"auto_start = {'true' if config.auto_start else 'false'}",
-        f"minimize_on_close = {'true' if config.minimize_on_close else 'false'}",
-        f"first_run = {'true' if config.first_run else 'false'}",
+        f"auto_start = {_bool(config.auto_start)}",
+        f"minimize_on_close = {_bool(config.minimize_on_close)}",
+        f"first_run = {_bool(config.first_run)}",
         "",
         "[video]",
-        f'camera_device = "{config.video.camera_device}"',
-        f"width = {config.video.width}",
-        f"height = {config.video.height}",
-        f"fps = {config.video.fps}",
-        f'output_format = "{config.video.output_format}"',
-        f'model = "{config.video.model}"',
-        f'quality_preset = "{config.video.quality_preset}"',
-        f"background_removal = {'true' if config.video.background_removal else 'false'}",
-        f'background_mode = "{config.video.background_mode}"',
-        f'background_image = "{config.video.background_image}"',
-        f"blur_intensity = {config.video.blur_intensity}",
-        f"auto_frame = {'true' if config.video.auto_frame else 'false'}",
-        f"auto_frame_zoom = {config.video.auto_frame_zoom}",
+        f'camera_device = "{v.camera_device}"',
+        f"width = {v.width}",
+        f"height = {v.height}",
+        f"fps = {v.fps}",
+        f'output_format = "{v.output_format}"',
+        f'model = "{v.model}"',
+        f'quality_preset = "{v.quality_preset}"',
+        f"background_removal = {_bool(v.background_removal)}",
+        f'background_mode = "{v.background_mode}"',
+        f'background_image = "{v.background_image}"',
+        f"blur_intensity = {v.blur_intensity}",
+        f"auto_frame = {_bool(v.auto_frame)}",
+        f"auto_frame_zoom = {v.auto_frame_zoom}",
+        f"mirror = {_bool(v.mirror)}",
+        f"eye_contact = {_bool(v.eye_contact)}",
+        f"eye_contact_intensity = {v.eye_contact_intensity}",
+        f"relighting = {_bool(v.relighting)}",
+        f"relighting_intensity = {v.relighting_intensity}",
         "",
         "[video.edge]",
-        f"dilate_size = {config.video.edge.dilate_size}",
-        f"blur_size = {config.video.edge.blur_size}",
-        f"sigmoid_strength = {config.video.edge.sigmoid_strength}",
-        f"sigmoid_midpoint = {config.video.edge.sigmoid_midpoint}",
+        f"dilate_size = {e.dilate_size}",
+        f"blur_size = {e.blur_size}",
+        f"sigmoid_strength = {e.sigmoid_strength}",
+        f"sigmoid_midpoint = {e.sigmoid_midpoint}",
+        "",
+        "[video.beauty]",
+        f"enabled = {_bool(b.enabled)}",
+        f'preset = "{b.preset}"',
+        f"skin_smooth = {b.skin_smooth}",
+        f"denoise = {b.denoise}",
+        f"enhance = {b.enhance}",
+        f"sharpen = {b.sharpen}",
+        f"edge_darken = {b.edge_darken}",
         "",
         "[audio]",
-        f'mic_device = "{config.audio.mic_device}"',
-        f"noise_removal = {'true' if config.audio.noise_removal else 'false'}",
-        f"noise_intensity = {config.audio.noise_intensity}",
-        f"speaker_denoise = {'true' if config.audio.speaker_denoise else 'false'}",
+        f'mic_device = "{a.mic_device}"',
+        f"noise_removal = {_bool(a.noise_removal)}",
+        f"noise_intensity = {a.noise_intensity}",
+        f"speaker_denoise = {_bool(a.speaker_denoise)}",
     ]
+    return "\n".join(lines) + "\n"
 
-    CONFIG_FILE.write_text("\n".join(lines) + "\n")
+
+def save_config(config: AppConfig) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(_config_to_toml(config))
+
+
+# ─── User Profiles ───────────────────────────────────────────────────────────
+
+from nvbroadcast.core.constants import PROFILES_DIR
+
+
+def list_profiles() -> list[str]:
+    """List available user profile names."""
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    return sorted(
+        p.stem for p in PROFILES_DIR.glob("*.toml")
+    )
+
+
+def save_profile(name: str, config: AppConfig) -> Path:
+    """Save current config as a named profile."""
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = "".join(c for c in name if c.isalnum() or c in " _-").strip()
+    filepath = PROFILES_DIR / f"{safe_name}.toml"
+    filepath.write_text(_config_to_toml(config))
+    return filepath
+
+
+def load_profile(name: str) -> AppConfig | None:
+    """Load a named profile. Returns None if not found."""
+    filepath = PROFILES_DIR / f"{name}.toml"
+    if not filepath.exists():
+        return None
+    try:
+        return _load_from_toml(filepath)
+    except Exception:
+        return None
+
+
+def delete_profile(name: str) -> bool:
+    """Delete a named profile."""
+    filepath = PROFILES_DIR / f"{name}.toml"
+    if filepath.exists():
+        filepath.unlink()
+        return True
+    return False
+
+
+def get_builtin_profiles() -> dict[str, dict]:
+    """Built-in preset profiles for common use cases."""
+    return {
+        "Meeting": {
+            "description": "Clean look for video calls",
+            "background_removal": True,
+            "background_mode": "blur",
+            "blur_intensity": 0.6,
+            "eye_contact": True,
+            "eye_contact_intensity": 0.5,
+            "relighting": True,
+            "relighting_intensity": 0.4,
+            "beauty_enabled": True,
+            "beauty_preset": "natural",
+        },
+        "Streaming": {
+            "description": "Professional broadcast look",
+            "background_removal": True,
+            "background_mode": "blur",
+            "blur_intensity": 0.8,
+            "eye_contact": False,
+            "relighting": True,
+            "relighting_intensity": 0.6,
+            "beauty_enabled": True,
+            "beauty_preset": "broadcast",
+        },
+        "Presentation": {
+            "description": "Minimal processing, max performance",
+            "background_removal": True,
+            "background_mode": "blur",
+            "blur_intensity": 0.5,
+            "eye_contact": True,
+            "eye_contact_intensity": 0.7,
+            "relighting": False,
+            "beauty_enabled": False,
+        },
+        "Gaming": {
+            "description": "Low overhead, background only",
+            "background_removal": True,
+            "background_mode": "replace",
+            "eye_contact": False,
+            "relighting": False,
+            "beauty_enabled": False,
+        },
+        "Clean": {
+            "description": "Everything off — passthrough",
+            "background_removal": False,
+            "eye_contact": False,
+            "relighting": False,
+            "beauty_enabled": False,
+        },
+    }
+
+
+def apply_builtin_profile(config: AppConfig, name: str) -> bool:
+    """Apply a built-in profile to the config."""
+    profiles = get_builtin_profiles()
+    if name not in profiles:
+        return False
+    p = profiles[name]
+    config.video.background_removal = p.get("background_removal", False)
+    config.video.background_mode = p.get("background_mode", "blur")
+    config.video.blur_intensity = p.get("blur_intensity", 0.7)
+    config.video.eye_contact = p.get("eye_contact", False)
+    config.video.eye_contact_intensity = p.get("eye_contact_intensity", 0.7)
+    config.video.relighting = p.get("relighting", False)
+    config.video.relighting_intensity = p.get("relighting_intensity", 0.5)
+    config.video.beauty.enabled = p.get("beauty_enabled", False)
+    if "beauty_preset" in p:
+        config.video.beauty.preset = p["beauty_preset"]
+    return True
 
 
 def detect_system_capabilities() -> dict:
