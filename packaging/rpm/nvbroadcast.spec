@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        0.2.0
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -33,6 +33,10 @@ Features:
 - Fused CUDA kernel compositing (0.1ms at 1080p)
 - Edge refinement neural network
 - Video enhancement (5 effects + presets)
+- Eye contact correction (gaze redirection to camera)
+- Face relighting (AI-powered lighting adjustment)
+- Session recording (save processed video to file)
+- User profiles (save/load per-user settings)
 - Resolution selector (360p to 4K)
 - System tray integration
 - Camera power save
@@ -128,6 +132,12 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Mon Mar 23 2026 doczeus <harshit@kshoonya.com> - 0.3.0-1
+- Eye contact correction (gaze redirection)
+- Face relighting (AI lighting adjustment)
+- Session recording (save processed video)
+- User profiles (per-user settings)
+
 * Sun Mar 23 2026 doczeus <harshit@kshoonya.com> - 0.2.0-1
 - Premium GPU modes (Killer, Zeus, DocZeus)
 - Fused CUDA kernel compositing

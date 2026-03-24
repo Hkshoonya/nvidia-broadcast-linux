@@ -36,6 +36,10 @@ Description: NV Broadcast - Unofficial NVIDIA Broadcast for Linux
   - Fused CUDA kernel compositing (0.1ms at 1080p)
   - Edge refinement neural network
   - Face beautification / video enhancement
+  - Eye contact correction (gaze redirection)
+  - Face relighting (AI lighting adjustment)
+  - Session recording (save processed video)
+  - User profiles (per-user settings)
   - Resolution selector (360p to 4K)
   - FPS selector (15-60fps)
   - System tray integration

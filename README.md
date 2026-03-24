@@ -40,7 +40,22 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ---
 
-## What's New in v0.2.0
+## What's New
+
+### v0.3.0 — New in this release
+
+- **Eye Contact Correction** — MediaPipe iris tracking redirects your gaze to look at camera
+- **Face Relighting** — Matches face brightness and warmth to background
+- **Recording Mode** — NVENC hardware encode to MP4 (x264 fallback on non-NVIDIA)
+- **Performance Overlay** — Real-time FPS, GPU usage, VRAM, temperature monitoring
+- **User Profiles** — 5 built-in (Meeting, Streaming, Presentation, Gaming, Clean) + custom save/load
+- **Multi-Camera Support** — Hot-switch between cameras without restarting
+- **Apple-Inspired UI** — Glassmorphism cards, collapsible sections, smooth transitions
+- **Shared FaceLandmarker** — Single MediaPipe instance shared across all face effects (3x faster)
+- **macOS Support** — CPU modes with CoreML, AVFoundation camera, Homebrew installer
+- **CI Pipeline** — GitHub Actions builds .deb, .rpm, .pkg + Swift Camera Extension on macOS
+
+### v0.2.0
 
 ### Premium GPU Modes
 - **Killer Mode** — Fused CUDA kernel + 360p inference = **48fps at 1080p** (20ms/frame)
@@ -93,6 +108,11 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Green Screen** — Solid green for OBS chroma key
 - **Auto Frame** — Face tracking with smooth zoom/pan
 - **Video Enhancement** — Skin smooth, enhance, sharpen, denoise, vignette
+- **Eye Contact Correction** — MediaPipe iris tracking redirects gaze to camera
+- **Face Relighting** — Matches face brightness and warmth to background
+- **Recording to MP4** — NVENC hardware encode (x264 fallback)
+- **User Profiles** — 5 built-in (Meeting, Streaming, etc.) + custom save/load
+- **Performance Overlay** — Real-time FPS, GPU usage, VRAM, temperature
 - **Multi-Model** — RVM (person), IS-Net (objects), BiRefNet (best edges)
 - **Mirror** — Horizontal flip toggle
 
@@ -142,7 +162,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 ## Architecture
 
 ```
-                         NV Broadcast v0.2.0
+                         NV Broadcast v0.3.0
                          ─────────────────────────────────
 
   ┌───────────┐      ┌──────────────────────────────────────────┐      ┌──────────────┐
@@ -450,7 +470,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (0.2.0)
+│   ├── __init__.py              # Package version (0.3.0)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -483,7 +503,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v0.2.0)
+├── pyproject.toml               # Package config (v0.3.0)
 └── README.md
 ```
 
@@ -506,15 +526,15 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 
 ### Ideas for Contribution
 
+- [x] Eye contact correction *(v0.3.0)*
+- [x] Virtual lighting / face relighting *(v0.3.0)*
+- [x] System tray indicator *(v0.2.0)*
+- [x] Multi-camera support *(v0.3.0)*
+- [x] Recording mode *(v0.3.0)*
+- [x] Performance overlay (FPS, GPU usage) *(v0.3.0)*
+- [x] GStreamer NVDEC/NVENC hardware codec pipeline *(v0.3.0)*
 - [ ] NVIDIA Maxine SDK integration
-- [ ] Eye contact correction
-- [ ] Virtual lighting / face relighting
-- [ ] System tray indicator
 - [ ] Flatpak / Snap packaging
-- [ ] Multi-camera support
-- [ ] Recording mode
-- [ ] Performance overlay (FPS, GPU usage)
-- [ ] GStreamer NVDEC/NVENC hardware codec pipeline
 
 ---
 
