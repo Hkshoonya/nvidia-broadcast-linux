@@ -666,6 +666,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Speaker card
         spk_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        # Speaker device selector
+        self._speaker_selector = DeviceSelector("Speaker")
+        self._speaker_selector.connect("device-changed", self._on_speaker_changed)
+        spk_card.append(self._speaker_selector)
+
         self._speaker_toggle = EffectToggle("Noise Removal", "Remove noise from incoming audio")
         self._speaker_toggle.connect("toggled", self._on_speaker_toggled)
         spk_card.append(self._speaker_toggle)
@@ -673,8 +679,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         box.append(Gtk.Box(vexpand=True))  # spacer
 
-        # Populate mic devices
+        # Populate audio devices
         self._populate_mics()
+        self._populate_speakers()
 
         return box
 
@@ -934,6 +941,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _on_mic_changed(self, selector, device):
         self._app.set_microphone(device)
         self.set_status(f"Microphone: {device}")
+
+    def _populate_speakers(self):
+        try:
+            from nvbroadcast.audio.devices import list_speakers
+            spk = list_speakers()
+            self._speaker_selector.set_devices(spk)
+        except Exception as e:
+            print(f"[NV Broadcast] Speaker enumeration failed: {e}")
+
+    def _on_speaker_changed(self, selector, device):
+        self.set_status(f"Speaker: {device}")
 
     # --- VU Meter ---
     def _start_vu_meter(self):
