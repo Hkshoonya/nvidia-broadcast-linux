@@ -274,13 +274,22 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects._quality = c.video.quality_preset
 
         # Restore background settings
+        self._video_effects.enabled = c.video.background_removal
         if c.video.background_image:
             self._video_effects.set_background_image(c.video.background_image)
-
         self._video_effects.mode = c.video.background_mode
         self._video_effects.intensity = c.video.blur_intensity
 
+        # Restore face effects
+        self._eye_contact.enabled = c.video.eye_contact
+        self._eye_contact.intensity = c.video.eye_contact_intensity
+        self._relighter.enabled = c.video.relighting
+        self._relighter.intensity = c.video.relighting_intensity
+        self._beautifier.enabled = c.video.beauty.enabled
+        self._mirror = c.video.mirror
+
         # Restore autoframe
+        self._autoframe.enabled = c.video.auto_frame
         self._autoframe.zoom_level = c.video.auto_frame_zoom
 
         # Tell window to restore UI controls
@@ -400,64 +409,37 @@ class NVBroadcastApp(Adw.Application):
         self._streaming = False
 
     def _update_alpha(self, frame_data: bytes, width: int, height: int) -> None:
-        """Heavy work — runs in background thread.
-        Updates alpha mask + runs expensive face effects (relighting, beautify,
-        eye contact). Results are cached for the inline callback to use."""
-        import numpy as np
-
+        """Background thread — only updates the alpha mask."""
         self._video_effects.update_alpha(frame_data, width, height)
 
-        # Run expensive face effects on this frame and cache the result
-        need_face = self._eye_contact.enabled or self._relighter.enabled
-        if need_face or self._beautifier.enabled or self._autoframe.enabled:
-            result = frame_data
-            if self._video_effects.enabled:
-                result = self._video_effects.composite_only(result, width, height)
-
-            if need_face:
-                frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4).copy()
-                if self._eye_contact.enabled:
-                    frame = self._eye_contact.process_frame(frame)
-                if self._relighter.enabled:
-                    alpha = getattr(self._video_effects, '_cached_alpha', None)
-                    frame = self._relighter.process_frame(frame, alpha)
-                result = frame.tobytes()
-
-            if self._beautifier.enabled:
-                result = self._beautifier.process_frame(result, width, height)
-            if self._autoframe.enabled:
-                result = self._autoframe.process_frame(result, width, height)
-
-            self._cached_face_result = result
-            self._cached_face_frame_id = self._perf_monitor._frame_count
-
     def _process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
-        """Inline callback — composites current frame, uses cached face effects
-        when fresh. Falls through to plain composite if cache is stale."""
+        """Inline callback — processes EVERY frame with ALL effects.
+        Runs composite + face effects + mirror on the current frame."""
         import cv2
         import numpy as np
 
         self._perf_monitor.tick()
-        expected = width * height * 4
+        result = frame_data
 
-        # Check if cached face result is fresh (within last 5 frames)
-        has_face_effects = (self._eye_contact.enabled or self._relighter.enabled
-                           or self._beautifier.enabled or self._autoframe.enabled)
-        cached = getattr(self, '_cached_face_result', None)
-        cached_id = getattr(self, '_cached_face_frame_id', -1)
-        current_id = self._perf_monitor._frame_count
-        is_fresh = (cached is not None
-                    and len(cached) == expected
-                    and (current_id - cached_id) < 5)
+        # Composite with background (replace/blur/remove)
+        if self._video_effects.enabled:
+            result = self._video_effects.composite_only(result, width, height)
 
-        if has_face_effects and is_fresh:
-            # Use fully-processed result from background (1-2 frames behind)
-            result = cached
-        else:
-            # No face effects or cache stale — composite current frame inline
-            result = frame_data
-            if self._video_effects.enabled:
-                result = self._video_effects.composite_only(result, width, height)
+        # Face effects — run inline on current frame
+        need_face = self._eye_contact.enabled or self._relighter.enabled
+        if need_face:
+            frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4).copy()
+            if self._eye_contact.enabled:
+                frame = self._eye_contact.process_frame(frame)
+            if self._relighter.enabled:
+                alpha = getattr(self._video_effects, '_cached_alpha', None)
+                frame = self._relighter.process_frame(frame, alpha)
+            result = frame.tobytes()
+
+        if self._beautifier.enabled:
+            result = self._beautifier.process_frame(result, width, height)
+        if self._autoframe.enabled:
+            result = self._autoframe.process_frame(result, width, height)
 
         # Mirror flip
         if self._mirror:
