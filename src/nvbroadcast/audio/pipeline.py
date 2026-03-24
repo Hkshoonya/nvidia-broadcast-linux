@@ -33,10 +33,18 @@ class AudioPipeline:
         self._channels = 1
         self._running = False
         self._mic_device = ""
+        self._level_monitor = None
 
     @property
     def effects(self) -> AudioEffects:
         return self._effects
+
+    @property
+    def level_monitor(self):
+        if self._level_monitor is None:
+            from nvbroadcast.audio.level_monitor import AudioLevelMonitor
+            self._level_monitor = AudioLevelMonitor()
+        return self._level_monitor
 
     def configure(self, mic_device: str = "", sample_rate: int = 48000):
         self._mic_device = mic_device
@@ -127,6 +135,17 @@ class AudioPipeline:
         # Convert to numpy float32 array
         audio = np.frombuffer(map_info.data, dtype=np.float32).copy()
         buf.unmap(map_info)
+
+        # Update level monitor
+        if hasattr(self, '_level_monitor') and self._level_monitor:
+            self._level_monitor.update(audio)
+
+        # Feed to meeting transcriber if active
+        if hasattr(self, '_transcriber_feed') and self._transcriber_feed:
+            try:
+                self._transcriber_feed.feed_audio(audio, self._sample_rate)
+            except Exception:
+                pass
 
         # Apply denoising
         processed = self._effects.process_chunk(audio, self._sample_rate)

@@ -350,17 +350,36 @@ class VideoPipeline:
         else:
             encoder = "x264enc tune=zerolatency speed-preset=ultrafast bitrate=8000"
 
-        self._recording_pipeline = Gst.parse_launch(
-            f"appsrc name=recsrc is-live=true format=time "
-            f"caps=video/x-raw,format=BGRA,width={self._width},"
-            f"height={self._height},framerate={self._fps}/1 ! "
-            f"queue max-size-buffers=3 leaky=downstream ! "
-            f"videoconvert ! "
-            f"{encoder} ! "
-            f"h264parse ! "
-            f"mp4mux fragment-duration=1000 ! "
-            f"filesink location={filepath}"
-        )
+        try:
+            # Video + Audio recording pipeline
+            self._recording_pipeline = Gst.parse_launch(
+                f"mp4mux name=mux fragment-duration=1000 ! filesink location={filepath} "
+                f"appsrc name=recsrc is-live=true format=time "
+                f"caps=video/x-raw,format=BGRA,width={self._width},"
+                f"height={self._height},framerate={self._fps}/1 ! "
+                f"queue max-size-buffers=3 leaky=downstream ! "
+                f"videoconvert ! "
+                f"{encoder} ! "
+                f"h264parse ! mux.video_0 "
+                f"pipewiresrc ! audioconvert ! audioresample ! "
+                f"audio/x-raw,format=S16LE,rate=48000,channels=1 ! "
+                f"queue max-size-buffers=10 ! "
+                f"avenc_aac bitrate=128000 ! aacparse ! mux.audio_0"
+            )
+        except Exception:
+            # Fallback: video only
+            self._recording_pipeline = Gst.parse_launch(
+                f"appsrc name=recsrc is-live=true format=time "
+                f"caps=video/x-raw,format=BGRA,width={self._width},"
+                f"height={self._height},framerate={self._fps}/1 ! "
+                f"queue max-size-buffers=3 leaky=downstream ! "
+                f"videoconvert ! "
+                f"{encoder} ! "
+                f"h264parse ! "
+                f"mp4mux fragment-duration=1000 ! "
+                f"filesink location={filepath}"
+            )
+            print("[NV Broadcast] Recording without audio (audio unavailable)")
         self._rec_appsrc = self._recording_pipeline.get_by_name("recsrc")
         self._recording_pipeline.set_state(Gst.State.PLAYING)
         self._recording = True

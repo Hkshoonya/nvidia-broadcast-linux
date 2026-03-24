@@ -14,6 +14,10 @@ onnxruntime-gpu>=1.16; sys_platform == "linux"
 onnxruntime>=1.16; sys_platform == "darwin"
 onnx>=1.14
 
+# AI Meeting Transcription (local Whisper, no cloud)
+openai-whisper>=20231117
+scipy>=1.11
+
 # Cross-platform virtual camera (macOS: OBS Virtual Camera backend)
 pyvirtualcam>=0.4; sys_platform == "darwin"
 

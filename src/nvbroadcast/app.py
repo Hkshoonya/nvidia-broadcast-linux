@@ -29,6 +29,8 @@ from nvbroadcast.video.virtual_camera import ensure_virtual_camera
 from nvbroadcast.video.eye_contact import EyeContactCorrector
 from nvbroadcast.video.relighting import FaceRelighter
 from nvbroadcast.video.perf_monitor import PerfMonitor
+from nvbroadcast.ai.transcriber import MeetingTranscriber, save_transcript
+from nvbroadcast.ai.summarizer import MeetingSummarizer
 from nvbroadcast.core.platform import IS_MACOS, IS_LINUX
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
@@ -56,6 +58,9 @@ class NVBroadcastApp(Adw.Application):
         self._eye_contact = EyeContactCorrector()
         self._relighter = FaceRelighter()
         self._perf_monitor = PerfMonitor()
+        self._transcriber = MeetingTranscriber(model_size="base")
+        self._summarizer = MeetingSummarizer()
+        self._meeting_active = False
         self._vcam_device = None
         self._vcam_available = False
         self._mirror = True  # Default: mirror (like looking in a mirror)
@@ -669,6 +674,7 @@ class NVBroadcastApp(Adw.Application):
         filepath = str(videos_dir / f"NVBroadcast_{timestamp}.mp4")
         if self._video_pipeline:
             self._video_pipeline.start_recording(filepath)
+        self._last_recording_path = filepath
         return filepath
 
     def stop_recording(self):
@@ -678,6 +684,70 @@ class NVBroadcastApp(Adw.Application):
     @property
     def is_recording(self) -> bool:
         return self._video_pipeline and self._video_pipeline.is_recording
+
+    # --- Meeting (Recording + AI Transcription) ---
+
+    def start_meeting(self) -> str:
+        """Start meeting: records video+audio and transcribes speech."""
+        filepath = self.start_recording()
+        self._transcriber.start()
+        self._meeting_active = True
+        # Feed audio to transcriber from the audio pipeline
+        if self._audio_pipeline and hasattr(self._audio_pipeline, '_level_monitor'):
+            self._audio_pipeline._transcriber_feed = self._transcriber
+        print(f"[NV Broadcast] Meeting started: {filepath}")
+        return filepath
+
+    def stop_meeting(self) -> str:
+        """Stop meeting, save transcript + summary."""
+        import time
+        from pathlib import Path
+        self._meeting_active = False
+        self.stop_recording()
+        segments = self._transcriber.stop()
+
+        # Save transcript
+        videos_dir = Path.home() / "Videos"
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        base_path = str(videos_dir / f"NVBroadcast_Meeting_{timestamp}")
+
+        transcript_path = ""
+        notes_path = ""
+        if segments:
+            transcript_path = save_transcript(segments, base_path, format="txt")
+            save_transcript(segments, base_path, format="srt")
+
+            # Generate AI summary
+            transcript_text = self._transcriber.get_full_transcript()
+            duration = segments[-1].end_time if segments else 0
+            notes = self._summarizer.summarize(transcript_text, duration)
+            notes_md = self._summarizer.format_notes(notes)
+            notes_path = str(Path(base_path + "_notes.md"))
+            Path(notes_path).write_text(notes_md)
+            print(f"[NV Broadcast] Meeting notes saved: {notes_path}")
+
+        print(f"[NV Broadcast] Meeting ended. Transcript: {transcript_path}")
+        return notes_path or transcript_path
+
+    @property
+    def meeting_active(self) -> bool:
+        return self._meeting_active
+
+    # --- Microphone Selection ---
+
+    def list_microphones(self) -> list[dict]:
+        from nvbroadcast.audio.devices import list_microphones
+        return list_microphones()
+
+    def set_microphone(self, device: str):
+        self.config.audio.mic_device = device
+        save_config(self.config)
+        # Restart audio pipeline if running
+        if self._audio_pipeline and self._audio_pipeline._running:
+            self._audio_pipeline.stop()
+            self._audio_pipeline.configure(mic_device=device)
+            self._audio_pipeline.build()
+            self._audio_pipeline.start()
 
     # --- Multi-camera ---
 
