@@ -29,9 +29,13 @@ Recommends: gir1.2-ayatanaappindicator3-0.1
 Suggests: nvidia-driver (>= 525)
 Description: NV Broadcast - Unofficial NVIDIA Broadcast for Linux
  AI-powered virtual camera with background removal, blur, replacement,
- video enhancement, auto-framing, and noise cancellation.
+ video enhancement, auto-framing, noise cancellation, and AI meeting
+ transcription.
  .
  Features:
+  - AI Meeting Transcription (local Whisper, no cloud)
+  - Voice Effects (real-time audio processing)
+  - Mic Selection (choose input microphone)
   - 9 processing modes (Killer, Zeus, DocZeus, CUDA, CPU)
   - Fused CUDA kernel compositing (0.1ms at 1080p)
   - Edge refinement neural network

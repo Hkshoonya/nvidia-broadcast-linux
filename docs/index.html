@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NV Broadcast - NVIDIA Broadcast for Linux by Doczeus</title>
-<meta name="description" content="AI-powered virtual camera with background removal, eye contact correction, relighting, recording, noise cancellation, and video enhancement for Linux. 9 processing modes with 5 built-in profiles.">
+<meta name="description" content="AI-powered virtual camera with background removal, eye contact correction, relighting, recording, AI meeting transcription, voice effects, mic selection, and video enhancement for Linux. 9 processing modes with 5 built-in profiles.">
 <meta name="author" content="Doczeus">
 <meta name="keywords" content="nvidia broadcast, linux, virtual camera, background removal, noise cancellation, doczeus">
 <meta property="og:title" content="NV Broadcast - NVIDIA Broadcast for Linux">
-<meta property="og:description" content="AI-powered virtual camera with background removal, eye contact, relighting, recording, and profiles. 9 GPU/CPU modes. Open source by Doczeus.">
+<meta property="og:description" content="AI-powered virtual camera with background removal, eye contact, relighting, recording, AI meeting transcription, voice effects, and mic selection. 9 GPU/CPU modes. Open source by Doczeus.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://hkshoonya.github.io/nvidia-broadcast-linux/">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='20' fill='%23111'/%3E%3Ccircle cx='64' cy='70' r='6' fill='%2376b900'/%3E%3C/svg%3E">
@@ -888,7 +888,7 @@ footer {
       NVIDIA Broadcast<br>for <span class="accent">Linux</span> <span class="macos-reveal">&amp; <span class="accent">macOS</span></span>
     </h1>
     <p class="subtitle reveal reveal-delay-2">
-      AI-powered virtual camera with background removal, eye contact correction, face relighting, recording, auto-frame, and video enhancement. 9 GPU/CPU modes. Linux and macOS.
+      AI-powered virtual camera with background removal, eye contact correction, face relighting, recording, AI meeting transcription, voice studio, and video enhancement. 9 GPU/CPU modes. Linux and macOS.
     </p>
 
     <div class="hero-ctas reveal reveal-delay-3">
@@ -1009,6 +1009,22 @@ footer {
         </div>
         <h3>Recording + NVENC</h3>
         <p>Record your broadcast to MP4 with hardware NVENC encoding. One-click start/stop. Performance overlay shows FPS, GPU usage, VRAM, and temperature.</p>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </div>
+        <h3>AI Meeting Notes</h3>
+        <p>Local Whisper transcription with AI summarization. Extracts action items, questions, and key points. TXT, SRT, and JSON export. No cloud, no data leaves your machine.</p>
+      </div>
+
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="feature-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        </div>
+        <h3>Voice Studio</h3>
+        <p>Bass boost, treble, warmth, compression, noise gate with GPU acceleration. 6 presets: Natural, Radio, Podcast, Deep Voice, Bright, Studio. Mic test with record and playback.</p>
       </div>
 
     </div>
@@ -1261,8 +1277,8 @@ footer {
           <div class="terminal-body">
             <button class="copy-btn" onclick="copyCommand('deb')">Copy</button>
             <div class="terminal-line"><span class="comment"># Download the .deb from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_0.3.0-1_all.deb</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_0.3.0-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.0.0-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_1.0.0-1_all.deb</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo apt-get install -f</span></div>
           </div>
         </div>
@@ -1281,8 +1297,8 @@ footer {
           <div class="terminal-body">
             <button class="copy-btn" onclick="copyCommand('rpm')">Copy</button>
             <div class="terminal-line"><span class="comment"># Download the .rpm from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-0.3.0-1.noarch.rpm</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-0.3.0-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.0.0-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-1.0.0-1.noarch.rpm</span></div>
           </div>
         </div>
         <p class="install-note">For Fedora, RHEL, CentOS, Rocky, openSUSE. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases" target="_blank" rel="noopener">View all releases</a></p>
@@ -1325,7 +1341,7 @@ footer {
           </div>
         </div>
         <p class="install-note">
-          Or download the installer: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/NVBroadcast-0.3.0-1.pkg" target="_blank" rel="noopener">NVBroadcast-0.3.0.pkg</a><br>
+          Or download the installer: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/NVBroadcast-1.0.0-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.0.0.pkg</a><br>
           Requires macOS 12+. CPU modes with CoreML acceleration on Apple Silicon.
         </p>
       </div>
@@ -1484,8 +1500,8 @@ document.querySelectorAll('.install-tab').forEach(tab => {
 /* ── Copy command ── */
 const commands = {
   source: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
-  deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_0.3.0-1_all.deb && sudo dpkg -i nvbroadcast_0.3.0-1_all.deb && sudo apt-get install -f',
-  rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-0.3.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-0.3.0-1.noarch.rpm',
+  deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.0.0-1_all.deb && sudo dpkg -i nvbroadcast_1.0.0-1_all.deb && sudo apt-get install -f',
+  rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.0.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.0.0-1.noarch.rpm',
   arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
   macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'
 };

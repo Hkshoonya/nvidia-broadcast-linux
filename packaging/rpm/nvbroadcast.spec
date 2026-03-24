@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        0.3.0
+Version:        1.0.0
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -25,10 +25,13 @@ Recommends:     libayatana-appindicator-gtk3
 %description
 NV Broadcast is an unofficial NVIDIA Broadcast for Linux and other OS.
 AI-powered virtual camera with background removal, blur, replacement,
-video enhancement, auto-framing, and noise cancellation using
-GPU-accelerated deep learning.
+video enhancement, auto-framing, noise cancellation, and AI meeting
+transcription using GPU-accelerated deep learning.
 
 Features:
+- AI Meeting Transcription (local Whisper, no cloud needed)
+- Voice Effects (real-time audio processing)
+- Mic Selection (choose input microphone)
 - 9 processing modes (Killer, Zeus, DocZeus, CUDA, CPU)
 - Fused CUDA kernel compositing (0.1ms at 1080p)
 - Edge refinement neural network
@@ -132,6 +135,13 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Mon Mar 23 2026 doczeus <harshit@kshoonya.com> - 1.0.0-1
+- AI Meeting Transcription (local Whisper, no cloud)
+- Voice Effects (real-time audio processing)
+- Mic Selection (choose input microphone)
+- Complete audio system overhaul
+- Recording pipeline fixes
+
 * Mon Mar 23 2026 doczeus <harshit@kshoonya.com> - 0.3.0-1
 - Eye contact correction (gaze redirection)
 - Face relighting (AI lighting adjustment)

@@ -42,7 +42,21 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
-### v0.3.0 — New in this release
+### v1.0.0 — AI Release
+
+- **AI Meeting Transcription** — Local Whisper speech-to-text (tiny/base/small/medium models, GPU-accelerated)
+- **AI Meeting Summarizer** — Extracts action items, questions, key points from transcripts (fully local)
+- **Voice Effects** — Bass boost, treble, warmth, compression, noise gate, gain (GPU + CPU)
+- **6 Voice Presets** — Natural, Radio, Podcast, Deep Voice, Bright, Studio
+- **Microphone Selection** — Full PipeWire/PulseAudio device enumeration
+- **Speaker Detection** — All output devices via PipeWire
+- **Audio Level Monitor** — Real-time VU meter with peak hold
+- **Mic Test** — Record 5s and play back to test your setup
+- **Meeting Mode** — Combined video+audio recording with live transcription and AI summary
+- **Recording Fix** — MP4 now includes audio track (NVENC video + AAC audio)
+- **Voice FX GPU Acceleration** — CuPy CUDA for warmth/gate/gain, scipy for filters (2.8ms/chunk)
+
+### v0.3.0
 
 - **Eye Contact Correction** — MediaPipe iris tracking redirects your gaze to look at camera
 - **Face Relighting** — Matches face brightness and warmth to background
@@ -122,6 +136,15 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 ### Audio Effects
 - **Mic Noise Removal** — Kills keyboard, fan, environment noise
 - **Speaker Denoise** — Clean up incoming audio
+- **Voice Effects** — Bass boost, treble, warmth, compression, noise gate, gain
+- **6 Voice Presets** — Natural, Radio, Podcast, Deep Voice, Bright, Studio
+- **Microphone Selection** — Full PipeWire/PulseAudio device enumeration
+- **Speaker Detection** — All output devices via PipeWire
+- **Audio Level Monitor** — Real-time VU meter with peak hold
+- **Mic Test** — Record 5s and play back to test your setup
+- **AI Meeting Transcription** — Local Whisper speech-to-text (GPU-accelerated)
+- **AI Meeting Summarizer** — Action items, questions, key points (fully local)
+- **Meeting Mode** — Video+audio recording with live transcription and AI summary
 
 ### System Integration
 - **Virtual Camera** — Works in Chrome, Firefox, Zoom, Discord, OBS
@@ -162,7 +185,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 ## Architecture
 
 ```
-                         NV Broadcast v0.3.0
+                         NV Broadcast v1.0.0
                          ─────────────────────────────────
 
   ┌───────────┐      ┌──────────────────────────────────────────┐      ┌──────────────┐
@@ -470,7 +493,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (0.3.0)
+│   ├── __init__.py              # Package version (1.0.0)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -503,7 +526,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v0.3.0)
+├── pyproject.toml               # Package config (v1.0.0)
 └── README.md
 ```
 

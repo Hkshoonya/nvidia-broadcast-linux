@@ -44,6 +44,8 @@ dependencies = [
     "nvidia-cusolver-cu12",
     "nvidia-nvjitlink-cu12",
     "nvidia-cuda-nvrtc-cu12",
+    "openai-whisper>=20231117",
+    "scipy>=1.11",
 ]
 
 [project.urls]

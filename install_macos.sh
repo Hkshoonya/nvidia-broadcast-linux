@@ -115,7 +115,9 @@ pip install -q \
     onnxruntime \
     mediapipe \
     requests \
-    pyvirtualcam
+    pyvirtualcam \
+    openai-whisper \
+    scipy
 
 # Try CoreML support for Apple Silicon
 if [[ "$(uname -m)" == "arm64" ]]; then
