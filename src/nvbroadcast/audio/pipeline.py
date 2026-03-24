@@ -34,6 +34,8 @@ class AudioPipeline:
         self._running = False
         self._mic_device = ""
         self._level_monitor = None
+        self._voice_fx = None
+        self._transcriber_feed = None
 
     @property
     def effects(self) -> AudioEffects:
@@ -45,6 +47,13 @@ class AudioPipeline:
             from nvbroadcast.audio.level_monitor import AudioLevelMonitor
             self._level_monitor = AudioLevelMonitor()
         return self._level_monitor
+
+    @property
+    def voice_fx(self):
+        if self._voice_fx is None:
+            from nvbroadcast.audio.voice_fx import VoiceFX
+            self._voice_fx = VoiceFX()
+        return self._voice_fx
 
     def configure(self, mic_device: str = "", sample_rate: int = 48000):
         self._mic_device = mic_device
@@ -149,6 +158,10 @@ class AudioPipeline:
 
         # Apply denoising
         processed = self._effects.process_chunk(audio, self._sample_rate)
+
+        # Apply voice effects (bass, treble, warmth, compression — GPU or CPU)
+        if self._voice_fx and self._voice_fx.enabled:
+            processed = self._voice_fx.process_chunk(processed, self._sample_rate)
 
         # Push processed audio
         new_buf = Gst.Buffer.new_allocate(None, len(processed.tobytes()), None)

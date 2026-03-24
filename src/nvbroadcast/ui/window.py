@@ -664,6 +664,77 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         mic_card.append(self._noise_slider)
         box.append(_collapsible_card("Microphone", mic_card, expanded=True))
 
+        # Voice Effects card
+        vfx_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        self._vfx_toggle = EffectToggle("Voice Effects", "Bass, treble, warmth, compression")
+        self._vfx_toggle.connect("toggled", self._on_vfx_toggled)
+        vfx_card.append(self._vfx_toggle)
+
+        # Preset selector
+        self._vfx_preset = DeviceSelector("Preset")
+        self._vfx_preset.set_devices([
+            {"name": "Natural", "device": "Natural"},
+            {"name": "Radio (warm + compressed)", "device": "Radio"},
+            {"name": "Podcast (balanced)", "device": "Podcast"},
+            {"name": "Deep Voice (bass heavy)", "device": "Deep Voice"},
+            {"name": "Bright (treble boost)", "device": "Bright"},
+            {"name": "Studio (professional)", "device": "Studio"},
+        ])
+        self._vfx_preset.set_sensitive(False)
+        self._vfx_preset.connect("device-changed", self._on_vfx_preset)
+        vfx_card.append(self._vfx_preset)
+
+        # GPU/CPU mode
+        self._vfx_gpu_toggle = EffectToggle("GPU Acceleration", "Use CUDA for audio processing")
+        self._vfx_gpu_toggle.set_sensitive(False)
+        self._vfx_gpu_toggle.connect("toggled", self._on_vfx_gpu_toggled)
+        vfx_card.append(self._vfx_gpu_toggle)
+
+        # Individual sliders
+        self._vfx_sliders = {}
+        for key, label, default in [
+            ("bass_boost", "Bass", 0.0),
+            ("treble", "Treble", 0.0),
+            ("warmth", "Warmth", 0.0),
+            ("compression", "Compression", 0.0),
+            ("gate_threshold", "Noise Gate", 0.0),
+            ("gain", "Output Gain", 0.0),
+        ]:
+            slider = EffectSlider(label, default, -1.0 if key in ("bass_boost", "treble", "gain") else 0.0, 1.0)
+            slider.set_sensitive(False)
+            slider.connect("value-changed", self._on_vfx_slider, key)
+            vfx_card.append(slider)
+            self._vfx_sliders[key] = slider
+
+        box.append(_collapsible_card("Voice Effects", vfx_card, expanded=False))
+
+        # Mic Test card
+        test_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        test_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        test_row.set_margin_start(16)
+        test_row.set_margin_end(16)
+
+        self._test_rec_btn = Gtk.Button(label="Record 5s")
+        self._test_rec_btn.add_css_class("flat")
+        self._test_rec_btn.connect("clicked", self._on_test_record)
+        test_row.append(self._test_rec_btn)
+
+        self._test_play_btn = Gtk.Button(label="Play Back")
+        self._test_play_btn.add_css_class("flat")
+        self._test_play_btn.set_sensitive(False)
+        self._test_play_btn.connect("clicked", self._on_test_play)
+        test_row.append(self._test_play_btn)
+
+        self._test_status = Gtk.Label(label="Ready")
+        self._test_status.add_css_class("device-label")
+        self._test_status.set_hexpand(True)
+        self._test_status.set_xalign(0)
+        test_row.append(self._test_status)
+
+        test_card.append(test_row)
+        box.append(_collapsible_card("Mic Test", test_card, expanded=False))
+
         # Speaker card
         spk_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
 
@@ -952,6 +1023,67 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_speaker_changed(self, selector, device):
         self.set_status(f"Speaker: {device}")
+
+    # --- Voice Effects ---
+    def _on_vfx_toggled(self, t, active):
+        if self._app._audio_pipeline:
+            self._app._audio_pipeline.voice_fx.enabled = active
+        self._vfx_preset.set_sensitive(active)
+        self._vfx_gpu_toggle.set_sensitive(active)
+        for slider in self._vfx_sliders.values():
+            slider.set_sensitive(active)
+
+    def _on_vfx_preset(self, selector, preset_name):
+        from nvbroadcast.audio.voice_fx import VOICE_PRESETS
+        if preset_name in VOICE_PRESETS:
+            preset = VOICE_PRESETS[preset_name]
+            if self._app._audio_pipeline:
+                self._app._audio_pipeline.voice_fx.settings = preset
+            # Update sliders
+            for key, slider in self._vfx_sliders.items():
+                slider._scale.set_value(getattr(preset, key, 0.0))
+
+    def _on_vfx_gpu_toggled(self, t, active):
+        if self._app._audio_pipeline:
+            self._app._audio_pipeline.voice_fx.use_gpu = active
+
+    def _on_vfx_slider(self, slider, value, key):
+        if self._app._audio_pipeline:
+            setattr(self._app._audio_pipeline.voice_fx.settings, key, value)
+
+    # --- Mic Test ---
+    def _on_test_record(self, btn):
+        from nvbroadcast.audio.mic_test import MicTest
+        if not hasattr(self, '_mic_test'):
+            self._mic_test = MicTest()
+
+        if self._mic_test.is_recording:
+            return
+
+        mic = self._mic_selector.get_selected_device() or ""
+        self._test_rec_btn.set_sensitive(False)
+        self._test_play_btn.set_sensitive(False)
+        self._test_status.set_text("Recording...")
+
+        def on_done():
+            self._test_rec_btn.set_sensitive(True)
+            self._test_play_btn.set_sensitive(True)
+            self._test_status.set_text("Recorded. Click Play.")
+
+        self._mic_test.start_recording(mic, duration=5, on_complete=on_done)
+
+    def _on_test_play(self, btn):
+        if not hasattr(self, '_mic_test'):
+            return
+
+        self._test_play_btn.set_sensitive(False)
+        self._test_status.set_text("Playing...")
+
+        def on_done():
+            self._test_play_btn.set_sensitive(True)
+            self._test_status.set_text("Ready")
+
+        self._mic_test.play_recording(on_complete=on_done)
 
     # --- VU Meter ---
     def _start_vu_meter(self):
