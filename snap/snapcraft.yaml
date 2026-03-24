@@ -1,5 +1,5 @@
 name: nvbroadcast
-base: core22
+base: core24
 version: '1.0.0'
 summary: AI-powered virtual camera, background removal, and meeting transcription
 description: |
@@ -33,6 +33,8 @@ apps:
   nvbroadcast:
     command: bin/nvbroadcast-wrapper
     extensions: [gnome]
+    command-chain:
+      - snap/command-chain/desktop-launch
     plugs:
       - home
       - network
