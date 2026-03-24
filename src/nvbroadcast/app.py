@@ -407,10 +407,9 @@ class NVBroadcastApp(Adw.Application):
 
         self._video_effects.update_alpha(frame_data, width, height)
 
-        # Run expensive face effects on this frame and cache the delta
+        # Run expensive face effects on this frame and cache the result
         need_face = self._eye_contact.enabled or self._relighter.enabled
         if need_face or self._beautifier.enabled or self._autoframe.enabled:
-            # Composite this frame to get the base
             result = frame_data
             if self._video_effects.enabled:
                 result = self._video_effects.composite_only(result, width, height)
@@ -430,24 +429,35 @@ class NVBroadcastApp(Adw.Application):
                 result = self._autoframe.process_frame(result, width, height)
 
             self._cached_face_result = result
+            self._cached_face_frame_id = self._perf_monitor._frame_count
 
     def _process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
-        """Inline callback — composites EVERY frame, never shows stale data."""
+        """Inline callback — composites current frame, uses cached face effects
+        when fresh. Falls through to plain composite if cache is stale."""
         import cv2
         import numpy as np
 
         self._perf_monitor.tick()
+        expected = width * height * 4
 
-        # Always composite the current frame with latest alpha
-        result = frame_data
-        if self._video_effects.enabled:
-            result = self._video_effects.composite_only(result, width, height)
+        # Check if cached face result is fresh (within last 5 frames)
+        has_face_effects = (self._eye_contact.enabled or self._relighter.enabled
+                           or self._beautifier.enabled or self._autoframe.enabled)
+        cached = getattr(self, '_cached_face_result', None)
+        cached_id = getattr(self, '_cached_face_frame_id', -1)
+        current_id = self._perf_monitor._frame_count
+        is_fresh = (cached is not None
+                    and len(cached) == expected
+                    and (current_id - cached_id) < 5)
 
-        # Apply cached face effects if available (from background thread)
-        # Face effects run on the background thread's composited frame —
-        # we can't apply them to the current frame inline (too slow).
-        # So we blend: composited background from current frame is always fresh,
-        # face effects (relighting, beautify) may be 1-2 frames behind.
+        if has_face_effects and is_fresh:
+            # Use fully-processed result from background (1-2 frames behind)
+            result = cached
+        else:
+            # No face effects or cache stale — composite current frame inline
+            result = frame_data
+            if self._video_effects.enabled:
+                result = self._video_effects.composite_only(result, width, height)
 
         # Mirror flip
         if self._mirror:

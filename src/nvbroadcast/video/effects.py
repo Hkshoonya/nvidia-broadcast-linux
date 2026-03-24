@@ -850,9 +850,24 @@ class VideoEffects:
     def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
 
-        # 1. Morphological close: fill holes in hair/fine detail
+        # 1a. Morphological close: fill small holes in hair/fine detail
         close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
         a8 = cv2.morphologyEx(a8, cv2.MORPH_CLOSE, close_kernel)
+
+        # 1b. Fill large interior holes (e.g. leg in front of body).
+        # Find the person contour and fill everything inside it.
+        # This prevents body parts from being classified as background
+        # when they overlap the torso/body silhouette.
+        _, binary = cv2.threshold(a8, 30, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            # Fill holes inside the largest contour (the person)
+            largest = max(contours, key=cv2.contourArea)
+            fill_mask = np.zeros_like(a8)
+            cv2.drawContours(fill_mask, [largest], -1, 255, cv2.FILLED)
+            # Only fill where alpha was low inside the contour (holes)
+            holes = (fill_mask == 255) & (a8 < 100)
+            a8[holes] = 180  # Fill with high-ish alpha, not max (keeps edge natural)
 
         # 2. Dilate: expand mask slightly to cover edge fringe
         if self._dilate_size > 0:
@@ -882,12 +897,12 @@ class VideoEffects:
         result = t
         inner = result > 0.5
         result[inner] = np.power(result[inner], 0.5)
-        # Outer fringe (0.15-0.5): very gentle — let most fade to background
-        outer = (result > 0.15) & (result <= 0.5)
-        result[outer] = np.power(result[outer], 0.92)
-        # Thin fringe (<0.15): suppress further to kill remaining white edge
-        thin = (result > 0.01) & (result <= 0.15)
-        result[thin] = result[thin] * 0.5
+        # Outer fringe (0.1-0.5): suppress — these contain webcam background
+        outer = (result > 0.1) & (result <= 0.5)
+        result[outer] = np.power(result[outer], 1.3)  # Push down (0.3→0.22, 0.5→0.41)
+        # Thin fringe (<0.1): suppress hard to eliminate white halo
+        thin = (result > 0.01) & (result <= 0.1)
+        result[thin] = result[thin] * 0.3
 
         # 6. Final feathering: smooth the hardened edge for a natural transition
         r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
@@ -1044,6 +1059,43 @@ class VideoEffects:
             self._green_bg[:, :, 3] = 255
         return self._blend(frame, self._green_bg, alpha)
 
+    def _despill_fringe(self, fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+        """Remove webcam background color bleeding into hair/edge fringe.
+
+        Fringe pixels are a blend of person + webcam background. The lower
+        the alpha, the more contaminated. Strategy: pull fringe pixel colors
+        toward nearby solid person pixels using a weighted blur.
+        """
+        fringe = (alpha > 0.02) & (alpha < 0.6)
+        if not fringe.any():
+            return fg
+        result = fg.copy()
+
+        # Create a "clean color" reference by blurring only solid person pixels
+        solid_mask = (alpha > 0.8).astype(np.float32)[:, :, np.newaxis]
+        # Weighted blur: solid pixels contribute, fringe pixels don't
+        weighted_fg = fg.astype(np.float32) * solid_mask
+        weighted_sum = cv2.GaussianBlur(weighted_fg, (21, 21), 0)
+        weight_total = cv2.GaussianBlur(solid_mask, (21, 21), 0)
+        weight_total = np.maximum(weight_total, 0.001)  # Avoid division by zero
+        clean_color = (weighted_sum / weight_total).astype(np.uint8)
+
+        # Blend fringe pixels toward clean color based on how contaminated they are
+        # alpha=0.05 → 90% clean color, alpha=0.5 → 20% clean color
+        blend = np.clip(1.0 - alpha * 2.0, 0.0, 0.9)
+        blend_4ch = blend[:, :, np.newaxis].astype(np.float32)
+        fringe_4ch = fringe[:, :, np.newaxis]
+
+        result = np.where(
+            fringe_4ch,
+            np.clip(
+                result.astype(np.float32) * (1.0 - blend_4ch) + clean_color.astype(np.float32) * blend_4ch,
+                0, 255
+            ).astype(np.uint8),
+            result,
+        )
+        return result
+
     def _apply_replace(self, frame: np.ndarray, alpha: np.ndarray,
                        width: int, height: int) -> np.ndarray:
         if self._bg_image is None:
@@ -1051,9 +1103,8 @@ class VideoEffects:
         if self._frame_size != (width, height):
             self._resized_bg = self._resize_bg(self._bg_image, width, height)
             self._frame_size = (width, height)
-        # Zero compositing-level temporal lag — use alpha directly.
-        # Spatial smoothing (bilateral filter + morph close in _refine_alpha)
-        # handles flicker. Inference-level EMA handles minimal temporal smoothing.
+        # Despill: remove webcam background color from hair fringe pixels
+        frame = self._despill_fringe(frame, alpha)
         return self._blend(frame, self._resized_bg, alpha)
 
     def _resize_bg(self, bg: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
