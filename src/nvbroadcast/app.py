@@ -91,6 +91,92 @@ class NVBroadcastApp(Adw.Application):
         except RuntimeError as e:
             print(f"[NV Broadcast] Virtual camera unavailable: {e}")
 
+        # Listen for screen lock/unlock to pause/resume pipeline
+        self._setup_sleep_handler()
+
+    def _setup_sleep_handler(self):
+        """Listen for system sleep/lock via DBus to pause/resume pipeline."""
+        try:
+            import subprocess
+            # Use GDBus via GLib to monitor login1 PrepareForSleep
+            bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+            bus.signal_subscribe(
+                "org.freedesktop.login1",
+                "org.freedesktop.login1.Manager",
+                "PrepareForSleep",
+                "/org/freedesktop/login1",
+                None,
+                Gio.DBusSignalFlags.NONE,
+                self._on_prepare_for_sleep,
+                None,
+            )
+            print("[NV Broadcast] Sleep/wake handler active")
+        except Exception as e:
+            print(f"[NV Broadcast] Sleep handler not available: {e}")
+
+        # Also monitor GNOME screensaver (lock/unlock)
+        try:
+            session_bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            session_bus.signal_subscribe(
+                "org.gnome.ScreenSaver",
+                "org.gnome.ScreenSaver",
+                "ActiveChanged",
+                "/org/gnome/ScreenSaver",
+                None,
+                Gio.DBusSignalFlags.NONE,
+                self._on_screensaver_changed,
+                None,
+            )
+        except Exception:
+            pass
+
+    def _on_prepare_for_sleep(self, connection, sender, path, interface, signal, params, user_data):
+        """Called before sleep (True) and after wake (False)."""
+        going_to_sleep = params.unpack()[0]
+        if going_to_sleep:
+            print("[NV Broadcast] System sleeping — pausing pipeline", flush=True)
+            if self._streaming:
+                self._was_streaming_before_sleep = True
+                self.stop_pipeline()
+                if self._window:
+                    self._window.set_status("Paused (system sleep)")
+            else:
+                self._was_streaming_before_sleep = False
+        else:
+            print("[NV Broadcast] System waking — resuming pipeline", flush=True)
+            if getattr(self, '_was_streaming_before_sleep', False):
+                GLib.timeout_add(2000, self._resume_after_wake)
+
+    def _on_screensaver_changed(self, connection, sender, path, interface, signal, params, user_data):
+        """Called when screen locks (True) or unlocks (False)."""
+        locked = params.unpack()[0]
+        if locked:
+            print("[NV Broadcast] Screen locked — pausing pipeline", flush=True)
+            if self._streaming:
+                self._was_streaming_before_lock = True
+                self.stop_pipeline()
+                if self._window:
+                    self._window.set_status("Paused (screen locked)")
+            else:
+                self._was_streaming_before_lock = False
+        else:
+            print("[NV Broadcast] Screen unlocked — resuming pipeline", flush=True)
+            if getattr(self, '_was_streaming_before_lock', False):
+                GLib.timeout_add(2000, self._resume_after_wake)
+
+    def _resume_after_wake(self):
+        """Resume pipeline 2s after wake/unlock — gives hardware time to reinit."""
+        if not self._streaming:
+            camera = self.config.video.camera_device
+            fmt = self.config.video.output_format
+            self._do_start_pipeline(camera, fmt)
+            if self._streaming and self._window:
+                self._window._streaming = True
+                self._window._stream_btn.set_label("Stop Broadcast")
+                self._window._stream_btn.remove_css_class("suggested-action")
+                self._window._stream_btn.add_css_class("destructive-action")
+        return False
+
     def do_activate(self):
         if self._window is None:
             self._window = NVBroadcastWindow(self)
