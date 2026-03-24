@@ -12,6 +12,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gio
 
 from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE
+from nvbroadcast.core.config import save_config
 from nvbroadcast.core.gpu import detect_gpus, select_compute_gpu
 from nvbroadcast.ui.video_preview import VideoPreview
 from nvbroadcast.ui.controls import (
@@ -96,7 +97,56 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._stream_btn.connect("clicked", self._on_stream_toggle)
         header.pack_end(self._stream_btn)
 
-        # Quit button (actually exits, vs close which minimizes)
+        # Record button
+        self._record_btn = Gtk.Button(label="Rec")
+        self._record_btn.add_css_class("recording-btn")
+        self._record_btn.add_css_class("idle")
+        self._record_btn.set_tooltip_text("Record to MP4")
+        self._record_btn.connect("clicked", self._on_record_toggle)
+        header.pack_end(self._record_btn)
+
+        # Profile selector
+        self._profile_btn = Gtk.MenuButton(label="Profile")
+        self._profile_btn.set_tooltip_text("Switch profile")
+        profile_popover = Gtk.Popover()
+        profile_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        profile_box.set_margin_top(8)
+        profile_box.set_margin_bottom(8)
+        profile_box.set_margin_start(8)
+        profile_box.set_margin_end(8)
+
+        # Built-in profiles
+        from nvbroadcast.core.config import get_builtin_profiles, list_profiles
+        for name, info in get_builtin_profiles().items():
+            btn = Gtk.Button(label=f"{name}")
+            btn.set_tooltip_text(info["description"])
+            btn.add_css_class("flat")
+            btn.connect("clicked", self._on_profile_selected, name, profile_popover)
+            profile_box.append(btn)
+
+        # Separator
+        profile_box.append(Gtk.Separator())
+
+        # User profiles
+        for name in list_profiles():
+            btn = Gtk.Button(label=f"{name}")
+            btn.add_css_class("flat")
+            btn.connect("clicked", self._on_user_profile_selected, name, profile_popover)
+            profile_box.append(btn)
+
+        # Save current as profile
+        save_btn = Gtk.Button(label="Save Current as Profile...")
+        save_btn.add_css_class("flat")
+        save_btn.connect("clicked", self._on_save_profile, profile_popover)
+        profile_box.append(Gtk.Separator())
+        profile_box.append(save_btn)
+
+        profile_popover.set_child(profile_box)
+        self._profile_btn.set_popover(profile_popover)
+        self._profile_popover_box = profile_box
+        header.pack_start(self._profile_btn)
+
+        # Quit button
         quit_btn = Gtk.Button(icon_name="application-exit-symbolic",
                               tooltip_text="Quit NVIDIA Broadcast")
         quit_btn.connect("clicked", lambda _: self._app.quit())
@@ -469,6 +519,32 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         af_card.append(self._zoom_slider)
         box.append(_collapsible_card("Auto Frame", af_card, expanded=False))
 
+        # Eye Contact card
+        ec_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._eye_contact_toggle = EffectToggle(
+            "Eye Contact", "Redirect gaze to look at camera"
+        )
+        self._eye_contact_toggle.connect("toggled", self._on_eye_contact_toggled)
+        ec_card.append(self._eye_contact_toggle)
+        self._eye_contact_slider = EffectSlider("Intensity", 0.7, 0.0, 1.0)
+        self._eye_contact_slider.set_sensitive(False)
+        self._eye_contact_slider.connect("value-changed", self._on_eye_contact_intensity)
+        ec_card.append(self._eye_contact_slider)
+        box.append(_collapsible_card("Eye Contact", ec_card, expanded=False))
+
+        # Face Relighting card
+        rl_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._relighting_toggle = EffectToggle(
+            "Face Relighting", "Match face lighting to background"
+        )
+        self._relighting_toggle.connect("toggled", self._on_relighting_toggled)
+        rl_card.append(self._relighting_toggle)
+        self._relighting_slider = EffectSlider("Intensity", 0.5, 0.0, 1.0)
+        self._relighting_slider.set_sensitive(False)
+        self._relighting_slider.connect("value-changed", self._on_relighting_intensity)
+        rl_card.append(self._relighting_slider)
+        box.append(_collapsible_card("Face Relighting", rl_card, expanded=False))
+
         # Video Enhancement card
         beauty_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._beauty_toggle = EffectToggle(
@@ -777,6 +853,124 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _on_zoom_changed(self, s, v):
         self._app.set_autoframe_zoom(v)
 
+    # --- Eye Contact ---
+    def _on_eye_contact_toggled(self, t, active):
+        self._app.set_eye_contact(active)
+        self._eye_contact_slider.set_sensitive(active)
+        self._app.config.video.eye_contact = active
+        save_config(self._app.config)
+
+    def _on_eye_contact_intensity(self, s, v):
+        self._app.set_eye_contact_intensity(v)
+        self._app.config.video.eye_contact_intensity = v
+        save_config(self._app.config)
+
+    # --- Face Relighting ---
+    def _on_relighting_toggled(self, t, active):
+        self._app.set_relighting(active)
+        self._relighting_slider.set_sensitive(active)
+        self._app.config.video.relighting = active
+        save_config(self._app.config)
+
+    def _on_relighting_intensity(self, s, v):
+        self._app.set_relighting_intensity(v)
+        self._app.config.video.relighting_intensity = v
+        save_config(self._app.config)
+
+    # --- Recording ---
+    def _on_record_toggle(self, btn):
+        if self._app.is_recording:
+            self._app.stop_recording()
+            self._record_btn.set_label("Rec")
+            self._record_btn.add_css_class("idle")
+            self._record_btn.remove_css_class("recording-btn")
+            self.set_status("Recording saved")
+        else:
+            filepath = self._app.start_recording()
+            self._record_btn.set_label("Stop Rec")
+            self._record_btn.remove_css_class("idle")
+            self._record_btn.add_css_class("recording-btn")
+            self.set_status(f"Recording to {filepath}")
+
+    # --- Profiles ---
+    def _on_profile_selected(self, btn, name, popover):
+        from nvbroadcast.core.config import apply_builtin_profile, save_config
+        apply_builtin_profile(self._app.config, name)
+        save_config(self._app.config)
+        self._apply_config_to_ui(self._app.config)
+        self._profile_btn.set_label(f"Profile: {name}")
+        popover.popdown()
+        self.set_status(f"Switched to {name} profile")
+
+    def _on_user_profile_selected(self, btn, name, popover):
+        from nvbroadcast.core.config import load_profile, save_config
+        loaded = load_profile(name)
+        if loaded:
+            self._app.config = loaded
+            save_config(loaded)
+            self._apply_config_to_ui(loaded)
+            self._profile_btn.set_label(f"Profile: {name}")
+            popover.popdown()
+            self.set_status(f"Switched to {name} profile")
+
+    def _on_save_profile(self, btn, popover):
+        popover.popdown()
+        # Show a simple dialog to get profile name
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text="Save Profile",
+            secondary_text="Enter a name for this profile:",
+        )
+        entry = Gtk.Entry()
+        entry.set_placeholder_text("e.g. My Meeting Setup")
+        dialog.get_content_area().append(entry)
+        dialog.connect("response", self._on_save_profile_response, entry)
+        dialog.present()
+
+    def _on_save_profile_response(self, dialog, response, entry):
+        if response == Gtk.ResponseType.OK:
+            name = entry.get_text().strip()
+            if name:
+                from nvbroadcast.core.config import save_profile
+                save_profile(name, self._app.config)
+                self.set_status(f"Profile saved: {name}")
+        dialog.destroy()
+
+    def _apply_config_to_ui(self, config):
+        """Apply a config to all UI controls (after profile switch)."""
+        v = config.video
+        # Eye contact
+        self._eye_contact_toggle.active = v.eye_contact
+        self._eye_contact_slider.set_sensitive(v.eye_contact)
+        self._eye_contact_slider._scale.set_value(v.eye_contact_intensity)
+        # Relighting
+        self._relighting_toggle.active = v.relighting
+        self._relighting_slider.set_sensitive(v.relighting)
+        self._relighting_slider._scale.set_value(v.relighting_intensity)
+        # Background
+        self._bg_toggle.active = v.background_removal
+        # Mirror
+        self._mirror_toggle.active = v.mirror
+        # Auto frame
+        self._autoframe_toggle.active = v.auto_frame
+        self._zoom_slider._scale.set_value(v.auto_frame_zoom)
+        # Beauty
+        self._beauty_toggle.active = v.beauty.enabled
+        # Apply effects to backend
+        self._app._eye_contact.enabled = v.eye_contact
+        self._app._eye_contact.intensity = v.eye_contact_intensity
+        self._app._relighter.enabled = v.relighting
+        self._app._relighter.intensity = v.relighting_intensity
+        self._app._mirror = v.mirror
+        self._app._video_effects.enabled = v.background_removal
+        self._app._beautifier.enabled = v.beauty.enabled
+        self._app._autoframe.enabled = v.auto_frame
+        self._app._update_pipeline_mode()
+        print(f"[NV Broadcast] Profile applied: bg={v.background_removal}, eye={v.eye_contact}, relight={v.relighting}, beauty={v.beauty.enabled}")
+
     def _on_noise_toggled(self, t, active):
         self._app.set_noise_removal(active)
         self._noise_slider.set_sensitive(active)
@@ -873,6 +1067,21 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         if a.speaker_denoise:
             self._speaker_toggle.active = True
+
+        # Eye contact
+        if v.eye_contact:
+            self._eye_contact_toggle.active = True
+            self._eye_contact_slider.set_sensitive(True)
+        self._eye_contact_slider._scale.set_value(v.eye_contact_intensity)
+
+        # Relighting
+        if v.relighting:
+            self._relighting_toggle.active = True
+            self._relighting_slider.set_sensitive(True)
+        self._relighting_slider._scale.set_value(v.relighting_intensity)
+
+        # Mirror
+        self._mirror_toggle.active = v.mirror
 
     def _show_about(self, button):
         from pathlib import Path
