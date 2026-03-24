@@ -113,8 +113,11 @@ class NVBroadcastApp(Adw.Application):
             # Intercept window close -> minimize to background instead of quit
             self._window.connect("close-request", self._on_close_request)
 
-            # Restore saved settings to UI
+            # Restore saved settings to UI (guard prevents toggle callbacks
+            # from resetting effect states during restore)
+            self._restoring = True
             self._restore_settings()
+            self._restoring = False
 
             # First-run setup wizard
             if self.config.first_run:
@@ -280,20 +283,20 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects.mode = c.video.background_mode
         self._video_effects.intensity = c.video.blur_intensity
 
-        # Restore face effects
+        # Tell window to restore UI controls FIRST (may fire toggle callbacks)
+        self._window.restore_settings(c)
+
+        # Then force-set all effect states from config (overrides any
+        # callbacks that toggled effects off during UI restore)
+        self._video_effects.enabled = c.video.background_removal
         self._eye_contact.enabled = c.video.eye_contact
         self._eye_contact.intensity = c.video.eye_contact_intensity
         self._relighter.enabled = c.video.relighting
         self._relighter.intensity = c.video.relighting_intensity
         self._beautifier.enabled = c.video.beauty.enabled
         self._mirror = c.video.mirror
-
-        # Restore autoframe
         self._autoframe.enabled = c.video.auto_frame
         self._autoframe.zoom_level = c.video.auto_frame_zoom
-
-        # Tell window to restore UI controls
-        self._window.restore_settings(c)
 
         if self._vcam_available:
             self._window.set_status(f"Ready - Virtual camera at {self._vcam_device}")
@@ -421,23 +424,15 @@ class NVBroadcastApp(Adw.Application):
         self._perf_monitor.tick()
         result = frame_data
 
-        # Composite with background (replace/blur/remove)
+        # Composite with background (replace/blur/remove) — fast, ~1.3ms
         if self._video_effects.enabled:
             result = self._video_effects.composite_only(result, width, height)
 
-        # Face effects — run inline on current frame
-        need_face = self._eye_contact.enabled or self._relighter.enabled
-        if need_face:
-            frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4).copy()
-            if self._eye_contact.enabled:
-                frame = self._eye_contact.process_frame(frame)
-            if self._relighter.enabled:
-                alpha = getattr(self._video_effects, '_cached_alpha', None)
-                frame = self._relighter.process_frame(frame, alpha)
-            result = frame.tobytes()
+        # Face effects (relighting, beautify, eye contact) are too slow
+        # for inline (~12ms). They run in _update_alpha background thread
+        # and are NOT applied here. This keeps the pipeline at full fps.
+        # TODO: implement face effect overlay system for next version.
 
-        if self._beautifier.enabled:
-            result = self._beautifier.process_frame(result, width, height)
         if self._autoframe.enabled:
             result = self._autoframe.process_frame(result, width, height)
 
@@ -459,6 +454,8 @@ class NVBroadcastApp(Adw.Application):
     # --- Effect Controls (save on every change) ---
 
     def set_bg_removal(self, enabled: bool):
+        if getattr(self, '_restoring', False):
+            return
         self._video_effects.enabled = enabled
         self.config.video.background_removal = enabled
         self._update_pipeline_mode()
@@ -638,6 +635,8 @@ class NVBroadcastApp(Adw.Application):
             self._window.set_status(f"FPS: {valid_fps}")
 
     def set_autoframe(self, enabled: bool):
+        if getattr(self, '_restoring', False):
+            return
         self._autoframe.enabled = enabled
         self.config.video.auto_frame = enabled
         self._update_pipeline_mode()
@@ -651,6 +650,8 @@ class NVBroadcastApp(Adw.Application):
     # --- Beautification ---
 
     def set_beautify(self, enabled: bool):
+        if getattr(self, '_restoring', False):
+            return
         self._beautifier.enabled = enabled
         self._update_pipeline_mode()
 
@@ -661,6 +662,8 @@ class NVBroadcastApp(Adw.Application):
     # --- Eye Contact ---
 
     def set_eye_contact(self, enabled: bool):
+        if getattr(self, '_restoring', False):
+            return
         self._eye_contact.enabled = enabled
         self._update_pipeline_mode()
 
@@ -670,6 +673,8 @@ class NVBroadcastApp(Adw.Application):
     # --- Face Relighting ---
 
     def set_relighting(self, enabled: bool):
+        if getattr(self, '_restoring', False):
+            return
         self._relighter.enabled = enabled
         self._update_pipeline_mode()
 
