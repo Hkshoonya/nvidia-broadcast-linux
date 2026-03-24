@@ -93,8 +93,8 @@ parts:
   nvidia-support:
     plugin: nil
     stage-packages:
-      - libgl1-mesa-glx
-      - libgles2-mesa
+      - libgl1
+      - libgles2
     after: [nvbroadcast]
 
 layout:
