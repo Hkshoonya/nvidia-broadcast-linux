@@ -97,7 +97,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._stream_btn.connect("clicked", self._on_stream_toggle)
         header.pack_end(self._stream_btn)
 
-        # Record button
+        # Meeting button (recording + transcription)
+        self._meeting_btn = Gtk.Button(label="Start Meeting")
+        self._meeting_btn.add_css_class("recording-btn")
+        self._meeting_btn.add_css_class("idle")
+        self._meeting_btn.set_tooltip_text("Record + transcribe meeting")
+        self._meeting_btn.connect("clicked", self._on_meeting_toggle)
+        header.pack_end(self._meeting_btn)
+
+        # Record button (video only)
         self._record_btn = Gtk.Button(label="Rec")
         self._record_btn.add_css_class("recording-btn")
         self._record_btn.add_css_class("idle")
@@ -245,21 +253,33 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         main_box.append(paned)
 
         # Status bar with attribution
-        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        self._status_bar = Gtk.Label(label="Ready - Click 'Start Broadcast' to begin")
-        self._status_bar.add_css_class("status-bar")
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        status_box.add_css_class("status-bar")
+
+        self._status_bar = Gtk.Label(label="Ready")
         self._status_bar.set_xalign(0)
         self._status_bar.set_hexpand(True)
         self._status_bar.set_ellipsize(3)
-        self._status_bar.set_margin_start(4)
         status_box.append(self._status_bar)
+
+        # Perf stats (FPS | GPU | VRAM | Temp)
+        self._perf_label = Gtk.Label(label="")
+        self._perf_label.add_css_class("status-gpu")
+        status_box.append(self._perf_label)
 
         credit = Gtk.Label(label="by doczeus")
         credit.add_css_class("app-subtitle")
-        credit.set_margin_end(8)
         status_box.append(credit)
 
         main_box.append(status_box)
+
+        # Start perf stats polling
+        from gi.repository import GLib
+        def _update_perf():
+            pm = self._app.perf_monitor
+            self._perf_label.set_text(pm.format_status())
+            return True
+        GLib.timeout_add(1000, _update_perf)
 
         self.set_content(main_box)
 
@@ -604,12 +624,37 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         hdr.set_xalign(0)
         box.append(hdr)
 
-        # Mic card
+        # Mic card — now with device selector + VU meter
         mic_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        mic_lbl = Gtk.Label(label="Microphone")
-        mic_lbl.set_xalign(0)
-        mic_lbl.add_css_class("device-label")
-        mic_card.append(mic_lbl)
+
+        # Mic device selector
+        self._mic_selector = DeviceSelector("Microphone")
+        self._mic_selector.connect("device-changed", self._on_mic_changed)
+        mic_card.append(self._mic_selector)
+
+        # VU meter (progress bar showing mic level)
+        vu_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        vu_box.set_margin_start(16)
+        vu_box.set_margin_end(16)
+        vu_lbl = Gtk.Label(label="Level")
+        vu_lbl.set_xalign(0)
+        vu_lbl.set_size_request(80, -1)
+        vu_lbl.add_css_class("device-label")
+        vu_box.append(vu_lbl)
+        self._vu_meter = Gtk.LevelBar()
+        self._vu_meter.set_min_value(0.0)
+        self._vu_meter.set_max_value(1.0)
+        self._vu_meter.set_value(0.0)
+        self._vu_meter.set_hexpand(True)
+        self._vu_meter.add_css_class("vu-meter")
+        vu_box.append(self._vu_meter)
+        self._vu_db_label = Gtk.Label(label="-60 dB")
+        self._vu_db_label.set_size_request(50, -1)
+        self._vu_db_label.add_css_class("device-label")
+        vu_box.append(self._vu_db_label)
+        mic_card.append(vu_box)
+
+        # Noise removal toggle + strength
         self._noise_toggle = EffectToggle("Noise Removal", "Remove background noise from mic")
         self._noise_toggle.connect("toggled", self._on_noise_toggled)
         mic_card.append(self._noise_toggle)
@@ -621,16 +666,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Speaker card
         spk_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        spk_lbl = Gtk.Label(label="Speakers")
-        spk_lbl.set_xalign(0)
-        spk_lbl.add_css_class("device-label")
-        spk_card.append(spk_lbl)
         self._speaker_toggle = EffectToggle("Noise Removal", "Remove noise from incoming audio")
         self._speaker_toggle.connect("toggled", self._on_speaker_toggled)
         spk_card.append(self._speaker_toggle)
         box.append(_collapsible_card("Speakers", spk_card, expanded=True))
 
         box.append(Gtk.Box(vexpand=True))  # spacer
+
+        # Populate mic devices
+        self._populate_mics()
+
         return box
 
     # --- Signals ---
@@ -852,6 +897,56 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_zoom_changed(self, s, v):
         self._app.set_autoframe_zoom(v)
+
+    # --- Meeting ---
+    def _on_meeting_toggle(self, btn):
+        if self._app.meeting_active:
+            notes_path = self._app.stop_meeting()
+            self._meeting_btn.set_label("Start Meeting")
+            self._meeting_btn.add_css_class("idle")
+            self._meeting_btn.remove_css_class("recording-btn")
+            if notes_path:
+                self.set_status(f"Meeting saved: {notes_path}")
+            else:
+                self.set_status("Meeting ended")
+        else:
+            filepath = self._app.start_meeting()
+            self._meeting_btn.set_label("End Meeting")
+            self._meeting_btn.remove_css_class("idle")
+            self._meeting_btn.add_css_class("recording-btn")
+            self.set_status(f"Meeting recording: {filepath}")
+
+    # --- Mic Selection ---
+    def _populate_mics(self):
+        try:
+            mics = self._app.list_microphones()
+            self._mic_selector.set_devices(mics)
+            # Select saved mic
+            saved = self._app.config.audio.mic_device
+            if saved:
+                for i, m in enumerate(mics):
+                    if m["device"] == saved:
+                        self._mic_selector.set_selected_index(i)
+                        break
+        except Exception as e:
+            print(f"[NV Broadcast] Mic enumeration failed: {e}")
+
+    def _on_mic_changed(self, selector, device):
+        self._app.set_microphone(device)
+        self.set_status(f"Microphone: {device}")
+
+    # --- VU Meter ---
+    def _start_vu_meter(self):
+        """Poll audio level and update VU meter every 100ms."""
+        from gi.repository import GLib
+        def _update():
+            if self._app._audio_pipeline and hasattr(self._app._audio_pipeline, '_level_monitor'):
+                mon = self._app._audio_pipeline._level_monitor
+                if mon:
+                    self._vu_meter.set_value(mon.level_normalized)
+                    self._vu_db_label.set_text(f"{mon.level_db:.0f} dB")
+            return True  # Keep polling
+        GLib.timeout_add(100, _update)
 
     # --- Eye Contact ---
     def _on_eye_contact_toggled(self, t, active):

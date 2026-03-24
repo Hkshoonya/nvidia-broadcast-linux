@@ -438,6 +438,27 @@ tooltip {
     font-size: 12px;
 }
 
+/* ── VU Meter ─────────────────────────────────────────────────────────────── */
+.vu-meter {
+    min-height: 8px;
+    border-radius: 4px;
+}
+
+.vu-meter trough {
+    background-color: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+    min-height: 8px;
+}
+
+.vu-meter block.filled {
+    background-color: @nv_green;
+    border-radius: 4px;
+}
+
+.vu-meter block.filled.high {
+    background-color: @recording;
+}
+
 /* ── Scrollbars ───────────────────────────────────────────────────────────── */
 scrollbar slider {
     background-color: rgba(255, 255, 255, 0.15);
