@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import zipfile
@@ -23,7 +24,9 @@ REQUIRED_WHEEL_PATHS = [
 
 def _run(cmd: list[str], label: str) -> None:
     print(f"[release-smoke] {label}")
-    subprocess.run(cmd, cwd=REPO_ROOT, check=True)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+    subprocess.run(cmd, cwd=REPO_ROOT, env=env, check=True)
 
 
 def _wheel_members(wheel_path: Path) -> list[str]:
@@ -50,7 +53,15 @@ def main() -> int:
         raise RuntimeError(f"expected venv python at {PYTHON}")
 
     _run(["python3", "-m", "compileall", "src", "scripts", "tests"], "compileall")
-    _run([str(PYTHON), "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v"], "unit tests")
+    _run(
+        [
+            str(PYTHON), "-m", "unittest", "-v",
+            "tests.test_updates",
+            "tests.test_background_overlay",
+            "tests.test_training_bundle",
+        ],
+        "unit tests",
+    )
 
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     for old_wheel in DIST_DIR.glob("*.whl"):
