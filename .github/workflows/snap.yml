@@ -25,6 +25,27 @@ jobs:
           name: snap-package
           path: ${{ steps.snapcraft.outputs.snap }}
 
+      - name: Validate Snap Store registration
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
+        run: |
+          SNAP_NAME="$(sed -n 's/^name:[[:space:]]*//p' snap/snapcraft.yaml | head -n1)"
+          if [ -z "$SNAP_NAME" ]; then
+            echo "::error::Could not read snap name from snap/snapcraft.yaml"
+            exit 1
+          fi
+
+          if ! snapcraft list-revisions "$SNAP_NAME" >/tmp/snap-store-check.log 2>&1; then
+            cat /tmp/snap-store-check.log
+            if grep -qi "resource-not-found: Snap not found for name=$SNAP_NAME" /tmp/snap-store-check.log; then
+              echo "::error::Snap '$SNAP_NAME' is not registered in the Snap Store for the account behind SNAP_TOKEN. Register it first with 'snapcraft register $SNAP_NAME' or rename snap/snapcraft.yaml to a snap name already registered to that account."
+            else
+              echo "::error::Snap Store validation failed for '$SNAP_NAME'. See the log output above."
+            fi
+            exit 1
+          fi
+
       - name: Publish to Snap Store
         if: startsWith(github.ref, 'refs/tags/v')
         uses: snapcore/action-publish@v1
