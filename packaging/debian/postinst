@@ -14,7 +14,7 @@ fi
 
 # Install Python dependencies
 "$VENV_DIR/bin/pip" install --upgrade pip -q
-"$VENV_DIR/bin/pip" install -e "$INSTALL_DIR" -q
+"$VENV_DIR/bin/pip" install "$INSTALL_DIR" -q
 
 # Install CuPy if NVIDIA GPU detected
 if command -v nvidia-smi &>/dev/null; then

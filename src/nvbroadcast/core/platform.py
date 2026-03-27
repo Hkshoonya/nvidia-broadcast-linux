@@ -8,6 +8,8 @@
 import platform
 import subprocess
 import shutil
+import ctypes
+import ctypes.util
 
 IS_LINUX = platform.system() == "Linux"
 IS_MACOS = platform.system() == "Darwin"
@@ -34,6 +36,44 @@ def has_pyvirtualcam() -> bool:
         return True
     except ImportError:
         return False
+
+
+def has_tensorrt_runtime() -> bool:
+    """Check whether TensorRT EP is actually runnable on this system."""
+    if not IS_LINUX:
+        return False
+    try:
+        import onnxruntime as ort
+    except Exception:
+        return False
+
+    if "TensorrtExecutionProvider" not in ort.get_available_providers():
+        return False
+
+    # Main runtime library must be loadable, otherwise ORT will advertise TRT
+    # but still fail at session creation with a provider load error.
+    if ctypes.util.find_library("nvinfer"):
+        return True
+
+    try:
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.find_spec("tensorrt_libs")
+        if not spec or not spec.submodule_search_locations:
+            return False
+
+        lib_dir = Path(spec.submodule_search_locations[0])
+        for so in sorted(lib_dir.glob("libnvinfer.so*")):
+            try:
+                ctypes.CDLL(str(so))
+                return True
+            except OSError:
+                continue
+    except Exception:
+        return False
+
+    return False
 
 
 def get_default_camera_device() -> str:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nvbroadcast"
-version = "1.0.1"
+version = "1.0.2"
 description = "NV Broadcast - Unofficial NVIDIA Broadcast for Linux and other OS by doczeus - AI-powered virtual camera, background removal, and noise cancellation"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11"
@@ -54,6 +54,7 @@ Repository = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
 Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 
 [project.optional-dependencies]
+dev = ["pytest>=8.0"]
 cuda = ["pycuda>=2024.1"]
 maxine = ["nvidia-vfx"]
 tensorrt = ["tensorrt", "tensorrt-cu12", "onnx"]
@@ -64,3 +65,15 @@ nvbroadcast-vcam = "nvbroadcast.vcam_service:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"nvbroadcast.ui" = ["style.css"]
+
+[tool.setuptools.data-files]
+"share/applications" = ["data/com.doczeus.NVBroadcast.desktop"]
+"share/metainfo" = ["data/com.doczeus.NVBroadcast.metainfo.xml"]
+"share/icons/hicolor/scalable/apps" = ["data/icons/com.doczeus.NVBroadcast.svg"]
+"share/nvbroadcast/backgrounds" = [
+    "data/backgrounds/gradient_bg.png",
+    "data/backgrounds/test_bg.png",
+]

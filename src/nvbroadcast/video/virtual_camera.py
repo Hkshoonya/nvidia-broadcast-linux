@@ -246,15 +246,23 @@ def list_camera_devices() -> list[dict[str, str]]:
         )
         lines = result.stdout.split("\n")
         current_name = ""
+        is_loopback = False
         first_dev_in_group = True
         for line in lines:
             if line and not line.startswith("\t") and not line.startswith(" "):
                 current_name = line.rstrip(":")
+                is_loopback = False
                 first_dev_in_group = True
+            elif line.strip() and not line.strip().startswith("/dev/"):
+                # Continuation line (e.g. "  Broadcast (platform:v4l2loopback-010):")
+                cont = line.strip().rstrip(":")
+                if "v4l2loopback" in cont.lower():
+                    is_loopback = True
+                current_name = f"{current_name} {cont}".strip()
             elif line.strip().startswith("/dev/video"):
                 dev = line.strip()
                 # Skip v4l2loopback devices and take only first device per camera
-                if first_dev_in_group and "v4l2loopback" not in current_name.lower() and "nvbroadcast" not in current_name.lower():
+                if first_dev_in_group and not is_loopback and "nvidia broadcast" not in current_name.lower():
                     cameras.append({"name": current_name, "device": dev})
                 first_dev_in_group = False
     except (subprocess.CalledProcessError, FileNotFoundError):

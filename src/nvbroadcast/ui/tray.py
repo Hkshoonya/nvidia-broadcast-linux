@@ -10,14 +10,12 @@ Supports AyatanaAppIndicator3 (Ubuntu/GNOME) with fallback to
 basic GtkStatusIcon where available.
 """
 
-from pathlib import Path
-
 import gi
 
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib
+from nvbroadcast.core.resources import find_app_icon
 
-_ICON_PATH = str(Path(__file__).parent.parent.parent.parent / "data" / "icons" / "com.doczeus.NVBroadcast.svg")
 
 
 class TrayIcon:
@@ -31,12 +29,16 @@ class TrayIcon:
 
     def _setup_indicator(self):
         """Try AyatanaAppIndicator3, then AppIndicator3."""
+        icon_path = find_app_icon()
+        if icon_path is None:
+            return
+
         try:
             gi.require_version('AyatanaAppIndicator3', '0.1')
             from gi.repository import AyatanaAppIndicator3 as AI
             self._indicator = AI.Indicator.new(
                 "nvbroadcast",
-                _ICON_PATH,
+                str(icon_path),
                 AI.IndicatorCategory.APPLICATION_STATUS,
             )
             self._indicator.set_status(AI.IndicatorStatus.ACTIVE)
@@ -51,7 +53,7 @@ class TrayIcon:
             from gi.repository import AppIndicator3 as AI
             self._indicator = AI.Indicator.new(
                 "nvbroadcast",
-                _ICON_PATH,
+                str(icon_path),
                 AI.IndicatorCategory.APPLICATION_STATUS,
             )
             self._indicator.set_status(AI.IndicatorStatus.ACTIVE)

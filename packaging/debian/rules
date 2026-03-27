@@ -21,6 +21,11 @@ override_dh_auto_install:
 	install -m 644 data/com.doczeus.NVBroadcast.desktop \
 		$(CURDIR)/debian/nvbroadcast/usr/share/applications/
 
+	# AppStream metadata
+	install -d $(CURDIR)/debian/nvbroadcast/usr/share/metainfo
+	install -m 644 data/com.doczeus.NVBroadcast.metainfo.xml \
+		$(CURDIR)/debian/nvbroadcast/usr/share/metainfo/
+
 	# Icon
 	install -d $(CURDIR)/debian/nvbroadcast/usr/share/icons/hicolor/scalable/apps
 	install -m 644 data/icons/com.doczeus.NVBroadcast.svg \

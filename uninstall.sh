@@ -6,27 +6,6 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_PREFIX="${HOME}/.local"
 
-# System packages installed by install.sh / setup_deps.sh
-SYSTEM_PACKAGES=(
-    v4l-utils
-    v4l2loopback-dkms
-    gir1.2-gtk-4.0
-    gir1.2-adw-1
-    gir1.2-gstreamer-1.0
-    gir1.2-gst-plugins-base-1.0
-    gstreamer1.0-plugins-base
-    gstreamer1.0-plugins-good
-    gstreamer1.0-plugins-bad
-    python3-gi
-    python3-gi-cairo
-    libgstreamer1.0-dev
-    libgstreamer-plugins-base1.0-dev
-    libgtk-4-dev
-    libadwaita-1-dev
-    pipewire-utils
-    pipewire-bin
-)
-
 echo "========================================="
 echo "  NVIDIA Broadcast for Linux - Uninstall"
 echo "  by doczeus | AI Powered"
@@ -40,23 +19,9 @@ if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-# Ask about system packages
-echo ""
-echo "The installer added these system packages:"
-echo "  GStreamer, GTK4/Libadwaita, v4l2loopback, Python GI bindings"
-echo ""
-echo "WARNING: Other applications may depend on these packages."
-echo "         Only remove them if you are sure nothing else needs them."
-echo ""
-read -rp "Also remove system packages installed by NVIDIA Broadcast? [y/N] " remove_packages
-REMOVE_PACKAGES=false
-if [[ "$remove_packages" =~ ^[Yy]$ ]]; then
-    REMOVE_PACKAGES=true
-fi
-
 # --- Step 1: Stop and disable systemd service ---
 echo ""
-echo "[1/7] Stopping systemd service..."
+echo "[1/6] Stopping systemd service..."
 
 if systemctl --user is-active nvbroadcast-vcam.service &>/dev/null; then
     systemctl --user stop nvbroadcast-vcam.service
@@ -75,14 +40,14 @@ fi
 
 # --- Step 2: Remove autostart entry ---
 echo ""
-echo "[2/7] Removing autostart entry..."
+echo "[2/6] Removing autostart entry..."
 
 rm -f "$HOME/.config/autostart/com.doczeus.NVBroadcast.desktop"
 echo "Autostart entry removed"
 
 # --- Step 3: Remove desktop entry and icon ---
 echo ""
-echo "[3/7] Removing desktop entry and icon..."
+echo "[3/6] Removing desktop entry and icon..."
 
 rm -f "$INSTALL_PREFIX/share/applications/com.doczeus.NVBroadcast.desktop"
 rm -f "$INSTALL_PREFIX/share/icons/hicolor/scalable/apps/com.doczeus.NVBroadcast.svg"
@@ -97,62 +62,27 @@ echo "Desktop entry and icon removed"
 
 # --- Step 4: Remove launcher scripts ---
 echo ""
-echo "[4/7] Removing launcher scripts..."
+echo "[4/6] Removing launcher scripts..."
 
 rm -f "$INSTALL_PREFIX/bin/nvbroadcast"
 rm -f "$INSTALL_PREFIX/bin/nvbroadcast-vcam"
 echo "Launcher scripts removed"
 
-# --- Step 5: Remove v4l2loopback configuration ---
+# --- Step 5: Preserve system-level virtual camera configuration ---
 echo ""
-echo "[5/7] Removing v4l2loopback configuration..."
-
-if [ -f /etc/modprobe.d/nvbroadcast-v4l2loopback.conf ] || [ -f /etc/modules-load.d/nvbroadcast-v4l2loopback.conf ]; then
-    sudo rm -f /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
-    sudo rm -f /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
-    echo "v4l2loopback config removed (module will not auto-load on next boot)"
-else
-    echo "No v4l2loopback config found, skipping"
-fi
+echo "[5/6] Preserving system virtual camera configuration..."
+echo "System-wide v4l2loopback config and drivers were left untouched."
+echo "Remove them manually only if you are sure nothing else on the system needs them."
 
 # --- Step 6: Remove Python virtual environment ---
 echo ""
-echo "[6/7] Removing Python virtual environment..."
+echo "[6/6] Removing Python virtual environment..."
 
 if [ -d "$SCRIPT_DIR/.venv" ]; then
     rm -rf "$SCRIPT_DIR/.venv"
     echo "Virtual environment removed"
 else
     echo "No virtual environment found, skipping"
-fi
-
-# --- Step 7: Remove system packages (optional) ---
-echo ""
-echo "[7/7] System packages..."
-
-if [ "$REMOVE_PACKAGES" = true ]; then
-    # Filter to only packages that are actually installed
-    INSTALLED_PKGS=()
-    for pkg in "${SYSTEM_PACKAGES[@]}"; do
-        if dpkg -s "$pkg" &>/dev/null; then
-            INSTALLED_PKGS+=("$pkg")
-        fi
-    done
-
-    if [ ${#INSTALLED_PKGS[@]} -gt 0 ]; then
-        echo "Removing: ${INSTALLED_PKGS[*]}"
-        sudo apt remove -y "${INSTALLED_PKGS[@]}"
-        echo ""
-        read -rp "Run 'apt autoremove' to clean up unused dependencies? [y/N] " do_autoremove
-        if [[ "$do_autoremove" =~ ^[Yy]$ ]]; then
-            sudo apt autoremove -y
-        fi
-        echo "System packages removed"
-    else
-        echo "No NVIDIA Broadcast system packages found installed, skipping"
-    fi
-else
-    echo "Skipped (kept system packages)"
 fi
 
 echo ""
@@ -166,18 +96,15 @@ echo "    - Systemd service (nvbroadcast-vcam)"
 echo "    - Desktop autostart entry"
 echo "    - Desktop menu entry and icon"
 echo "    - Launcher scripts (nvbroadcast, nvbroadcast-vcam)"
-echo "    - v4l2loopback configuration"
 echo "    - Python virtual environment"
-if [ "$REMOVE_PACKAGES" = true ]; then
-echo "    - System packages (GStreamer, GTK4, v4l2loopback, etc.)"
-fi
 echo ""
-if [ "$REMOVE_PACKAGES" = false ]; then
-echo "  NOT removed (you chose to keep system packages):"
-echo "    - v4l2loopback-dkms, GStreamer, GTK4, etc."
-echo "    - To remove later: sudo apt remove <package>"
+echo "  Preserved on purpose:"
+echo "    - v4l2loopback kernel module and its package"
+echo "    - /etc/modprobe.d and /etc/modules-load.d system configuration"
+echo "    - Shared desktop/runtime packages (GTK4, GStreamer, PipeWire, Python GI)"
+echo "    - These may be used by other applications and by your desktop session"
 echo ""
-fi
 echo "  The source code in $SCRIPT_DIR is untouched."
-echo "  You can safely delete it if no longer needed."
+echo "  Standard installs now live inside $SCRIPT_DIR/.venv, not as an editable source link."
+echo "  You can safely delete the source tree after uninstall if no longer needed."
 echo ""

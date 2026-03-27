@@ -13,6 +13,7 @@ Supported models:
 
 import os
 import platform as _platform
+import json
 
 # Force CUDA device ordering to match nvidia-smi (PCI bus ID order) — Linux only
 if _platform.system() != "Darwin":
@@ -70,6 +71,10 @@ import onnxruntime as ort
 from nvbroadcast.core.constants import COMPUTE_GPU_INDEX
 
 _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
+_LEARNED_REFINER_MODELS = {
+    "replace": _MODELS_DIR / "edge_refiner_replace.onnx",
+    "remove": _MODELS_DIR / "edge_refiner_remove.onnx",
+}
 
 # ─── Model Registry ─────────────────────────────────────────────────────────
 
@@ -138,7 +143,8 @@ QUALITY_PRESETS = {
 # ─── Model Backends ──────────────────────────────────────────────────────────
 
 def _create_session(model_path: str, gpu_index: int,
-                    use_tensorrt: bool = False) -> ort.InferenceSession:
+                    use_tensorrt: bool = False,
+                    cpu_only: bool = False) -> ort.InferenceSession:
     """Create an ONNX Runtime session.
 
     use_tensorrt=True enables TensorRT EP (Zeus/Killer modes) for 3-5x faster inference.
@@ -146,8 +152,11 @@ def _create_session(model_path: str, gpu_index: int,
 
     On macOS: uses CoreML EP (Apple Silicon) or CPU EP as fallback.
     """
-    from nvbroadcast.core.platform import get_onnx_providers
-    providers = get_onnx_providers(gpu_index, use_tensorrt)
+    if cpu_only:
+        providers = ["CPUExecutionProvider"]
+    else:
+        from nvbroadcast.core.platform import get_onnx_providers
+        providers = get_onnx_providers(gpu_index, use_tensorrt)
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     opts.log_severity_level = 3
@@ -235,7 +244,7 @@ def _download_model(filename: str, url: str) -> Path:
 def _get_device_name(session: ort.InferenceSession, gpu_index: int) -> str:
     """Get a human-readable device name from session."""
     active = session.get_providers()[0]
-    if "CUDA" in active:
+    if "CUDA" in active or "Tensorrt" in active:
         try:
             from nvbroadcast.core.gpu import detect_gpus
             gpus = detect_gpus()
@@ -263,10 +272,15 @@ class _RVMBackend:
         self.session = None
         self._r1 = self._r2 = self._r3 = self._r4 = None
         self._downsample_ratio = None
+        self._active_trt = False
+        self._base_model_path = None
+        self._trt_fallback_logged = False
 
     def load(self, quality: str, use_tensorrt: bool = False) -> str:
         preset = QUALITY_PRESETS[quality]
-        model_path = _download_model(preset["model"], preset["url"])
+        base_model_path = _download_model(preset["model"], preset["url"])
+        self._base_model_path = base_model_path
+        model_path = base_model_path
         # Use shape-inferred model for TensorRT
         if use_tensorrt:
             trt_path = model_path.with_name(
@@ -274,15 +288,47 @@ class _RVMBackend:
             )
             if trt_path.exists():
                 model_path = trt_path
-        self.session = _create_session(model_path, self._gpu_index,
-                                       use_tensorrt=use_tensorrt)
+
+        self.session = _create_session(
+            model_path, self._gpu_index, use_tensorrt=use_tensorrt
+        )
+        active = self.session.get_providers()[0]
+        self._active_trt = "TensorrtExecutionProvider" in active
+
+        # TensorRT parser/build can fail internally and leave us on CPU. In that
+        # case, explicitly reload the session on CUDA so premium modes remain
+        # functional instead of silently becoming a broken CPU path.
+        if use_tensorrt and "CPUExecutionProvider" in active:
+            _release_session(self.session)
+            self.session = _create_session(base_model_path, self._gpu_index, use_tensorrt=False)
+            active = self.session.get_providers()[0]
+            self._active_trt = False
+
         self._downsample_ratio = np.array([preset["downsample"]], dtype=np.float32)
         self._r1 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r2 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r3 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         device = _get_device_name(self.session, self._gpu_index)
-        return f"RVM loaded on {device} | {preset['label']}"
+        msg = f"RVM loaded on {device} | {preset['label']}"
+        if use_tensorrt:
+            if self._active_trt:
+                msg += " [TensorRT]"
+            else:
+                msg += " [TRT fallback to CUDA]"
+        return msg
+
+    def _fallback_to_cuda(self):
+        """Recreate the session on CUDA after TRT runtime/build failure."""
+        if not self._active_trt or self._base_model_path is None:
+            return
+        _release_session(self.session)
+        self.session = _create_session(self._base_model_path, self._gpu_index, use_tensorrt=False)
+        self._active_trt = False
+        self.reset_state()
+        if not self._trt_fallback_logged:
+            print("[NV Broadcast] TensorRT runtime failed during inference - falling back to CUDA", flush=True)
+            self._trt_fallback_logged = True
 
     # Max input resolution for preprocessing — above this, downsample first.
     # 720p is the sweet spot: fast preprocessing, model quality maintained.
@@ -305,12 +351,26 @@ class _RVMBackend:
         src = rgb.astype(np.float32) * (1.0 / 255.0)
         src = src.transpose(2, 0, 1)[np.newaxis]  # HWC -> 1xCxHxW
 
-        outputs = self.session.run(None, {
+        inputs = {
             'src': src,
             'r1i': self._r1, 'r2i': self._r2,
             'r3i': self._r3, 'r4i': self._r4,
             'downsample_ratio': self._downsample_ratio,
-        })
+        }
+        try:
+            outputs = self.session.run(None, inputs)
+        except Exception:
+            if self._active_trt:
+                self._fallback_to_cuda()
+                outputs = self.session.run(None, inputs)
+            else:
+                # Shape mismatch from resolution change — reset and retry
+                self.reset_state()
+                inputs['r1i'] = self._r1
+                inputs['r2i'] = self._r2
+                inputs['r3i'] = self._r3
+                inputs['r4i'] = self._r4
+                outputs = self.session.run(None, inputs)
 
         alpha = outputs[1][0, 0]
         self._r1, self._r2 = outputs[2], outputs[3]
@@ -355,33 +415,117 @@ class _SingleFrameBackend:
         self._model_key = model_key
         self._info = MODELS[model_key]
         self.session = None
+        self._model_path = None
         self._input_size = self._info["input_size"]
+        self._input_size_current = self._input_size
+        self._fixed_input_size = self._input_size
         self._mean = np.array(self._info["mean"], dtype=np.float32).reshape(1, 1, 3)
         self._std = np.array(self._info["std"], dtype=np.float32).reshape(1, 1, 3)
         self._prev_alpha = None
         self._ema_weight = 0.15  # Temporal smoothing for flicker reduction
+        self._fallback_logged = False
+        self._cpu_fallback_active = False
 
     def load(self, quality: str = "") -> str:
-        model_path = _download_model(self._info["model"], self._info["url"])
-        self.session = _create_session(model_path, self._gpu_index)
+        self._model_path = _download_model(self._info["model"], self._info["url"])
+        try:
+            self.session = _create_session(self._model_path, self._gpu_index)
+            self._cpu_fallback_active = False
+        except Exception as exc:
+            self.session = self._load_cpu_fallback(exc)
+        input_shape = self.session.get_inputs()[0].shape
+        if len(input_shape) >= 4 and isinstance(input_shape[2], int) and isinstance(input_shape[3], int):
+            self._fixed_input_size = int(input_shape[2])
+            self._input_size_current = self._fixed_input_size
+        else:
+            self._fixed_input_size = None
         device = _get_device_name(self.session, self._gpu_index)
-        return f"{self._info['name']} loaded on {device}"
+        suffix = " [CPU fallback]" if self._cpu_fallback_active else ""
+        return f"{self._info['name']} loaded on {device}{suffix}"
+
+    def _load_cpu_fallback(self, exc: Exception) -> ort.InferenceSession:
+        if self._model_path is None:
+            raise exc
+        session = _create_session(self._model_path, self._gpu_index, cpu_only=True)
+        self._cpu_fallback_active = True
+        if not self._fallback_logged:
+            print(
+                f"[NV Broadcast] {self._info['name']} GPU path unavailable, using CPU fallback: {exc}",
+                flush=True,
+            )
+            self._fallback_logged = True
+        return session
+
+    def _fallback_to_cpu(self, exc: Exception) -> None:
+        if self._cpu_fallback_active:
+            raise exc
+        _release_session(self.session)
+        self.session = self._load_cpu_fallback(exc)
+        self.reset_state()
+
+    def _select_input_size(self, width: int, height: int) -> int:
+        """Pick a square input size without upscaling far beyond the source frame."""
+        if self._fixed_input_size is not None:
+            return self._fixed_input_size
+        longest = max(width, height)
+        target = min(self._input_size_current, longest)
+        target = max(512, target)
+        target = int(np.ceil(target / 32.0) * 32)
+        return min(target, self._input_size_current)
+
+    @staticmethod
+    def _candidate_input_sizes(start: int) -> list[int]:
+        sizes = [start]
+        for candidate in (896, 768, 640, 512):
+            if candidate < start:
+                sizes.append(candidate)
+        deduped: list[int] = []
+        for size in sizes:
+            if size not in deduped:
+                deduped.append(size)
+        return deduped
 
     def infer(self, frame: np.ndarray, width: int, height: int) -> np.ndarray | None:
         # Preprocess: resize to model input, normalize with model-specific mean/std
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
-        resized = cv2.resize(rgb, (self._input_size, self._input_size),
-                             interpolation=cv2.INTER_LINEAR)
-
-        # Normalize: (pixel / 255 - mean) / std
-        blob = resized.astype(np.float32) / 255.0
-        blob = (blob - self._mean) / self._std
-        blob = blob.transpose(2, 0, 1)  # HWC -> CHW
-        blob = blob[np.newaxis, ...]  # Add batch dim: 1xCxHxW
-
-        # Run inference
         input_name = self.session.get_inputs()[0].name
-        outputs = self.session.run(None, {input_name: blob})
+        outputs = None
+        last_error = None
+        requested_size = self._select_input_size(width, height)
+
+        for infer_size in self._candidate_input_sizes(requested_size):
+            resized = cv2.resize(rgb, (infer_size, infer_size),
+                                 interpolation=cv2.INTER_LINEAR)
+
+            # Normalize: (pixel / 255 - mean) / std
+            blob = resized.astype(np.float32) / 255.0
+            blob = (blob - self._mean) / self._std
+            blob = blob.transpose(2, 0, 1)  # HWC -> CHW
+            blob = blob[np.newaxis, ...]  # Add batch dim: 1xCxHxW
+
+            try:
+                outputs = self.session.run(None, {input_name: blob})
+                self._input_size_current = infer_size
+                break
+            except Exception as exc:
+                if infer_size == requested_size and not self._cpu_fallback_active:
+                    message = str(exc).lower()
+                    if any(token in message for token in ("memory", "cuda", "cudnn", "bfcarena", "allocate")):
+                        self._fallback_to_cpu(exc)
+                        outputs = self.session.run(None, {input_name: blob})
+                        self._input_size_current = infer_size
+                        break
+                last_error = exc
+                continue
+
+        if outputs is None:
+            if not self._fallback_logged and last_error is not None:
+                print(
+                    f"[NV Broadcast] {self._info['name']} inference failed at <= {requested_size}px: {last_error}",
+                    flush=True,
+                )
+                self._fallback_logged = True
+            raise last_error
 
         # Get alpha from output (sigmoid already applied in most models)
         raw = outputs[0]
@@ -506,6 +650,164 @@ class EdgeRefiner:
         self._cached_refined = None
 
 
+class _LearnedMatteRefiner:
+    """Optional tiny learned post-refiner for replace/remove mattes.
+
+    Loaded lazily from a locally trained ONNX file if present. This lets the
+    runtime benefit from pseudo-label training without making the app depend on
+    PyTorch or changing behavior when no trained model exists.
+    """
+
+    def __init__(self, gpu_index: int, variant: str):
+        self._gpu_index = gpu_index
+        self._variant = variant
+        self._model_path = _LEARNED_REFINER_MODELS[variant]
+        self._meta_path = self._model_path.with_suffix(".json")
+        self._enabled = os.getenv("NVBROADCAST_ENABLE_LEARNED_REFINER", "").lower() in {"1", "true", "yes", "on"}
+        self._session = None
+        self._input_name = None
+        self._output_name = None
+        self._load_attempted = False
+        self._failed = False
+        self._target_size = 512
+        self._input_channels = 4
+        env_cap = os.getenv("NVBROADCAST_LEARNED_REFINER_MAX_SIZE", "").strip()
+        try:
+            self._runtime_target_size = max(128, int(env_cap)) if env_cap else 256
+        except ValueError:
+            self._runtime_target_size = 256
+
+    @property
+    def available(self) -> bool:
+        return self._enabled and self._model_path.exists()
+
+    def _ensure_session(self) -> bool:
+        if self._failed:
+            return False
+        if self._session is not None:
+            return True
+        if not self.available:
+            return False
+        if self._load_attempted:
+            return False
+
+        self._load_attempted = True
+        try:
+            if self._meta_path.exists():
+                try:
+                    meta = json.loads(self._meta_path.read_text(encoding="utf-8"))
+                    self._target_size = int(meta.get("size", self._target_size))
+                    self._input_channels = int(meta.get("input_channels", self._input_channels))
+                    self._runtime_target_size = min(self._target_size, self._runtime_target_size)
+                except Exception:
+                    pass
+            self._session = _create_session(str(self._model_path), self._gpu_index, use_tensorrt=False)
+            self._input_name = self._session.get_inputs()[0].name
+            self._output_name = self._session.get_outputs()[0].name
+            shape = self._session.get_inputs()[0].shape
+            if len(shape) >= 2 and isinstance(shape[1], int):
+                self._input_channels = shape[1]
+            print(f"[NV Broadcast] Learned {self._variant} refiner loaded from {self._model_path.name}")
+            return True
+        except Exception as e:
+            self._failed = True
+            print(f"[NV Broadcast] Learned {self._variant} refiner unavailable: {e}")
+            return False
+
+    def _build_trimap(self, matte: np.ndarray) -> np.ndarray:
+        fg_threshold = 0.97 if self._variant == "replace" else 0.98
+        bg_threshold = 0.03 if self._variant == "replace" else 0.02
+        radius = 3 if self._variant == "replace" else 2
+        trimap = np.full(matte.shape, 0.5, dtype=np.float32)
+        fg_seed = (matte >= fg_threshold).astype(np.uint8)
+        bg_seed = (matte <= bg_threshold).astype(np.uint8)
+        if radius > 0:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius * 2 + 1, radius * 2 + 1))
+            fg_seed = cv2.erode(fg_seed, kernel, iterations=1)
+            bg_seed = cv2.erode(bg_seed, kernel, iterations=1)
+        trimap[bg_seed > 0] = 0.0
+        trimap[fg_seed > 0] = 1.0
+        return trimap
+
+    def _build_band(self, matte: np.ndarray, trimap: np.ndarray) -> np.ndarray:
+        coarse_band = (matte > 0.02) & (matte < 0.98)
+        trimap_band = (trimap > 0.25) & (trimap < 0.75)
+        band = coarse_band | trimap_band
+        if band.any():
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+            band = cv2.dilate(band.astype(np.uint8), kernel, iterations=1) > 0
+        return band.astype(np.float32)
+
+    def refine(self, frame: np.ndarray, matte: np.ndarray) -> np.ndarray:
+        if not self._ensure_session():
+            return matte
+
+        transition = ((matte > 0.02) & (matte < 0.98)).astype(np.uint8)
+        if transition.any():
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+            band = cv2.dilate(transition, kernel, iterations=1) > 0
+        else:
+            return matte
+
+        height, width = matte.shape[:2]
+        ys, xs = np.where(band)
+        if ys.size == 0 or xs.size == 0:
+            return matte
+        pad = 28 if self._variant == "replace" else 24
+        x0 = max(0, int(xs.min()) - pad)
+        y0 = max(0, int(ys.min()) - pad)
+        x1 = min(width, int(xs.max()) + pad + 1)
+        y1 = min(height, int(ys.max()) + pad + 1)
+
+        frame_roi = frame[y0:y1, x0:x1]
+        matte_roi = matte[y0:y1, x0:x1]
+        band_roi = band[y0:y1, x0:x1]
+
+        roi_h, roi_w = matte_roi.shape[:2]
+        target_size = max(128, self._runtime_target_size)
+        scale = min(1.0, float(target_size) / float(max(roi_h, roi_w)))
+        if scale < 1.0:
+            work_w = max(16, int(round(roi_w * scale)))
+            work_h = max(16, int(round(roi_h * scale)))
+            frame_work = cv2.resize(frame_roi, (work_w, work_h), interpolation=cv2.INTER_AREA)
+            matte_work = cv2.resize(matte_roi, (work_w, work_h), interpolation=cv2.INTER_LINEAR)
+        else:
+            frame_work = frame_roi
+            matte_work = matte_roi
+
+        rgb = cv2.cvtColor(frame_work, cv2.COLOR_BGRA2RGB).astype(np.float32) * (1.0 / 255.0)
+        channels = [rgb.transpose(2, 0, 1), matte_work[None, :, :]]
+        if self._input_channels >= 6:
+            trimap_work = self._build_trimap(matte_work)
+            band_work = self._build_band(matte_work, trimap_work)
+            channels.extend([trimap_work[None, :, :], band_work[None, :, :]])
+        tensor = np.concatenate(channels, axis=0)[None, ...].astype(np.float32)
+
+        try:
+            output = self._session.run([self._output_name], {self._input_name: tensor})[0]
+        except Exception as e:
+            print(f"[NV Broadcast] Learned {self._variant} refiner failed: {e}")
+            return matte
+
+        refined = np.clip(output[0, 0], 0.0, 1.0).astype(np.float32)
+        if refined.shape != matte_roi.shape:
+            refined = cv2.resize(refined, (roi_w, roi_h), interpolation=cv2.INTER_LINEAR)
+
+        max_delta = 0.12 if self._variant == "replace" else 0.10
+        clipped = np.clip(refined, matte_roi - max_delta, matte_roi + max_delta)
+        blend = 0.55 if self._variant == "replace" else 0.60
+        result = matte.copy()
+        result_roi = result[y0:y1, x0:x1]
+        result_roi[band_roi] = matte_roi[band_roi] * (1.0 - blend) + clipped[band_roi] * blend
+        result[result < 0.02] = 0.0
+        result[result > 0.985] = 1.0
+        return result.astype(np.float32)
+
+    def cleanup(self):
+        _release_session(self._session)
+        self._session = None
+
+
 # ─── Main VideoEffects Class ─────────────────────────────────────────────────
 
 class VideoEffects:
@@ -514,6 +816,7 @@ class VideoEffects:
         self._gpu_index = gpu_index
         self._initialized = False
         self._lock = threading.Lock()
+        self._state_lock = threading.Lock()
         self._quality = "quality"
         self._model_type = "rvm"
         self._backend = None
@@ -522,6 +825,10 @@ class VideoEffects:
         self._use_fused_kernel = False  # DocZeus/Killer mode
         self._edge_refine_enabled = False  # Edge refinement toggle
         self._edge_refiner = EdgeRefiner(gpu_index)
+        self._learned_refiners = {
+            "replace": _LearnedMatteRefiner(gpu_index, "replace"),
+            "remove": _LearnedMatteRefiner(gpu_index, "remove"),
+        }
         self._compositing = "cpu"
         self._cupy = None  # Lazy-loaded cupy module
         if compositing != "cpu":
@@ -540,11 +847,36 @@ class VideoEffects:
         self._green_bg = None
         self._frame_counter = 0
         self._cached_alpha = None
-        self._stable_alpha = None  # Extra-smoothed alpha for image replacement
+        self._prev_alpha = None  # Previous frame's alpha for temporal smoothing
+        self._stable_alpha = None  # Pre-tightened alpha for replacement smoothing
+        self._matte_version = 0
         self._skip_interval = 1
+        self._temporal_strength = 0.34  # EMA weight for temporal smoothing
 
         # Alpha refinement
         self._apply_edge_config(edge_config)
+        self._refresh_temporal_strength()
+
+    def reset_cached_mattes(self):
+        """Reset cached mattes after mode, resolution, or backend changes."""
+        with self._state_lock:
+            self._matte_version += 1
+            self._cached_alpha = None
+            self._prev_alpha = None
+            self._stable_alpha = None
+
+    def _matte_snapshot(self) -> tuple[np.ndarray | None, int]:
+        """Return the current cached alpha and its generation."""
+        with self._state_lock:
+            return self._cached_alpha, self._matte_version
+
+    def _commit_alpha(self, alpha: np.ndarray, matte_version: int) -> bool:
+        """Store an alpha mask only if matte state has not been invalidated."""
+        with self._state_lock:
+            if matte_version != self._matte_version:
+                return False
+            self._cached_alpha = alpha
+            return True
 
     @property
     def available(self) -> bool:
@@ -556,6 +888,8 @@ class VideoEffects:
 
     @enabled.setter
     def enabled(self, value: bool):
+        if value != self._bg_removal_enabled:
+            self.reset_cached_mattes()
         self._bg_removal_enabled = value
         if value and not self._initialized:
             self.initialize()
@@ -567,7 +901,10 @@ class VideoEffects:
     @mode.setter
     def mode(self, value: str):
         if value in ("blur", "replace", "remove"):
-            self._bg_mode = value
+            if value != self._bg_mode:
+                self._bg_mode = value
+                self._refresh_temporal_strength()
+                self.reset_cached_mattes()
 
     @property
     def model_type(self) -> str:
@@ -618,15 +955,19 @@ class VideoEffects:
         # Apply per-model frame skip interval
         model_info = MODELS[model_type]
         self._skip_interval = model_info.get("skip_interval", 1)
+        self._refresh_temporal_strength()
         if self._initialized:
             self._cleanup_backend()
-            # Keep _cached_alpha — it gets resized in composite_only if needed
             self.initialize()
 
     def set_background_image(self, image_path: str) -> bool:
         if not image_path or not os.path.exists(image_path):
             self._bg_image = None
             self._bg_image_path = ""
+            self._resized_bg = None
+            self._bg_resized = None
+            with self._state_lock:
+                self._stable_alpha = None
             return False
 
         # SVG support via librsvg (renders to raster at high quality)
@@ -644,6 +985,10 @@ class VideoEffects:
         self._bg_image = img
         self._bg_image_path = image_path
         self._frame_size = None
+        self._resized_bg = None
+        self._bg_resized = None
+        with self._state_lock:
+            self._stable_alpha = None
         return True
 
     @staticmethod
@@ -688,12 +1033,6 @@ class VideoEffects:
             if self._model_type == "rvm":
                 backend = _RVMBackend(self._gpu_index)
                 msg = backend.load(self._quality, use_tensorrt=self._use_tensorrt)
-                if self._use_tensorrt:
-                    active = backend.session.get_providers()[0]
-                    if "Tensorrt" in active:
-                        msg += " [TensorRT]"
-                    else:
-                        msg += " [TRT fallback to CUDA]"
             else:
                 backend = _SingleFrameBackend(self._gpu_index, self._model_type)
                 msg = backend.load()
@@ -701,8 +1040,6 @@ class VideoEffects:
             with self._lock:
                 self._backend = backend
                 self._initialized = True
-                # Keep _cached_alpha across model switches — composite_only
-                # handles size mismatch via resize. Prevents effects flash-off.
 
             print(f"[NV Broadcast] {msg}")
             return True
@@ -715,20 +1052,261 @@ class VideoEffects:
         """Run inference to update the cached alpha mask. Call from background thread."""
         if not self._bg_removal_enabled or not self._initialized:
             return
+        _, matte_version = self._matte_snapshot()
 
         frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
         if not frame.flags.writeable:
             frame = frame.copy()
 
-        alpha = self._run_inference(frame, width, height)
+        alpha = self._run_inference(frame, width, height, matte_version)
         if alpha is not None:
-            self._cached_alpha = alpha
+            self._commit_alpha(alpha, matte_version)
+
+    def _temporal_smooth(self, alpha: np.ndarray, matte_version: int | None = None) -> np.ndarray:
+        """Motion-adaptive temporal EMA to eliminate edge jitter.
+
+        Still: strong smoothing eliminates flicker completely.
+        Moving: light smoothing so edges track movement.
+        Hair/edges: always get extra smoothing since they jitter most.
+        """
+        with self._state_lock:
+            if matte_version is not None and matte_version != self._matte_version:
+                return alpha
+            prev = self._prev_alpha
+        if prev is None or prev.shape != alpha.shape:
+            with self._state_lock:
+                if matte_version is not None and matte_version != self._matte_version:
+                    return alpha
+                self._prev_alpha = alpha.copy()
+            return alpha
+
+        # Per-pixel motion and global motion
+        diff = np.abs(alpha - prev)
+        global_motion = diff.mean()
+
+        # Motion gate: inversely proportional to movement
+        # Still → 1.0, fast motion → 0.15 (never zero — always some smoothing)
+        motion_gate = np.clip(1.0 - global_motion * 20.0, 0.15, 1.0)
+        base_w = self._temporal_strength * motion_gate
+
+        if self._bg_mode == "remove":
+            base_scale = 0.12
+            edge_scale = 1.6
+            fringe_scale = 2.2
+            max_weight = 0.55
+            fringe_min, fringe_max = 0.05, 0.22
+        elif self._bg_mode == "replace":
+            base_scale = 0.16
+            edge_scale = 2.0
+            fringe_scale = 2.8
+            max_weight = 0.62
+            fringe_min, fringe_max = 0.03, 0.26
+        else:
+            base_scale = 0.2
+            edge_scale = 2.5
+            fringe_scale = 3.5
+            max_weight = 0.7
+            fringe_min, fringe_max = 0.03, 0.30
+
+        # Three-tier smoothing weights:
+        # Edge/transition (0.03-0.97): strongest — these jitter most
+        # Core (>0.97): minimal — solid person
+        # Background (<0.03): minimal — stable already
+        edge_mask = (alpha > 0.03) & (alpha < 0.97)
+        weight = np.full_like(alpha, base_w * base_scale, dtype=np.float32)
+        weight[edge_mask] = base_w * edge_scale
+        # Thin fringe (0.03-0.3): extra heavy smoothing — most jittery zone
+        thin_fringe = (alpha > fringe_min) & (alpha < fringe_max)
+        weight[thin_fringe] = base_w * fringe_scale
+        # Cap weight to prevent ghosting
+        np.clip(weight, 0, max_weight, out=weight)
+
+        # Asymmetric: dropping alpha (person leaving an area) gets less
+        # smoothing to avoid ghost trails
+        dropping = alpha < prev - 0.05
+        weight[dropping] *= 0.12 if self._bg_mode == "remove" else 0.2
+
+        result = weight * prev + (1.0 - weight) * alpha
+        with self._state_lock:
+            if matte_version is not None and matte_version != self._matte_version:
+                return alpha
+            self._prev_alpha = result.copy()
+        return result
+
+    def _refresh_temporal_strength(self) -> None:
+        """Tune temporal smoothing for the active model/engine/effect mode."""
+        if self._model_type == "rvm":
+            if self._use_tensorrt and self._use_fused_kernel:
+                strength = 0.42  # Killer: fastest, needs extra stabilization
+            elif self._use_tensorrt:
+                strength = 0.39  # Zeus: low-res inference, still needs help
+            elif self._use_fused_kernel:
+                strength = 0.33  # DocZeus: quality path, keep edges tighter
+            else:
+                strength = 0.34
+        else:
+            strength = 0.20  # Single-frame models already have their own EMA
+
+        if self._bg_mode == "remove":
+            strength -= 0.07
+        elif self._bg_mode == "replace":
+            strength -= 0.02
+
+        self._temporal_strength = float(np.clip(strength, 0.12, 0.45))
+
+    def _replacement_matte(self, alpha: np.ndarray,
+                           matte_version: int | None = None) -> np.ndarray:
+        """Stabilize and slightly tighten the matte for image replacement.
+
+        Blur mode can tolerate a softer edge because the source and destination
+        backgrounds are visually similar. Replacement mode cannot; the fringe is
+        immediately visible as a halo. This path keeps replacement mattes more
+        stable without smearing motion.
+        """
+        with self._state_lock:
+            if matte_version is not None and matte_version != self._matte_version:
+                return alpha
+            prev = self._stable_alpha
+        if prev is None or prev.shape != alpha.shape:
+            stable = alpha.copy()
+        else:
+            diff = np.abs(alpha - prev)
+            global_motion = diff.mean()
+            motion_gate = np.clip(1.0 - global_motion * 18.0, 0.2, 1.0)
+
+            weight = np.full_like(alpha, 0.10 * motion_gate, dtype=np.float32)
+            edge_mask = (alpha > 0.02) & (alpha < 0.98)
+            fringe_mask = (alpha > 0.02) & (alpha < 0.35)
+            weight[edge_mask] = 0.22 * motion_gate
+            weight[fringe_mask] = 0.32 * motion_gate
+
+            dropping = alpha < prev - 0.04
+            weight[dropping] *= 0.35
+            np.clip(weight, 0.0, 0.45, out=weight)
+
+            stable = weight * prev + (1.0 - weight) * alpha
+
+        matte = np.clip((stable - 0.04) / 0.96, 0.0, 1.0)
+        matte[matte < 0.012] = 0.0
+        matte[matte > 0.985] = 1.0
+
+        matte_u8 = np.clip(matte * 255.0, 0, 255).astype(np.uint8)
+        _, binary = cv2.threshold(matte_u8, 68, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            fill_mask = np.zeros_like(matte_u8)
+            largest = max(contours, key=cv2.contourArea)
+            cv2.drawContours(fill_mask, [largest], -1, 255, cv2.FILLED)
+            holes = (fill_mask == 255) & (matte_u8 < 72)
+            matte_u8[holes] = 210
+
+        if min(matte_u8.shape[:2]) >= 8:
+            matte_u8 = cv2.GaussianBlur(matte_u8, (3, 3), 0)
+        matte = matte_u8.astype(np.float32) * (1.0 / 255.0)
+
+        mid = (matte > 0.04) & (matte < 0.55)
+        matte[mid] = np.clip((matte[mid] - 0.035) / 0.965, 0.0, 1.0)
+        fringe = (matte > 0.0) & (matte < 0.18)
+        matte[fringe] *= 0.72
+        solid = stable > 0.86
+        matte[solid] = np.maximum(matte[solid], 0.995)
+        matte[matte < 0.10] = 0.0
+
+        with self._state_lock:
+            if matte_version is not None and matte_version != self._matte_version:
+                return alpha
+            self._stable_alpha = stable.copy()
+        return matte
+
+    def _edge_aware_replace_matte(self, frame: np.ndarray, matte: np.ndarray) -> np.ndarray:
+        """Sharpen replace-mode transitions where the camera frame has a real edge.
+
+        The model output is intentionally smoothed for stability, which leaves a
+        soft halo around hair, glasses, and shoulders when compositing onto a
+        very different background. Use the frame luminance gradient as a local
+        confidence signal and only harden the transition band where the image
+        itself supports a boundary.
+        """
+        if matte is None or min(matte.shape[:2]) < 8:
+            return matte
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY).astype(np.float32) * (1.0 / 255.0)
+        gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+        grad = cv2.magnitude(gx, gy)
+        grad = cv2.GaussianBlur(grad, (3, 3), 0)
+        edge_strength = np.clip((grad - 0.03) / 0.20, 0.0, 1.0)
+
+        transition = (matte > 0.05) & (matte < 0.95)
+        if not transition.any():
+            return matte
+
+        focus = edge_strength * transition.astype(np.float32)
+        if float(focus.max()) < 0.08:
+            return matte
+
+        eps = 1e-4
+        clipped = np.clip(matte, eps, 1.0 - eps)
+        logits = np.log(clipped / (1.0 - clipped))
+        sharpened = 1.0 / (1.0 + np.exp(-(logits * (1.0 + 1.75 * focus))))
+
+        blend = np.clip(focus * 0.85, 0.0, 0.85)
+        result = matte * (1.0 - blend) + sharpened * blend
+
+        weak_edge_fringe = (result > 0.0) & (result < 0.16) & (edge_strength < 0.18)
+        result[weak_edge_fringe] *= 0.65
+        result[result < 0.10] = 0.0
+        result[result > 0.985] = 1.0
+        return result.astype(np.float32)
+
+    def _greenscreen_matte(self, frame: np.ndarray, alpha: np.ndarray,
+                           matte_version: int | None = None) -> np.ndarray:
+        """Build a tighter matte for green-screen output.
+
+        Remove mode is effectively a chroma-key source. It should sacrifice a
+        little feathering if needed to avoid a muddy dark halo against pure
+        green. Start from the replace matte, then harden weak fringe regions
+        more aggressively.
+        """
+        matte = self._replacement_matte(alpha, matte_version)
+        matte = self._edge_aware_replace_matte(frame, matte)
+
+        matte_u8 = np.clip(matte * 255.0, 0, 255).astype(np.uint8)
+        if min(matte_u8.shape[:2]) >= 8:
+            matte_u8 = cv2.GaussianBlur(matte_u8, (3, 3), 0)
+        matte = matte_u8.astype(np.float32) * (1.0 / 255.0)
+
+        soft = (matte > 0.0) & (matte < 0.55)
+        matte[soft] = np.clip((matte[soft] - 0.08) / 0.92, 0.0, 1.0)
+
+        weak = (matte > 0.0) & (matte < 0.22)
+        matte[weak] *= 0.45
+        matte[matte < 0.12] = 0.0
+        matte[matte > 0.96] = 1.0
+        return matte.astype(np.float32)
+
+    def _apply_learned_refiner(self, variant: str, frame: np.ndarray, matte: np.ndarray) -> np.ndarray:
+        refiner = self._learned_refiners.get(variant)
+        if refiner is None or not refiner.available:
+            return matte
+        return refiner.refine(frame, matte)
+
+    def _final_matte(self, frame: np.ndarray, alpha: np.ndarray,
+                     matte_version: int | None = None) -> np.ndarray:
+        if self._bg_mode == "replace":
+            matte = self._replacement_matte(alpha, matte_version)
+            matte = self._edge_aware_replace_matte(frame, matte)
+            return self._apply_learned_refiner("replace", frame, matte)
+        if self._bg_mode == "remove":
+            matte = self._greenscreen_matte(frame, alpha, matte_version)
+            return self._apply_learned_refiner("remove", frame, matte)
+        return alpha
 
     def composite_only(self, frame_data: bytes, width: int, height: int) -> bytes:
         """Composite current frame with cached alpha. Fast — no inference."""
         if not self._bg_removal_enabled or not self._initialized:
             return frame_data
-        alpha = self._cached_alpha
+        alpha, matte_version = self._matte_snapshot()
         if alpha is None:
             return frame_data
 
@@ -740,14 +1318,17 @@ class VideoEffects:
         if not frame.flags.writeable:
             frame = frame.copy()
 
-        return self._composite(frame, alpha, width, height)
+        return self._composite(frame, alpha, width, height, matte_version)
 
     def _composite(self, frame: np.ndarray, alpha: np.ndarray,
-                   width: int, height: int) -> bytes:
+                   width: int, height: int,
+                   matte_version: int | None = None) -> bytes:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
         # Ensure alpha matches frame dimensions
         if alpha.shape[0] != height or alpha.shape[1] != width:
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
+
+        alpha = self._final_matte(frame, alpha, matte_version)
 
         # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass
         if self._use_fused_kernel and self._cupy is not None:
@@ -773,23 +1354,31 @@ class VideoEffects:
             frame = frame.copy()
 
         self._frame_counter += 1
+        alpha, matte_version = self._matte_snapshot()
 
         run_inference = (
             self._skip_interval <= 1
             or self._frame_counter % self._skip_interval == 0
-            or self._cached_alpha is None
+            or alpha is None
         )
         if run_inference:
-            alpha = self._run_inference(frame, width, height)
+            alpha = self._run_inference(frame, width, height, matte_version)
             if alpha is not None:
-                self._cached_alpha = alpha
-            elif self._cached_alpha is None:
+                if not self._commit_alpha(alpha, matte_version):
+                    alpha, matte_version = self._matte_snapshot()
+            elif alpha is None:
+                alpha, matte_version = self._matte_snapshot()
+            if alpha is None:
                 return frame_data
-        alpha = self._cached_alpha
+        elif alpha is None:
+            alpha, matte_version = self._matte_snapshot()
+            if alpha is None:
+                return frame_data
 
-        return self._composite(frame, alpha, width, height)
+        return self._composite(frame, alpha, width, height, matte_version)
 
-    def _run_inference(self, frame: np.ndarray, width: int, height: int) -> np.ndarray | None:
+    def _run_inference(self, frame: np.ndarray, width: int, height: int,
+                       matte_version: int | None = None) -> np.ndarray | None:
         """Run the active backend's inference and refine the alpha."""
         with self._lock:
             backend = self._backend
@@ -799,7 +1388,9 @@ class VideoEffects:
         try:
             alpha = backend.infer(frame, width, height)
             if alpha is not None:
-                # Skip full-res refinement if already done at low-res (Zeus/Killer)
+                # Refine first, then temporal smooth on the FINAL output.
+                # RVM's raw edges jitter 6-8% — smoothing the final result
+                # directly stabilizes what the user sees.
                 if not getattr(backend, '_lowres_refined', False):
                     alpha = self._refine_alpha(alpha)
                 # Edge refine: second pass at 720p for Zeus/Killer modes
@@ -807,8 +1398,8 @@ class VideoEffects:
                     if not self._edge_refiner._initialized:
                         self._edge_refiner.initialize(self._quality)
                     raw_refined = self._edge_refiner.refine(frame, alpha, width, height)
-                    # Apply same refinement to the refiner output for consistency
                     alpha = self._refine_alpha(raw_refined)
+                alpha = self._temporal_smooth(alpha, matte_version)
             return alpha
         except Exception as e:
             print(f"[NV Broadcast] Inference error: {e}")
@@ -849,69 +1440,93 @@ class VideoEffects:
 
     def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
+        is_replace = self._bg_mode == "replace"
 
-        # 1a. Morphological close: fill small holes in hair/fine detail
-        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-        a8 = cv2.morphologyEx(a8, cv2.MORPH_CLOSE, close_kernel)
+        # 1. Small close: fill tiny holes in hair/fine detail
+        close_sm = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        a8 = cv2.morphologyEx(a8, cv2.MORPH_CLOSE, close_sm)
 
-        # 1b. Fill large interior holes (e.g. leg in front of body).
-        # Find the person contour and fill everything inside it.
-        # This prevents body parts from being classified as background
-        # when they overlap the torso/body silhouette.
-        _, binary = cv2.threshold(a8, 30, 255, cv2.THRESH_BINARY)
+        # 2. Half-resolution close: keep replacement tighter, keep blur/remove
+        #    more forgiving where wide feathering hides seams.
+        h, w = a8.shape[:2]
+        small = cv2.resize(a8, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+        close_size = 11 if is_replace else 25
+        close_lg = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (close_size, close_size)
+        )
+        small = cv2.morphologyEx(small, cv2.MORPH_CLOSE, close_lg)
+        a8 = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+
+        # 3. Fill interior holes. Replacement mode is intentionally more
+        #    conservative so we do not inflate the subject outline.
+        threshold = 70 if is_replace else 30
+        fill_cutoff = 55 if is_replace else 100
+        fill_value = 180 if is_replace else 220
+        _, binary = cv2.threshold(a8, threshold, 255, cv2.THRESH_BINARY)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
-            # Fill holes inside the largest contour (the person)
             largest = max(contours, key=cv2.contourArea)
             fill_mask = np.zeros_like(a8)
             cv2.drawContours(fill_mask, [largest], -1, 255, cv2.FILLED)
-            # Only fill where alpha was low inside the contour (holes)
-            holes = (fill_mask == 255) & (a8 < 100)
-            a8[holes] = 180  # Fill with high-ish alpha, not max (keeps edge natural)
+            holes = (fill_mask == 255) & (a8 < fill_cutoff)
+            a8[holes] = fill_value
 
-        # 2. Dilate: expand mask slightly to cover edge fringe
-        if self._dilate_size > 0:
-            a8 = cv2.dilate(a8, self._dilate_kernel, iterations=1)
+        if is_replace:
+            # 4. Tight dilate: replacement exposes halos immediately, so avoid
+            #    expanding the person more than needed.
+            dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            a8 = cv2.dilate(a8, dilate_k, iterations=1)
 
-        # 3. Two-pass blur: wide Gaussian for smooth feathering,
-        #    then bilateral to preserve real edges while smoothing noise.
-        #    This creates a natural gradient at edges instead of hard steps.
-        a8 = cv2.GaussianBlur(a8, (9, 9), 0)
-        a8 = cv2.bilateralFilter(a8, d=9, sigmaColor=60, sigmaSpace=9)
+            # 5. Keep the transition zone narrow. Wide feathering looks fine
+            #    in blur mode but causes a visible cardboard halo in replace.
+            a8 = cv2.GaussianBlur(a8, (7, 7), 0)
+            a8 = cv2.GaussianBlur(a8, (5, 5), 0)
 
-        # 4. Gentler sigmoid: shapes the transition without making it binary.
-        #    Use strength * 0.6 so edges stay soft and natural.
-        t = a8.astype(np.float32) * (1.0 / 255.0)
-        sig = self._sigmoid_strength * 0.6  # Softer than user's raw value
-        mid = self._sigmoid_midpoint
-        if sig > 0:
-            np.subtract(t, mid, out=t)
-            np.multiply(t, -sig, out=t)
-            np.exp(t, out=t)
-            np.add(t, 1.0, out=t)
-            np.reciprocal(t, out=t)
+            # 6. Moderate-strong sigmoid
+            t = a8.astype(np.float32) * (1.0 / 255.0)
+            sig = self._sigmoid_strength * 0.55
+            mid = self._sigmoid_midpoint
+            if sig > 0:
+                t = 1.0 / (1.0 + np.exp(-sig * (t - mid)))
 
-        # 5. Selective matte hardening: only harden where alpha is solidly
-        #    person (>0.5). Below that, pixels contain webcam background
-        #    color contamination — hardening them creates white halos.
-        result = t
-        inner = result > 0.5
-        result[inner] = np.power(result[inner], 0.5)
-        # Outer fringe (0.1-0.5): suppress — these contain webcam background
-        outer = (result > 0.1) & (result <= 0.5)
-        result[outer] = np.power(result[outer], 1.3)  # Push down (0.3→0.22, 0.5→0.41)
-        # Thin fringe (<0.1): suppress hard to eliminate white halo
-        thin = (result > 0.01) & (result <= 0.1)
-        result[thin] = result[thin] * 0.3
+            # 7. Core solidification
+            result = t
+            core = result > 0.78
+            result[core] = 1.0 - (1.0 - result[core]) ** 2.2
+            result[result < 0.03] = 0.0
 
-        # 6. Final feathering: smooth the hardened edge for a natural transition
-        r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
-        r_u8 = cv2.GaussianBlur(r_u8, (7, 7), 0)
-        result = r_u8.astype(np.float32) * (1.0 / 255.0)
+            # 8. Final feathering
+            r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
+            r_u8 = cv2.GaussianBlur(r_u8, (5, 5), 0)
+            result = r_u8.astype(np.float32) * (1.0 / 255.0)
+        else:
+            # 4. Wide dilate for blur/remove: 2 passes with 7x7
+            dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+            a8 = cv2.dilate(a8, dilate_k, iterations=2)
 
-        # 7. Core protection: push high-alpha firmly toward 1.0
-        high = result > 0.6
-        result[high] = 1.0 - (1.0 - result[high]) ** 2.0
+            # 5. Three-pass Gaussian: wide, smooth gradient
+            a8 = cv2.GaussianBlur(a8, (17, 17), 0)
+            a8 = cv2.GaussianBlur(a8, (11, 11), 0)
+            a8 = cv2.GaussianBlur(a8, (7, 7), 0)
+
+            # 6. Moderate sigmoid
+            t = a8.astype(np.float32) * (1.0 / 255.0)
+            sig = self._sigmoid_strength * 0.45
+            mid = self._sigmoid_midpoint
+            if sig > 0:
+                t = 1.0 / (1.0 + np.exp(-sig * (t - mid)))
+
+            # 7. Core solidification + noise suppression
+            result = t
+            core = result > 0.75
+            result[core] = 1.0 - (1.0 - result[core]) ** 2.0
+            result[result < 0.02] = 0.0
+
+            # 8. Final feathering
+            r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
+            r_u8 = cv2.GaussianBlur(r_u8, (11, 11), 0)
+            result = r_u8.astype(np.float32) * (1.0 / 255.0)
+
         return result
 
     # ─── Fused CUDA Kernel (DocZeus/Killer) ─────────────────────────────
@@ -986,6 +1601,7 @@ class VideoEffects:
         """
         self._use_tensorrt = use_tensorrt
         self._use_fused_kernel = use_fused_kernel
+        self._refresh_temporal_strength()
         if self._backend and hasattr(self._backend, '_MAX_INFER_HEIGHT'):
             if use_tensorrt and use_fused_kernel:
                 new_h = 360   # Killer
@@ -999,6 +1615,7 @@ class VideoEffects:
                 # Only reset recurrent states if resolution actually changed
                 if old_h != new_h:
                     self._backend.reset_state()
+                    self.reset_cached_mattes()
                     print(f"[NV Broadcast] Inference resolution: {old_h}p → {new_h}p")
 
     def set_compositing(self, backend: str):
@@ -1057,7 +1674,26 @@ class VideoEffects:
             self._green_bg = np.zeros((height, width, 4), dtype=np.uint8)
             self._green_bg[:, :, 1] = 255
             self._green_bg[:, :, 3] = 255
+        frame = self._prepare_greenscreen_foreground(frame, alpha)
         return self._blend(frame, self._green_bg, alpha)
+
+    def _clean_color_reference(self, fg: np.ndarray, alpha: np.ndarray,
+                               solid_threshold: float = 0.88) -> np.ndarray:
+        """Estimate clean foreground colors from solid subject pixels."""
+        # Create a "clean color" reference by blurring only solid person pixels.
+        # Process at half resolution for speed (32ms → ~4ms).
+        h, w = fg.shape[:2]
+        hw, hh = w // 2, h // 2
+        fg_small = cv2.resize(fg, (hw, hh), interpolation=cv2.INTER_AREA)
+        alpha_small = cv2.resize(alpha, (hw, hh), interpolation=cv2.INTER_AREA)
+        solid_2d = (alpha_small > solid_threshold).astype(np.float32)
+        solid_3d = solid_2d[:, :, np.newaxis]
+        weighted_fg = fg_small.astype(np.float32) * solid_3d
+        weighted_sum = cv2.GaussianBlur(weighted_fg, (11, 11), 0)
+        wt_2d = cv2.GaussianBlur(solid_2d, (11, 11), 0)
+        wt = np.maximum(wt_2d[:, :, np.newaxis], 0.001)
+        clean_small = (weighted_sum / wt).astype(np.uint8)
+        return cv2.resize(clean_small, (w, h), interpolation=cv2.INTER_LINEAR)
 
     def _despill_fringe(self, fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
         """Remove webcam background color bleeding into hair/edge fringe.
@@ -1066,23 +1702,26 @@ class VideoEffects:
         the alpha, the more contaminated. Strategy: pull fringe pixel colors
         toward nearby solid person pixels using a weighted blur.
         """
-        fringe = (alpha > 0.02) & (alpha < 0.6)
+        fringe = (alpha > 0.03) & (alpha < 0.35)
         if not fringe.any():
             return fg
         result = fg.copy()
-
-        # Create a "clean color" reference by blurring only solid person pixels
-        solid_mask = (alpha > 0.8).astype(np.float32)[:, :, np.newaxis]
-        # Weighted blur: solid pixels contribute, fringe pixels don't
-        weighted_fg = fg.astype(np.float32) * solid_mask
-        weighted_sum = cv2.GaussianBlur(weighted_fg, (21, 21), 0)
-        weight_total = cv2.GaussianBlur(solid_mask, (21, 21), 0)
-        weight_total = np.maximum(weight_total, 0.001)  # Avoid division by zero
-        clean_color = (weighted_sum / weight_total).astype(np.uint8)
+        clean_color = self._clean_color_reference(fg, alpha, solid_threshold=0.88)
 
         # Blend fringe pixels toward clean color based on how contaminated they are
-        # alpha=0.05 → 90% clean color, alpha=0.5 → 20% clean color
-        blend = np.clip(1.0 - alpha * 2.0, 0.0, 0.9)
+        # alpha=0.03 → ~45% clean color, alpha=0.35 → 0%
+        color_delta = np.mean(
+            np.abs(
+                result[:, :, :3].astype(np.int16) - clean_color[:, :, :3].astype(np.int16)
+            ),
+            axis=2,
+        )
+        contamination = color_delta > 10.0
+        fringe &= contamination
+        if not fringe.any():
+            return result
+
+        blend = np.clip((0.35 - alpha) / 0.32, 0.0, 1.0) * 0.45
         blend_4ch = blend[:, :, np.newaxis].astype(np.float32)
         fringe_4ch = fringe[:, :, np.newaxis]
 
@@ -1095,6 +1734,41 @@ class VideoEffects:
             result,
         )
         return result
+
+    def _prepare_greenscreen_foreground(self, fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+        """Clean fringe colors more aggressively for green-screen output."""
+        result = self._despill_fringe(fg, alpha)
+        fringe = (alpha > 0.02) & (alpha < 0.55)
+        if not fringe.any():
+            return result
+
+        clean_color = self._clean_color_reference(result, alpha, solid_threshold=0.9)
+        color_delta = np.mean(
+            np.abs(
+                result[:, :, :3].astype(np.int16) - clean_color[:, :, :3].astype(np.int16)
+            ),
+            axis=2,
+        )
+        contamination = color_delta > 6.0
+        fringe &= contamination
+        if not fringe.any():
+            return result
+
+        result_f = result.astype(np.float32)
+        clean_f = clean_color.astype(np.float32)
+        alpha_f = alpha.astype(np.float32)
+        luma = cv2.cvtColor(result[:, :, :3], cv2.COLOR_BGR2GRAY).astype(np.float32)
+        clean_luma = cv2.cvtColor(clean_color[:, :, :3], cv2.COLOR_BGR2GRAY).astype(np.float32)
+
+        blend = np.clip((0.55 - alpha_f) / 0.50, 0.0, 1.0) * 0.78
+        dark_halo = fringe & (luma + 10.0 < clean_luma)
+        blend[dark_halo] = np.maximum(blend[dark_halo], 0.88)
+
+        blend_4ch = blend[:, :, np.newaxis]
+        fringe_4ch = fringe[:, :, np.newaxis]
+        repaired = np.clip(result_f * (1.0 - blend_4ch) + clean_f * blend_4ch, 0, 255)
+
+        return np.where(fringe_4ch, repaired.astype(np.uint8), result)
 
     def _apply_replace(self, frame: np.ndarray, alpha: np.ndarray,
                        width: int, height: int) -> np.ndarray:
@@ -1127,7 +1801,10 @@ class VideoEffects:
                 self._backend.cleanup()
             self._backend = None
             self._initialized = False
+        self.reset_cached_mattes()
 
     def cleanup(self):
         self._cleanup_backend()
         self._edge_refiner.cleanup()
+        for refiner in self._learned_refiners.values():
+            refiner.cleanup()

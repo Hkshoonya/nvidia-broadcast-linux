@@ -34,6 +34,7 @@ class VideoPipeline:
         self._height: int = DEFAULT_HEIGHT
         self._fps: int = DEFAULT_FPS
         self._output_format: str = "YUY2"
+        self._prefer_hw_decode = False
         self._effects_fps: int = 30  # Can be reduced by performance profile
         self._effect_callback = None
         self._alpha_callback = None
@@ -50,14 +51,17 @@ class VideoPipeline:
         self._last_effect_output = None
         self._pending_frame = None       # Latest raw frame for effects thread
         self._effects_busy = False       # True while effects thread is processing
+        self._alpha_worker_enabled = True
         self._recording = False
         self._recording_pipeline = None
         self._rec_appsrc = None
+        self._paused = False
+        self._frozen_frame = None
 
     def configure(self, source_device, vcam_device,
                   width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT,
                   fps=DEFAULT_FPS, output_format="YUY2",
-                  effects_fps=30):
+                  effects_fps=30, prefer_hw_decode: bool = False):
         self._source_device = source_device
         self._vcam_device = vcam_device
         self._width = width
@@ -65,6 +69,28 @@ class VideoPipeline:
         self._fps = fps
         self._output_format = output_format
         self._effects_fps = min(effects_fps, fps)
+        self._prefer_hw_decode = prefer_hw_decode
+
+    def _select_decoder(self, effects_mode: bool) -> str:
+        """Choose camera decode path for the active mode.
+
+        Killer mode is intended to be the one explicit hardware-decode path.
+        Other modes should remain stable and comparable, so they stay on the
+        software JPEG path unless hardware decode was specifically requested.
+        """
+        from nvbroadcast.core.platform import IS_MACOS
+
+        if IS_MACOS:
+            return "videoconvert"
+
+        if self._prefer_hw_decode and self._has_gst_element("nvjpegdec"):
+            if effects_mode:
+                return "nvjpegdec ! cudadownload ! videoconvert"
+            return "nvjpegdec ! cudadownload"
+
+        if effects_mode:
+            return "jpegdec ! videoconvert"
+        return "jpegdec"
 
     def set_effect_callback(self, callback):
         self._effect_callback = callback
@@ -73,8 +99,25 @@ class VideoPipeline:
         """Set callback for background alpha inference (heavy work)."""
         self._alpha_callback = callback
 
+    def set_alpha_worker_enabled(self, enabled: bool):
+        """Enable/disable background alpha inference worker.
+
+        When inline inference is active, alpha updates must not run in parallel
+        against the same cached matte or replacement edges will fight themselves.
+        """
+        self._alpha_worker_enabled = enabled
+
     def set_preview_callback(self, callback):
         self._preview_callback = callback
+
+    def set_paused(self, paused: bool):
+        """Freeze/unfreeze video output. Camera stays on but output freezes."""
+        self._paused = paused
+        if paused:
+            with self._lock:
+                self._frozen_frame = self._latest_frame
+        else:
+            self._frozen_frame = None
 
     def set_effects_active(self, active: bool):
         """Switch between passthrough (fast) and effects (processing) mode."""
@@ -134,13 +177,7 @@ class VideoPipeline:
             self._source_device, self._width, self._height, self._fps
         )
 
-        if IS_MACOS:
-            # macOS: avfvideosrc outputs raw video, no JPEG decode needed
-            decoder = "videoconvert"
-        elif self._has_gst_element("nvjpegdec"):
-            decoder = "nvjpegdec ! cudadownload"
-        else:
-            decoder = "jpegdec"
+        decoder = self._select_decoder(effects_mode=False)
 
         self._pipeline = Gst.parse_launch(
             f"{camera_src} ! "
@@ -164,12 +201,7 @@ class VideoPipeline:
             self._source_device, self._width, self._height, self._fps
         )
 
-        if IS_MACOS:
-            decoder = "videoconvert"
-        elif self._has_gst_element("nvjpegdec"):
-            decoder = "nvjpegdec ! cudadownload ! videoconvert"
-        else:
-            decoder = "jpegdec ! videoconvert"
+        decoder = self._select_decoder(effects_mode=True)
 
         # No videorate — frame throttling is done in Python (_on_effects_sample)
         # so mode/profile changes never require a pipeline restart.
@@ -235,6 +267,10 @@ class VideoPipeline:
         if not sample:
             return Gst.FlowReturn.OK
 
+        # Paused: keep draining the appsink but don't update the frame
+        if self._paused:
+            return Gst.FlowReturn.OK
+
         buf = sample.get_buffer()
         ok, info = buf.map(Gst.MapFlags.READ)
         if not ok:
@@ -285,8 +321,19 @@ class VideoPipeline:
 
         self._frame_count += 1
 
+        # Paused: push frozen frame, skip all processing
+        if self._paused and self._frozen_frame:
+            output = self._frozen_frame
+            if self._vcam_enabled and self._running and self._vcam_appsrc:
+                vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
+                vcam_buf.fill(0, output)
+                vcam_buf.pts = buf_pts
+                vcam_buf.duration = buf_duration
+                self._vcam_appsrc.emit("push-buffer", vcam_buf)
+            return Gst.FlowReturn.OK
+
         # Background: kick off alpha inference (heavy, non-blocking)
-        if self._alpha_callback and not self._effects_busy:
+        if self._alpha_worker_enabled and self._alpha_callback and not self._effects_busy:
             run_inference = True
             if self._effects_fps < self._fps:
                 self._throttle_acc += 1.0 - (self._effects_fps / self._fps)

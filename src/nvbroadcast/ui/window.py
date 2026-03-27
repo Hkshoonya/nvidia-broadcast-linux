@@ -23,6 +23,8 @@ from nvbroadcast.video.virtual_camera import (
     list_camera_devices, list_camera_modes,
     get_firefox_profiles, is_firefox_pipewire_disabled, set_firefox_pipewire,
 )
+from nvbroadcast.core.platform import has_tensorrt_runtime
+from nvbroadcast.core.resources import find_app_icon
 
 
 def _collapsible_card(title: str, content: Gtk.Widget, expanded: bool = True) -> Gtk.Box:
@@ -165,6 +167,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                                tooltip_text="About")
         about_btn.connect("clicked", self._show_about)
         header.pack_end(about_btn)
+
+        self._update_url = ""
+        self._update_btn = Gtk.Button(label="Update Available")
+        self._update_btn.add_css_class("suggested-action")
+        self._update_btn.set_visible(False)
+        self._update_btn.set_tooltip_text("Open the latest release download page")
+        self._update_btn.connect("clicked", self._open_update_release)
+        header.pack_end(self._update_btn)
 
         gpu_btn = Gtk.MenuButton(icon_name="applications-graphics-symbolic",
                                  tooltip_text="GPU Information")
@@ -366,17 +376,23 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         from nvbroadcast.core.config import detect_compositing_backends
         backends = detect_compositing_backends()
         has_cuda = backends.get("cupy", False)
+        has_trt = has_tensorrt_runtime()
 
         self._mode_devices = []
         if has_cuda:
-            self._mode_devices.append({"name": "Killer - NVDEC + TensorRT + Fused CUDA", "device": "killer"})
-            self._mode_devices.append({"name": "Zeus - TensorRT Inference", "device": "zeus"})
-            self._mode_devices.append({"name": "DocZeus - Fused CUDA Kernel", "device": "doczeus"})
-            self._mode_devices.append({"name": "CUDA - Max Quality", "device": "cuda_max"})
+            killer_label = "Killer - Fastest GPU Mode"
+            zeus_label = "Zeus - Fast GPU Mode"
+            if not has_trt:
+                killer_label += " (TensorRT unavailable)"
+                zeus_label += " (TensorRT unavailable)"
+            self._mode_devices.append({"name": "DocZeus - Best Quality GPU", "device": "doczeus"})
+            self._mode_devices.append({"name": "CUDA - High Quality", "device": "cuda_max"})
             self._mode_devices.append({"name": "CUDA - Balanced", "device": "cuda_balanced"})
-            self._mode_devices.append({"name": "CUDA - Performance", "device": "cuda_perf"})
-        self._mode_devices.append({"name": "CPU - Quality", "device": "cpu_quality"})
-        self._mode_devices.append({"name": "CPU - Light", "device": "cpu_light"})
+            self._mode_devices.append({"name": zeus_label, "device": "zeus"})
+            self._mode_devices.append({"name": killer_label, "device": "killer"})
+            self._mode_devices.append({"name": "CUDA - Fast", "device": "cuda_perf"})
+        self._mode_devices.append({"name": "CPU - High Quality", "device": "cpu_quality"})
+        self._mode_devices.append({"name": "CPU - Fast", "device": "cpu_light"})
         self._mode_devices.append({"name": "CPU - Low End", "device": "cpu_low"})
 
         self._profile_selector = DeviceSelector("Mode")
@@ -385,7 +401,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Map current config to the right index
         comp = self._app.config.compositing
         prof = self._app.config.performance_profile
-        current_key = self._profile_and_comp_to_mode(prof, comp)
+        current_key = self._app.config.mode_key or self._profile_and_comp_to_mode(prof, comp)
         for i, d in enumerate(self._mode_devices):
             if d["device"] == current_key:
                 self._profile_selector.set_selected_index(i)
@@ -440,7 +456,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._model_selector.set_devices([
             {"name": "RVM - Person Matting (fastest)", "device": "rvm"},
             {"name": "IS-Net - General Objects", "device": "isnet"},
-            {"name": "BiRefNet - Best Quality (heavy)", "device": "birefnet"},
+            {"name": "BiRefNet - Best Quality (heavy, CPU fallback)", "device": "birefnet"},
         ])
         self._model_selector.set_sensitive(False)
         self._model_selector.set_selected_index(0)
@@ -794,7 +810,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         """Map profile+compositing config to unified mode key."""
         if compositing in ("cupy", "gstreamer_gl"):
             if profile == "max_quality":
-                return "cuda_max"
+                return "doczeus"
             if profile == "balanced":
                 return "cuda_balanced"
             return "cuda_perf"
@@ -808,30 +824,55 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     # (profile, compositing, use_tensorrt, use_fused_kernel, use_nvdec)
     _MODE_MAP = {
-        "killer":       ("max_quality", "cupy", True,  True,  True),
-        "zeus":         ("max_quality", "cupy", True,  False, False),
         "doczeus":      ("max_quality", "cupy", False, True,  False),
         "cuda_max":     ("max_quality", "cupy", False, False, False),
         "cuda_balanced": ("balanced",   "cupy", False, False, False),
+        "zeus":         ("balanced",    "cupy", True,  False, False),
+        "killer":       ("performance", "cupy", True,  True,  True),
         "cuda_perf":    ("performance", "cupy", False, False, False),
         "cpu_quality":  ("max_quality", "cpu",  False, False, False),
         "cpu_light":    ("performance", "cpu",  False, False, False),
         "cpu_low":      ("potato",      "cpu",  False, False, False),
     }
 
+    @staticmethod
+    def _mode_status_message(mode_key: str) -> str:
+        messages = {
+            "doczeus": "DocZeus: best GPU quality for background replacement",
+            "cuda_max": "CUDA High Quality: strong quality without fused compositing",
+            "cuda_balanced": "CUDA Balanced: good quality with lighter GPU load",
+            "zeus": "Zeus: fast GPU mode with TensorRT and edge refine",
+            "killer": "Killer: fastest GPU mode, softer edges under motion",
+            "cuda_perf": "CUDA Fast: lower GPU cost, reduced edge quality",
+            "cpu_quality": "CPU High Quality: most compatible, highest CPU cost",
+            "cpu_light": "CPU Fast: reduced CPU cost with lower quality",
+            "cpu_low": "CPU Low End: fallback mode for weaker systems",
+        }
+        return messages.get(mode_key, "")
+
     def _on_mode_changed_selector(self, selector, mode_key):
+        if getattr(self._app, '_restoring', False):
+            return
         if mode_key in self._MODE_MAP:
             profile, comp, trt, fused, nvdec = self._MODE_MAP[mode_key]
             self._app.set_performance_profile(
                 profile, compositing=comp,
                 use_tensorrt=trt, use_fused_kernel=fused, use_nvdec=nvdec,
+                mode_key=mode_key,
             )
+            if mode_key in ("killer", "zeus") and not has_tensorrt_runtime():
+                self.set_status("TensorRT runtime not installed - mode falls back to CUDA")
+            else:
+                msg = self._mode_status_message(mode_key)
+                if msg:
+                    self.set_status(msg)
             # Show edge refine toggle only for premium speed modes
             is_premium = mode_key in ("killer", "zeus")
             self._edge_refine_toggle.set_visible(is_premium)
             self._edge_refine_toggle.set_sensitive(is_premium)
-            if is_premium and not self._edge_refine_toggle.active:
-                self._edge_refine_toggle.active = True  # Enable by default
+            desired = is_premium and self._app.config.premium_edge_refine
+            if self._edge_refine_toggle.active != desired:
+                self._edge_refine_toggle.active = desired
 
     def _on_gpu_changed(self, selector, gpu_str):
         self._app.set_compute_gpu(int(gpu_str))
@@ -1249,6 +1290,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         """Restore saved settings to all UI controls."""
         v = config.video
         a = config.audio
+        mode_key = config.mode_key or self._profile_and_comp_to_mode(
+            config.performance_profile, config.compositing
+        )
 
         # Model (0=rvm, 1=isnet, 2=birefnet)
         model_map = {"rvm": 0, "isnet": 1, "birefnet": 2}
@@ -1264,6 +1308,18 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         fmt_map = {"YUY2": 0, "I420": 1, "NV12": 2}
         if v.output_format in fmt_map:
             self._format_selector.set_selected_index(fmt_map[v.output_format])
+
+        for i, d in enumerate(self._mode_devices):
+            if d["device"] == mode_key:
+                self._profile_selector.set_selected_index(i)
+                break
+
+        is_premium = mode_key in ("killer", "zeus")
+        self._edge_refine_toggle.set_visible(is_premium)
+        self._edge_refine_toggle.set_sensitive(is_premium)
+        desired = is_premium and config.premium_edge_refine
+        if self._edge_refine_toggle.active != desired:
+            self._edge_refine_toggle.active = desired
 
         # Background mode (0=blur, 1=replace, 2=remove)
         mode_map = {"blur": 0, "replace": 1, "remove": 2}
@@ -1329,12 +1385,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._mirror_toggle.active = v.mirror
 
     def _show_about(self, button):
-        from pathlib import Path
-
-        # Load app icon from SVG file
-        icon_path = Path(__file__).parent.parent.parent.parent / "data" / "icons" / "com.doczeus.NVBroadcast.svg"
+        # Load app icon from installed assets or source tree.
+        icon_path = find_app_icon()
         icon_name = "com.doczeus.NVBroadcast"
-        if icon_path.exists():
+        if icon_path is not None and icon_path.exists():
             # Register the icon with GTK's icon theme so AboutWindow can find it
             display = self.get_display()
             if display:
@@ -1364,28 +1418,45 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         )
         about.present()
 
+    def _open_update_release(self, button):
+        if not self._update_url:
+            return
+        Gio.AppInfo.launch_default_for_uri(self._update_url, None)
+
+    def set_update_available(self, version: str, url: str):
+        self._update_url = url
+        self._update_btn.set_label(f"Update v{version}")
+        self._update_btn.set_tooltip_text(f"Open release v{version}")
+        self._update_btn.set_visible(True)
+
     def rebuild_mode_selector(self, compositing: str, profile: str):
         """Rebuild the Mode dropdown with currently available backends."""
         from nvbroadcast.core.config import detect_compositing_backends
         backends = detect_compositing_backends()
         has_cuda = backends.get("cupy", False) or compositing == "cupy"
+        has_trt = has_tensorrt_runtime()
 
         self._mode_devices = []
         if has_cuda:
-            self._mode_devices.append({"name": "Killer - NVDEC + TensorRT + Fused CUDA", "device": "killer"})
-            self._mode_devices.append({"name": "Zeus - TensorRT Inference", "device": "zeus"})
-            self._mode_devices.append({"name": "DocZeus - Fused CUDA Kernel", "device": "doczeus"})
-            self._mode_devices.append({"name": "CUDA - Max Quality", "device": "cuda_max"})
+            killer_label = "Killer - Fastest GPU Mode"
+            zeus_label = "Zeus - Fast GPU Mode"
+            if not has_trt:
+                killer_label += " (TensorRT unavailable)"
+                zeus_label += " (TensorRT unavailable)"
+            self._mode_devices.append({"name": "DocZeus - Best Quality GPU", "device": "doczeus"})
+            self._mode_devices.append({"name": "CUDA - High Quality", "device": "cuda_max"})
             self._mode_devices.append({"name": "CUDA - Balanced", "device": "cuda_balanced"})
-            self._mode_devices.append({"name": "CUDA - Performance", "device": "cuda_perf"})
-        self._mode_devices.append({"name": "CPU - Quality", "device": "cpu_quality"})
-        self._mode_devices.append({"name": "CPU - Light", "device": "cpu_light"})
+            self._mode_devices.append({"name": zeus_label, "device": "zeus"})
+            self._mode_devices.append({"name": killer_label, "device": "killer"})
+            self._mode_devices.append({"name": "CUDA - Fast", "device": "cuda_perf"})
+        self._mode_devices.append({"name": "CPU - High Quality", "device": "cpu_quality"})
+        self._mode_devices.append({"name": "CPU - Fast", "device": "cpu_light"})
         self._mode_devices.append({"name": "CPU - Low End", "device": "cpu_low"})
 
         self._profile_selector.set_devices(self._mode_devices)
         # Signal already connected in _build_camera_section — don't duplicate
 
-        mode_key = self._profile_and_comp_to_mode(profile, compositing)
+        mode_key = self._app.config.mode_key or self._profile_and_comp_to_mode(profile, compositing)
         for i, d in enumerate(self._mode_devices):
             if d["device"] == mode_key:
                 self._profile_selector.set_selected_index(i)
@@ -1394,6 +1465,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _on_freeze_toggled(self, btn):
         self._preview_frozen = btn.get_active()
         btn.set_label("Resume View" if self._preview_frozen else "Pause View")
+        # Pause the actual pipeline (freeze vcam output + skip processing)
+        if self._app._video_pipeline:
+            self._app._video_pipeline.set_paused(self._preview_frozen)
 
     def _on_hide_toggled(self, btn):
         hidden = btn.get_active()

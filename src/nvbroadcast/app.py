@@ -10,7 +10,8 @@ minimizes to background on close. Browser picks up virtual camera automatically.
 """
 
 import sys
-from pathlib import Path
+import threading
+import time
 
 import gi
 
@@ -21,6 +22,11 @@ from gi.repository import Gtk, Adw, Gst, Gio, Gdk, GLib
 
 from nvbroadcast.core.constants import APP_ID, COMPUTE_GPU_INDEX
 from nvbroadcast.core.config import load_config, save_config
+from nvbroadcast.core.updates import (
+    fetch_latest_release,
+    is_newer_version,
+    should_check_for_updates,
+)
 from nvbroadcast.video.pipeline import VideoPipeline
 from nvbroadcast.video.effects import VideoEffects
 from nvbroadcast.video.autoframe import AutoFrame
@@ -32,9 +38,11 @@ from nvbroadcast.video.perf_monitor import PerfMonitor
 from nvbroadcast.ai.transcriber import MeetingTranscriber, save_transcript
 from nvbroadcast.ai.summarizer import MeetingSummarizer
 from nvbroadcast.core.platform import IS_MACOS, IS_LINUX
+from nvbroadcast.core.resources import find_ui_css
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
 from nvbroadcast.ui.window import NVBroadcastWindow
+from nvbroadcast import __version__
 
 
 class NVBroadcastApp(Adw.Application):
@@ -66,8 +74,10 @@ class NVBroadcastApp(Adw.Application):
         self._mirror = True  # Default: mirror (like looking in a mirror)
         self._tray = None
         self._vcam_consumers = 0  # Track virtual camera consumers
-        self._camera_power_save = True  # Stop camera when no consumers
         self._streaming = False
+        self._use_nvdec = self.config.use_nvdec
+        self._inline_inference = self.config.performance_profile in ("max_quality", "balanced")
+        self._update_release = None
 
     def do_startup(self):
         Adw.Application.do_startup(self)
@@ -75,8 +85,8 @@ class NVBroadcastApp(Adw.Application):
 
         # Load CSS
         css_provider = Gtk.CssProvider()
-        css_path = Path(__file__).parent / "ui" / "style.css"
-        if css_path.exists():
+        css_path = find_ui_css()
+        if css_path is not None and css_path.exists():
             css_provider.load_from_path(str(css_path))
             display = Gdk.Display.get_default()
             if display:
@@ -117,16 +127,20 @@ class NVBroadcastApp(Adw.Application):
             # from resetting effect states during restore)
             self._restoring = True
             self._restore_settings()
-            self._restoring = False
 
             # First-run setup wizard
             if self.config.first_run:
+                self._restoring = False
                 from nvbroadcast.ui.setup_wizard import SetupWizard
                 wizard = SetupWizard(self._window)
                 wizard.connect("setup-complete", self._on_setup_complete)
                 wizard.present()
-            elif self.config.auto_start and self._vcam_available:
-                GLib.idle_add(self._auto_start)
+            elif self.config.auto_start:
+                GLib.idle_add(self._finish_restore_and_auto_start)
+            else:
+                GLib.idle_add(self._finish_restore)
+
+            self._maybe_check_for_updates()
 
         self._window.set_visible(True)
         self._window.present()
@@ -147,6 +161,19 @@ class NVBroadcastApp(Adw.Application):
         self._beautifier.set_compositing(compositing)
         profile = PERFORMANCE_PROFILES[profile_name]
         self._video_effects._skip_interval = profile["skip_interval"]
+        self.config.mode_key = NVBroadcastWindow._profile_and_comp_to_mode(
+            profile_name, compositing
+        )
+        mapped = NVBroadcastWindow._MODE_MAP.get(self.config.mode_key)
+        if mapped is not None:
+            _, _, use_tensorrt, use_fused_kernel, use_nvdec = mapped
+        else:
+            use_tensorrt = use_fused_kernel = use_nvdec = False
+        self.config.use_tensorrt = use_tensorrt
+        self.config.use_fused_kernel = use_fused_kernel
+        self.config.use_nvdec = use_nvdec
+        self._use_nvdec = use_nvdec
+        self._video_effects.set_engine_mode(use_tensorrt, use_fused_kernel)
 
         save_config(self.config)
         print(f"[NV Broadcast] Profile: {profile['label']} | GPU: {gpu_index} | Compositing: {compositing}")
@@ -165,8 +192,21 @@ class NVBroadcastApp(Adw.Application):
         self._window.set_status(f"Setup complete: {profile['label']} | {compositing} compositing")
 
         # Now auto-start
-        if self.config.auto_start and self._vcam_available:
+        if self.config.auto_start:
             GLib.idle_add(self._auto_start)
+
+    def _finish_restore(self):
+        """Release the startup restore guard after initial UI events settle."""
+        self._restoring = False
+        return False
+
+    def _finish_restore_and_auto_start(self):
+        """Auto-start while restore guards still suppress startup signal noise."""
+        try:
+            self._auto_start()
+        finally:
+            self._restoring = False
+        return False
 
     def _on_close_request(self, window):
         """Minimize to tray instead of quitting."""
@@ -184,20 +224,19 @@ class NVBroadcastApp(Adw.Application):
     def _check_vcam_consumers(self):
         """Poll virtual camera device for active consumers.
 
-        When no app is reading from /dev/video10, pause the camera to save
-        power/CPU/GPU. Resume automatically when a consumer connects.
-        macOS: fuser not available, skip power-save polling.
+        Tracks consumer count for status display. Pipeline stays running
+        to avoid device conflicts with exclusive_caps=1 — stopping and
+        restarting the pipeline while a consumer holds the device causes
+        v4l2sink to fail ("not a output device").
         """
-        if not self._camera_power_save or not self._vcam_available:
+        if not self._vcam_available:
             return True  # Keep polling
 
         if IS_MACOS:
-            # macOS: no fuser, no /dev/video* — skip consumer polling
             return True
 
         import subprocess
         try:
-            # Count processes reading from the vcam device (exclude our own)
             result = subprocess.run(
                 ["fuser", self._vcam_device or "/dev/video10"],
                 capture_output=True, text=True, timeout=2,
@@ -208,35 +247,10 @@ class NVBroadcastApp(Adw.Application):
             consumers = [p for p in pids if p.strip() and p.strip() != own_pid]
             new_count = len(consumers)
         except Exception:
-            new_count = self._vcam_consumers  # Keep current state on error
+            new_count = self._vcam_consumers
 
         if new_count != self._vcam_consumers:
-            old = self._vcam_consumers
             self._vcam_consumers = new_count
-
-            if new_count > 0 and old == 0:
-                # Consumer connected — resume camera if not streaming
-                if not self._streaming and self.config.auto_start:
-                    print(f"[NV Broadcast] Consumer detected — starting camera")
-                    cam = self.config.video.camera_device
-                    fmt = self.config.video.output_format
-                    self._do_start_pipeline(cam, fmt)
-                    if self._window:
-                        self._window._streaming = True
-                        self._window._stream_btn.set_label("Stop Broadcast")
-                        self._window._stream_btn.remove_css_class("suggested-action")
-                        self._window._stream_btn.add_css_class("destructive-action")
-
-            elif new_count == 0 and old > 0 and self._streaming:
-                # All consumers gone — pause camera to save power
-                print("[NV Broadcast] No consumers — pausing camera (power save)")
-                self.stop_pipeline()
-                if self._window:
-                    self._window._streaming = False
-                    self._window._stream_btn.set_label("Start Broadcast")
-                    self._window._stream_btn.remove_css_class("destructive-action")
-                    self._window._stream_btn.add_css_class("suggested-action")
-                    self._window.set_status("Power save — waiting for consumer")
 
             if self._tray and self._tray.available:
                 status = f"streaming ({new_count} consumer{'s' if new_count != 1 else ''})" if self._streaming else "idle"
@@ -246,7 +260,6 @@ class NVBroadcastApp(Adw.Application):
 
     def _preload_effects(self):
         """Pre-initialize AI models in background to eliminate first-use delay."""
-        import threading
         def _init():
             try:
                 if self.config.video.background_removal:
@@ -254,6 +267,32 @@ class NVBroadcastApp(Adw.Application):
             except Exception as e:
                 print(f"[NV Broadcast] Background model preload failed: {e}")
         threading.Thread(target=_init, daemon=True).start()
+
+    def _maybe_check_for_updates(self):
+        if self._window is None or not should_check_for_updates(self.config):
+            return
+
+        def _worker():
+            release = fetch_latest_release(timeout=5)
+            self.config.last_update_check = int(time.time())
+            if release and is_newer_version(release.version, __version__):
+                self._update_release = release
+                if self.config.last_notified_version != release.version:
+                    self.config.last_notified_version = release.version
+                    GLib.idle_add(self._show_update_available, release.version, release.html_url, True)
+                else:
+                    GLib.idle_add(self._show_update_available, release.version, release.html_url, False)
+            save_config(self.config)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _show_update_available(self, version: str, url: str, announce: bool):
+        if self._window is None:
+            return False
+        self._window.set_update_available(version, url)
+        if announce:
+            self._window.set_status(f"Update available: v{version}")
+        return False
 
     def _auto_start(self):
         """Auto-start broadcast with saved settings."""
@@ -275,6 +314,17 @@ class NVBroadcastApp(Adw.Application):
         # Restore model and quality preset
         self._video_effects._model_type = c.video.model
         self._video_effects._quality = c.video.quality_preset
+        mapped = NVBroadcastWindow._MODE_MAP.get(c.mode_key)
+        if mapped is not None:
+            _, _, use_tensorrt, use_fused_kernel, use_nvdec = mapped
+        else:
+            use_tensorrt = c.use_tensorrt
+            use_fused_kernel = c.use_fused_kernel
+            use_nvdec = c.use_nvdec
+        self._video_effects.set_engine_mode(use_tensorrt, use_fused_kernel)
+        self._use_nvdec = use_nvdec
+        self._inline_inference = c.performance_profile in ("max_quality", "balanced")
+        self._video_effects._edge_refine_enabled = c.premium_edge_refine and c.mode_key in ("killer", "zeus")
 
         # Restore background settings
         self._video_effects.enabled = c.video.background_removal
@@ -341,6 +391,17 @@ class NVBroadcastApp(Adw.Application):
         return False
 
     def _do_start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
+        # Ensure old pipeline is fully stopped before creating a new one
+        if self._video_pipeline:
+            self._video_pipeline.stop()
+            # Wait for teardown to complete
+            import time
+            for _ in range(30):  # Max 3 seconds
+                if self._video_pipeline._teardown_done:
+                    break
+                time.sleep(0.1)
+            self._video_pipeline = None
+
         from nvbroadcast.core.config import PERFORMANCE_PROFILES
         profile = PERFORMANCE_PROFILES.get(self.config.performance_profile, {})
         # Validate fps before building pipeline
@@ -361,16 +422,18 @@ class NVBroadcastApp(Adw.Application):
             fps=self.config.video.fps,
             output_format=output_format,
             effects_fps=effects_fps,
+            prefer_hw_decode=self._use_nvdec,
         )
 
         self._video_pipeline.set_effect_callback(self._process_frame)
         self._video_pipeline.set_alpha_callback(self._update_alpha)
+        self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
         self._video_pipeline.set_preview_callback(
             lambda texture: self._window.update_preview(texture)
         )
 
         # Reset all resolution-dependent state BEFORE new pipeline processes frames
-        self._video_effects._cached_alpha = None
+        self._video_effects.reset_cached_mattes()
         if self._video_effects._backend:
             self._video_effects._backend.reset_state()
         self._beautifier._face_mask = None
@@ -428,9 +491,13 @@ class NVBroadcastApp(Adw.Application):
         self._perf_monitor.tick()
         result = frame_data
 
-        # Composite with background (replace/blur/remove) — fast, ~1.3ms
+        # Inline-inference profiles own the alpha path entirely. The pipeline
+        # disables the background alpha worker in that mode to avoid cache races.
         if self._video_effects.enabled:
-            result = self._video_effects.composite_only(result, width, height)
+            if self._inline_inference:
+                result = self._video_effects.process_frame(result, width, height)
+            else:
+                result = self._video_effects.composite_only(result, width, height)
 
         # Face effects (relighting, beautify, eye contact) are too slow
         # for inline (~12ms). They run in _update_alpha background thread
@@ -487,7 +554,7 @@ class NVBroadcastApp(Adw.Application):
 
     def set_performance_profile(self, profile_name: str, compositing: str | None = None,
                                 use_tensorrt: bool = False, use_fused_kernel: bool = False,
-                                use_nvdec: bool = False):
+                                use_nvdec: bool = False, mode_key: str | None = None):
         """Switch performance profile. All changes apply live — no pipeline restart."""
         from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
         if profile_name not in PERFORMANCE_PROFILES:
@@ -501,9 +568,19 @@ class NVBroadcastApp(Adw.Application):
 
         # Apply engine mode (TensorRT / Fused CUDA kernel)
         self._video_effects.set_engine_mode(use_tensorrt, use_fused_kernel)
+        self.config.use_tensorrt = use_tensorrt
+        self.config.use_fused_kernel = use_fused_kernel
 
         # NVDEC: enable GPU JPEG decode in pipeline (Killer mode)
         self._use_nvdec = use_nvdec
+        self.config.use_nvdec = use_nvdec
+
+        # Premium/balanced: inline inference (zero lag, ~20ms with optimized refine)
+        # Performance/potato: background thread to save CPU
+        self._inline_inference = profile_name in ("max_quality", "balanced")
+        self.config.mode_key = mode_key or NVBroadcastWindow._profile_and_comp_to_mode(
+            profile_name, self.config.compositing
+        )
 
         apply_performance_profile(self.config, profile_name)
         profile = PERFORMANCE_PROFILES[profile_name]
@@ -516,13 +593,14 @@ class NVBroadcastApp(Adw.Application):
         effects_fps = max(5, int(profile["effects_ratio"] * self.config.video.fps))
         if self._video_pipeline:
             self._video_pipeline.set_effects_fps(effects_fps)
+            self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
 
         save_config(self.config)
 
         b = self._video_effects._backend
         infer_h = b._MAX_INFER_HEIGHT if b else "?"
         print(f"[NV Broadcast] Mode: {profile_name} | infer={infer_h} skip={profile['skip_interval']} "
-              f"fused={use_fused_kernel} comp={self.config.compositing} "
+              f"fused={use_fused_kernel} nvdec={use_nvdec} comp={self.config.compositing} "
               f"efps={effects_fps}")
 
         if self._window:
@@ -537,7 +615,6 @@ class NVBroadcastApp(Adw.Application):
         # Reload the model on the new GPU
         if self._video_effects.available:
             self._video_effects._cleanup_backend()
-            self._video_effects._cached_alpha = None
             self._video_effects.initialize()
         save_config(self.config)
         from nvbroadcast.core.gpu import detect_gpus
@@ -576,6 +653,8 @@ class NVBroadcastApp(Adw.Application):
     def set_edge_refine(self, enabled: bool):
         """Toggle neural edge refinement for Zeus/Killer modes."""
         self._video_effects._edge_refine_enabled = enabled
+        self.config.premium_edge_refine = enabled
+        save_config(self.config)
 
     def set_edge_param(self, param: str, value: float):
         """Update a single edge refinement parameter."""

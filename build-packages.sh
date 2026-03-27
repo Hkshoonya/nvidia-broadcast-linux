@@ -35,18 +35,8 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-# Revision tracking (increments per build, resets on version bump)
-REV_FILE="packaging/.revision"
-LAST_VER=""
-REV=1
-if [ -f "$REV_FILE" ]; then
-    LAST_VER=$(head -1 "$REV_FILE" | cut -d: -f1)
-    LAST_REV=$(head -1 "$REV_FILE" | cut -d: -f2)
-    if [ "$LAST_VER" = "$VERSION" ]; then
-        REV=$((LAST_REV + 1))
-    fi
-fi
-echo "${VERSION}:${REV}" > "$REV_FILE"
+# Package revision is stable unless explicitly overridden by CI.
+REV="${PACKAGE_REV:-1}"
 
 echo "========================================="
 echo "  NV Broadcast Package Builder"
@@ -100,6 +90,10 @@ CTRL
     install -d "$PKG_DIR/usr/share/applications"
     cp data/com.doczeus.NVBroadcast.desktop "$PKG_DIR/usr/share/applications/"
     sed -i "s|Exec=nvbroadcast|Exec=/usr/bin/nvbroadcast|g" "$PKG_DIR/usr/share/applications/com.doczeus.NVBroadcast.desktop"
+
+    # AppStream metadata
+    install -d "$PKG_DIR/usr/share/metainfo"
+    cp data/com.doczeus.NVBroadcast.metainfo.xml "$PKG_DIR/usr/share/metainfo/"
 
     # Icon
     install -d "$PKG_DIR/usr/share/icons/hicolor/scalable/apps"

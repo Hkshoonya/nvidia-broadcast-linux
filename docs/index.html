@@ -1374,6 +1374,7 @@ button:focus-visible, a:focus-visible {
       <button class="install-tab active" data-tab="source">Source Install</button>
       <button class="install-tab" data-tab="deb">Debian / Ubuntu</button>
       <button class="install-tab" data-tab="rpm">Fedora / RHEL</button>
+      <button class="install-tab" data-tab="snap">Snap</button>
       <button class="install-tab" data-tab="arch">Arch</button>
       <button class="install-tab" data-tab="macos">macOS</button>
     </div>
@@ -1396,7 +1397,7 @@ button:focus-visible, a:focus-visible {
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">./install.sh</span></div>
           </div>
         </div>
-        <p class="install-note">Works on all distros. The installer auto-detects your package manager and installs dependencies.</p>
+        <p class="install-note">Works on all distros. The installer auto-detects your package manager and installs dependencies. Re-running `./install.sh` upgrades the existing install in place.</p>
       </div>
 
       <!-- DEB -->
@@ -1411,12 +1412,13 @@ button:focus-visible, a:focus-visible {
           <div class="terminal-body" role="code">
             <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('deb')">Copy</button>
             <div class="terminal-line"><span class="comment"># Download the .deb from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.0.0-1_all.deb</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_1.0.0-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.0.2-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_1.0.2-1_all.deb</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo apt-get install -f</span></div>
+            <div class="terminal-line"><span class="comment"># Upgrade later: repeat the same three commands with the newer .deb</span></div>
           </div>
         </div>
-        <p class="install-note">For Ubuntu, Debian, Pop!_OS, Linux Mint, and derivatives. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases" target="_blank" rel="noopener">View all releases</a></p>
+        <p class="install-note">For Ubuntu, Debian, Pop!_OS, Linux Mint, and derivatives. Running the same command with a newer `.deb` upgrades in place. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases" target="_blank" rel="noopener">View all releases</a></p>
       </div>
 
       <!-- RPM -->
@@ -1431,11 +1433,31 @@ button:focus-visible, a:focus-visible {
           <div class="terminal-body" role="code">
             <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('rpm')">Copy</button>
             <div class="terminal-line"><span class="comment"># Download the .rpm from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.0.0-1.noarch.rpm</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-1.0.0-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.0.2-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-1.0.2-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="comment"># Upgrade later: download the newer .rpm and run the same dnf install command</span></div>
           </div>
         </div>
-        <p class="install-note">For Fedora, RHEL, CentOS, Rocky, openSUSE. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases" target="_blank" rel="noopener">View all releases</a></p>
+        <p class="install-note">For Fedora, RHEL, CentOS, Rocky, openSUSE. Installing a newer `.rpm` upgrades in place. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases" target="_blank" rel="noopener">View all releases</a></p>
+      </div>
+
+      <!-- Snap -->
+      <div class="install-pane" id="pane-snap">
+        <div class="terminal" role="region" aria-label="Terminal command">
+          <div class="terminal-bar">
+            <div class="terminal-dot r" aria-hidden="true"></div>
+            <div class="terminal-dot y" aria-hidden="true"></div>
+            <div class="terminal-dot g" aria-hidden="true"></div>
+            <span>bash</span>
+          </div>
+          <div class="terminal-body" role="code">
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('snap')">Copy</button>
+            <div class="terminal-line"><span class="comment"># Snap Store (published from Git tags)</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo snap install nvbroadcast</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo snap refresh nvbroadcast</span></div>
+          </div>
+        </div>
+        <p class="install-note">For systems with Snap support. Tag pushes publish the current stable build to the Snap Store, and `snap refresh nvbroadcast` upgrades in place.</p>
       </div>
 
       <!-- Arch -->
@@ -1472,11 +1494,12 @@ button:focus-visible, a:focus-visible {
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd nvidia-broadcast-linux</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">./install_macos.sh</span></div>
+            <div class="terminal-line"><span class="comment"># Upgrade later: install the newer .pkg over the existing app</span></div>
           </div>
         </div>
         <p class="install-note">
-          Or download the installer: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/NVBroadcast-1.0.0-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.0.0.pkg</a><br>
-          Requires macOS 12+. CPU modes with CoreML acceleration on Apple Silicon.
+          Or download the installer: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/NVBroadcast-1.0.2-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.0.2.pkg</a><br>
+          Requires macOS 12+. Installing a newer `.pkg` upgrades the existing app in place. CPU modes with CoreML acceleration on Apple Silicon.
         </p>
       </div>
 
@@ -1654,8 +1677,9 @@ document.querySelectorAll('.install-tab').forEach(tab => {
 /* ── Copy command ── */
 const commands = {
   source: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
-  deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.0.0-1_all.deb && sudo dpkg -i nvbroadcast_1.0.0-1_all.deb && sudo apt-get install -f',
-  rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.0.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.0.0-1.noarch.rpm',
+  deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.0.2-1_all.deb && sudo dpkg -i nvbroadcast_1.0.2-1_all.deb && sudo apt-get install -f',
+  rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.0.2-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.0.2-1.noarch.rpm',
+  snap: 'sudo snap install nvbroadcast || sudo snap refresh nvbroadcast',
   arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
   macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'
 };

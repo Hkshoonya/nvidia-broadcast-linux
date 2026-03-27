@@ -139,8 +139,16 @@ class AppConfig:
     compute_gpu: int = 0
     performance_profile: str = "balanced"  # max_quality, balanced, performance, potato
     compositing: str = "cpu"  # cpu, gstreamer_gl, cupy
+    mode_key: str = ""  # killer, zeus, doczeus, cuda_max, etc.
+    premium_edge_refine: bool = True
+    use_tensorrt: bool = False
+    use_fused_kernel: bool = False
+    use_nvdec: bool = False
     auto_start: bool = True
     minimize_on_close: bool = True
+    check_for_updates: bool = True
+    last_update_check: int = 0
+    last_notified_version: str = ""
     first_run: bool = True  # Show setup wizard on first launch
     video: VideoConfig = field(default_factory=VideoConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
@@ -153,7 +161,10 @@ def _load_from_toml(filepath: Path) -> AppConfig:
 
     config = AppConfig()
     for k in ("compute_gpu", "performance_profile", "compositing",
-              "auto_start", "minimize_on_close", "first_run"):
+              "mode_key", "premium_edge_refine",
+              "use_tensorrt", "use_fused_kernel", "use_nvdec",
+              "auto_start", "minimize_on_close", "check_for_updates",
+              "last_update_check", "last_notified_version", "first_run"):
         if k in data:
             setattr(config, k, data[k])
     if "video" in data:
@@ -200,8 +211,16 @@ def _config_to_toml(config: AppConfig) -> str:
         f"compute_gpu = {config.compute_gpu}",
         f'performance_profile = "{config.performance_profile}"',
         f'compositing = "{config.compositing}"',
+        f'mode_key = "{config.mode_key}"',
+        f"premium_edge_refine = {_bool(config.premium_edge_refine)}",
+        f"use_tensorrt = {_bool(config.use_tensorrt)}",
+        f"use_fused_kernel = {_bool(config.use_fused_kernel)}",
+        f"use_nvdec = {_bool(config.use_nvdec)}",
         f"auto_start = {_bool(config.auto_start)}",
         f"minimize_on_close = {_bool(config.minimize_on_close)}",
+        f"check_for_updates = {_bool(config.check_for_updates)}",
+        f"last_update_check = {config.last_update_check}",
+        f'last_notified_version = "{config.last_notified_version}"',
         f"first_run = {_bool(config.first_run)}",
         "",
         "[video]",

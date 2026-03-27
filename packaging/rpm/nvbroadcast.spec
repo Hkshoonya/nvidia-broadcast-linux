@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.0.1
+Version:        1.0.2
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -61,6 +61,10 @@ cp -r configs %{buildroot}/opt/nvbroadcast/ 2>/dev/null || true
 install -Dm 644 data/com.doczeus.NVBroadcast.desktop \
     %{buildroot}%{_datadir}/applications/com.doczeus.NVBroadcast.desktop
 
+# AppStream metadata
+install -Dm 644 data/com.doczeus.NVBroadcast.metainfo.xml \
+    %{buildroot}%{_datadir}/metainfo/com.doczeus.NVBroadcast.metainfo.xml
+
 # Icon
 install -Dm 644 data/icons/com.doczeus.NVBroadcast.svg \
     %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/com.doczeus.NVBroadcast.svg
@@ -109,7 +113,7 @@ if [ ! -d /opt/nvbroadcast/.venv ]; then
     python3 -m venv /opt/nvbroadcast/.venv --system-site-packages
 fi
 /opt/nvbroadcast/.venv/bin/pip install --upgrade pip -q
-/opt/nvbroadcast/.venv/bin/pip install -e /opt/nvbroadcast -q
+/opt/nvbroadcast/.venv/bin/pip install /opt/nvbroadcast -q
 
 # Install CuPy if NVIDIA GPU present
 if command -v nvidia-smi &>/dev/null; then
@@ -127,6 +131,7 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %{_bindir}/nvbroadcast
 %{_bindir}/nvbroadcast-vcam
 %{_datadir}/applications/com.doczeus.NVBroadcast.desktop
+%{_datadir}/metainfo/com.doczeus.NVBroadcast.metainfo.xml
 %{_datadir}/icons/hicolor/scalable/apps/com.doczeus.NVBroadcast.svg
 %{_userunitdir}/nvbroadcast-vcam.service
 %config(noreplace) /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
@@ -135,6 +140,12 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Thu Mar 27 2026 doczeus <harshit@kshoonya.com> - 1.0.2-1
+- Improve background matte quality and mode restore behavior
+- Package desktop assets and AppStream metadata in release artifacts
+- Stop using editable installs in packaged environments
+- Preserve system virtual camera configuration during uninstall
+
 * Mon Mar 23 2026 doczeus <harshit@kshoonya.com> - 1.0.0-1
 - AI Meeting Transcription (local Whisper, no cloud)
 - Voice Effects (real-time audio processing)

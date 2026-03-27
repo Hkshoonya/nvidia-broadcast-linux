@@ -382,7 +382,7 @@ if [ ! -d "$VENV_DIR" ]; then
     echo "Created virtual environment"
 fi
 "$VENV_DIR/bin/pip" install --upgrade pip -q
-"$VENV_DIR/bin/pip" install -e "$SCRIPT_DIR" -q
+"$VENV_DIR/bin/pip" install "$SCRIPT_DIR" -q
 echo "Core packages installed."
 
 # Verify critical Python packages
@@ -716,7 +716,7 @@ echo "Autostart entry installed (launches on login)"
 
 echo ""
 echo "========================================="
-echo "  Installation Complete! v1.0.1"
+echo "  Installation Complete! v1.0.2"
 echo "  NVIDIA Broadcast for Linux"
 echo "  by doczeus | AI Powered"
 echo "========================================="
@@ -735,7 +735,7 @@ fi
 echo "    CUDA Max/Balanced/Perf — standard GPU modes"
 echo "    CPU Quality/Light/Low  — CPU fallback"
 echo ""
-echo "  v1.0.1 features:"
+echo "  v1.0.2 features:"
 echo "    AI Meeting Transcription — local Whisper, no cloud needed"
 echo "    Voice Effects            — real-time audio processing"
 echo "    Mic Selection            — choose input microphone"

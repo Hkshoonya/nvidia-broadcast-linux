@@ -1,4 +1,4 @@
-.PHONY: run install dev clean native test
+.PHONY: run install dev clean native test release-smoke
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -21,7 +21,10 @@ native:
 	cd native && mkdir -p build && cd build && cmake .. && make -j$$(nproc)
 
 test:
-	$(PYTHON) -m pytest tests/ -v
+	$(PYTHON) -m unittest discover -s tests -p 'test_*.py' -v
+
+release-smoke: $(VENV)
+	$(PYTHON) scripts/release_smoke.py
 
 clean:
 	rm -rf $(VENV) build dist *.egg-info native/build

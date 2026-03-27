@@ -7,10 +7,9 @@ case "$1" in
         # Remove config and venv
         rm -rf /opt/nvbroadcast/.venv
         rm -rf /opt/nvbroadcast/models
-        rm -f /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
-        rm -f /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
-        # User config preserved in ~/.config/nvbroadcast
-        echo "NV Broadcast: Purged. User config kept in ~/.config/nvbroadcast"
+        # System-level virtual camera config is intentionally preserved to avoid
+        # modifying shared driver/module state during package removal.
+        echo "NV Broadcast: Purged app files. System virtual camera config was left in place."
         ;;
     remove)
         echo "NV Broadcast: Removed. Config preserved. Run 'apt purge nvbroadcast' to remove all."

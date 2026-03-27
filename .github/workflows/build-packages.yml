@@ -121,6 +121,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Create release-smoke venv
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+
       - name: Test platform detection
         run: |
           PYTHONPATH=src python3 -c "
@@ -137,6 +142,9 @@ jobs:
           find src -name '*.py' -exec python3 -m py_compile {} \;
           python3 -m py_compile macos/NVBroadcastHelper/frame_bridge.py
           echo "All Python files compile: OK"
+
+      - name: Release smoke checks
+        run: ./.venv/bin/python scripts/release_smoke.py
 
   # ─── Release: Upload packages on tag push ──────────────────────────────────
   release:
