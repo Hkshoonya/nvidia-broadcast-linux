@@ -168,7 +168,7 @@ build_rpm() {
         sed "s/^Release:.*/Release:        ${REV}%{?dist}/" > "$RPM_DIR/SPECS/nvbroadcast.spec"
 
     # Build
-    rpmbuild --define "_topdir $RPM_DIR" -bb "$RPM_DIR/SPECS/nvbroadcast.spec" 2>&1 | tail -5
+    rpmbuild --nodeps --define "_topdir $RPM_DIR" -bb "$RPM_DIR/SPECS/nvbroadcast.spec" 2>&1 | tail -5
 
     # Copy output
     mkdir -p dist/rpm

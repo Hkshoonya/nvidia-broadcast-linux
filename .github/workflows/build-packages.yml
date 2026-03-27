@@ -165,6 +165,6 @@ jobs:
           draft: false
           generate_release_notes: true
           files: |
-            artifacts/linux-packages/*.deb
-            artifacts/linux-packages/*.rpm
-            artifacts/macos-packages/*.pkg
+            artifacts/linux-packages/deb/*.deb
+            artifacts/linux-packages/rpm/*.rpm
+            artifacts/macos-packages/pkg/*.pkg
