@@ -30,21 +30,10 @@ dependencies = [
     "Pillow>=10.0",
     "opencv-python-headless>=4.8",
     "mediapipe>=0.10",
-    "onnxruntime-gpu>=1.16",
+    "onnxruntime>=1.16",
     "pyrnnoise>=0.4",
     "onnx>=1.14",
-    "cupy-cuda12x",
     "psutil>=5.9",
-    "nvidia-cublas-cu12",
-    "nvidia-cuda-runtime-cu12",
-    "nvidia-cudnn-cu12",
-    "nvidia-curand-cu12",
-    "nvidia-cufft-cu12",
-    "nvidia-cusparse-cu12",
-    "nvidia-cusolver-cu12",
-    "nvidia-nvjitlink-cu12",
-    "nvidia-cuda-nvrtc-cu12",
-    "openai-whisper>=20231117",
     "scipy>=1.11",
 ]
 
@@ -55,7 +44,21 @@ Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-cuda = ["pycuda>=2024.1"]
+cuda = [
+    "pycuda>=2024.1",
+    "cupy-cuda12x",
+    "nvidia-cublas-cu12",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cudnn-cu12",
+    "nvidia-curand-cu12",
+    "nvidia-cufft-cu12",
+    "nvidia-cusparse-cu12",
+    "nvidia-cusolver-cu12",
+    "nvidia-nvjitlink-cu12",
+    "nvidia-cuda-nvrtc-cu12",
+    "onnxruntime-gpu>=1.16",
+]
+meeting = ["openai-whisper>=20231117"]
 maxine = ["nvidia-vfx"]
 tensorrt = ["tensorrt", "tensorrt-cu12", "onnx"]
 

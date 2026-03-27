@@ -65,7 +65,7 @@ parts:
       - opencv-python-headless
       - mediapipe
       - onnxruntime
-      - openai-whisper
+      - onnx
       - scipy
       - pyrnnoise
       - psutil
