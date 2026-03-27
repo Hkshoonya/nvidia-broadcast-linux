@@ -1,7 +1,7 @@
 name: nvbroadcast
 base: core24
 version: '1.1.0'
-summary: AI-powered virtual camera with background effects, eye contact, and voice tools
+summary: AI virtual camera with background effects and voice tools
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
