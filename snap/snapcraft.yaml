@@ -36,6 +36,9 @@ platforms:
   amd64:
     build-on: [amd64]
     build-for: [amd64]
+  arm64:
+    build-on: [arm64]
+    build-for: [arm64]
 
 apps:
   nvbroadcast:
@@ -53,8 +56,6 @@ apps:
       - system-observe
     environment:
       PYTHONPATH: $SNAP/lib/python3/dist-packages:$SNAP/usr/lib/python3/dist-packages
-      GST_PLUGIN_PATH: $SNAP/usr/lib/x86_64-linux-gnu/gstreamer-1.0
-      GI_TYPELIB_PATH: $SNAP/usr/lib/x86_64-linux-gnu/girepository-1.0
 
 parts:
   nvbroadcast:
@@ -90,6 +91,13 @@ parts:
       mkdir -p $CRAFT_PART_INSTALL/bin
       cat > $CRAFT_PART_INSTALL/bin/nvbroadcast-wrapper << 'EOF'
       #!/bin/bash
+      ARCH="$(uname -m)"
+      case "$ARCH" in
+        aarch64|arm64) TRIPLET="aarch64-linux-gnu" ;;
+        *) TRIPLET="x86_64-linux-gnu" ;;
+      esac
+      export GST_PLUGIN_PATH="$SNAP/usr/lib/$TRIPLET/gstreamer-1.0${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}"
+      export GI_TYPELIB_PATH="$SNAP/usr/lib/$TRIPLET/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
       cd $SNAP
       exec python3 -m nvbroadcast "$@"
       EOF

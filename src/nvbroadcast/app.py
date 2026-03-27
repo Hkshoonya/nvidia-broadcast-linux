@@ -37,7 +37,7 @@ from nvbroadcast.video.relighting import FaceRelighter
 from nvbroadcast.video.perf_monitor import PerfMonitor
 from nvbroadcast.ai.transcriber import MeetingTranscriber, save_transcript
 from nvbroadcast.ai.summarizer import MeetingSummarizer
-from nvbroadcast.core.platform import IS_MACOS, IS_LINUX
+from nvbroadcast.core.platform import IS_MACOS, IS_LINUX, IS_ARM64
 from nvbroadcast.core.resources import find_ui_css
 from nvbroadcast.core.dependency_installer import DependencyInstaller
 from nvbroadcast.core.meeting_store import (
@@ -57,6 +57,15 @@ class NVBroadcastApp(Adw.Application):
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
         self.config = load_config()
+        if IS_LINUX and IS_ARM64 and self.config.mode_key in {
+            "doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer",
+        }:
+            self.config.mode_key = "cpu_quality"
+            self.config.compositing = "cpu"
+            self.config.performance_profile = "max_quality"
+            self.config.use_tensorrt = False
+            self.config.use_fused_kernel = False
+            self.config.use_nvdec = False
         self._window = None
         self._video_pipeline = None
         self._audio_pipeline = None
@@ -98,6 +107,7 @@ class NVBroadcastApp(Adw.Application):
         Adw.Application.do_startup(self)
         Gst.init(None)
         cleanup_old_sessions()
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.DEFAULT)
 
         # Load CSS
         css_provider = Gtk.CssProvider()

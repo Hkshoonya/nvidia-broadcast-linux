@@ -112,7 +112,15 @@ jobs:
 
   # ─── Test: Linux platform checks ───────────────────────────────────────────
   test-linux:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: amd64
+            runner: ubuntu-latest
+          - name: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -125,6 +133,20 @@ jobs:
         run: |
           python3 -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
+
+      - name: Validate arm64 Python wheel availability
+        if: matrix.name == 'arm64'
+        run: |
+          .venv/bin/python -m pip download \
+            --dest /tmp/arm64-wheel-check \
+            --only-binary=:all: \
+            --platform manylinux2014_aarch64 \
+            --platform manylinux_2_27_aarch64 \
+            --platform manylinux_2_28_aarch64 \
+            --python-version 312 \
+            --implementation cp \
+            --abi cp312 \
+            numpy opencv-python-headless onnxruntime onnx scipy Pillow requests psutil pyrnnoise mediapipe
 
       - name: Test platform detection
         run: |

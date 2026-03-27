@@ -953,7 +953,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             ("cpu_light", "CPU - Fast"),
             ("cpu_low", "CPU - Low End"),
         ]:
+            unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
             missing = self._app.dependency_installer.missing_for_mode(mode_key)
+            if unsupported:
+                label += " (not available on this architecture)"
+                devices.append({"name": label, "device": mode_key})
+                continue
             if not has_cuda and mode_key.startswith(("doczeus", "cuda_", "zeus", "killer")):
                 missing = sorted(set(missing + ["cupy"]))
             if mode_key in ("zeus", "killer") and not has_trt:
@@ -978,6 +983,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_mode_changed_selector(self, selector, mode_key):
         if getattr(self._app, '_restoring', False):
+            return
+        unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
+        if unsupported:
+            self._sync_mode_selector()
+            self.set_status(unsupported)
             return
         install_key = self._app.dependency_installer.install_key_for_mode(mode_key)
         if install_key:

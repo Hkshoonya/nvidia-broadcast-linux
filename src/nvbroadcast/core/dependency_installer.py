@@ -24,7 +24,7 @@ import gi
 gi.require_version("GObject", "2.0")
 from gi.repository import GObject, GLib
 
-from nvbroadcast.core.platform import has_tensorrt_runtime
+from nvbroadcast.core.platform import IS_ARM64, IS_LINUX, has_tensorrt_runtime, supports_linux_gpu_stack
 
 
 def _has_cupy() -> bool:
@@ -37,6 +37,10 @@ def _has_cupy() -> bool:
 
 def _has_whisper() -> bool:
     return importlib.util.find_spec("whisper") is not None
+
+
+def _supports_cuda_runtime() -> bool:
+    return supports_linux_gpu_stack()
 
 
 def _verify_cupy() -> bool:
@@ -60,9 +64,11 @@ PACKAGE_SPECS = {
             "inside the app."
         ),
         "install_args": ["install", "cupy-cuda12x", "nvidia-cuda-nvrtc-cu12"],
+        "supported": _supports_cuda_runtime,
         "check": _has_cupy,
         "verify": _verify_cupy,
         "help": "Retry later with: .venv/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12",
+        "unsupported_reason": "CUDA compositing is currently available only on Linux x86_64 systems.",
     },
     "tensorrt": {
         "title": "TensorRT Runtime",
@@ -73,9 +79,11 @@ PACKAGE_SPECS = {
             "for faster ONNX execution."
         ),
         "install_args": ["install", "tensorrt-cu12"],
+        "supported": _supports_cuda_runtime,
         "check": has_tensorrt_runtime,
         "verify": has_tensorrt_runtime,
         "help": "Retry later with: .venv/bin/pip install tensorrt-cu12",
+        "unsupported_reason": "TensorRT premium modes are currently available only on Linux x86_64 systems.",
     },
     "whisper": {
         "title": "Meeting Transcription Runtime",
@@ -86,6 +94,7 @@ PACKAGE_SPECS = {
             "without sending audio anywhere."
         ),
         "install_args": ["install", "openai-whisper"],
+        "supported": lambda: True,
         "check": _has_whisper,
         "verify": _has_whisper,
         "help": "Retry later with: .venv/bin/pip install openai-whisper",
@@ -132,8 +141,24 @@ class DependencyInstaller(GObject.Object):
         spec = PACKAGE_SPECS.get(key)
         if spec is None:
             return False
+        if not self.is_supported(key):
+            return False
         try:
             return bool(spec["check"]())
+        except Exception:
+            return False
+
+    def is_supported(self, key: str) -> bool:
+        if key in PACKAGE_BUNDLES:
+            return all(self.is_supported(pkg) for pkg in PACKAGE_BUNDLES[key]["packages"])
+        spec = PACKAGE_SPECS.get(key)
+        if spec is None:
+            return False
+        supported = spec.get("supported")
+        if supported is None:
+            return True
+        try:
+            return bool(supported())
         except Exception:
             return False
 
@@ -142,7 +167,18 @@ class DependencyInstaller(GObject.Object):
             return PACKAGE_BUNDLES[key]
         return PACKAGE_SPECS[key]
 
+    def unsupported_reason_for_mode(self, mode_key: str) -> str | None:
+        if (
+            IS_LINUX
+            and IS_ARM64
+            and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
+        ):
+            return "GPU CUDA and TensorRT modes are not available on Linux arm64 yet. Use CPU modes for now."
+        return None
+
     def missing_for_mode(self, mode_key: str) -> list[str]:
+        if self.unsupported_reason_for_mode(mode_key):
+            return []
         missing: list[str] = []
         if mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer"):
             if not self.is_available("cupy"):
@@ -160,6 +196,8 @@ class DependencyInstaller(GObject.Object):
         return None
 
     def start_install(self, key: str) -> bool:
+        if not self.is_supported(key):
+            return False
         with self._lock:
             if self._active_job_id:
                 return False
@@ -227,6 +265,8 @@ class DependencyInstaller(GObject.Object):
         spec = PACKAGE_SPECS[package_id]
         if self.is_available(package_id):
             return True, f"{spec['title']} already available."
+        if not self.is_supported(package_id):
+            return False, spec.get("unsupported_reason", f"{spec['title']} is not supported on this system.")
 
         label_prefix = f"{prefix}: " if prefix else ""
         venv_pip = Path(sys.executable).parent / "pip"

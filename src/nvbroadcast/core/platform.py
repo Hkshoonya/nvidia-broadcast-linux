@@ -13,12 +13,29 @@ import ctypes.util
 
 IS_LINUX = platform.system() == "Linux"
 IS_MACOS = platform.system() == "Darwin"
+MACHINE = platform.machine().lower()
+IS_ARM64 = MACHINE in ("arm64", "aarch64")
+IS_X86_64 = MACHINE in ("x86_64", "amd64")
+
+
+def linux_multiarch_triplet() -> str:
+    """Return the Debian-style multiarch triplet for this machine."""
+    if IS_ARM64:
+        return "aarch64-linux-gnu"
+    return "x86_64-linux-gnu"
+
+
+def supports_linux_gpu_stack() -> bool:
+    """Return whether the Linux CUDA/TensorRT optional stack is supported."""
+    return IS_LINUX and IS_X86_64
 
 
 def has_nvidia_gpu() -> bool:
     """Check if an NVIDIA GPU is available."""
     if IS_MACOS:
         return False  # No NVIDIA on modern Macs
+    if IS_LINUX and not supports_linux_gpu_stack():
+        return False
     return shutil.which("nvidia-smi") is not None
 
 
@@ -40,7 +57,7 @@ def has_pyvirtualcam() -> bool:
 
 def has_tensorrt_runtime() -> bool:
     """Check whether TensorRT EP is actually runnable on this system."""
-    if not IS_LINUX:
+    if not supports_linux_gpu_stack():
         return False
     try:
         import onnxruntime as ort
@@ -117,7 +134,7 @@ def get_onnx_providers(gpu_index: int = 0,
     available = ort.get_available_providers()
     providers = []
 
-    if IS_LINUX and use_tensorrt and 'TensorrtExecutionProvider' in available:
+    if supports_linux_gpu_stack() and use_tensorrt and 'TensorrtExecutionProvider' in available:
         from pathlib import Path
         cache_dir = str(Path(__file__).parent.parent.parent.parent / "models" / "trt_cache")
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
@@ -130,7 +147,7 @@ def get_onnx_providers(gpu_index: int = 0,
             'trt_builder_optimization_level': 3,
         }))
 
-    if 'CUDAExecutionProvider' in available:
+    if supports_linux_gpu_stack() and 'CUDAExecutionProvider' in available:
         providers.append(('CUDAExecutionProvider', {
             'device_id': gpu_index,
             'arena_extend_strategy': 'kSameAsRequested',

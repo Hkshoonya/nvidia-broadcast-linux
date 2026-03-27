@@ -11,7 +11,15 @@ permissions:
 
 jobs:
   build-snap:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +30,7 @@ jobs:
       - name: Upload snap artifact
         uses: actions/upload-artifact@v4
         with:
-          name: snap-package
+          name: snap-package-${{ matrix.arch }}
           path: ${{ steps.snapcraft.outputs.snap }}
 
       - name: Validate Snap Store registration

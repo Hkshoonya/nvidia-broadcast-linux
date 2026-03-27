@@ -1,9 +1,10 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   NV Broadcast v0.3.0 — Apple-inspired Dark Theme
+   NV Broadcast UI theme
    by doczeus | AI Powered
 
-   Design tokens: 8px rhythm, 10px radius, system fonts, NVIDIA green accent
-   Inspired by macOS system preferences and Apple HIG
+   Design tokens: 8px rhythm, 10px radius, system fonts, NVIDIA green accent.
+   The palette follows Adwaita/system light or dark mode instead of forcing a
+   custom dark-only theme.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Color tokens ─────────────────────────────────────────────────────────── */
@@ -12,24 +13,24 @@
 @define-color nv_green_subtle rgba(118, 185, 0, 0.12);
 @define-color nv_green_hover rgba(118, 185, 0, 0.18);
 
-@define-color bg_primary #161616;
-@define-color bg_secondary #1c1c1c;
-@define-color bg_elevated #222222;
-@define-color bg_card rgba(255, 255, 255, 0.04);
-@define-color bg_card_hover rgba(255, 255, 255, 0.06);
-@define-color bg_input #1a1a1a;
+@define-color bg_primary @window_bg_color;
+@define-color bg_secondary @headerbar_bg_color;
+@define-color bg_elevated @card_bg_color;
+@define-color bg_card alpha(@window_fg_color, 0.035);
+@define-color bg_card_hover alpha(@window_fg_color, 0.07);
+@define-color bg_input @view_bg_color;
 
-@define-color border_default rgba(255, 255, 255, 0.08);
-@define-color border_subtle rgba(255, 255, 255, 0.05);
-@define-color border_strong rgba(255, 255, 255, 0.12);
+@define-color border_default alpha(@window_fg_color, 0.12);
+@define-color border_subtle alpha(@window_fg_color, 0.07);
+@define-color border_strong alpha(@window_fg_color, 0.18);
 
-@define-color text_primary rgba(255, 255, 255, 0.92);
-@define-color text_secondary rgba(255, 255, 255, 0.55);
-@define-color text_tertiary rgba(255, 255, 255, 0.35);
+@define-color text_primary @window_fg_color;
+@define-color text_secondary alpha(@window_fg_color, 0.78);
+@define-color text_tertiary alpha(@window_fg_color, 0.56);
 
-@define-color danger #e53935;
+@define-color danger @destructive_bg_color;
 @define-color danger_subtle rgba(229, 57, 53, 0.15);
-@define-color recording #ff3b30;
+@define-color recording @destructive_bg_color;
 
 /* ── Window & headerbar ───────────────────────────────────────────────────── */
 window {
@@ -80,7 +81,7 @@ headerbar .title {
 /* Recording button */
 .recording-btn {
     background-color: @recording;
-    color: white;
+    color: @destructive_fg_color;
     font-weight: 600;
     border-radius: 8px;
     padding: 6px 14px;
@@ -114,7 +115,7 @@ headerbar .title {
 
 /* ── Video preview ────────────────────────────────────────────────────────── */
 .video-preview {
-    background-color: #000000;
+    background-color: alpha(@window_fg_color, 0.95);
     border-radius: 10px;
     border: 1px solid @border_default;
     min-height: 320px;
@@ -285,7 +286,7 @@ scale {
 }
 
 scale trough {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: alpha(@window_fg_color, 0.08);
     border-radius: 4px;
     min-height: 4px;
 }
@@ -302,7 +303,7 @@ scale slider {
     min-height: 16px;
     margin: -6px;
     border: 2px solid @bg_primary;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 1px 3px alpha(@window_fg_color, 0.2);
     transition: all 150ms ease;
 }
 
@@ -445,7 +446,7 @@ tooltip {
 }
 
 .vu-meter trough {
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: alpha(@window_fg_color, 0.08);
     border-radius: 4px;
     min-height: 8px;
 }
@@ -461,13 +462,13 @@ tooltip {
 
 /* ── Scrollbars ───────────────────────────────────────────────────────────── */
 scrollbar slider {
-    background-color: rgba(255, 255, 255, 0.15);
+    background-color: alpha(@window_fg_color, 0.18);
     border-radius: 4px;
     min-width: 6px;
 }
 
 scrollbar slider:hover {
-    background-color: rgba(255, 255, 255, 0.25);
+    background-color: alpha(@window_fg_color, 0.28);
 }
 
 /* ── Separators ───────────────────────────────────────────────────────────── */
@@ -518,7 +519,7 @@ messagedialog {
 }
 
 .mode-badge.cpu {
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: alpha(@window_fg_color, 0.08);
     color: @text_secondary;
 }
 

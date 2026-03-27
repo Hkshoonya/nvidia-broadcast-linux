@@ -391,7 +391,7 @@ def detect_system_capabilities() -> dict:
     """Detect system hardware and recommend the best configuration."""
     import os
     import subprocess
-    from nvbroadcast.core.platform import IS_MACOS, IS_LINUX
+    from nvbroadcast.core.platform import IS_MACOS, IS_LINUX, IS_ARM64, supports_linux_gpu_stack
 
     caps = {
         "cpu_cores": os.cpu_count() or 4,
@@ -399,6 +399,7 @@ def detect_system_capabilities() -> dict:
         "gpu_vram_mb": 0,
         "has_nvidia": False,
         "has_apple_silicon": False,
+        "has_linux_arm64": False,
         "has_gl_compositor": False,
         "has_cupy": False,
         "recommended_mode": "cpu_quality",
@@ -412,19 +413,25 @@ def detect_system_capabilities() -> dict:
         caps["recommended_mode"] = "cpu_quality"
         return caps
 
+    if IS_LINUX and IS_ARM64:
+        caps["has_linux_arm64"] = True
+        caps["gpu_name"] = "Linux ARM64"
+        caps["recommended_mode"] = "cpu_quality"
+
     # GPU detection (Linux — nvidia-smi)
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, check=True,
-        )
-        line = result.stdout.strip().split("\n")[0]
-        parts = [p.strip() for p in line.split(",")]
-        caps["gpu_name"] = parts[0]
-        caps["gpu_vram_mb"] = int(parts[1])
-        caps["has_nvidia"] = True
-    except Exception:
-        pass
+    if supports_linux_gpu_stack():
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, check=True,
+            )
+            line = result.stdout.strip().split("\n")[0]
+            parts = [p.strip() for p in line.split(",")]
+            caps["gpu_name"] = parts[0]
+            caps["gpu_vram_mb"] = int(parts[1])
+            caps["has_nvidia"] = True
+        except Exception:
+            pass
 
     # GStreamer GL
     try:
@@ -440,11 +447,12 @@ def detect_system_capabilities() -> dict:
         pass
 
     # CuPy
-    try:
-        import cupy  # noqa: F401
-        caps["has_cupy"] = True
-    except ImportError:
-        pass
+    if supports_linux_gpu_stack():
+        try:
+            import cupy  # noqa: F401
+            caps["has_cupy"] = True
+        except ImportError:
+            pass
 
     # Auto-recommend based on hardware
     if caps["has_nvidia"]:
@@ -485,10 +493,14 @@ def detect_compositing_backends() -> dict[str, bool]:
         available["gstreamer_gl"] = False
 
     # Check CuPy
-    try:
-        import cupy  # noqa: F401
-        available["cupy"] = True
-    except ImportError:
+    from nvbroadcast.core.platform import supports_linux_gpu_stack
+    if supports_linux_gpu_stack():
+        try:
+            import cupy  # noqa: F401
+            available["cupy"] = True
+        except ImportError:
+            available["cupy"] = False
+    else:
         available["cupy"] = False
 
     return available
