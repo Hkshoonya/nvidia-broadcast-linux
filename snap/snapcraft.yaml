@@ -1,30 +1,36 @@
 name: nvbroadcast
 base: core24
 version: '1.0.2'
-summary: AI-powered virtual camera, background removal, and meeting transcription
+summary: AI-powered virtual camera with background effects, eye contact, and voice tools
 description: |
-  NV Broadcast brings NVIDIA Broadcast features to Linux and macOS.
-  AI-powered virtual camera with background removal, eye contact correction,
-  face relighting, voice studio, and meeting transcription — all running
-  locally on your GPU. No cloud, no data leaves your machine.
+  NV Broadcast is an AI-powered virtual camera and voice enhancement app for
+  Linux. It brings background blur, background replace, green-screen remove,
+  eye contact correction, face relighting, video enhancement, recording, and
+  local meeting transcription into one app.
 
-  Features:
-  - Background blur/replace/remove (3 AI models)
-  - Eye contact correction (look at camera while reading)
-  - Face relighting (match lighting to background)
-  - Voice studio (bass, treble, warmth, compression, 6 presets)
-  - AI meeting transcription (local Whisper)
-  - AI meeting summarizer (action items, key points)
-  - Recording with NVENC hardware encoding
-  - 9 processing modes from 48fps to CPU fallback
-  - Works with Zoom, Chrome, OBS, Discord
+  Core features:
+  - Blur your background
+  - Replace your background with an image
+  - Remove your background for green-screen workflows
+  - Eye contact correction while reading or presenting
+  - Face relighting to better match the background
+  - Video enhancement with skin smooth, denoise, enhance, and sharpen controls
+  - Voice studio tools plus local AI meeting transcription and summaries
+  - Multiple GPU and CPU processing modes for different systems
+  - Works with Zoom, Chrome, OBS, Discord, and other webcam apps
 
-  By Doczeus | https://nvbroadcast.domjarvis.com
+  For install guides, release downloads, feature breakdowns, and upgrade
+  instructions, visit the official website:
+  https://nvbroadcast.domjarvis.com
 
 grade: stable
 confinement: strict
 license: GPL-3.0
 icon: data/icons/com.doczeus.NVBroadcast.svg
+website: https://nvbroadcast.domjarvis.com
+source-code: https://github.com/Hkshoonya/nvidia-broadcast-linux
+issues: https://github.com/Hkshoonya/nvidia-broadcast-linux/issues
+contact: https://nvbroadcast.domjarvis.com
 
 platforms:
   amd64:
