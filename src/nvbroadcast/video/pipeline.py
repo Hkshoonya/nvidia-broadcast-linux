@@ -57,6 +57,9 @@ class VideoPipeline:
         self._rec_appsrc = None
         self._paused = False
         self._frozen_frame = None
+        self._teardown_lock = threading.Lock()
+        self._callbacks_in_flight = 0
+        self._callback_lock = threading.Lock()
 
     def configure(self, source_device, vcam_device,
                   width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT,
@@ -261,27 +264,35 @@ class VideoPipeline:
 
     def _on_preview_sample(self, appsink):
         """Lightweight preview-only callback (passthrough mode)."""
+        with self._callback_lock:
+            self._callbacks_in_flight += 1
         if not self._running:
+            with self._callback_lock:
+                self._callbacks_in_flight -= 1
             return Gst.FlowReturn.EOS
-        sample = appsink.emit("pull-sample")
-        if not sample:
+        try:
+            sample = appsink.emit("pull-sample")
+            if not sample:
+                return Gst.FlowReturn.OK
+
+            # Paused: keep draining the appsink but don't update the frame
+            if self._paused:
+                return Gst.FlowReturn.OK
+
+            buf = sample.get_buffer()
+            ok, info = buf.map(Gst.MapFlags.READ)
+            if not ok:
+                return Gst.FlowReturn.OK
+
+            with self._lock:
+                self._latest_frame = bytes(info.data)
+            buf.unmap(info)
+
+            self._frame_count += 1
             return Gst.FlowReturn.OK
-
-        # Paused: keep draining the appsink but don't update the frame
-        if self._paused:
-            return Gst.FlowReturn.OK
-
-        buf = sample.get_buffer()
-        ok, info = buf.map(Gst.MapFlags.READ)
-        if not ok:
-            return Gst.FlowReturn.OK
-
-        with self._lock:
-            self._latest_frame = bytes(info.data)
-        buf.unmap(info)
-
-        self._frame_count += 1
-        return Gst.FlowReturn.OK
+        finally:
+            with self._callback_lock:
+                self._callbacks_in_flight -= 1
 
     def set_effects_fps(self, efps: int):
         """Change effects throttle at runtime — no pipeline restart needed."""
@@ -298,98 +309,106 @@ class VideoPipeline:
         Result: edges always match the current frame position. The alpha mask
         may be 1-2 frames old but compositing is always fresh.
         """
+        with self._callback_lock:
+            self._callbacks_in_flight += 1
         if not self._running:
+            with self._callback_lock:
+                self._callbacks_in_flight -= 1
             return Gst.FlowReturn.EOS
-        sample = appsink.emit("pull-sample")
-        if not sample:
-            return Gst.FlowReturn.OK
+        try:
+            sample = appsink.emit("pull-sample")
+            if not sample:
+                return Gst.FlowReturn.OK
 
-        buf = sample.get_buffer()
-        ok, info = buf.map(Gst.MapFlags.READ)
-        if not ok:
-            return Gst.FlowReturn.OK
+            buf = sample.get_buffer()
+            ok, info = buf.map(Gst.MapFlags.READ)
+            if not ok:
+                return Gst.FlowReturn.OK
 
-        frame_data = bytes(info.data)
-        # Copy timing info before unmapping — buf may be recycled after unmap
-        buf_pts = buf.pts
-        buf_duration = buf.duration
-        buf.unmap(info)
+            frame_data = bytes(info.data)
+            # Copy timing info before unmapping — buf may be recycled after unmap
+            buf_pts = buf.pts
+            buf_duration = buf.duration
+            buf.unmap(info)
 
-        expected = self._width * self._height * 4
-        if len(frame_data) != expected:
-            return Gst.FlowReturn.OK
+            expected = self._width * self._height * 4
+            if len(frame_data) != expected:
+                return Gst.FlowReturn.OK
 
-        self._frame_count += 1
+            self._frame_count += 1
 
-        # Paused: push frozen frame, skip all processing
-        if self._paused and self._frozen_frame:
-            output = self._frozen_frame
-            if self._vcam_enabled and self._running and self._vcam_appsrc:
-                vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
-                vcam_buf.fill(0, output)
-                vcam_buf.pts = buf_pts
-                vcam_buf.duration = buf_duration
-                self._vcam_appsrc.emit("push-buffer", vcam_buf)
-            return Gst.FlowReturn.OK
+            # Paused: push frozen frame, skip all processing
+            if self._paused and self._frozen_frame:
+                output = self._frozen_frame
+                if self._vcam_enabled and self._running and self._vcam_appsrc:
+                    vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
+                    vcam_buf.fill(0, output)
+                    vcam_buf.pts = buf_pts
+                    vcam_buf.duration = buf_duration
+                    self._vcam_appsrc.emit("push-buffer", vcam_buf)
+                return Gst.FlowReturn.OK
 
-        # Background: kick off alpha inference (heavy, non-blocking)
-        if self._alpha_worker_enabled and self._alpha_callback and not self._effects_busy:
-            run_inference = True
-            if self._effects_fps < self._fps:
-                self._throttle_acc += 1.0 - (self._effects_fps / self._fps)
-                if self._throttle_acc >= 1.0:
-                    self._throttle_acc -= 1.0
-                    run_inference = False
-            if run_inference:
-                self._effects_busy = True
-                threading.Thread(
-                    target=self._update_alpha_bg,
-                    args=(frame_data, self._width, self._height),
-                    daemon=True,
-                ).start()
+            # Background: kick off alpha inference (heavy, non-blocking)
+            if self._alpha_worker_enabled and self._alpha_callback and not self._effects_busy:
+                run_inference = True
+                if self._effects_fps < self._fps:
+                    self._throttle_acc += 1.0 - (self._effects_fps / self._fps)
+                    if self._throttle_acc >= 1.0:
+                        self._throttle_acc -= 1.0
+                        run_inference = False
+                if run_inference:
+                    self._effects_busy = True
+                    threading.Thread(
+                        target=self._update_alpha_bg,
+                        args=(frame_data, self._width, self._height),
+                        daemon=True,
+                    ).start()
 
-        # Inline: composite current frame with latest alpha + all light effects
-        if self._effect_callback:
-            try:
-                output = self._effect_callback(frame_data, self._width, self._height)
-                if output is None or len(output) != expected:
+            # Inline: composite current frame with latest alpha + all light effects
+            if self._effect_callback:
+                try:
+                    output = self._effect_callback(frame_data, self._width, self._height)
+                    if output is None or len(output) != expected:
+                        output = frame_data
+                except Exception as e:
+                    if self._frame_count <= 5:
+                        print(f"[NV Broadcast] Effects error: {e}")
                     output = frame_data
-            except Exception as e:
-                if self._frame_count <= 5:
-                    print(f"[NV Broadcast] Effects error: {e}")
+            else:
                 output = frame_data
-        else:
-            output = frame_data
 
-        # Store for preview
-        with self._lock:
-            self._latest_frame = output
+            # Store for preview
+            with self._lock:
+                self._latest_frame = output
 
-        # Push to vcam at full fps
-        if self._vcam_enabled and self._running:
-            if self._vcam_appsrc:
-                vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
-                vcam_buf.fill(0, output)
-                vcam_buf.pts = buf_pts
-                vcam_buf.duration = buf_duration
-                self._vcam_appsrc.emit("push-buffer", vcam_buf)
-            elif getattr(self, '_frame_bridge', None):
-                self._frame_bridge.write_frame(output)
-            elif getattr(self, '_pyvirtualcam', None):
-                import numpy as np
-                frame = np.frombuffer(output, dtype=np.uint8).reshape(
-                    self._height, self._width, 4
-                )
-                self._pyvirtualcam.send(frame[:, :, :3])
+            # Push to vcam at full fps
+            if self._vcam_enabled and self._running:
+                if self._vcam_appsrc:
+                    vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
+                    vcam_buf.fill(0, output)
+                    vcam_buf.pts = buf_pts
+                    vcam_buf.duration = buf_duration
+                    self._vcam_appsrc.emit("push-buffer", vcam_buf)
+                elif getattr(self, '_frame_bridge', None):
+                    self._frame_bridge.write_frame(output)
+                elif getattr(self, '_pyvirtualcam', None):
+                    import numpy as np
+                    frame = np.frombuffer(output, dtype=np.uint8).reshape(
+                        self._height, self._width, 4
+                    )
+                    self._pyvirtualcam.send(frame[:, :, :3])
 
-        # Push to recording if active
-        if self._recording and self._rec_appsrc:
-            rec_buf = Gst.Buffer.new_allocate(None, len(output), None)
-            rec_buf.fill(0, output)
-            rec_buf.pts = buf_pts
-            self._rec_appsrc.emit("push-buffer", rec_buf)
+            # Push to recording if active
+            if self._recording and self._rec_appsrc:
+                rec_buf = Gst.Buffer.new_allocate(None, len(output), None)
+                rec_buf.fill(0, output)
+                rec_buf.pts = buf_pts
+                self._rec_appsrc.emit("push-buffer", rec_buf)
 
-        return Gst.FlowReturn.OK
+            return Gst.FlowReturn.OK
+        finally:
+            with self._callback_lock:
+                self._callbacks_in_flight -= 1
 
     def _update_alpha_bg(self, frame_data, width, height):
         """Run alpha inference in background — never blocks the capture."""
@@ -502,12 +521,6 @@ class VideoPipeline:
     def _rebuild_pipeline(self):
         """Rebuild pipeline after mode change. Runs on GTK main loop via idle_add."""
         self.stop()
-        GLib.timeout_add(300, self._finish_rebuild)
-        return False
-
-    def _finish_rebuild(self):
-        if not self._teardown_done:
-            return True  # Keep polling until teardown finishes
         self.build(vcam_enabled=self._vcam_enabled)
         self.start()
         return False
@@ -527,69 +540,75 @@ class VideoPipeline:
         self._running = True
 
     def stop(self):
-        self._running = False
-        if self._recording:
-            self.stop_recording()
+        with self._teardown_lock:
+            if not self._teardown_done:
+                return
+            self._running = False
 
-        # Wait for any in-flight effects thread to finish
-        for _ in range(50):  # Max 500ms
-            if not self._effects_busy:
-                break
-            import time
-            time.sleep(0.01)
+            cap = self._pipeline
+            vcam = self._vcam_pipeline
+            self._pipeline = None
+            self._vcam_pipeline = None
+            self._vcam_appsrc = None
+            self._latest_frame = None
+            self._pending_frame = None
+            self._frozen_frame = None
 
-        cap = self._pipeline
-        vcam = self._vcam_pipeline
-        self._pipeline = None
-        self._vcam_pipeline = None
-        self._vcam_appsrc = None
+            if cap:
+                for name in ("sink", "preview"):
+                    elem = cap.get_by_name(name)
+                    if elem:
+                        elem.set_property("emit-signals", False)
+            if vcam:
+                src = vcam.get_by_name("src")
+                if src:
+                    src.set_property("emit-signals", False)
 
-        # Clean up macOS vcam backends
-        if getattr(self, '_frame_bridge', None):
-            self._frame_bridge.close()
-            self._frame_bridge = None
-        if getattr(self, '_pyvirtualcam', None):
-            self._pyvirtualcam.close()
-            self._pyvirtualcam = None
+            self._teardown_done = False
 
-        # Disable signals FIRST — prevents callbacks from firing during teardown
-        if cap:
-            for name in ("sink", "preview"):
-                elem = cap.get_by_name(name)
-                if elem:
-                    elem.set_property("emit-signals", False)
-        if vcam:
-            src = vcam.get_by_name("src")
-            if src:
-                src.set_property("emit-signals", False)
-
-        # Pause pipelines synchronously before background teardown
-        # This stops the streaming threads from accessing v4l2 devices
-        if cap:
-            cap.set_state(Gst.State.PAUSED)
-            cap.get_state(500 * Gst.MSECOND)
-        if vcam:
-            vcam.set_state(Gst.State.PAUSED)
-            vcam.get_state(500 * Gst.MSECOND)
-
-        # Teardown in background thread — never block GTK main loop
-        self._teardown_done = False
-        if cap or vcam:
             def _teardown():
-                if cap:
-                    cap.send_event(Gst.Event.new_eos())
-                if vcam:
-                    vcam.send_event(Gst.Event.new_eos())
-                if cap:
-                    cap.set_state(Gst.State.NULL)
-                    cap.get_state(2 * Gst.SECOND)
-                if vcam:
-                    vcam.set_state(Gst.State.NULL)
-                    vcam.get_state(2 * Gst.SECOND)
-                self._teardown_done = True
+                try:
+                    if self._recording:
+                        self.stop_recording()
+
+                    for _ in range(150):  # Max ~1.5s for in-flight callback drain
+                        with self._callback_lock:
+                            callbacks_busy = self._callbacks_in_flight
+                        if callbacks_busy <= 0 and not self._effects_busy:
+                            break
+                        import time
+                        time.sleep(0.01)
+
+                    # Clean up macOS vcam backends first so they stop holding
+                    # output resources before the GStreamer side is released.
+                    if getattr(self, '_frame_bridge', None):
+                        self._frame_bridge.close()
+                        self._frame_bridge = None
+                    if getattr(self, '_pyvirtualcam', None):
+                        self._pyvirtualcam.close()
+                        self._pyvirtualcam = None
+
+                    if cap:
+                        bus = cap.get_bus()
+                        if bus:
+                            bus.remove_signal_watch()
+                        cap.set_state(Gst.State.READY)
+                        cap.get_state(500 * Gst.MSECOND)
+                        cap.set_state(Gst.State.NULL)
+                        cap.get_state(1500 * Gst.MSECOND)
+
+                    if vcam:
+                        vbus = vcam.get_bus()
+                        if vbus:
+                            vbus.remove_signal_watch()
+                        vcam.set_state(Gst.State.READY)
+                        vcam.get_state(500 * Gst.MSECOND)
+                        vcam.set_state(Gst.State.NULL)
+                        vcam.get_state(1500 * Gst.MSECOND)
+                finally:
+                    self._teardown_done = True
+
             threading.Thread(target=_teardown, daemon=True).start()
-        else:
-            self._teardown_done = True
 
     @staticmethod
     def _has_gst_element(name: str) -> bool:

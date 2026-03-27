@@ -984,6 +984,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._on_beauty_preset(None, self._beauty_preset.get_selected_device() or "natural")
 
     def _on_beauty_preset(self, selector, preset_key):
+        self._app.config.video.beauty.preset = preset_key
+        save_config(self._app.config)
         values = self._BEAUTY_PRESETS.get(preset_key)
         if values is None:
             return  # Custom — don't touch sliders
@@ -1245,6 +1247,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._zoom_slider._scale.set_value(v.auto_frame_zoom)
         # Beauty
         self._beauty_toggle.active = v.beauty.enabled
+        self._beauty_preset.set_sensitive(v.beauty.enabled)
+        preset_map = {"natural": 0, "broadcast": 1, "glamour": 2, "custom": 3}
+        if v.beauty.preset in preset_map:
+            self._beauty_preset.set_selected_index(preset_map[v.beauty.preset])
+        for key, ctrl in self._beauty_controls.items():
+            value = float(getattr(v.beauty, key))
+            ctrl["toggle"].active = value > 0.0
+            ctrl["toggle"].set_sensitive(v.beauty.enabled)
+            ctrl["slider"]._scale.set_value(value)
+            ctrl["slider"].set_sensitive(v.beauty.enabled and value > 0.0)
         # Apply effects to backend
         self._app._eye_contact.enabled = v.eye_contact
         self._app._eye_contact.intensity = v.eye_contact_intensity
@@ -1253,6 +1265,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app._mirror = v.mirror
         self._app._video_effects.enabled = v.background_removal
         self._app._beautifier.enabled = v.beauty.enabled
+        self._app._beautifier.skin_smooth = v.beauty.skin_smooth
+        self._app._beautifier.denoise = v.beauty.denoise
+        self._app._beautifier.enhance = v.beauty.enhance
+        self._app._beautifier.sharpen = v.beauty.sharpen
+        self._app._beautifier.edge_darken = v.beauty.edge_darken
         self._app._autoframe.enabled = v.auto_frame
         self._app._update_pipeline_mode()
         print(f"[NV Broadcast] Profile applied: bg={v.background_removal}, eye={v.eye_contact}, relight={v.relighting}, beauty={v.beauty.enabled}")
@@ -1380,6 +1397,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._relighting_toggle.active = True
             self._relighting_slider.set_sensitive(True)
         self._relighting_slider._scale.set_value(v.relighting_intensity)
+
+        # Beauty
+        self._beauty_toggle.active = v.beauty.enabled
+        self._beauty_preset.set_sensitive(v.beauty.enabled)
+        preset_map = {"natural": 0, "broadcast": 1, "glamour": 2, "custom": 3}
+        if v.beauty.preset in preset_map:
+            self._beauty_preset.set_selected_index(preset_map[v.beauty.preset])
+        for key, ctrl in self._beauty_controls.items():
+            value = float(getattr(v.beauty, key))
+            ctrl["toggle"].active = value > 0.0
+            ctrl["toggle"].set_sensitive(v.beauty.enabled)
+            ctrl["slider"]._scale.set_value(value)
+            ctrl["slider"].set_sensitive(v.beauty.enabled and value > 0.0)
 
         # Mirror
         self._mirror_toggle.active = v.mirror

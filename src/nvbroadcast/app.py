@@ -78,6 +78,9 @@ class NVBroadcastApp(Adw.Application):
         self._use_nvdec = self.config.use_nvdec
         self._inline_inference = self.config.performance_profile in ("max_quality", "balanced")
         self._update_release = None
+        self._pending_start = None
+        self._restart_source_id = 0
+        self._pipeline_teardown = None
 
     def do_startup(self):
         Adw.Application.do_startup(self)
@@ -209,15 +212,26 @@ class NVBroadcastApp(Adw.Application):
         return False
 
     def _on_close_request(self, window):
-        """Minimize to tray instead of quitting."""
+        """Minimize to tray instead of quitting.
+
+        Stop the live pipeline first so closing the window always releases the
+        camera instead of keeping a hidden capture session running.
+        """
         if self.config.minimize_on_close:
+            if self._streaming:
+                self.stop_pipeline()
+                if self._window:
+                    self._window._streaming = False
+                    self._window._stream_btn.set_label("Start Broadcast")
+                    self._window._stream_btn.remove_css_class("destructive-action")
+                    self._window._stream_btn.add_css_class("suggested-action")
             window.set_visible(False)
-            status = "streaming" if self._streaming else "idle"
+            status = "idle"
             if self._tray and self._tray.available:
                 self._tray.update_status(self._streaming, status)
-                print(f"[NV Broadcast] Minimized to tray ({status})")
+                print("[NV Broadcast] Pipeline stopped and app minimized to tray")
             else:
-                print(f"[NV Broadcast] Minimized to background ({status})")
+                print("[NV Broadcast] Pipeline stopped and app minimized to background")
             return True  # Prevent destruction
         return False  # Allow normal close
 
@@ -348,6 +362,11 @@ class NVBroadcastApp(Adw.Application):
         self._relighter.enabled = c.video.relighting
         self._relighter.intensity = c.video.relighting_intensity
         self._beautifier.enabled = c.video.beauty.enabled
+        self._beautifier.skin_smooth = c.video.beauty.skin_smooth
+        self._beautifier.denoise = c.video.beauty.denoise
+        self._beautifier.enhance = c.video.beauty.enhance
+        self._beautifier.sharpen = c.video.beauty.sharpen
+        self._beautifier.edge_darken = c.video.beauty.edge_darken
         self._mirror = c.video.mirror
         self._autoframe.enabled = c.video.auto_frame
         self._autoframe.zoom_level = c.video.auto_frame_zoom
@@ -362,45 +381,58 @@ class NVBroadcastApp(Adw.Application):
 
     # --- Video Pipeline ---
 
+    def _clear_finished_teardown(self):
+        if self._pipeline_teardown and self._pipeline_teardown._teardown_done:
+            self._pipeline_teardown = None
+
+    def _queue_pipeline_restart(self):
+        if self._restart_source_id:
+            return
+        self._restart_source_id = GLib.timeout_add(100, self._restart_after_stop)
+
     def start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
-        if self._streaming:
-            # Stop first, then restart after delay (same as user clicking Stop then Start)
-            self.stop_pipeline()
+        self._clear_finished_teardown()
+        self._pending_start = (camera_device, output_format)
+
+        if self._video_pipeline or self._pipeline_teardown:
+            self.stop_pipeline(clear_pending_start=False)
             if self._window:
                 self._window._streaming = False
                 self._window._stream_btn.set_label("Start Broadcast")
                 self._window._stream_btn.remove_css_class("destructive-action")
                 self._window._stream_btn.add_css_class("suggested-action")
                 self._window.set_status("Restarting...")
-            self._pending_start = (camera_device, output_format)
-            GLib.timeout_add(2000, self._restart_after_stop)
-        else:
-            self._do_start_pipeline(camera_device, output_format)
+            self._queue_pipeline_restart()
+            return
+
+        self._restart_after_stop()
 
     def _restart_after_stop(self):
-        """Restart pipeline 2 seconds after stop — simple, no race conditions."""
-        if hasattr(self, '_pending_start'):
-            cam, fmt = self._pending_start
-            del self._pending_start
-            self._do_start_pipeline(cam, fmt)
-            if self._streaming and self._window:
-                self._window._streaming = True
-                self._window._stream_btn.set_label("Stop Broadcast")
-                self._window._stream_btn.remove_css_class("suggested-action")
-                self._window._stream_btn.add_css_class("destructive-action")
+        """Restart after the previous pipeline has fully released devices."""
+        self._clear_finished_teardown()
+        if self._video_pipeline or self._pipeline_teardown:
+            return True
+
+        self._restart_source_id = 0
+        if self._pending_start is None:
+            return False
+
+        cam, fmt = self._pending_start
+        self._pending_start = None
+        self._do_start_pipeline(cam, fmt)
+        if self._streaming and self._window:
+            self._window._streaming = True
+            self._window._stream_btn.set_label("Stop Broadcast")
+            self._window._stream_btn.remove_css_class("suggested-action")
+            self._window._stream_btn.add_css_class("destructive-action")
         return False
 
     def _do_start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
-        # Ensure old pipeline is fully stopped before creating a new one
-        if self._video_pipeline:
-            self._video_pipeline.stop()
-            # Wait for teardown to complete
-            import time
-            for _ in range(30):  # Max 3 seconds
-                if self._video_pipeline._teardown_done:
-                    break
-                time.sleep(0.1)
-            self._video_pipeline = None
+        self._clear_finished_teardown()
+        if self._video_pipeline or self._pipeline_teardown:
+            self._pending_start = (camera_device, output_format)
+            self._queue_pipeline_restart()
+            return False
 
         from nvbroadcast.core.config import PERFORMANCE_PROFILES
         profile = PERFORMANCE_PROFILES.get(self.config.performance_profile, {})
@@ -472,9 +504,19 @@ class NVBroadcastApp(Adw.Application):
 
         return False  # Don't repeat (for GLib.timeout_add)
 
-    def stop_pipeline(self):
+    def stop_pipeline(self, clear_pending_start: bool = True):
+        if clear_pending_start:
+            self._pending_start = None
+        if self._restart_source_id:
+            GLib.source_remove(self._restart_source_id)
+            self._restart_source_id = 0
         if self._video_pipeline:
-            self._video_pipeline.stop()
+            pipeline = self._video_pipeline
+            pipeline.stop()
+            if pipeline._teardown_done:
+                self._pipeline_teardown = None
+            else:
+                self._pipeline_teardown = pipeline
             self._video_pipeline = None
         self._streaming = False
 
@@ -499,10 +541,34 @@ class NVBroadcastApp(Adw.Application):
             else:
                 result = self._video_effects.composite_only(result, width, height)
 
-        # Face effects (relighting, beautify, eye contact) are too slow
-        # for inline (~12ms). They run in _update_alpha background thread
-        # and are NOT applied here. This keeps the pipeline at full fps.
-        # TODO: implement face effect overlay system for next version.
+        face_effects_active = (
+            self._beautifier.enabled
+            or self._eye_contact.enabled
+            or self._relighter.enabled
+        )
+        if face_effects_active:
+            if self._beautifier.enabled:
+                result = self._beautifier.process_frame(result, width, height)
+
+            frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4)
+            if not frame.flags.writeable:
+                frame = frame.copy()
+
+            alpha_u8 = None
+            if self._video_effects.enabled:
+                alpha, matte_version = self._video_effects._matte_snapshot()
+                if alpha is not None:
+                    if alpha.shape[0] != height or alpha.shape[1] != width:
+                        alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
+                    alpha = self._video_effects._final_matte(frame, alpha, matte_version)
+                    alpha_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+
+            if self._eye_contact.enabled:
+                frame = self._eye_contact.process_frame(frame)
+            if self._relighter.enabled:
+                frame = self._relighter.process_frame(frame, alpha_u8)
+
+            result = frame.tobytes()
 
         if self._autoframe.enabled:
             result = self._autoframe.process_frame(result, width, height)
@@ -649,6 +715,8 @@ class NVBroadcastApp(Adw.Application):
     def set_mirror(self, enabled: bool):
         """Toggle mirror (horizontal flip) on preview and vcam output."""
         self._mirror = enabled
+        self.config.video.mirror = enabled
+        save_config(self.config)
 
     def set_edge_refine(self, enabled: bool):
         """Toggle neural edge refinement for Zeus/Killer modes."""
@@ -738,11 +806,16 @@ class NVBroadcastApp(Adw.Application):
         if getattr(self, '_restoring', False):
             return
         self._beautifier.enabled = enabled
+        self.config.video.beauty.enabled = enabled
         self._update_pipeline_mode()
+        save_config(self.config)
 
     def set_beautify_param(self, param: str, value: float):
         """Set a beautification parameter (skin_smooth, denoise, edge_darken, enhance, sharpen)."""
         setattr(self._beautifier, param, value)
+        if hasattr(self.config.video.beauty, param):
+            setattr(self.config.video.beauty, param, value)
+        save_config(self.config)
 
     # --- Eye Contact ---
 
@@ -750,10 +823,14 @@ class NVBroadcastApp(Adw.Application):
         if getattr(self, '_restoring', False):
             return
         self._eye_contact.enabled = enabled
+        self.config.video.eye_contact = enabled
         self._update_pipeline_mode()
+        save_config(self.config)
 
     def set_eye_contact_intensity(self, value: float):
         self._eye_contact.intensity = value
+        self.config.video.eye_contact_intensity = value
+        save_config(self.config)
 
     # --- Face Relighting ---
 
@@ -761,10 +838,14 @@ class NVBroadcastApp(Adw.Application):
         if getattr(self, '_restoring', False):
             return
         self._relighter.enabled = enabled
+        self.config.video.relighting = enabled
         self._update_pipeline_mode()
+        save_config(self.config)
 
     def set_relighting_intensity(self, value: float):
         self._relighter.intensity = value
+        self.config.video.relighting_intensity = value
+        save_config(self.config)
 
     # --- Recording ---
 
