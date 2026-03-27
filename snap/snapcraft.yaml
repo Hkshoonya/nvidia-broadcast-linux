@@ -1,6 +1,6 @@
 name: nvbroadcast
 base: core24
-version: '1.0.2'
+version: '1.1.0'
 summary: AI-powered virtual camera with background effects, eye contact, and voice tools
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for

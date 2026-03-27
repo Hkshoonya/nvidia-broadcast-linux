@@ -39,8 +39,13 @@ from nvbroadcast.ai.transcriber import MeetingTranscriber, save_transcript
 from nvbroadcast.ai.summarizer import MeetingSummarizer
 from nvbroadcast.core.platform import IS_MACOS, IS_LINUX
 from nvbroadcast.core.resources import find_ui_css
+from nvbroadcast.core.dependency_installer import DependencyInstaller
+from nvbroadcast.core.meeting_store import (
+    create_session, save_session, list_sessions, MeetingSession, cleanup_old_sessions,
+)
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
+from nvbroadcast.audio.meeting_capture import MeetingAudioCapture
 from nvbroadcast.ui.window import NVBroadcastWindow
 from nvbroadcast import __version__
 
@@ -68,6 +73,12 @@ class NVBroadcastApp(Adw.Application):
         self._perf_monitor = PerfMonitor()
         self._transcriber = MeetingTranscriber(model_size="base")
         self._summarizer = MeetingSummarizer()
+        self._dependency_installer = DependencyInstaller()
+        self._meeting_capture = None
+        self._meeting_session_id = ""
+        self._meeting_session_dir = None
+        self._meeting_audio_path = ""
+        self._meeting_video_path = ""
         self._meeting_active = False
         self._vcam_device = None
         self._vcam_available = False
@@ -81,10 +92,12 @@ class NVBroadcastApp(Adw.Application):
         self._pending_start = None
         self._restart_source_id = 0
         self._pipeline_teardown = None
+        self._transcriber.set_segment_callback(self._on_transcript_segment)
 
     def do_startup(self):
         Adw.Application.do_startup(self)
         Gst.init(None)
+        cleanup_old_sessions()
 
         # Load CSS
         css_provider = Gtk.CssProvider()
@@ -107,6 +120,8 @@ class NVBroadcastApp(Adw.Application):
     def do_activate(self):
         if self._window is None:
             self._window = NVBroadcastWindow(self)
+            self._window.bind_dependency_installer(self._dependency_installer)
+            self._window.load_meeting_sessions(self.list_meeting_sessions())
 
             # System tray icon
             try:
@@ -135,7 +150,7 @@ class NVBroadcastApp(Adw.Application):
             if self.config.first_run:
                 self._restoring = False
                 from nvbroadcast.ui.setup_wizard import SetupWizard
-                wizard = SetupWizard(self._window)
+                wizard = SetupWizard(self._window, self)
                 wizard.connect("setup-complete", self._on_setup_complete)
                 wizard.present()
             elif self.config.auto_start:
@@ -874,12 +889,34 @@ class NVBroadcastApp(Adw.Application):
 
     def start_meeting(self) -> str:
         """Start meeting: records video+audio and transcribes speech."""
-        filepath = self.start_recording()
+        from pathlib import Path
+
+        self._meeting_session_id, self._meeting_session_dir = create_session()
+        self._meeting_video_path = str(self._meeting_session_dir / "meeting.mp4")
+        self._meeting_audio_path = str(self._meeting_session_dir / "meeting_audio.wav")
+
+        filepath = self._meeting_video_path
+        if self._video_pipeline:
+            self._video_pipeline.start_recording(filepath)
+        self._last_recording_path = filepath
+
+        self._meeting_capture = MeetingAudioCapture()
+        self._meeting_capture.set_sample_callback(self._transcriber.feed_audio)
+        try:
+            self._meeting_capture.build(
+                self.config.audio.mic_device,
+                getattr(self._window, "_speaker_selector", None).get_selected_device() if self._window and getattr(self._window, "_speaker_selector", None) else "",
+                self._meeting_audio_path,
+            )
+            self._meeting_capture.start()
+        except Exception as exc:
+            print(f"[NV Broadcast] Meeting audio capture unavailable: {exc}")
+            self._meeting_capture = None
+
         self._transcriber.start()
         self._meeting_active = True
-        # Feed audio to transcriber from the audio pipeline
-        if self._audio_pipeline and hasattr(self._audio_pipeline, '_level_monitor'):
-            self._audio_pipeline._transcriber_feed = self._transcriber
+        if self._window:
+            self._window.reset_live_meeting_view()
         print(f"[NV Broadcast] Meeting started: {filepath}")
         return filepath
 
@@ -889,34 +926,80 @@ class NVBroadcastApp(Adw.Application):
         from pathlib import Path
         self._meeting_active = False
         self.stop_recording()
+        if self._meeting_capture:
+            self._meeting_capture.stop()
+            self._meeting_capture = None
         segments = self._transcriber.stop()
-
-        # Save transcript
-        videos_dir = Path.home() / "Videos"
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        base_path = str(videos_dir / f"NVBroadcast_Meeting_{timestamp}")
-
         transcript_path = ""
+        transcript_srt_path = ""
         notes_path = ""
         if segments:
+            base_path = str(self._meeting_session_dir / "transcript")
             transcript_path = save_transcript(segments, base_path, format="txt")
-            save_transcript(segments, base_path, format="srt")
+            transcript_srt_path = save_transcript(segments, base_path, format="srt")
 
-            # Generate AI summary
             transcript_text = self._transcriber.get_full_transcript()
             duration = segments[-1].end_time if segments else 0
             notes = self._summarizer.summarize(transcript_text, duration)
             notes_md = self._summarizer.format_notes(notes)
-            notes_path = str(Path(base_path + "_notes.md"))
+            notes_path = str(self._meeting_session_dir / "notes.md")
             Path(notes_path).write_text(notes_md)
             print(f"[NV Broadcast] Meeting notes saved: {notes_path}")
 
+            session = MeetingSession(
+                session_id=self._meeting_session_id,
+                created_at=int(time.time()),
+                title=notes.title,
+                summary=notes.summary,
+                transcript_preview="\n".join(seg.text for seg in segments[:6])[:600],
+                duration_seconds=duration,
+                notes_path=notes_path,
+                transcript_path=transcript_path,
+                transcript_srt_path=transcript_srt_path,
+                audio_path=self._meeting_audio_path,
+                video_path=self._meeting_video_path,
+            )
+            save_session(session)
+            if self._window:
+                self._window.load_meeting_sessions(self.list_meeting_sessions())
+                self._window.show_meeting_session(session)
+
         print(f"[NV Broadcast] Meeting ended. Transcript: {transcript_path}")
+        self._meeting_session_id = ""
+        self._meeting_session_dir = None
+        self._meeting_audio_path = ""
+        self._meeting_video_path = ""
         return notes_path or transcript_path
 
     @property
     def meeting_active(self) -> bool:
         return self._meeting_active
+
+    @property
+    def dependency_installer(self) -> DependencyInstaller:
+        return self._dependency_installer
+
+    def list_meeting_sessions(self) -> list[MeetingSession]:
+        return list_sessions()
+
+    def load_meeting_file(self, path: str) -> str:
+        from nvbroadcast.core.meeting_store import read_file
+        return read_file(path)
+
+    def _on_transcript_segment(self, segment):
+        if self._window is None:
+            return
+
+        def _update():
+            transcript = self._transcriber.get_timestamped_transcript()
+            notes = self._summarizer.summarize(
+                self._transcriber.get_full_transcript(),
+                segment.end_time,
+            )
+            self._window.update_live_meeting_summary(notes.summary, transcript)
+            return False
+
+        GLib.idle_add(_update)
 
     # --- Microphone Selection ---
 
@@ -929,8 +1012,9 @@ class NVBroadcastApp(Adw.Application):
         save_config(self.config)
         # Restart audio pipeline if running
         if self._audio_pipeline and self._audio_pipeline._running:
+            from nvbroadcast.audio.devices import resolve_pipewire_target
             self._audio_pipeline.stop()
-            self._audio_pipeline.configure(mic_device=device)
+            self._audio_pipeline.configure(mic_device=resolve_pipewire_target(device))
             self._audio_pipeline.build()
             self._audio_pipeline.start()
 
@@ -957,9 +1041,13 @@ class NVBroadcastApp(Adw.Application):
     def set_noise_removal(self, enabled: bool):
         self.config.audio.noise_removal = enabled
         if enabled:
+            from nvbroadcast.audio.devices import resolve_pipewire_target
             if self._audio_pipeline is None:
                 self._audio_pipeline = AudioPipeline()
-                self._audio_pipeline.configure(sample_rate=48000)
+                self._audio_pipeline.configure(
+                    mic_device=resolve_pipewire_target(self.config.audio.mic_device),
+                    sample_rate=48000,
+                )
                 self._audio_pipeline.build()
             self._audio_pipeline.effects.enabled = True
             self._audio_pipeline.start()
@@ -991,6 +1079,9 @@ class NVBroadcastApp(Adw.Application):
 
     def do_shutdown(self):
         save_config(self.config)
+        if self._meeting_capture:
+            self._meeting_capture.stop()
+            self._meeting_capture = None
         self.stop_pipeline()
         if self._audio_pipeline:
             self._audio_pipeline.stop()

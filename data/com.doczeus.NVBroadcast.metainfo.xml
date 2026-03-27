@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.0" date="2026-03-27">
+      <description>
+        <p>Meeting assistant and guided runtime-install update</p>
+        <ul>
+          <li>New collapsible meeting sidebar with live local transcript and summary</li>
+          <li>Meeting history now stays on-device for 7 days and opens from the app</li>
+          <li>Meeting capture now records both-way audio for better notes and transcripts</li>
+          <li>Optional runtimes install in the background from the app with progress tracking</li>
+          <li>First-run setup now explains modes, skip flow, and required downloads more clearly</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.2" date="2026-03-27">
       <description>
         <p>Background quality and release-readiness update</p>

@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.0.2
+Version:        1.1.0
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -140,6 +140,13 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Thu Mar 27 2026 doczeus <harshit@kshoonya.com> - 1.1.0-1
+- Add meeting assistant sidebar with live transcript and local session history
+- Capture both-way meeting audio for on-device transcription and notes
+- Keep local meeting records for 7 days with automatic cleanup
+- Add background optional-runtime installer flow for CUDA, TensorRT, and Whisper
+- Improve first-run setup guidance and in-app install progress handling
+
 * Thu Mar 27 2026 doczeus <harshit@kshoonya.com> - 1.0.2-1
 - Improve background matte quality and mode restore behavior
 - Package desktop assets and AppStream metadata in release artifacts

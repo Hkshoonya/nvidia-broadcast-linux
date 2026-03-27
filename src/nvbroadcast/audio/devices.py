@@ -9,6 +9,16 @@ import subprocess
 import json
 
 
+def _pw_nodes() -> list[dict]:
+    try:
+        result = subprocess.run(
+            ["pw-dump"], capture_output=True, text=True, timeout=5
+        )
+        return json.loads(result.stdout)
+    except Exception:
+        return []
+
+
 def list_microphones() -> list[dict[str, str]]:
     """List available microphone devices via PipeWire/PulseAudio.
 
@@ -18,18 +28,14 @@ def list_microphones() -> list[dict[str, str]]:
 
     # Try PipeWire first (pw-dump)
     try:
-        result = subprocess.run(
-            ["pw-dump"], capture_output=True, text=True, timeout=5
-        )
-        data = json.loads(result.stdout)
-        for node in data:
+        for node in _pw_nodes():
             if node.get("type") != "PipeWire:Interface:Node":
                 continue
             props = node.get("info", {}).get("props", {})
             media_class = props.get("media.class", "")
             if media_class in ("Audio/Source", "Audio/Source/Virtual"):
                 name = props.get("node.description", props.get("node.name", "Unknown"))
-                device_id = str(node.get("id", ""))
+                device_id = props.get("node.name", str(node.get("id", "")))
                 # Skip our own virtual mic
                 if "nvbroadcast" in name.lower():
                     continue
@@ -66,18 +72,14 @@ def list_speakers() -> list[dict[str, str]]:
 
     # Try PipeWire first
     try:
-        result = subprocess.run(
-            ["pw-dump"], capture_output=True, text=True, timeout=5
-        )
-        data = json.loads(result.stdout)
-        for node in data:
+        for node in _pw_nodes():
             if node.get("type") != "PipeWire:Interface:Node":
                 continue
             props = node.get("info", {}).get("props", {})
             media_class = props.get("media.class", "")
             if media_class in ("Audio/Sink", "Audio/Sink/Virtual"):
                 name = props.get("node.description", props.get("node.name", "Unknown"))
-                device_id = str(node.get("id", ""))
+                device_id = props.get("node.name", str(node.get("id", "")))
                 speakers.append({"name": name, "device": device_id})
     except Exception:
         pass
@@ -102,3 +104,39 @@ def list_speakers() -> list[dict[str, str]]:
         speakers.append({"name": "Default Speaker", "device": ""})
 
     return speakers
+
+
+def resolve_pipewire_target(device: str) -> str:
+    """Resolve a saved audio device selection to a PipeWire target-object."""
+    if not device:
+        return ""
+    for node in _pw_nodes():
+        if node.get("type") != "PipeWire:Interface:Node":
+            continue
+        props = node.get("info", {}).get("props", {})
+        if str(node.get("id", "")) == device:
+            return props.get("node.name", device)
+        if props.get("node.name") == device:
+            return device
+    return device
+
+
+def resolve_speaker_monitor(device: str) -> str:
+    """Resolve a speaker sink selection to its monitor source name."""
+    target = resolve_pipewire_target(device)
+    if not target:
+        return ""
+
+    monitor_name = f"{target}.monitor"
+    try:
+        result = subprocess.run(
+            ["pactl", "list", "sources", "short"],
+            capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.strip().splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2 and parts[1] == monitor_name:
+                return parts[0]
+    except Exception:
+        pass
+    return monitor_name

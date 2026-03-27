@@ -9,7 +9,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, Gio
+from gi.repository import Gtk, Adw, Gio, GLib
 
 from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE
 from nvbroadcast.core.config import save_config
@@ -76,6 +76,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self.set_default_size(1280, 900)
         self._app = app
         self._streaming = False
+        self._installer = None
+        self._install_pulse_id = 0
+        self._pending_mode_key = ""
+        self._pending_meeting_start = False
         self._build_ui()
         self._populate_devices()
 
@@ -106,6 +110,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._meeting_btn.set_tooltip_text("Record + transcribe meeting")
         self._meeting_btn.connect("clicked", self._on_meeting_toggle)
         header.pack_end(self._meeting_btn)
+
+        self._notes_sidebar_btn = Gtk.ToggleButton(label="Meeting Notes")
+        self._notes_sidebar_btn.add_css_class("flat")
+        self._notes_sidebar_btn.set_tooltip_text("Show or hide live transcript and meeting history")
+        self._notes_sidebar_btn.connect("toggled", self._on_meeting_sidebar_toggled)
+        header.pack_end(self._notes_sidebar_btn)
 
         # Record button (video only)
         self._record_btn = Gtk.Button(label="Rec")
@@ -191,8 +201,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._update_gpu_info()
         main_box.append(header)
 
-        # Resizable split: Preview (top) | Controls (bottom)
-        # Using Gtk.Paned for draggable divider between preview and controls
+        body_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+
         paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         paned.set_vexpand(True)
         paned.set_shrink_start_child(True)
@@ -258,11 +268,50 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         scroll.set_child(controls)
         paned.set_end_child(scroll)
 
-        # Set initial divider position (60% preview, 40% controls)
         paned.set_position(450)
-        main_box.append(paned)
+        body_box.append(paned)
 
-        # Status bar with attribution
+        self._meeting_sidebar = self._build_meeting_sidebar()
+        body_box.append(self._meeting_sidebar)
+        main_box.append(body_box)
+
+        footer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        self._install_revealer = Gtk.Revealer()
+        self._install_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
+        self._install_revealer.set_transition_duration(180)
+        self._install_revealer.set_reveal_child(False)
+
+        install_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        install_box.add_css_class("status-bar")
+        install_text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        install_text.set_hexpand(True)
+
+        self._install_title = Gtk.Label(label="")
+        self._install_title.set_xalign(0)
+        self._install_title.add_css_class("device-label")
+        install_text.append(self._install_title)
+
+        self._install_detail = Gtk.Label(label="")
+        self._install_detail.set_xalign(0)
+        self._install_detail.set_wrap(True)
+        self._install_detail.set_ellipsize(3)
+        install_text.append(self._install_detail)
+        install_box.append(install_text)
+
+        self._install_progress = Gtk.ProgressBar()
+        self._install_progress.set_hexpand(True)
+        install_box.append(self._install_progress)
+
+        self._install_close_btn = Gtk.Button(label="Dismiss")
+        self._install_close_btn.add_css_class("flat")
+        self._install_close_btn.set_sensitive(False)
+        self._install_close_btn.connect("clicked", self._dismiss_install_banner)
+        install_box.append(self._install_close_btn)
+
+        self._install_revealer.set_child(install_box)
+        footer_box.append(self._install_revealer)
+
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         status_box.add_css_class("status-bar")
 
@@ -272,7 +321,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._status_bar.set_ellipsize(3)
         status_box.append(self._status_bar)
 
-        # Perf stats (FPS | GPU | VRAM | Temp)
         self._perf_label = Gtk.Label(label="")
         self._perf_label.add_css_class("status-gpu")
         status_box.append(self._perf_label)
@@ -281,10 +329,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         credit.add_css_class("app-subtitle")
         status_box.append(credit)
 
-        main_box.append(status_box)
+        footer_box.append(status_box)
+        main_box.append(footer_box)
 
-        # Start perf stats polling
-        from gi.repository import GLib
         def _update_perf():
             pm = self._app.perf_monitor
             self._perf_label.set_text(pm.format_status())
@@ -373,27 +420,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Processing card (mode, GPU, mirror, edge refine)
         proc_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
 
-        from nvbroadcast.core.config import detect_compositing_backends
-        backends = detect_compositing_backends()
-        has_cuda = backends.get("cupy", False)
-        has_trt = has_tensorrt_runtime()
-
-        self._mode_devices = []
-        if has_cuda:
-            killer_label = "Killer - Fastest GPU Mode"
-            zeus_label = "Zeus - Fast GPU Mode"
-            if not has_trt:
-                killer_label += " (TensorRT unavailable)"
-                zeus_label += " (TensorRT unavailable)"
-            self._mode_devices.append({"name": "DocZeus - Best Quality GPU", "device": "doczeus"})
-            self._mode_devices.append({"name": "CUDA - High Quality", "device": "cuda_max"})
-            self._mode_devices.append({"name": "CUDA - Balanced", "device": "cuda_balanced"})
-            self._mode_devices.append({"name": zeus_label, "device": "zeus"})
-            self._mode_devices.append({"name": killer_label, "device": "killer"})
-            self._mode_devices.append({"name": "CUDA - Fast", "device": "cuda_perf"})
-        self._mode_devices.append({"name": "CPU - High Quality", "device": "cpu_quality"})
-        self._mode_devices.append({"name": "CPU - Fast", "device": "cpu_light"})
-        self._mode_devices.append({"name": "CPU - Low End", "device": "cpu_low"})
+        self._mode_devices = self._build_mode_devices()
 
         self._profile_selector = DeviceSelector("Mode")
         self._profile_selector.set_devices(self._mode_devices)
@@ -772,6 +799,64 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         return box
 
+    def _build_meeting_sidebar(self) -> Gtk.Widget:
+        self._meeting_sidebar_revealer = Gtk.Revealer()
+        self._meeting_sidebar_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_LEFT)
+        self._meeting_sidebar_revealer.set_transition_duration(180)
+        self._meeting_sidebar_revealer.set_reveal_child(False)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer.set_margin_top(8)
+        outer.set_margin_bottom(8)
+        outer.set_margin_end(12)
+        outer.set_margin_start(8)
+        outer.set_size_request(360, -1)
+        outer.add_css_class("effect-card")
+
+        title = Gtk.Label(label="Meeting Assistant")
+        title.add_css_class("card-title")
+        title.set_xalign(0)
+        outer.append(title)
+
+        subtitle = Gtk.Label(
+            label="Live on-device transcript, notes preview, and meeting history. Sessions are kept for 7 days."
+        )
+        subtitle.set_wrap(True)
+        subtitle.set_xalign(0)
+        subtitle.add_css_class("dim-label")
+        outer.append(subtitle)
+
+        self._meeting_summary_label = Gtk.Label(label="No live meeting yet")
+        self._meeting_summary_label.set_xalign(0)
+        self._meeting_summary_label.set_wrap(True)
+        outer.append(self._meeting_summary_label)
+
+        self._meeting_live_view = Gtk.TextView()
+        self._meeting_live_view.set_editable(False)
+        self._meeting_live_view.set_cursor_visible(False)
+        self._meeting_live_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self._meeting_live_view.set_vexpand(True)
+        live_scroll = Gtk.ScrolledWindow()
+        live_scroll.set_vexpand(True)
+        live_scroll.set_child(self._meeting_live_view)
+        outer.append(live_scroll)
+
+        history_title = Gtk.Label(label="Recent Meetings")
+        history_title.add_css_class("device-label")
+        history_title.set_xalign(0)
+        outer.append(history_title)
+
+        self._meeting_history = Gtk.ListBox()
+        self._meeting_history.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._meeting_history.connect("row-selected", self._on_meeting_history_selected)
+        history_scroll = Gtk.ScrolledWindow()
+        history_scroll.set_min_content_height(220)
+        history_scroll.set_child(self._meeting_history)
+        outer.append(history_scroll)
+
+        self._meeting_sidebar_revealer.set_child(outer)
+        return self._meeting_sidebar_revealer
+
     # --- Signals ---
     def _on_stream_toggle(self, btn):
         if self._streaming:
@@ -850,8 +935,64 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         }
         return messages.get(mode_key, "")
 
+    def _build_mode_devices(self) -> list[dict[str, str]]:
+        from nvbroadcast.core.config import detect_compositing_backends
+
+        backends = detect_compositing_backends()
+        has_cuda = backends.get("cupy", False)
+        has_trt = has_tensorrt_runtime()
+        devices: list[dict[str, str]] = []
+        for mode_key, label in [
+            ("doczeus", "DocZeus - Best Quality GPU"),
+            ("cuda_max", "CUDA - High Quality"),
+            ("cuda_balanced", "CUDA - Balanced"),
+            ("zeus", "Zeus - Fast GPU Mode"),
+            ("killer", "Killer - Fastest GPU Mode"),
+            ("cuda_perf", "CUDA - Fast"),
+            ("cpu_quality", "CPU - High Quality"),
+            ("cpu_light", "CPU - Fast"),
+            ("cpu_low", "CPU - Low End"),
+        ]:
+            missing = self._app.dependency_installer.missing_for_mode(mode_key)
+            if not has_cuda and mode_key.startswith(("doczeus", "cuda_", "zeus", "killer")):
+                missing = sorted(set(missing + ["cupy"]))
+            if mode_key in ("zeus", "killer") and not has_trt:
+                missing = sorted(set(missing + ["tensorrt"]))
+            if missing:
+                readable = ", ".join(
+                    self._app.dependency_installer.describe(dep)["title"] for dep in missing
+                )
+                label += f" (installs {readable})"
+            devices.append({"name": label, "device": mode_key})
+        return devices
+
+    def _sync_mode_selector(self):
+        mode_key = self._app.config.mode_key or self._profile_and_comp_to_mode(
+            self._app.config.performance_profile,
+            self._app.config.compositing,
+        )
+        for i, d in enumerate(self._mode_devices):
+            if d["device"] == mode_key:
+                self._profile_selector.set_selected_index(i)
+                break
+
     def _on_mode_changed_selector(self, selector, mode_key):
         if getattr(self._app, '_restoring', False):
+            return
+        install_key = self._app.dependency_installer.install_key_for_mode(mode_key)
+        if install_key:
+            self._pending_mode_key = mode_key
+            self._sync_mode_selector()
+            meta = self._app.dependency_installer.describe(install_key)
+            self._prompt_dependency_install(
+                install_key,
+                title="Install required runtime?",
+                reason=(
+                    f"{self._mode_status_message(mode_key)}\n\n"
+                    f"This mode needs {meta['title']} ({meta['size']}). "
+                    "The download runs in the background and the rest of the app stays usable."
+                ),
+            )
             return
         if mode_key in self._MODE_MAP:
             profile, comp, trt, fused, nvdec = self._MODE_MAP[mode_key]
@@ -860,12 +1001,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 use_tensorrt=trt, use_fused_kernel=fused, use_nvdec=nvdec,
                 mode_key=mode_key,
             )
-            if mode_key in ("killer", "zeus") and not has_tensorrt_runtime():
-                self.set_status("TensorRT runtime not installed - mode falls back to CUDA")
-            else:
-                msg = self._mode_status_message(mode_key)
-                if msg:
-                    self.set_status(msg)
+            msg = self._mode_status_message(mode_key)
+            if msg:
+                self.set_status(msg)
             # Show edge refine toggle only for premium speed modes
             is_premium = mode_key in ("killer", "zeus")
             self._edge_refine_toggle.set_visible(is_premium)
@@ -1031,6 +1169,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             else:
                 self.set_status("Meeting ended")
         else:
+            if not self._app.dependency_installer.is_available("whisper"):
+                self._pending_meeting_start = True
+                self._prompt_dependency_install(
+                    "whisper",
+                    title="Install meeting transcription files?",
+                    reason=(
+                        "Meeting transcription is optional and runs locally. "
+                        "Install Whisper now to enable Start Meeting with transcription."
+                    ),
+                )
+                return
             filepath = self._app.start_meeting()
             self._meeting_btn.set_label("End Meeting")
             self._meeting_btn.remove_css_class("idle")
@@ -1066,6 +1215,63 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_speaker_changed(self, selector, device):
         self.set_status(f"Speaker: {device}")
+
+    def _on_meeting_sidebar_toggled(self, btn):
+        self._meeting_sidebar_revealer.set_reveal_child(btn.get_active())
+
+    def reset_live_meeting_view(self):
+        self._notes_sidebar_btn.set_active(True)
+        self._meeting_summary_label.set_text("Meeting in progress. Transcript updates below.")
+        buf = self._meeting_live_view.get_buffer()
+        buf.set_text("")
+
+    def update_live_meeting_summary(self, summary: str, transcript: str):
+        self._notes_sidebar_btn.set_active(True)
+        self._meeting_summary_label.set_text(summary or "Listening...")
+        buf = self._meeting_live_view.get_buffer()
+        buf.set_text(transcript)
+
+    def load_meeting_sessions(self, sessions):
+        while True:
+            row = self._meeting_history.get_row_at_index(0)
+            if row is None:
+                break
+            self._meeting_history.remove(row)
+
+        for session in sessions:
+            row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            row_box.set_margin_top(6)
+            row_box.set_margin_bottom(6)
+            row_box.set_margin_start(6)
+            row_box.set_margin_end(6)
+
+            title = Gtk.Label(label=session.title[:80] or session.session_id)
+            title.set_xalign(0)
+            title.add_css_class("device-label")
+            row_box.append(title)
+
+            summary = Gtk.Label(label=session.summary[:140] or "No summary")
+            summary.set_xalign(0)
+            summary.set_wrap(True)
+            summary.add_css_class("dim-label")
+            row_box.append(summary)
+
+            row = Gtk.ListBoxRow()
+            row.set_child(row_box)
+            row._meeting_session = session
+            self._meeting_history.append(row)
+
+    def show_meeting_session(self, session):
+        self._notes_sidebar_btn.set_active(True)
+        self._meeting_summary_label.set_text(session.summary or session.title)
+        contents = self._app.load_meeting_file(session.notes_path) or self._app.load_meeting_file(session.transcript_path)
+        buf = self._meeting_live_view.get_buffer()
+        buf.set_text(contents)
+
+    def _on_meeting_history_selected(self, _listbox, row):
+        if row is None or not hasattr(row, "_meeting_session"):
+            return
+        self.show_meeting_session(row._meeting_session)
 
     # --- Voice Effects ---
     def _on_vfx_toggled(self, t, active):
@@ -1461,36 +1667,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def rebuild_mode_selector(self, compositing: str, profile: str):
         """Rebuild the Mode dropdown with currently available backends."""
-        from nvbroadcast.core.config import detect_compositing_backends
-        backends = detect_compositing_backends()
-        has_cuda = backends.get("cupy", False) or compositing == "cupy"
-        has_trt = has_tensorrt_runtime()
-
-        self._mode_devices = []
-        if has_cuda:
-            killer_label = "Killer - Fastest GPU Mode"
-            zeus_label = "Zeus - Fast GPU Mode"
-            if not has_trt:
-                killer_label += " (TensorRT unavailable)"
-                zeus_label += " (TensorRT unavailable)"
-            self._mode_devices.append({"name": "DocZeus - Best Quality GPU", "device": "doczeus"})
-            self._mode_devices.append({"name": "CUDA - High Quality", "device": "cuda_max"})
-            self._mode_devices.append({"name": "CUDA - Balanced", "device": "cuda_balanced"})
-            self._mode_devices.append({"name": zeus_label, "device": "zeus"})
-            self._mode_devices.append({"name": killer_label, "device": "killer"})
-            self._mode_devices.append({"name": "CUDA - Fast", "device": "cuda_perf"})
-        self._mode_devices.append({"name": "CPU - High Quality", "device": "cpu_quality"})
-        self._mode_devices.append({"name": "CPU - Fast", "device": "cpu_light"})
-        self._mode_devices.append({"name": "CPU - Low End", "device": "cpu_low"})
-
+        _ = compositing, profile
+        self._mode_devices = self._build_mode_devices()
         self._profile_selector.set_devices(self._mode_devices)
-        # Signal already connected in _build_camera_section — don't duplicate
-
-        mode_key = self._app.config.mode_key or self._profile_and_comp_to_mode(profile, compositing)
-        for i, d in enumerate(self._mode_devices):
-            if d["device"] == mode_key:
-                self._profile_selector.set_selected_index(i)
-                break
+        self._sync_mode_selector()
 
     def _on_freeze_toggled(self, btn):
         self._preview_frozen = btn.get_active()
@@ -1511,3 +1691,107 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def set_status(self, text: str):
         self._status_bar.set_text(text)
+
+    def bind_dependency_installer(self, installer):
+        self._installer = installer
+        installer.connect("job-started", self._on_install_job_started)
+        installer.connect("job-progress", self._on_install_job_progress)
+        installer.connect("job-completed", self._on_install_job_completed)
+
+    def _prompt_dependency_install(self, install_key: str, title: str, reason: str):
+        meta = self._app.dependency_installer.describe(install_key)
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.NONE,
+            text=title,
+            secondary_text=(
+                f"{reason}\n\n"
+                f"Package: {meta['title']}\n"
+                f"Download size: {meta['size']}\n"
+                f"{meta['summary']}\n\n"
+                "Install runs in the background. Skip keeps the app on the current working setup."
+            ),
+        )
+        dialog.add_button("Skip", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Install", Gtk.ResponseType.OK)
+        dialog.connect("response", self._on_dependency_install_response, install_key)
+        dialog.present()
+
+    def _on_dependency_install_response(self, dialog, response, install_key: str):
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK:
+            self._pending_meeting_start = False
+            self._pending_mode_key = ""
+            self.set_status("Optional runtime install skipped")
+            return
+        if not self._app.dependency_installer.start_install(install_key):
+            self.set_status("Another optional runtime install is already running")
+
+    def _dismiss_install_banner(self, _button):
+        self._stop_install_pulse()
+        self._install_revealer.set_reveal_child(False)
+
+    def _start_install_pulse(self):
+        if self._install_pulse_id:
+            return
+
+        def _pulse():
+            self._install_progress.pulse()
+            return self._install_revealer.get_reveal_child()
+
+        self._install_pulse_id = GLib.timeout_add(120, _pulse)
+
+    def _stop_install_pulse(self):
+        if self._install_pulse_id:
+            GLib.source_remove(self._install_pulse_id)
+            self._install_pulse_id = 0
+
+    def _on_install_job_started(self, _installer, key: str, text: str):
+        meta = self._app.dependency_installer.describe(key)
+        self._install_title.set_text(meta["title"])
+        self._install_detail.set_text(text)
+        self._install_progress.set_fraction(0.0)
+        self._install_close_btn.set_sensitive(False)
+        self._install_revealer.set_reveal_child(True)
+        self._start_install_pulse()
+        self.set_status(text)
+
+    def _on_install_job_progress(self, _installer, _key: str, text: str, fraction: float):
+        self._install_detail.set_text(text)
+        if fraction >= 0.0:
+            self._stop_install_pulse()
+            self._install_progress.set_fraction(fraction)
+        else:
+            self._start_install_pulse()
+        self.set_status(text)
+
+    def _on_install_job_completed(self, _installer, _key: str, success: bool, text: str):
+        self._stop_install_pulse()
+        self._install_progress.set_fraction(1.0 if success else 0.0)
+        self._install_detail.set_text(text)
+        self._install_close_btn.set_sensitive(True)
+        self.set_status(text)
+        self.rebuild_mode_selector(self._app.config.compositing, self._app.config.performance_profile)
+
+        if success and self._pending_mode_key:
+            pending_mode = self._pending_mode_key
+            self._pending_mode_key = ""
+            for i, d in enumerate(self._mode_devices):
+                if d["device"] == pending_mode:
+                    self._profile_selector.set_selected_index(i)
+                    break
+            self._on_mode_changed_selector(self._profile_selector, pending_mode)
+        else:
+            self._pending_mode_key = ""
+
+        if success and self._pending_meeting_start:
+            self._pending_meeting_start = False
+            filepath = self._app.start_meeting()
+            self._meeting_btn.set_label("End Meeting")
+            self._meeting_btn.remove_css_class("idle")
+            self._meeting_btn.add_css_class("recording-btn")
+            self.set_status(f"Meeting recording: {filepath}")
+        else:
+            self._pending_meeting_start = False

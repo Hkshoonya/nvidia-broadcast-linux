@@ -45,6 +45,7 @@ class MeetingTranscriber:
         self._chunk_duration = 5.0
         self._sample_rate = 16000  # Whisper expects 16kHz
         self._thread = None
+        self._segment_callback = None
 
     @property
     def initialized(self) -> bool:
@@ -76,6 +77,10 @@ class MeetingTranscriber:
         except Exception as e:
             print(f"[Transcriber] Failed to load model: {e}")
             return False
+
+    def set_segment_callback(self, callback):
+        """Receive live transcript segments as they are produced."""
+        self._segment_callback = callback
 
     def start(self):
         """Start recording a meeting transcript."""
@@ -158,6 +163,11 @@ class MeetingTranscriber:
                     )
                     with self._lock:
                         self._segments.append(segment)
+                    if self._segment_callback is not None:
+                        try:
+                            self._segment_callback(segment)
+                        except Exception:
+                            pass
         except Exception as e:
             print(f"[Transcriber] Error: {e}")
 

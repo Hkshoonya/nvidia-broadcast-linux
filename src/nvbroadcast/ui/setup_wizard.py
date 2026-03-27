@@ -5,9 +5,6 @@
 #
 """First-run setup wizard — auto-detects system and configures optimally."""
 
-import subprocess
-import threading
-
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -90,7 +87,7 @@ class SetupWizard(Adw.Window):
         "setup-complete": (GObject.SignalFlags.RUN_FIRST, None, (str, int, str)),
     }
 
-    def __init__(self, parent):
+    def __init__(self, parent, app):
         super().__init__(
             transient_for=parent,
             modal=True,
@@ -99,11 +96,12 @@ class SetupWizard(Adw.Window):
             default_height=580,
         )
 
+        self._app = app
         self._gpus = detect_gpus()
         self._caps = detect_system_capabilities()
         self._selected_gpu = 0
         self._selected_mode_key = self._caps["recommended_mode"]
-        self._installing_cupy = False
+        self._install_key = ""
 
         main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
@@ -120,6 +118,17 @@ class SetupWizard(Adw.Window):
         content.set_margin_end(24)
         content.set_margin_top(8)
         content.set_margin_bottom(16)
+
+        intro = Gtk.Label(
+            label=(
+                "This setup helps you pick the right mode for your machine.\n"
+                "GPU modes give the best quality, CPU modes are the safest fallback, "
+                "and some premium paths download extra runtimes on demand."
+            )
+        )
+        intro.set_wrap(True)
+        intro.set_xalign(0)
+        content.append(intro)
 
         # System Info
         sys_frame = Gtk.Frame(label="Your System")
@@ -245,12 +254,18 @@ class SetupWizard(Adw.Window):
         note.add_css_class("dim-label")
         content.append(note)
 
-        # Start button
-        self._start_btn = Gtk.Button(label="Start NVIDIA Broadcast")
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._skip_btn = Gtk.Button(label="Skip for Now")
+        self._skip_btn.add_css_class("flat")
+        self._skip_btn.connect("clicked", self._on_skip)
+        actions.append(self._skip_btn)
+
+        self._start_btn = Gtk.Button(label="Apply Selection")
         self._start_btn.add_css_class("suggested-action")
         self._start_btn.set_margin_top(4)
         self._start_btn.connect("clicked", self._on_start)
-        content.append(self._start_btn)
+        actions.append(self._start_btn)
+        content.append(actions)
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_child(content)
@@ -258,6 +273,9 @@ class SetupWizard(Adw.Window):
         main.append(scroll)
 
         self.set_content(main)
+        self._app.dependency_installer.connect("job-started", self._on_install_started)
+        self._app.dependency_installer.connect("job-progress", self._on_install_progress)
+        self._app.dependency_installer.connect("job-completed", self._on_install_completed)
 
     def _on_gpu_toggled(self, btn, gpu_index):
         if btn.get_active():
@@ -272,87 +290,66 @@ class SetupWizard(Adw.Window):
 
         # If CuPy mode selected but not installed, install it first
         if mode["needs_cupy"] and not self._caps["has_cupy"]:
-            self._install_cupy_then_start(mode)
+            self._install_key = "cupy"
+            self._prompt_install(
+                "Install GPU compositing files?",
+                "This mode needs the CUDA compositing runtime. The download runs in the background and you can keep using other parts of the app.",
+            )
             return
 
         self._finish(mode)
 
-    def _install_cupy_then_start(self, mode):
-        """Install CuPy in background, then finish setup."""
+    def _on_skip(self, _btn):
+        fallback_key = self._caps["recommended_mode"]
+        if fallback_key == "gpu_cuda_best" and not self._caps["has_cupy"]:
+            fallback_key = "gpu_balanced" if self._caps["has_gl_compositor"] else "cpu_quality"
+        mode = next(m for m in SETUP_MODES if m["key"] == fallback_key)
+        self._status_label.set_text("Setup skipped. You can change modes later from the app.")
+        self._finish(mode)
+
+    def _prompt_install(self, title: str, reason: str):
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.NONE,
+            text=title,
+            secondary_text=reason,
+        )
+        dialog.add_button("Skip", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Install", Gtk.ResponseType.OK)
+        dialog.connect("response", self._on_install_prompt_response)
+        dialog.present()
+
+    def _on_install_prompt_response(self, dialog, response):
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK:
+            self._status_label.set_text("Optional runtime install skipped.")
+            return
         self._start_btn.set_sensitive(False)
-        self._status_label.set_text("Installing CuPy CUDA (~800MB)... This may take a few minutes.")
-        self._installing_cupy = True
+        self._skip_btn.set_sensitive(False)
+        self._app.dependency_installer.start_install(self._install_key)
 
-        def _install():
-            import sys
-            from pathlib import Path
-            venv_pip = Path(sys.executable).parent / "pip"
-            try:
-                result = subprocess.run(
-                    [str(venv_pip), "install", "cupy-cuda12x", "nvidia-cuda-nvrtc-cu12", "-q"],
-                    capture_output=True, text=True, timeout=600,
-                )
-                success = result.returncode == 0
-            except Exception:
-                success = False
+    def _on_install_started(self, _installer, key: str, text: str):
+        if key != self._install_key:
+            return
+        self._status_label.set_text(text)
 
-            GLib.idle_add(self._on_cupy_installed, success, mode)
+    def _on_install_progress(self, _installer, key: str, text: str, _fraction: float):
+        if key != self._install_key:
+            return
+        self._status_label.set_text(text)
 
-        threading.Thread(target=_install, daemon=True).start()
-
-    def _on_cupy_installed(self, success, mode):
-        self._installing_cupy = False
+    def _on_install_completed(self, _installer, key: str, success: bool, text: str):
+        if key != self._install_key:
+            return
         self._start_btn.set_sensitive(True)
-
+        self._skip_btn.set_sensitive(True)
+        self._status_label.set_text(text)
         if success:
-            # Verify CuPy actually works (kernel compilation needs nvrtc)
-            try:
-                import importlib
-                cupy = importlib.import_module("cupy")
-                import numpy as np
-                a = cupy.asarray(np.ones((10, 10), dtype=np.float32))
-                _ = (a * 2.0).astype(cupy.uint8)
-                self._caps["has_cupy"] = True
-                self._status_label.set_text("CuPy CUDA compositing installed and verified!")
-                self._finish(mode)
-                return False
-            except Exception as e:
-                self._status_label.set_text(
-                    f"CuPy installed but CUDA failed: {str(e)[:100]}\n\n"
-                    "Fix: sudo apt install nvidia-cuda-toolkit\n"
-                    "Or retry: pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
-                )
-
-        if not success:
-            self._status_label.set_text(
-                "CuPy install failed.\n\n"
-                "Common causes:\n"
-                "  - No internet connection\n"
-                "  - Not enough disk space (~800MB needed)\n"
-                "  - pip too old: pip install --upgrade pip\n\n"
-                "To retry later:\n"
-                "  .venv/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
-            )
-
-        # Fallback
-        if self._caps["has_gl_compositor"]:
-            fallback = next(m for m in SETUP_MODES if m["key"] == "gpu_balanced")
-            self._status_label.set_text(
-                self._status_label.get_text() + "\n\nFalling back to GStreamer GL compositing."
-            )
-        else:
-            fallback = next(m for m in SETUP_MODES if m["key"] == "cpu_quality")
-            self._status_label.set_text(
-                self._status_label.get_text() + "\n\nFalling back to CPU compositing."
-            )
-
-        # Don't auto-finish — let user see the error and click Start again
-        self._selected_mode_key = fallback["key"]
-        for key, btn in self._mode_buttons.items():
-            if key == fallback["key"]:
-                btn.set_active(True)
-
-        return False
+            self._caps["has_cupy"] = True
+            mode = next(m for m in SETUP_MODES if m["key"] == self._selected_mode_key)
+            self._finish(mode)
 
     def _finish(self, mode):
         self.emit(
