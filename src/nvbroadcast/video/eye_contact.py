@@ -41,15 +41,15 @@ class EyeContactCorrector:
     def intensity(self, value: float):
         self._intensity = max(0.0, min(1.0, value))
 
-    def process_frame(self, frame: np.ndarray) -> np.ndarray:
+    def process_frame(self, frame: np.ndarray, landmarks=None) -> np.ndarray:
         if not self._enabled:
             return frame
 
-        lm = get_shared_landmarker()
-        if not lm.ready:
-            return frame
-
-        landmarks = lm.detect(frame)
+        if landmarks is None:
+            lm = get_shared_landmarker()
+            if not lm.ready:
+                return frame
+            landmarks = lm.detect(frame, reuse_frames=2)
         if landmarks is None or len(landmarks) < 478:
             return frame
 

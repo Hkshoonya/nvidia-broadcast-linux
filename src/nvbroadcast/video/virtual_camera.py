@@ -7,6 +7,7 @@
 
 import subprocess
 import os
+from functools import lru_cache
 from pathlib import Path
 
 from nvbroadcast.core.constants import VIRTUAL_CAM_DEVICE, VIRTUAL_CAM_LABEL
@@ -187,6 +188,7 @@ def reset_virtual_camera() -> bool:
         return False
 
 
+@lru_cache(maxsize=8)
 def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
     """Query camera supported resolutions and FPS in MJPEG mode.
 
@@ -197,7 +199,10 @@ def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
         result = subprocess.run(
             ["v4l2-ctl", "-d", device, "--list-formats-ext"],
             capture_output=True, text=True,
+            timeout=3,
         )
+        if result.returncode != 0:
+            return []
         in_mjpg = False
         current_res = None
         for line in result.stdout.split("\n"):
@@ -218,7 +223,7 @@ def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
                 # e.g. "Interval: Discrete 0.017s (60.000 fps)"
                 fps_str = stripped.split("(")[1].split(" fps")[0]
                 modes[current_res].append(int(float(fps_str)))
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
     result = []

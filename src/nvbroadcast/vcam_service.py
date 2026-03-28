@@ -59,7 +59,8 @@ def build_pipeline(
         f"jpegdec ! "
         f"videoconvert ! "
         f"video/x-raw,format={fmt},width={width},height={height},framerate={fps}/1 ! "
-        f"v4l2sink device={vcam_device}"
+        f"identity drop-allocation=true ! "
+        f"v4l2sink device={vcam_device} io-mode=2 sync=false async=false"
     )
 
     print(f"[NVIDIA Broadcast VCam] Pipeline: {pipeline_str}")
@@ -77,7 +78,8 @@ def build_pipeline(
         f"video/x-raw,width={width},height={height},framerate={fps}/1 ! "
         f"videoconvert ! "
         f"video/x-raw,format={fmt},width={width},height={height},framerate={fps}/1 ! "
-        f"v4l2sink device={vcam_device}"
+        f"identity drop-allocation=true ! "
+        f"v4l2sink device={vcam_device} io-mode=2 sync=false async=false"
     )
     print(f"[NVIDIA Broadcast VCam] Pipeline: {pipeline_str}")
     pipeline = Gst.parse_launch(pipeline_str)

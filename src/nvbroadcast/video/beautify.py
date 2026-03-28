@@ -15,11 +15,8 @@ from pathlib import Path
 
 import numpy as np
 import cv2
-import mediapipe as mp
-from mediapipe.tasks.python import BaseOptions
-from mediapipe.tasks.python.vision import (
-    FaceLandmarker, FaceLandmarkerOptions, RunningMode,
-)
+
+from nvbroadcast.video.face_landmarks import get_shared_landmarker
 
 _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
 _FACE_MODEL = "face_landmarker.task"
@@ -55,9 +52,7 @@ class FaceBeautifier:
     """
 
     def __init__(self, compositing: str = "cpu"):
-        self._landmarker = None
         self._initialized = False
-        self._timestamp_ms = 0
         self._compositing = "cpu"
         self._cupy = None
         if compositing != "cpu":
@@ -148,19 +143,11 @@ class FaceBeautifier:
                 return False
 
         try:
-            opts = FaceLandmarkerOptions(
-                base_options=BaseOptions(model_asset_path=str(model_path)),
-                running_mode=RunningMode.VIDEO,
-                num_faces=1,
-                min_face_detection_confidence=0.5,
-                min_tracking_confidence=0.5,
-                output_face_blendshapes=False,
-                output_facial_transformation_matrixes=False,
-            )
-            self._landmarker = FaceLandmarker.create_from_options(opts)
-            self._initialized = True
-            print("[NV Broadcast] Face beautifier initialized")
-            return True
+            landmarker = get_shared_landmarker()
+            self._initialized = landmarker.ready
+            if self._initialized:
+                print("[NV Broadcast] Face beautifier initialized")
+            return self._initialized
         except Exception as e:
             print(f"[NV Broadcast] Face beautifier init failed: {e}")
             return False
@@ -176,7 +163,8 @@ class FaceBeautifier:
                 if backend == "cupy":
                     self._compositing = "cpu"
 
-    def process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
+    def process_frame(self, frame_data: bytes, width: int, height: int,
+                      landmarks=None) -> bytes:
         """Apply beautification effects to a BGRA frame."""
         if not self._enabled or not self._initialized:
             return frame_data
@@ -193,9 +181,10 @@ class FaceBeautifier:
 
         self._frame_counter += 1
 
-        # Detect face every 5th frame at half resolution
+        # Refresh mask periodically. Landmark inference itself is shared across
+        # all face effects, so this only rebuilds the beautify mask.
         if self._frame_counter % 5 == 0 or self._face_mask is None:
-            self._detect_face(frame, width, height)
+            self._detect_face(frame, width, height, landmarks)
 
         # CPU-only operations first (bilateral has no GPU equivalent)
         if self._denoise > 0:
@@ -293,24 +282,22 @@ class FaceBeautifier:
         self._vignette_cache = np.clip(1.0 - (dist - 0.3) * 0.8, 0.3, 1.0).astype(np.float32)
         self._vignette_size = (width, height)
 
-    def _detect_face(self, frame: np.ndarray, width: int, height: int):
-        """Run face landmark detection at half resolution for speed."""
-        self._timestamp_ms += 33
-
+    def _detect_face(self, frame: np.ndarray, width: int, height: int,
+                     landmarks=None):
+        """Build a beautify mask from shared face landmarks."""
         try:
-            # Process at half resolution (4x fewer pixels = ~4x faster)
-            half_w, half_h = width // 2, height // 2
-            small = cv2.resize(frame, (half_w, half_h), interpolation=cv2.INTER_AREA)
-            rgb = cv2.cvtColor(small, cv2.COLOR_BGRA2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            result = self._landmarker.detect_for_video(mp_image, self._timestamp_ms)
+            if landmarks is None:
+                shared = get_shared_landmarker()
+                if not shared.ready:
+                    self._face_mask = None
+                    self._face_bbox = None
+                    return
+                landmarks = shared.detect(frame, reuse_frames=2)
 
-            if not result.face_landmarks:
+            if not landmarks:
                 self._face_mask = None
                 self._face_bbox = None
                 return
-
-            landmarks = result.face_landmarks[0]
 
             # Build face oval mask from landmarks
             pts = np.array([
@@ -476,9 +463,6 @@ class FaceBeautifier:
 
     def cleanup(self):
         """Release resources."""
-        if self._landmarker:
-            self._landmarker.close()
-            self._landmarker = None
         self._initialized = False
         self._face_mask = None
         self._prev_frame = None

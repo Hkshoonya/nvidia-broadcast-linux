@@ -1154,6 +1154,85 @@ class VideoEffects:
 
         self._temporal_strength = float(np.clip(strength, 0.12, 0.45))
 
+    @staticmethod
+    def _fill_small_internal_holes(mask_u8: np.ndarray,
+                                   binary_threshold: int,
+                                   fill_cutoff: int,
+                                   fill_value: int,
+                                   max_area_ratio: float,
+                                   max_span_ratio: float) -> np.ndarray:
+        """Fill only tiny interior holes while preserving real body gaps.
+
+        Large openings like under-arm gaps or spaces between hair strands and
+        shoulders are legitimate structure, not defects. Only fill compact hole
+        components that are small relative to the frame and silhouette span.
+        """
+        _, binary = cv2.threshold(mask_u8, binary_threshold, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return mask_u8
+
+        largest = max(contours, key=cv2.contourArea)
+        interior = np.zeros_like(mask_u8)
+        cv2.drawContours(interior, [largest], -1, 255, cv2.FILLED)
+
+        holes = ((interior == 255) & (binary == 0)).astype(np.uint8)
+        if not holes.any():
+            return mask_u8
+
+        h, w = mask_u8.shape[:2]
+        max_area = max(6, int(h * w * max_area_ratio))
+        max_w = max(2, int(w * max_span_ratio))
+        max_h = max(2, int(h * max_span_ratio))
+
+        num, labels, stats, _centroids = cv2.connectedComponentsWithStats(holes, connectivity=8)
+        filled = mask_u8.copy()
+        for idx in range(1, num):
+            area = int(stats[idx, cv2.CC_STAT_AREA])
+            span_w = int(stats[idx, cv2.CC_STAT_WIDTH])
+            span_h = int(stats[idx, cv2.CC_STAT_HEIGHT])
+            if area > max_area or span_w > max_w or span_h > max_h:
+                continue
+            component = labels == idx
+            component &= filled < fill_cutoff
+            filled[component] = fill_value
+        return filled
+
+    @staticmethod
+    def _preserve_large_internal_holes(mask_u8: np.ndarray,
+                                       binary_threshold: int,
+                                       min_area_ratio: float,
+                                       min_span_ratio: float) -> np.ndarray:
+        """Return a mask of meaningful interior openings that should stay open."""
+        _, binary = cv2.threshold(mask_u8, binary_threshold, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return np.zeros_like(mask_u8, dtype=bool)
+
+        largest = max(contours, key=cv2.contourArea)
+        interior = np.zeros_like(mask_u8)
+        cv2.drawContours(interior, [largest], -1, 255, cv2.FILLED)
+
+        holes = ((interior == 255) & (binary == 0)).astype(np.uint8)
+        if not holes.any():
+            return np.zeros_like(mask_u8, dtype=bool)
+
+        h, w = mask_u8.shape[:2]
+        min_area = max(6, int(h * w * min_area_ratio))
+        min_w = max(3, int(w * min_span_ratio))
+        min_h = max(3, int(h * min_span_ratio))
+
+        preserve = np.zeros_like(mask_u8, dtype=bool)
+        num, labels, stats, _centroids = cv2.connectedComponentsWithStats(holes, connectivity=8)
+        for idx in range(1, num):
+            area = int(stats[idx, cv2.CC_STAT_AREA])
+            span_w = int(stats[idx, cv2.CC_STAT_WIDTH])
+            span_h = int(stats[idx, cv2.CC_STAT_HEIGHT])
+            if area < min_area and span_w < min_w and span_h < min_h:
+                continue
+            preserve |= labels == idx
+        return preserve
+
     def _replacement_matte(self, alpha: np.ndarray,
                            matte_version: int | None = None) -> np.ndarray:
         """Stabilize and slightly tighten the matte for image replacement.
@@ -1186,31 +1265,39 @@ class VideoEffects:
 
             stable = weight * prev + (1.0 - weight) * alpha
 
-        matte = np.clip((stable - 0.04) / 0.96, 0.0, 1.0)
+        matte = np.clip((stable - 0.05) / 0.95, 0.0, 1.0)
         matte[matte < 0.012] = 0.0
         matte[matte > 0.985] = 1.0
 
         matte_u8 = np.clip(matte * 255.0, 0, 255).astype(np.uint8)
-        _, binary = cv2.threshold(matte_u8, 68, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            fill_mask = np.zeros_like(matte_u8)
-            largest = max(contours, key=cv2.contourArea)
-            cv2.drawContours(fill_mask, [largest], -1, 255, cv2.FILLED)
-            holes = (fill_mask == 255) & (matte_u8 < 72)
-            matte_u8[holes] = 210
+        preserve_holes = self._preserve_large_internal_holes(
+            matte_u8,
+            binary_threshold=82,
+            min_area_ratio=0.00018,
+            min_span_ratio=0.045,
+        )
+        matte_u8 = self._fill_small_internal_holes(
+            matte_u8,
+            binary_threshold=76,
+            fill_cutoff=70,
+            fill_value=205,
+            max_area_ratio=0.00015,
+            max_span_ratio=0.035,
+        )
 
         if min(matte_u8.shape[:2]) >= 8:
             matte_u8 = cv2.GaussianBlur(matte_u8, (3, 3), 0)
         matte = matte_u8.astype(np.float32) * (1.0 / 255.0)
 
         mid = (matte > 0.04) & (matte < 0.55)
-        matte[mid] = np.clip((matte[mid] - 0.035) / 0.965, 0.0, 1.0)
-        fringe = (matte > 0.0) & (matte < 0.18)
-        matte[fringe] *= 0.72
+        matte[mid] = np.clip((matte[mid] - 0.05) / 0.95, 0.0, 1.0)
+        fringe = (matte > 0.0) & (matte < 0.22)
+        matte[fringe] *= 0.58
         solid = stable > 0.86
         matte[solid] = np.maximum(matte[solid], 0.995)
-        matte[matte < 0.10] = 0.0
+        if preserve_holes.any():
+            matte[preserve_holes] = np.minimum(matte[preserve_holes], alpha[preserve_holes])
+        matte[matte < 0.12] = 0.0
 
         with self._state_lock:
             if matte_version is not None and matte_version != self._matte_version:
@@ -1441,16 +1528,27 @@ class VideoEffects:
     def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
         is_replace = self._bg_mode == "replace"
+        preserve_holes = None
+        if is_replace:
+            preserve_holes = self._preserve_large_internal_holes(
+                a8,
+                binary_threshold=78,
+                min_area_ratio=0.00022,
+                min_span_ratio=0.05,
+            )
 
         # 1. Small close: fill tiny holes in hair/fine detail
-        close_sm = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        close_sm_size = 3 if is_replace else 5
+        close_sm = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (close_sm_size, close_sm_size)
+        )
         a8 = cv2.morphologyEx(a8, cv2.MORPH_CLOSE, close_sm)
 
         # 2. Half-resolution close: keep replacement tighter, keep blur/remove
         #    more forgiving where wide feathering hides seams.
         h, w = a8.shape[:2]
         small = cv2.resize(a8, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
-        close_size = 11 if is_replace else 25
+        close_size = 5 if is_replace else 25
         close_lg = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (close_size, close_size)
         )
@@ -1462,42 +1560,39 @@ class VideoEffects:
         threshold = 70 if is_replace else 30
         fill_cutoff = 55 if is_replace else 100
         fill_value = 180 if is_replace else 220
-        _, binary = cv2.threshold(a8, threshold, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            largest = max(contours, key=cv2.contourArea)
-            fill_mask = np.zeros_like(a8)
-            cv2.drawContours(fill_mask, [largest], -1, 255, cv2.FILLED)
-            holes = (fill_mask == 255) & (a8 < fill_cutoff)
-            a8[holes] = fill_value
+        a8 = self._fill_small_internal_holes(
+            a8,
+            binary_threshold=threshold,
+            fill_cutoff=fill_cutoff,
+            fill_value=fill_value,
+            max_area_ratio=0.00018 if is_replace else 0.0007,
+            max_span_ratio=0.038 if is_replace else 0.07,
+        )
 
         if is_replace:
-            # 4. Tight dilate: replacement exposes halos immediately, so avoid
-            #    expanding the person more than needed.
-            dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            a8 = cv2.dilate(a8, dilate_k, iterations=1)
-
-            # 5. Keep the transition zone narrow. Wide feathering looks fine
-            #    in blur mode but causes a visible cardboard halo in replace.
-            a8 = cv2.GaussianBlur(a8, (7, 7), 0)
+            # 4. Keep replacement narrow. Inflating the silhouette is what
+            #    creates shoulder and ear halos against a swapped background.
             a8 = cv2.GaussianBlur(a8, (5, 5), 0)
+            a8 = cv2.GaussianBlur(a8, (3, 3), 0)
 
-            # 6. Moderate-strong sigmoid
+            # 5. Moderate-strong sigmoid
             t = a8.astype(np.float32) * (1.0 / 255.0)
-            sig = self._sigmoid_strength * 0.55
+            sig = self._sigmoid_strength * 0.60
             mid = self._sigmoid_midpoint
             if sig > 0:
                 t = 1.0 / (1.0 + np.exp(-sig * (t - mid)))
 
-            # 7. Core solidification
+            # 6. Core solidification
             result = t
             core = result > 0.78
             result[core] = 1.0 - (1.0 - result[core]) ** 2.2
             result[result < 0.03] = 0.0
+            if preserve_holes is not None and preserve_holes.any():
+                result[preserve_holes] = np.minimum(result[preserve_holes], alpha[preserve_holes])
 
-            # 8. Final feathering
+            # 7. Final feathering
             r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
-            r_u8 = cv2.GaussianBlur(r_u8, (5, 5), 0)
+            r_u8 = cv2.GaussianBlur(r_u8, (3, 3), 0)
             result = r_u8.astype(np.float32) * (1.0 / 255.0)
         else:
             # 4. Wide dilate for blur/remove: 2 passes with 7x7

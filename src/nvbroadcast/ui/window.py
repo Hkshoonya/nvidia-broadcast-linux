@@ -1191,6 +1191,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 )
                 return
             filepath = self._app.start_meeting()
+            if not filepath:
+                self.set_status("Meeting transcription could not start")
+                return
             self._meeting_btn.set_label("End Meeting")
             self._meeting_btn.remove_css_class("idle")
             self._meeting_btn.add_css_class("recording-btn")
@@ -1799,6 +1802,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if success and self._pending_meeting_start:
             self._pending_meeting_start = False
             filepath = self._app.start_meeting()
+            if not filepath:
+                self.set_status("Meeting transcription could not start")
+                return
             self._meeting_btn.set_label("End Meeting")
             self._meeting_btn.remove_css_class("idle")
             self._meeting_btn.add_css_class("recording-btn")

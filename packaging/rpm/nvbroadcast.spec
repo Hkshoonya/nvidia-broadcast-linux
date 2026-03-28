@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.0
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -140,6 +140,13 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Fri Mar 28 2026 doczeus <harshit@kshoonya.com> - 1.1.1-1
+- Stabilize the virtual camera sink path on Linux loopback devices
+- Reduce live face-effect latency with shared landmark reuse and ROI relighting
+- Tighten replace edges around shoulders, hair, and under-arm gaps
+- Improve local meeting transcription startup, chunking, and audio finalization
+- Save resolution changes safely without hanging the live stream
+
 * Thu Mar 27 2026 doczeus <harshit@kshoonya.com> - 1.1.0-1
 - Add meeting assistant sidebar with live transcript and local session history
 - Capture both-way meeting audio for on-device transcription and notes

@@ -36,7 +36,10 @@ def _has_cupy() -> bool:
 
 
 def _has_whisper() -> bool:
-    return importlib.util.find_spec("whisper") is not None
+    return (
+        importlib.util.find_spec("faster_whisper") is not None
+        or importlib.util.find_spec("whisper") is not None
+    )
 
 
 def _supports_cuda_runtime() -> bool:
@@ -88,16 +91,29 @@ PACKAGE_SPECS = {
     "whisper": {
         "title": "Meeting Transcription Runtime",
         "subtitle": "Needed for local meeting transcription",
-        "size": "~250 MB",
+        "size": "~350 MB",
         "summary": (
-            "Installs Whisper so Start Meeting can record and transcribe locally "
-            "without sending audio anywhere."
+            "Installs the local meeting transcription runtime so Start Meeting "
+            "can record and transcribe without sending audio anywhere."
         ),
-        "install_args": ["install", "openai-whisper"],
+        # Install faster-whisper without its CPU onnxruntime dependency so the
+        # main app can keep the GPU ONNX Runtime package for video inference.
+        "install_args": [
+            "install",
+            "--no-deps",
+            "faster-whisper",
+            "ctranslate2",
+            "huggingface-hub",
+            "tokenizers",
+            "soundfile",
+        ],
         "supported": lambda: True,
         "check": _has_whisper,
         "verify": _has_whisper,
-        "help": "Retry later with: .venv/bin/pip install openai-whisper",
+        "help": (
+            "Retry later with: .venv/bin/pip install --no-deps "
+            "faster-whisper ctranslate2 huggingface-hub tokenizers soundfile"
+        ),
     },
 }
 

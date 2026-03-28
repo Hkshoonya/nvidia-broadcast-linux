@@ -142,6 +142,37 @@ class BackgroundOverlayTests(unittest.TestCase):
 
         self.assertGreater(float(matte[2, 2]), 0.7, "small internal holes should be filled in replace mode")
 
+    def test_replace_matte_preserves_large_internal_gap(self):
+        effects = self._make_effects()
+
+        alpha = np.zeros((9, 9), dtype=np.float32)
+        alpha[1:8, 1:8] = 0.96
+        alpha[3:6, 3:6] = 0.02
+
+        matte = effects._replacement_matte(alpha)
+
+        self.assertLess(
+            float(matte[4, 4]),
+            0.25,
+            "large openings like under-arm gaps should not be filled shut",
+        )
+
+    def test_refine_alpha_preserves_large_internal_gap_in_replace_mode(self):
+        effects = self._make_effects()
+        effects._bg_mode = "replace"
+
+        alpha = np.zeros((11, 11), dtype=np.float32)
+        alpha[1:10, 1:10] = 0.95
+        alpha[4:7, 4:7] = 0.01
+
+        refined = effects._refine_alpha(alpha)
+
+        self.assertLess(
+            float(refined[5, 5]),
+            0.35,
+            "replace refinement should keep meaningful interior gaps open",
+        )
+
     def test_despill_skips_near_solid_subject_pixels(self):
         effects = self._make_effects()
 

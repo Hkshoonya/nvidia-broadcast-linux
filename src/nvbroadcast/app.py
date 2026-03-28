@@ -34,6 +34,7 @@ from nvbroadcast.video.beautify import FaceBeautifier
 from nvbroadcast.video.virtual_camera import ensure_virtual_camera
 from nvbroadcast.video.eye_contact import EyeContactCorrector
 from nvbroadcast.video.relighting import FaceRelighter
+from nvbroadcast.video.face_landmarks import get_shared_landmarker
 from nvbroadcast.video.perf_monitor import PerfMonitor
 from nvbroadcast.ai.transcriber import MeetingTranscriber, save_transcript
 from nvbroadcast.ai.summarizer import MeetingSummarizer
@@ -168,6 +169,7 @@ class NVBroadcastApp(Adw.Application):
             else:
                 GLib.idle_add(self._finish_restore)
 
+            self._preload_transcriber()
             self._maybe_check_for_updates()
 
         self._window.set_visible(True)
@@ -305,6 +307,19 @@ class NVBroadcastApp(Adw.Application):
                     self._video_effects.initialize()
             except Exception as e:
                 print(f"[NV Broadcast] Background model preload failed: {e}")
+        threading.Thread(target=_init, daemon=True).start()
+
+    def _preload_transcriber(self):
+        """Warm Whisper in the background so Start Meeting does not stall the UI."""
+        if not self._dependency_installer.is_available("whisper"):
+            return
+
+        def _init():
+            try:
+                self._transcriber.initialize()
+            except Exception as e:
+                print(f"[NV Broadcast] Meeting transcription preload failed: {e}")
+
         threading.Thread(target=_init, daemon=True).start()
 
     def _maybe_check_for_updates(self):
@@ -572,8 +587,19 @@ class NVBroadcastApp(Adw.Application):
             or self._relighter.enabled
         )
         if face_effects_active:
+            landmarks = None
+            if self._eye_contact.enabled or self._relighter.enabled:
+                landmarker = get_shared_landmarker()
+                if landmarker.ready:
+                    landmarks = landmarker.detect(
+                        np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4),
+                        reuse_frames=2,
+                    )
+
             if self._beautifier.enabled:
-                result = self._beautifier.process_frame(result, width, height)
+                result = self._beautifier.process_frame(
+                    result, width, height, landmarks=landmarks
+                )
 
             frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4)
             if not frame.flags.writeable:
@@ -589,9 +615,9 @@ class NVBroadcastApp(Adw.Application):
                     alpha_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
 
             if self._eye_contact.enabled:
-                frame = self._eye_contact.process_frame(frame)
+                frame = self._eye_contact.process_frame(frame, landmarks=landmarks)
             if self._relighter.enabled:
-                frame = self._relighter.process_frame(frame, alpha_u8)
+                frame = self._relighter.process_frame(frame, alpha_u8, landmarks=landmarks)
 
             result = frame.tobytes()
 
@@ -783,12 +809,16 @@ class NVBroadcastApp(Adw.Application):
 
         save_config(self.config)
 
-        # Caches are reset in _do_start_pipeline (after old pipeline stops)
-
         if self._streaming:
-            camera = self.config.video.camera_device
-            fmt = self.config.video.output_format
-            self.start_pipeline(camera, fmt)
+            # Live v4l2loopback reconfiguration is currently unstable on some
+            # systems. Save the new mode immediately but defer applying it
+            # until the next clean app start instead of hanging the session.
+            if self._window:
+                self._window.set_status(
+                    f"Resolution saved: {width}x{height} @ {self.config.video.fps}fps. "
+                    "Restart the app to apply."
+                )
+            return
 
         if self._window:
             self._window.set_status(f"Resolution: {width}x{height} @ {self.config.video.fps}fps")
@@ -805,9 +835,11 @@ class NVBroadcastApp(Adw.Application):
         save_config(self.config)
 
         if self._streaming:
-            camera = self.config.video.camera_device
-            fmt = self.config.video.output_format
-            self.start_pipeline(camera, fmt)
+            if self._window:
+                self._window.set_status(
+                    f"FPS saved: {valid_fps}. Restart the app to apply."
+                )
+            return
 
         if self._window:
             self._window.set_status(f"FPS: {valid_fps}")
@@ -923,7 +955,18 @@ class NVBroadcastApp(Adw.Application):
             print(f"[NV Broadcast] Meeting audio capture unavailable: {exc}")
             self._meeting_capture = None
 
-        self._transcriber.start()
+        if not self._transcriber.start():
+            if self._meeting_capture:
+                self._meeting_capture.stop()
+                self._meeting_capture = None
+            self.stop_recording()
+            self._meeting_session_id = ""
+            self._meeting_session_dir = None
+            self._meeting_audio_path = ""
+            self._meeting_video_path = ""
+            if self._window:
+                self._window.set_status("Meeting transcription could not start")
+            return ""
         self._meeting_active = True
         if self._window:
             self._window.reset_live_meeting_view()
@@ -1092,11 +1135,17 @@ class NVBroadcastApp(Adw.Application):
         if self._meeting_capture:
             self._meeting_capture.stop()
             self._meeting_capture = None
-        self.stop_pipeline()
+        if self._video_pipeline:
+            self._video_pipeline.shutdown_sync()
+            self._video_pipeline = None
+        elif self._pipeline_teardown:
+            self._pipeline_teardown.shutdown_sync()
+        self._pipeline_teardown = None
         if self._audio_pipeline:
             self._audio_pipeline.stop()
         if self._speaker_monitor:
             self._speaker_monitor.stop()
+        self._transcriber.cleanup()
         self._video_effects.cleanup()
         self._autoframe.cleanup()
         self._beautifier.cleanup()

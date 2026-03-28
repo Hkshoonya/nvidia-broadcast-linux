@@ -40,12 +40,17 @@ class FaceRelighter:
         self._intensity = max(0.0, min(1.0, value))
 
     def process_frame(self, frame: np.ndarray,
-                      alpha: np.ndarray | None = None) -> np.ndarray:
+                      alpha: np.ndarray | None = None,
+                      landmarks=None) -> np.ndarray:
         if not self._enabled:
             return frame
 
-        lm = get_shared_landmarker()
-        if not lm.ready:
+        if landmarks is None:
+            lm = get_shared_landmarker()
+            if not lm.ready:
+                return frame
+            landmarks = lm.detect(frame, reuse_frames=2)
+        if landmarks is None:
             return frame
 
         h, w = frame.shape[:2]
@@ -55,10 +60,6 @@ class FaceRelighter:
         if self._analyze_count % 10 == 0:
             self._analyze_background(frame, alpha)
 
-        landmarks = lm.detect(frame)
-        if landmarks is None:
-            return frame
-
         # Build face mask from convex hull
         face_pts = np.array([
             (int(l.x * w), int(l.y * h))
@@ -66,12 +67,24 @@ class FaceRelighter:
         ], dtype=np.int32)
 
         hull = cv2.convexHull(face_pts)
-        face_mask = np.zeros((h, w), dtype=np.float32)
-        cv2.fillConvexPoly(face_mask, hull, 1.0)
-        face_mask = cv2.GaussianBlur(face_mask, (0, 0), sigmaX=8)
+        x, y, fw, fh = cv2.boundingRect(hull)
+        pad = max(12, min(w, h) // 48)
+        x1, y1 = max(0, x - pad), max(0, y - pad)
+        x2, y2 = min(w, x + fw + pad), min(h, y + fh + pad)
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            return frame
 
-        # Face luminance
-        face_gray = cv2.cvtColor(frame[:, :, :3], cv2.COLOR_BGR2GRAY).astype(float)
+        roi = frame[y1:y2, x1:x2, :3]
+        local_hull = hull.copy()
+        local_hull[:, 0, 0] -= x1
+        local_hull[:, 0, 1] -= y1
+
+        face_mask = np.zeros((y2 - y1, x2 - x1), dtype=np.float32)
+        cv2.fillConvexPoly(face_mask, local_hull, 1.0)
+        face_mask = cv2.GaussianBlur(face_mask, (0, 0), sigmaX=6)
+
+        # Face luminance (ROI only)
+        face_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
         mask_sum = face_mask.sum()
         if mask_sum < 1:
             return frame
@@ -86,7 +99,8 @@ class FaceRelighter:
         adj_ratio = 1.0 + (ratio - 1.0) * self._intensity
 
         output = frame.copy()
-        adjusted = output[:, :, :3].astype(np.float32)
+        adjusted = roi.astype(np.float32)
+        mask3 = face_mask[:, :, np.newaxis]
 
         for c in range(3):
             ch = adjusted[:, :, c]
@@ -98,7 +112,8 @@ class FaceRelighter:
             adjusted[:, :, 2] = np.clip(adjusted[:, :, 2] + warmth * face_mask, 0, 255)
             adjusted[:, :, 0] = np.clip(adjusted[:, :, 0] - warmth * 0.5 * face_mask, 0, 255)
 
-        output[:, :, :3] = np.clip(adjusted, 0, 255).astype(np.uint8)
+        blended = roi.astype(np.float32) * (1.0 - mask3) + adjusted * mask3
+        output[y1:y2, x1:x2, :3] = np.clip(blended, 0, 255).astype(np.uint8)
         return output
 
     def _analyze_background(self, frame: np.ndarray, alpha=None):

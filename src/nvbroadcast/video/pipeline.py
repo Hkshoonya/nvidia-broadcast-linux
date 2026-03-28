@@ -12,6 +12,8 @@ Switches between modes when effects are toggled.
 """
 
 import threading
+import time
+import subprocess
 
 import gi
 
@@ -52,14 +54,132 @@ class VideoPipeline:
         self._pending_frame = None       # Latest raw frame for effects thread
         self._effects_busy = False       # True while effects thread is processing
         self._alpha_worker_enabled = True
+        self._vcam_failed = False
         self._recording = False
         self._recording_pipeline = None
         self._rec_appsrc = None
         self._paused = False
         self._frozen_frame = None
         self._teardown_lock = threading.Lock()
+        self._teardown_source_id = 0
+        self._teardown_capture = None
+        self._teardown_vcam = None
         self._callbacks_in_flight = 0
         self._callback_lock = threading.Lock()
+
+    def _v4l2sink_segment(self) -> str:
+        """Build a loopback sink path that avoids buggy allocation queries.
+
+        On some newer kernels, v4l2loopback + GstV4l2Sink can trip over the
+        default MMAP allocation path and fail immediately with
+        "buffer 0 was not queued". Forcing allocation-drop before the sink
+        keeps the loopback path stable while preserving the faster sink mode.
+        """
+        return (
+            "identity drop-allocation=true ! "
+            f"v4l2sink device={self._vcam_device} io-mode=2 sync=false async=false"
+        )
+
+    def _vcam_reports_output(self) -> bool:
+        """Return whether the loopback device currently reports output caps."""
+        if not self._vcam_device.startswith("/dev/video"):
+            return True
+        try:
+            result = subprocess.run(
+                ["v4l2-ctl", "-D", "-d", self._vcam_device],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+        except Exception:
+            return True
+        return "Video Output" in result.stdout
+
+    def _describe_vcam_state(self) -> str:
+        """Summarize current loopback caps and openers for diagnostics."""
+        caps = "unknown"
+        holders = "unknown"
+
+        if self._vcam_device.startswith("/dev/video"):
+            try:
+                result = subprocess.run(
+                    ["v4l2-ctl", "-D", "-d", self._vcam_device],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                )
+                if "Video Output" in result.stdout:
+                    caps = "output"
+                elif "Video Capture" in result.stdout:
+                    caps = "capture"
+                else:
+                    caps = "unreported"
+            except Exception:
+                pass
+
+            try:
+                result = subprocess.run(
+                    ["fuser", "-v", self._vcam_device],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                )
+                merged = (result.stdout + " " + result.stderr).strip()
+                holders = merged.replace("\n", " | ") if merged else "none"
+            except Exception:
+                pass
+
+        return f"caps={caps}, holders={holders}"
+
+    def _wait_for_vcam_output(self, timeout_seconds: float = 0.8) -> bool:
+        """Wait briefly for v4l2loopback to return to output mode."""
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            if self._vcam_reports_output():
+                return True
+            time.sleep(0.05)
+        return self._vcam_reports_output()
+
+    def _start_vcam_with_retry(self, attempts: int = 3) -> bool:
+        """Start the loopback sink with a short retry window.
+
+        `exclusive_caps=1` can briefly leave the loopback node reporting capture
+        caps after a previous writer or consumer disconnects. Retry a few times
+        instead of disabling virtual camera output immediately.
+        """
+        if not self._vcam_pipeline:
+            return True
+
+        last_state = self._describe_vcam_state()
+        for attempt in range(attempts):
+            if attempt:
+                try:
+                    self._vcam_pipeline.set_state(Gst.State.NULL)
+                except Exception:
+                    pass
+                self._wait_for_vcam_output()
+                time.sleep(0.1 * attempt)
+
+            ret = self._vcam_pipeline.set_state(Gst.State.PLAYING)
+            if ret != Gst.StateChangeReturn.FAILURE:
+                return True
+
+            last_state = self._describe_vcam_state()
+
+        print(
+            "[NV Broadcast] VCam pipeline failed to start — disabling vcam "
+            f"({last_state})",
+            flush=True,
+        )
+        try:
+            self._vcam_pipeline.set_state(Gst.State.NULL)
+        except Exception:
+            pass
+        self._vcam_pipeline = None
+        self._vcam_appsrc = None
+        self._vcam_enabled = False
+        self._vcam_failed = True
+        return False
 
     def configure(self, source_device, vcam_device,
                   width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT,
@@ -164,7 +284,7 @@ class VideoPipeline:
                 f"videoconvert ! "
                 f"video/x-raw,format={self._output_format},width={self._width},"
                 f"height={self._height},framerate={self._fps}/1 ! "
-                f"v4l2sink device={self._vcam_device} sync=false "
+                f"{self._v4l2sink_segment()} "
                 f"t. ! queue max-size-buffers=1 leaky=downstream ! "
                 f"videoconvert ! video/x-raw,format=BGRA ! "
                 f"appsink name=preview emit-signals=true max-buffers=1 drop=true sync=false"
@@ -254,7 +374,7 @@ class VideoPipeline:
                     f"videoconvert ! "
                     f"video/x-raw,format={self._output_format},width={self._width},"
                     f"height={self._height},framerate={self._fps}/1 ! "
-                    f"v4l2sink device={self._vcam_device} sync=false"
+                    f"{self._v4l2sink_segment()}"
                 )
                 self._vcam_appsrc = self._vcam_pipeline.get_by_name("src")
 
@@ -527,14 +647,9 @@ class VideoPipeline:
 
     def start(self):
         # Start vcam first — if it fails, disable it but keep streaming
+        self._vcam_failed = False
         if self._vcam_pipeline:
-            ret = self._vcam_pipeline.set_state(Gst.State.PLAYING)
-            if ret == Gst.StateChangeReturn.FAILURE:
-                print("[NV Broadcast] VCam pipeline failed to start — disabling vcam", flush=True)
-                self._vcam_pipeline.set_state(Gst.State.NULL)
-                self._vcam_pipeline = None
-                self._vcam_appsrc = None
-                self._vcam_enabled = False
+            self._start_vcam_with_retry()
         if self._pipeline:
             self._pipeline.set_state(Gst.State.PLAYING)
         self._running = True
@@ -553,62 +668,101 @@ class VideoPipeline:
             self._latest_frame = None
             self._pending_frame = None
             self._frozen_frame = None
-
-            if cap:
-                for name in ("sink", "preview"):
-                    elem = cap.get_by_name(name)
-                    if elem:
-                        elem.set_property("emit-signals", False)
-            if vcam:
-                src = vcam.get_by_name("src")
-                if src:
-                    src.set_property("emit-signals", False)
+            self._teardown_capture = cap
+            self._teardown_vcam = vcam
 
             self._teardown_done = False
+            if self._teardown_source_id:
+                GLib.source_remove(self._teardown_source_id)
+            self._teardown_source_id = GLib.timeout_add(
+                10, self._poll_teardown, priority=GLib.PRIORITY_HIGH
+            )
 
-            def _teardown():
-                try:
-                    if self._recording:
-                        self.stop_recording()
+    def shutdown_sync(self, timeout_seconds: float = 3.0):
+        """Synchronous teardown for app shutdown.
 
-                    for _ in range(150):  # Max ~1.5s for in-flight callback drain
-                        with self._callback_lock:
-                            callbacks_busy = self._callbacks_in_flight
-                        if callbacks_busy <= 0 and not self._effects_busy:
-                            break
-                        import time
-                        time.sleep(0.01)
+        The normal `stop()` path is deferred to keep the UI responsive. During
+        application shutdown we want the opposite: drain callbacks deterministically
+        and release native resources before Python/GTK starts finalizing.
+        """
+        with self._teardown_lock:
+            self._running = False
+            if self._teardown_source_id:
+                GLib.source_remove(self._teardown_source_id)
+                self._teardown_source_id = 0
 
-                    # Clean up macOS vcam backends first so they stop holding
-                    # output resources before the GStreamer side is released.
-                    if getattr(self, '_frame_bridge', None):
-                        self._frame_bridge.close()
-                        self._frame_bridge = None
-                    if getattr(self, '_pyvirtualcam', None):
-                        self._pyvirtualcam.close()
-                        self._pyvirtualcam = None
+            cap = self._pipeline if self._pipeline is not None else self._teardown_capture
+            vcam = self._vcam_pipeline if self._vcam_pipeline is not None else self._teardown_vcam
 
-                    if cap:
-                        bus = cap.get_bus()
-                        if bus:
-                            bus.remove_signal_watch()
-                        cap.set_state(Gst.State.READY)
-                        cap.get_state(500 * Gst.MSECOND)
-                        cap.set_state(Gst.State.NULL)
-                        cap.get_state(1500 * Gst.MSECOND)
+            self._pipeline = None
+            self._vcam_pipeline = None
+            self._vcam_appsrc = None
+            self._latest_frame = None
+            self._pending_frame = None
+            self._frozen_frame = None
+            self._teardown_capture = None
+            self._teardown_vcam = None
+            self._teardown_done = False
 
-                    if vcam:
-                        vbus = vcam.get_bus()
-                        if vbus:
-                            vbus.remove_signal_watch()
-                        vcam.set_state(Gst.State.READY)
-                        vcam.get_state(500 * Gst.MSECOND)
-                        vcam.set_state(Gst.State.NULL)
-                        vcam.get_state(1500 * Gst.MSECOND)
-                finally:
-                    self._teardown_done = True
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            with self._callback_lock:
+                callbacks_busy = self._callbacks_in_flight
+            if callbacks_busy <= 0 and not self._effects_busy:
+                break
+            time.sleep(0.01)
 
-            threading.Thread(target=_teardown, daemon=True).start()
+        try:
+            if self._recording:
+                self.stop_recording()
+
+            if getattr(self, '_frame_bridge', None):
+                self._frame_bridge.close()
+                self._frame_bridge = None
+            if getattr(self, '_pyvirtualcam', None):
+                self._pyvirtualcam.close()
+                self._pyvirtualcam = None
+
+            if vcam and not self._vcam_failed:
+                vcam.set_state(Gst.State.NULL)
+            if cap:
+                cap.set_state(Gst.State.NULL)
+        finally:
+            self._teardown_done = True
+
+    def _poll_teardown(self):
+        with self._callback_lock:
+            callbacks_busy = self._callbacks_in_flight
+        if callbacks_busy > 0 or self._effects_busy:
+            return True
+
+        cap = self._teardown_capture
+        vcam = self._teardown_vcam
+        self._teardown_capture = None
+        self._teardown_vcam = None
+        self._teardown_source_id = 0
+
+        try:
+            if self._recording:
+                self.stop_recording()
+
+            # Clean up macOS vcam backends first so they stop holding output
+            # resources before the GStreamer side is released.
+            if getattr(self, '_frame_bridge', None):
+                self._frame_bridge.close()
+                self._frame_bridge = None
+            if getattr(self, '_pyvirtualcam', None):
+                self._pyvirtualcam.close()
+                self._pyvirtualcam = None
+
+            if cap:
+                cap.set_state(Gst.State.NULL)
+
+            if vcam and not self._vcam_failed:
+                vcam.set_state(Gst.State.NULL)
+        finally:
+            self._teardown_done = True
+        return False
 
     @staticmethod
     def _has_gst_element(name: str) -> bool:
@@ -624,6 +778,15 @@ class VideoPipeline:
 
     def _on_vcam_error(self, bus, msg):
         err, debug = msg.parse_error()
+        self._vcam_failed = True
+        self._vcam_appsrc = None
+        if self._vcam_pipeline is not None:
+            try:
+                self._vcam_pipeline.set_state(Gst.State.NULL)
+            except Exception:
+                pass
+            self._vcam_pipeline = None
         print(f"[NV Broadcast] VCam error: {err.message}")
+        print(f"[NV Broadcast] VCam state: {self._describe_vcam_state()}")
         if debug:
             print(f"[NV Broadcast] Debug: {debug}")

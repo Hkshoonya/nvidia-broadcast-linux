@@ -39,6 +39,16 @@ class MeetingAudioCapture:
         mixer = Gst.ElementFactory.make("audiomixer", "meeting-mixer")
         tee = Gst.ElementFactory.make("tee", "meeting-tee")
         file_queue = Gst.ElementFactory.make("queue", "file-queue")
+        file_convert = Gst.ElementFactory.make("audioconvert", "file-convert")
+        file_resample = Gst.ElementFactory.make("audioresample", "file-resample")
+        file_caps = Gst.ElementFactory.make("capsfilter", "file-caps")
+        file_caps.set_property(
+            "caps",
+            Gst.Caps.from_string(
+                f"audio/x-raw,format=S16LE,rate={self._sample_rate},"
+                f"channels={self._channels},layout=interleaved"
+            ),
+        )
         live_queue = Gst.ElementFactory.make("queue", "live-queue")
         wavenc = Gst.ElementFactory.make("wavenc", "meeting-wav")
         filesink = Gst.ElementFactory.make("filesink", "meeting-file")
@@ -60,7 +70,11 @@ class MeetingAudioCapture:
         appsink.set_property("drop", True)
         appsink.connect("new-sample", self._on_new_sample)
 
-        elements = [mixer, tee, file_queue, live_queue, wavenc, filesink, live_convert, live_resample, live_caps, appsink]
+        elements = [
+            mixer, tee, file_queue, file_convert, file_resample, file_caps,
+            live_queue, wavenc, filesink, live_convert, live_resample,
+            live_caps, appsink,
+        ]
         for element in elements:
             self._pipeline.add(element)
 
@@ -70,7 +84,10 @@ class MeetingAudioCapture:
 
         mixer.link(tee)
         tee.link(file_queue)
-        file_queue.link(wavenc)
+        file_queue.link(file_convert)
+        file_convert.link(file_resample)
+        file_resample.link(file_caps)
+        file_caps.link(wavenc)
         wavenc.link(filesink)
         tee.link(live_queue)
         live_queue.link(live_convert)
@@ -132,7 +149,16 @@ class MeetingAudioCapture:
 
     def stop(self):
         if self._pipeline:
-            self._pipeline.set_state(Gst.State.NULL)
+            try:
+                self._pipeline.send_event(Gst.Event.new_eos())
+                if self._bus:
+                    self._bus.timed_pop_filtered(2 * Gst.SECOND, Gst.MessageType.EOS)
+            finally:
+                self._pipeline.set_state(Gst.State.NULL)
+                if self._bus:
+                    self._bus.remove_signal_watch()
+                self._bus = None
+                self._pipeline = None
         self._running = False
 
     @property

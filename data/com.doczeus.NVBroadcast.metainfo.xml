@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.1" date="2026-03-28">
+      <description>
+        <p>Stability and live-quality patch</p>
+        <ul>
+          <li>Stabilized the Linux virtual-camera sink path on v4l2loopback devices</li>
+          <li>Reduced live video lag by reusing face landmarks and limiting relighting to the face ROI</li>
+          <li>Tightened replace-mode edges around shoulders, hair, ears, and under-arm gaps</li>
+          <li>Improved local meeting transcription startup, chunk size, and saved meeting audio reliability</li>
+          <li>Resolution changes now save safely without hanging the live stream and apply after restart</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-03-27">
       <description>
         <p>Meeting assistant and guided runtime-install update</p>
