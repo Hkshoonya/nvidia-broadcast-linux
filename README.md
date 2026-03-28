@@ -42,6 +42,22 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.1 — Stability Patch
+
+- **Virtual Camera Stability** — Safer Linux `v4l2loopback` sink startup and retry handling
+- **Lower Live Lag** — Shared face landmarks and face-ROI relighting reduce delay in heavier effect stacks
+- **Better Replace Edges** — Tighter shoulders, ear-side hair, and under-arm gaps during background replace
+- **Meeting Transcription Reliability** — Faster startup, shorter chunking, and cleaner saved meeting audio
+- **Resolution Change Safety** — Resolution changes are saved safely and applied after restart instead of hanging the stream
+
+### v1.1.0 — Meeting Assistant Update
+
+- **Meeting Assistant Sidebar** — Collapsible live transcript and rolling summary inside the app
+- **Meeting History** — Local session history stays on-device for 7 days with automatic cleanup
+- **Two-Way Meeting Audio** — Meeting capture records both sides for better local notes and transcripts
+- **Background Runtime Installs** — Optional CUDA, TensorRT, and meeting runtimes install in the background with progress
+- **Improved Setup Guidance** — First-run flow explains modes, downloads, and skip/install choices more clearly
+
 ### v1.0.0 — AI Release
 
 - **AI Meeting Transcription** — Local Whisper speech-to-text (tiny/base/small/medium models, GPU-accelerated)
@@ -345,6 +361,7 @@ The installer:
 4. **Asks about compositing** — CPU, GStreamer GL, or CuPy CUDA
 5. **Sets up virtual camera**, launcher scripts, desktop entry, systemd service
 6. **Verifies GPU acceleration** and writes initial config
+7. **Lets optional runtimes install later** inside the app without blocking the rest of the UI
 
 ### Optional: TensorRT (for Zeus/Killer modes)
 
@@ -417,7 +434,7 @@ nvbroadcast          # Launch GUI (first time: setup wizard)
 
 | Control | Description |
 |---------|-------------|
-| **Resolution** | 360p to 4K — auto-detected from camera |
+| **Resolution** | 360p to 4K — auto-detected from camera, applied safely after restart |
 | **FPS** | 15-60fps — adapts to selected resolution |
 | **Mode** | 9 modes: Killer, Zeus, DocZeus, CUDA, CPU |
 | **Mirror** | Horizontal flip on/off |
@@ -477,9 +494,11 @@ Reinstall CUDA runtime libraries:
 </details>
 
 <details>
-<summary><strong>Resolution change hangs</strong></summary>
+<summary><strong>Resolution changes do not apply immediately</strong></summary>
 
-The pipeline restarts when you change resolution. If it hangs, the camera FPS may be incompatible. The app auto-validates FPS against camera capabilities, but if issues persist:
+Resolution changes are now saved safely and applied after restart. This avoids the live-pipeline hang path that some cameras and loopback setups hit during hot restarts.
+
+If a camera still behaves oddly after restart, verify its real supported modes:
 ```bash
 v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
@@ -493,7 +512,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.0.0)
+│   ├── __init__.py              # Package version (1.1.1)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -517,7 +536,7 @@ nvidia-broadcast-linux/
 │       ├── controls.py          # Effect toggles, sliders, file picker
 │       ├── device_selector.py   # Dropdown selector (single-connect fix)
 │       ├── video_preview.py     # Live video preview
-│       └── style.css            # NVIDIA-branded dark theme
+│       └── style.css            # App styling with Adwaita/system theme integration
 ├── models/                      # AI models (auto-downloaded)
 │   ├── rvm_mobilenetv3_fp32.onnx
 │   ├── rvm_resnet50_fp32.onnx
@@ -526,7 +545,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.0.0)
+├── pyproject.toml               # Package config (v1.1.1)
 └── README.md
 ```
 
@@ -557,7 +576,8 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 - [x] Performance overlay (FPS, GPU usage) *(v0.3.0)*
 - [x] GStreamer NVDEC/NVENC hardware codec pipeline *(v0.3.0)*
 - [ ] NVIDIA Maxine SDK integration
-- [ ] Flatpak / Snap packaging
+- [ ] Flatpak packaging
+- [x] Snap packaging
 
 ---
 
