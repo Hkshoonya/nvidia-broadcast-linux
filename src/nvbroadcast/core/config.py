@@ -60,6 +60,7 @@ class VideoConfig:
 @dataclass
 class AudioConfig:
     mic_device: str = ""
+    speaker_device: str = ""
     noise_removal: bool = False
     noise_intensity: float = 1.0
     speaker_denoise: bool = False
@@ -150,8 +151,25 @@ class AppConfig:
     last_update_check: int = 0
     last_notified_version: str = ""
     first_run: bool = True  # Show setup wizard on first launch
+    current_profile: str = "Default"
     video: VideoConfig = field(default_factory=VideoConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+
+
+def build_default_config(existing: AppConfig | None = None) -> AppConfig:
+    """Return a fresh default config while preserving app lifecycle flags."""
+    default = AppConfig()
+    if existing is None:
+        default.first_run = False
+        return default
+    default.first_run = existing.first_run
+    default.auto_start = existing.auto_start
+    default.minimize_on_close = existing.minimize_on_close
+    default.check_for_updates = existing.check_for_updates
+    default.last_update_check = existing.last_update_check
+    default.last_notified_version = existing.last_notified_version
+    default.compute_gpu = existing.compute_gpu
+    return default
 
 
 def _load_from_toml(filepath: Path) -> AppConfig:
@@ -164,7 +182,8 @@ def _load_from_toml(filepath: Path) -> AppConfig:
               "mode_key", "premium_edge_refine",
               "use_tensorrt", "use_fused_kernel", "use_nvdec",
               "auto_start", "minimize_on_close", "check_for_updates",
-              "last_update_check", "last_notified_version", "first_run"):
+              "last_update_check", "last_notified_version", "first_run",
+              "current_profile"):
         if k in data:
             setattr(config, k, data[k])
     if "video" in data:
@@ -222,6 +241,7 @@ def _config_to_toml(config: AppConfig) -> str:
         f"last_update_check = {config.last_update_check}",
         f'last_notified_version = "{config.last_notified_version}"',
         f"first_run = {_bool(config.first_run)}",
+        f'current_profile = "{config.current_profile}"',
         "",
         "[video]",
         f'camera_device = "{v.camera_device}"',
@@ -260,6 +280,7 @@ def _config_to_toml(config: AppConfig) -> str:
         "",
         "[audio]",
         f'mic_device = "{a.mic_device}"',
+        f'speaker_device = "{a.speaker_device}"',
         f"noise_removal = {_bool(a.noise_removal)}",
         f"noise_intensity = {a.noise_intensity}",
         f"speaker_denoise = {_bool(a.speaker_denoise)}",

@@ -196,6 +196,7 @@ class NVBroadcastApp(Adw.Application):
         self.config.compute_gpu = gpu_index
         self.config.compositing = compositing
         self.config.first_run = False
+        self.config.current_profile = profile_name
 
         # Apply to effects engine
         self._video_effects._gpu_index = gpu_index
@@ -957,10 +958,15 @@ class NVBroadcastApp(Adw.Application):
 
         self._meeting_capture = MeetingAudioCapture()
         self._meeting_capture.set_sample_callback(self._transcriber.feed_audio)
+        speaker_device = self.config.audio.speaker_device
+        if self._window and getattr(self._window, "_speaker_selector", None):
+            selected_speaker = self._window._speaker_selector.get_selected_device()
+            if selected_speaker:
+                speaker_device = selected_speaker
         try:
             self._meeting_capture.build(
                 self.config.audio.mic_device,
-                getattr(self._window, "_speaker_selector", None).get_selected_device() if self._window and getattr(self._window, "_speaker_selector", None) else "",
+                speaker_device,
                 self._meeting_audio_path,
             )
             self._meeting_capture.start()
@@ -1211,6 +1217,10 @@ class NVBroadcastApp(Adw.Application):
             self._audio_pipeline.configure(mic_device=resolve_pipewire_target(device))
             self._audio_pipeline.build()
             self._audio_pipeline.start()
+
+    def set_speaker_device(self, device: str):
+        self.config.audio.speaker_device = device
+        save_config(self.config)
 
     # --- Multi-camera ---
 

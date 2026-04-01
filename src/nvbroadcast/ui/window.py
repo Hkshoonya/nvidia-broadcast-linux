@@ -158,8 +158,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         save_btn = Gtk.Button(label="Save Current as Profile...")
         save_btn.add_css_class("flat")
         save_btn.connect("clicked", self._on_save_profile, profile_popover)
+        reset_btn = Gtk.Button(label="Reset to Defaults")
+        reset_btn.add_css_class("flat")
+        reset_btn.connect("clicked", self._on_reset_defaults, profile_popover)
         profile_box.append(Gtk.Separator())
         profile_box.append(save_btn)
+        profile_box.append(reset_btn)
 
         profile_popover.set_child(profile_box)
         self._profile_btn.set_popover(profile_popover)
@@ -1236,10 +1240,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             from nvbroadcast.audio.devices import list_speakers
             spk = list_speakers()
             self._speaker_selector.set_devices(spk)
+            saved = self._app.config.audio.speaker_device
+            if saved:
+                for i, speaker in enumerate(spk):
+                    if speaker["device"] == saved:
+                        self._speaker_selector.set_selected_index(i)
+                        break
         except Exception as e:
             print(f"[NV Broadcast] Speaker enumeration failed: {e}")
 
     def _on_speaker_changed(self, selector, device):
+        self._app.set_speaker_device(device)
         self.set_status(f"Speaker: {device}")
 
     def _on_meeting_sidebar_toggled(self, btn):
@@ -1416,6 +1427,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _on_profile_selected(self, btn, name, popover):
         from nvbroadcast.core.config import apply_builtin_profile, save_config
         apply_builtin_profile(self._app.config, name)
+        self._app.config.current_profile = name
         save_config(self._app.config)
         self._apply_config_to_ui(self._app.config)
         self._profile_btn.set_label(f"Profile: {name}")
@@ -1427,6 +1439,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         loaded = load_profile(name)
         if loaded:
             self._app.config = loaded
+            self._app.config.current_profile = name
             save_config(loaded)
             self._apply_config_to_ui(loaded)
             self._profile_btn.set_label(f"Profile: {name}")
@@ -1454,14 +1467,30 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if response == Gtk.ResponseType.OK:
             name = entry.get_text().strip()
             if name:
-                from nvbroadcast.core.config import save_profile
+                from nvbroadcast.core.config import save_profile, save_config
                 save_profile(name, self._app.config)
+                self._app.config.current_profile = name
+                save_config(self._app.config)
+                self._profile_btn.set_label(f"Profile: {name}")
                 self.set_status(f"Profile saved: {name}")
         dialog.destroy()
+
+    def _on_reset_defaults(self, btn, popover):
+        from nvbroadcast.core.config import build_default_config, save_config
+        reset = build_default_config(self._app.config)
+        reset.current_profile = "Default"
+        self._app.config = reset
+        save_config(reset)
+        self._apply_config_to_ui(reset)
+        self.restore_settings(reset)
+        self._profile_btn.set_label("Profile: Default")
+        popover.popdown()
+        self.set_status("Settings reset to defaults")
 
     def _apply_config_to_ui(self, config):
         """Apply a config to all UI controls (after profile switch)."""
         v = config.video
+        a = config.audio
         # Eye contact
         self._eye_contact_toggle.active = v.eye_contact
         self._eye_contact_slider.set_sensitive(v.eye_contact)
@@ -1503,6 +1532,21 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app._beautifier.sharpen = v.beauty.sharpen
         self._app._beautifier.edge_darken = v.beauty.edge_darken
         self._app._autoframe.enabled = v.auto_frame
+        self._noise_toggle.active = a.noise_removal
+        self._noise_slider.set_sensitive(a.noise_removal)
+        self._noise_slider._scale.set_value(a.noise_intensity)
+        self._speaker_toggle.active = a.speaker_denoise
+        if a.mic_device:
+            for i, mic in enumerate(getattr(self._mic_selector, "_devices", [])):
+                if mic["device"] == a.mic_device:
+                    self._mic_selector.set_selected_index(i)
+                    break
+        if a.speaker_device:
+            for i, speaker in enumerate(getattr(self._speaker_selector, "_devices", [])):
+                if speaker["device"] == a.speaker_device:
+                    self._speaker_selector.set_selected_index(i)
+                    break
+        self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
         self._app._update_pipeline_mode()
         print(f"[NV Broadcast] Profile applied: bg={v.background_removal}, eye={v.eye_contact}, relight={v.relighting}, beauty={v.beauty.enabled}")
 
@@ -1617,6 +1661,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         if a.speaker_denoise:
             self._speaker_toggle.active = True
+        if a.speaker_device:
+            for i, speaker in enumerate(getattr(self._speaker_selector, "_devices", [])):
+                if speaker["device"] == a.speaker_device:
+                    self._speaker_selector.set_selected_index(i)
+                    break
 
         # Eye contact
         if v.eye_contact:
@@ -1645,6 +1694,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Mirror
         self._mirror_toggle.active = v.mirror
+        self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
 
     def _show_about(self, button):
         # Load app icon from installed assets or source tree.
