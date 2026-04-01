@@ -61,9 +61,11 @@ class MicTest:
         self._record_token += 1
         token = self._record_token
 
-        # Build recording pipeline
-        src = "pipewiresrc do-timestamp=true"
-        if mic_device:
+        # Prefer Pulse on desktop Linux for reliable timed recording.
+        src = "pulsesrc"
+        if mic_device and Gst.ElementFactory.find("pulsesrc") is not None:
+            src = f"pulsesrc device={mic_device}"
+        elif mic_device:
             target = resolve_pipewire_target(mic_device)
             src = f"pipewiresrc do-timestamp=true target-object={target}"
 

@@ -53,7 +53,9 @@ class MicTestTests(unittest.TestCase):
         self.assertTrue(mic_test.is_playing)
 
     @mock.patch("nvbroadcast.audio.mic_test.Gst.parse_launch")
-    def test_start_recording_uses_requested_duration(self, parse_launch):
+    @mock.patch("nvbroadcast.audio.mic_test.Gst.ElementFactory.find")
+    def test_start_recording_uses_requested_duration(self, element_find, parse_launch):
+        element_find.return_value = object()
         pipeline = _DummyPipeline()
         parse_launch.return_value = pipeline
 
@@ -64,7 +66,7 @@ class MicTestTests(unittest.TestCase):
 
         self.assertEqual(mic_test._duration, 45)
         self.assertTrue(mic_test.is_recording)
-        self.assertIn("pipewiresrc", parse_launch.call_args.args[0])
+        self.assertIn("pulsesrc device=mic0", parse_launch.call_args.args[0])
 
 
 if __name__ == "__main__":
