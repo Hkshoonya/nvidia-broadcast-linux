@@ -10,14 +10,14 @@ and plays it back so the user can hear their processed voice.
 """
 
 import threading
-import time
-import wave
 import tempfile
 from pathlib import Path
 
 import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
+
+from nvbroadcast.audio.devices import resolve_pipewire_target
 
 Gst.init(None)
 
@@ -31,8 +31,9 @@ class MicTest:
         self._rec_pipeline = None
         self._play_pipeline = None
         self._test_file = str(Path(tempfile.gettempdir()) / "nvbroadcast_mic_test.wav")
-        self._duration = 5  # seconds
+        self._duration = 30  # seconds
         self._on_complete = None
+        self._record_token = 0
 
     @property
     def is_recording(self) -> bool:
@@ -42,7 +43,7 @@ class MicTest:
     def is_playing(self) -> bool:
         return self._playing
 
-    def start_recording(self, mic_device: str = "", duration: int = 5,
+    def start_recording(self, mic_device: str = "", duration: int = 30,
                        on_complete=None):
         """Record from mic for `duration` seconds.
 
@@ -57,11 +58,14 @@ class MicTest:
         self._duration = duration
         self._on_complete = on_complete
         self._recording = True
+        self._record_token += 1
+        token = self._record_token
 
         # Build recording pipeline
-        src = "pipewiresrc"
+        src = "pipewiresrc do-timestamp=true"
         if mic_device:
-            src = f"pipewiresrc target-object={mic_device}"
+            target = resolve_pipewire_target(mic_device)
+            src = f"pipewiresrc do-timestamp=true target-object={target}"
 
         try:
             self._rec_pipeline = Gst.parse_launch(
@@ -74,8 +78,10 @@ class MicTest:
 
             # Stop after duration
             def _stop():
+                import time
                 time.sleep(duration)
-                self._stop_recording()
+                if self._recording and token == self._record_token:
+                    self._stop_recording()
 
             threading.Thread(target=_stop, daemon=True).start()
 
@@ -83,19 +89,26 @@ class MicTest:
             print(f"[Mic Test] Recording failed: {e}")
             self._recording = False
 
+    def stop_recording(self):
+        """Stop an active recording early and finalize the WAV file."""
+        self._stop_recording()
+
     def _stop_recording(self):
         if self._rec_pipeline:
-            self._rec_pipeline.send_event(Gst.Event.new_eos())
-            time.sleep(0.5)
-            self._rec_pipeline.set_state(Gst.State.NULL)
-            self._rec_pipeline = None
+            bus = self._rec_pipeline.get_bus()
+            try:
+                self._rec_pipeline.send_event(Gst.Event.new_eos())
+                bus.timed_pop_filtered(2 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
+            finally:
+                self._rec_pipeline.set_state(Gst.State.NULL)
+                self._rec_pipeline = None
         self._recording = False
         print("[Mic Test] Recording complete")
         if self._on_complete:
             from gi.repository import GLib
             GLib.idle_add(self._on_complete)
 
-    def play_recording(self, on_complete=None):
+    def play_recording(self, speaker_device: str = "", on_complete=None):
         """Play back the test recording."""
         if self._recording or self._playing:
             return
@@ -107,10 +120,15 @@ class MicTest:
         self._on_complete = on_complete
 
         try:
+            sink = "autoaudiosink sync=false"
+            if speaker_device:
+                target = resolve_pipewire_target(speaker_device)
+                sink = f"pipewiresink target-object={target} sync=false"
             self._play_pipeline = Gst.parse_launch(
                 f"filesrc location={self._test_file} ! "
                 f"wavparse ! audioconvert ! audioresample ! "
-                f"pipewiresink"
+                f"audio/x-raw,rate=48000,channels=1 ! "
+                f"{sink}"
             )
             bus = self._play_pipeline.get_bus()
             bus.add_signal_watch()
@@ -134,7 +152,13 @@ class MicTest:
     def _on_playback_error(self, bus, msg):
         err, _ = msg.parse_error()
         print(f"[Mic Test] Playback error: {err.message}")
+        if self._play_pipeline:
+            self._play_pipeline.set_state(Gst.State.NULL)
+            self._play_pipeline = None
         self._playing = False
+        if self._on_complete:
+            from gi.repository import GLib
+            GLib.idle_add(self._on_complete)
 
     def stop(self):
         """Stop any recording or playback."""

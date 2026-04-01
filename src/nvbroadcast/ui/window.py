@@ -762,7 +762,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         test_row.set_margin_start(16)
         test_row.set_margin_end(16)
 
-        self._test_rec_btn = Gtk.Button(label="Record 5s")
+        self._test_duration_selector = DeviceSelector("Duration")
+        self._test_duration_selector.set_devices([
+            {"name": "30 sec", "device": "30"},
+            {"name": "45 sec", "device": "45"},
+            {"name": "60 sec", "device": "60"},
+        ])
+        self._test_duration_selector.set_selected_index(0)
+        self._test_duration_selector.connect("device-changed", self._on_test_duration_changed)
+        test_row.append(self._test_duration_selector)
+
+        self._test_rec_btn = Gtk.Button(label="Record 30s")
         self._test_rec_btn.add_css_class("flat")
         self._test_rec_btn.connect("clicked", self._on_test_record)
         test_row.append(self._test_rec_btn)
@@ -1338,38 +1348,55 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             setattr(self._app._audio_pipeline.voice_fx.settings, key, value)
 
     # --- Mic Test ---
+    def _on_test_duration_changed(self, selector, duration):
+        if hasattr(self, "_mic_test") and self._mic_test.is_recording:
+            return
+        label = duration or "30"
+        self._test_rec_btn.set_label(f"Record {label}s")
+
     def _on_test_record(self, btn):
         from nvbroadcast.audio.mic_test import MicTest
         if not hasattr(self, '_mic_test'):
             self._mic_test = MicTest()
 
         if self._mic_test.is_recording:
+            self._test_rec_btn.set_sensitive(False)
+            self._test_status.set_text("Finalizing recording...")
+            self._mic_test.stop_recording()
             return
 
         mic = self._mic_selector.get_selected_device() or ""
-        self._test_rec_btn.set_sensitive(False)
+        duration = int(self._test_duration_selector.get_selected_device() or "30")
+        self._test_rec_btn.set_sensitive(True)
+        self._test_rec_btn.set_label("Stop Recording")
         self._test_play_btn.set_sensitive(False)
-        self._test_status.set_text("Recording...")
+        self._test_status.set_text(f"Recording for up to {duration}s...")
 
         def on_done():
             self._test_rec_btn.set_sensitive(True)
+            self._test_rec_btn.set_label(f"Record {duration}s")
             self._test_play_btn.set_sensitive(True)
             self._test_status.set_text("Recorded. Click Play.")
 
-        self._mic_test.start_recording(mic, duration=5, on_complete=on_done)
+        self._mic_test.start_recording(mic, duration=duration, on_complete=on_done)
 
     def _on_test_play(self, btn):
         if not hasattr(self, '_mic_test'):
             return
 
+        speaker = self._speaker_selector.get_selected_device() or self._app.config.audio.speaker_device or ""
+        self._test_rec_btn.set_sensitive(False)
         self._test_play_btn.set_sensitive(False)
         self._test_status.set_text("Playing...")
 
         def on_done():
+            current_duration = self._test_duration_selector.get_selected_device() or "30"
+            self._test_rec_btn.set_sensitive(True)
+            self._test_rec_btn.set_label(f"Record {current_duration}s")
             self._test_play_btn.set_sensitive(True)
             self._test_status.set_text("Ready")
 
-        self._mic_test.play_recording(on_complete=on_done)
+        self._mic_test.play_recording(speaker_device=speaker, on_complete=on_done)
 
     # --- VU Meter ---
     def _start_vu_meter(self):
