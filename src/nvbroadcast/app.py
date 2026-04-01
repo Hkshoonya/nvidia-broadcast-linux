@@ -9,6 +9,7 @@ Auto-starts broadcast on launch, restores all saved settings,
 minimizes to background on close. Browser picks up virtual camera automatically.
 """
 
+import os
 import sys
 import threading
 import time
@@ -81,7 +82,18 @@ class NVBroadcastApp(Adw.Application):
         self._eye_contact = EyeContactCorrector()
         self._relighter = FaceRelighter()
         self._perf_monitor = PerfMonitor()
-        self._transcriber = MeetingTranscriber(model_size="base")
+        live_transcriber_model = os.getenv(
+            "NVBROADCAST_TRANSCRIBER_MODEL",
+            "base" if IS_ARM64 else "small",
+        ).strip() or "base"
+        final_transcriber_model = os.getenv(
+            "NVBROADCAST_TRANSCRIBER_FINAL_MODEL",
+            "small" if IS_ARM64 else "small",
+        ).strip() or live_transcriber_model
+        self._transcriber = MeetingTranscriber(
+            model_size=live_transcriber_model,
+            final_model_size=final_transcriber_model,
+        )
         self._summarizer = MeetingSummarizer()
         self._dependency_installer = DependencyInstaller()
         self._meeting_capture = None
@@ -90,6 +102,7 @@ class NVBroadcastApp(Adw.Application):
         self._meeting_audio_path = ""
         self._meeting_video_path = ""
         self._meeting_active = False
+        self._meeting_finalizing = False
         self._vcam_device = None
         self._vcam_available = False
         self._mirror = True  # Default: mirror (like looking in a mirror)
@@ -983,6 +996,16 @@ class NVBroadcastApp(Adw.Application):
             self._meeting_capture.stop()
             self._meeting_capture = None
         segments = self._transcriber.stop()
+        if self._meeting_audio_path and Path(self._meeting_audio_path).exists():
+            try:
+                if self._window:
+                    self._window.set_status("Finalizing high-accuracy meeting transcript...")
+                final_segments = self._transcriber.transcribe_file(self._meeting_audio_path)
+                if final_segments:
+                    segments = final_segments
+                    self._transcriber.replace_segments(final_segments)
+            except Exception as exc:
+                print(f"[NV Broadcast] Final meeting transcription pass failed: {exc}")
         transcript_path = ""
         transcript_srt_path = ""
         notes_path = ""
@@ -1024,9 +1047,127 @@ class NVBroadcastApp(Adw.Application):
         self._meeting_video_path = ""
         return notes_path or transcript_path
 
+    def stop_meeting_async(self, callback=None) -> bool:
+        """Stop meeting quickly and finalize transcript/notes off the UI thread."""
+        import threading
+
+        if not self._meeting_active or self._meeting_finalizing:
+            return False
+
+        meeting_session_id = self._meeting_session_id
+        meeting_session_dir = self._meeting_session_dir
+        meeting_audio_path = self._meeting_audio_path
+        meeting_video_path = self._meeting_video_path
+
+        self._meeting_active = False
+        self._meeting_finalizing = True
+        self.stop_recording()
+        if self._meeting_capture:
+            self._meeting_capture.stop()
+            self._meeting_capture = None
+        segments = self._transcriber.stop()
+
+        self._meeting_session_id = ""
+        self._meeting_session_dir = None
+        self._meeting_audio_path = ""
+        self._meeting_video_path = ""
+
+        def _worker():
+            result_path = ""
+            status = "Meeting ended"
+            session = None
+            try:
+                result_path, session = self._finalize_meeting_outputs(
+                    meeting_session_id,
+                    meeting_session_dir,
+                    meeting_audio_path,
+                    meeting_video_path,
+                    segments,
+                )
+                status = f"Meeting saved: {result_path}" if result_path else "Meeting ended"
+            except Exception as exc:
+                print(f"[NV Broadcast] Meeting finalization failed: {exc}")
+                status = "Meeting ended, but transcript finalization failed"
+            finally:
+                def _finish():
+                    self._meeting_finalizing = False
+                    if session and self._window:
+                        self._window.load_meeting_sessions(self.list_meeting_sessions())
+                        self._window.show_meeting_session(session)
+                    if callback:
+                        callback(result_path, status)
+                    return False
+                GLib.idle_add(_finish)
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return True
+
+    def _finalize_meeting_outputs(
+        self,
+        meeting_session_id: str,
+        meeting_session_dir,
+        meeting_audio_path: str,
+        meeting_video_path: str,
+        segments,
+    ):
+        import time
+        from pathlib import Path
+
+        if meeting_session_dir is None:
+            return "", None
+
+        if meeting_audio_path and Path(meeting_audio_path).exists():
+            try:
+                final_segments = self._transcriber.transcribe_file(meeting_audio_path)
+                if final_segments:
+                    segments = final_segments
+                    self._transcriber.replace_segments(final_segments)
+            except Exception as exc:
+                print(f"[NV Broadcast] Final meeting transcription pass failed: {exc}")
+
+        transcript_path = ""
+        transcript_srt_path = ""
+        notes_path = ""
+        session = None
+
+        if segments:
+            base_path = str(meeting_session_dir / "transcript")
+            transcript_path = save_transcript(segments, base_path, format="txt")
+            transcript_srt_path = save_transcript(segments, base_path, format="srt")
+
+            transcript_text = self._transcriber.get_full_transcript()
+            duration = segments[-1].end_time if segments else 0
+            notes = self._summarizer.summarize(transcript_text, duration)
+            notes_md = self._summarizer.format_notes(notes)
+            notes_path = str(meeting_session_dir / "notes.md")
+            Path(notes_path).write_text(notes_md)
+            print(f"[NV Broadcast] Meeting notes saved: {notes_path}")
+
+            session = MeetingSession(
+                session_id=meeting_session_id,
+                created_at=int(time.time()),
+                title=notes.title,
+                summary=notes.summary,
+                transcript_preview="\n".join(seg.text for seg in segments[:6])[:600],
+                duration_seconds=duration,
+                notes_path=notes_path,
+                transcript_path=transcript_path,
+                transcript_srt_path=transcript_srt_path,
+                audio_path=meeting_audio_path,
+                video_path=meeting_video_path,
+            )
+            save_session(session)
+
+        print(f"[NV Broadcast] Meeting ended. Transcript: {transcript_path}")
+        return notes_path or transcript_path, session
+
     @property
     def meeting_active(self) -> bool:
         return self._meeting_active
+
+    @property
+    def meeting_finalizing(self) -> bool:
+        return self._meeting_finalizing
 
     @property
     def dependency_installer(self) -> DependencyInstaller:

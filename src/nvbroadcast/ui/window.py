@@ -1169,14 +1169,27 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     # --- Meeting ---
     def _on_meeting_toggle(self, btn):
+        if self._app.meeting_finalizing:
+            self.set_status("Meeting is still finalizing. Please wait...")
+            return
+
         if self._app.meeting_active:
-            notes_path = self._app.stop_meeting()
-            self._meeting_btn.set_label("Start Meeting")
-            self._meeting_btn.add_css_class("idle")
-            self._meeting_btn.remove_css_class("recording-btn")
-            if notes_path:
-                self.set_status(f"Meeting saved: {notes_path}")
-            else:
+            self._meeting_btn.set_label("Finalizing...")
+            self._meeting_btn.set_sensitive(False)
+            self.set_status("Finalizing high-accuracy meeting transcript...")
+
+            def _on_finished(notes_path: str, status: str):
+                self._meeting_btn.set_sensitive(True)
+                self._meeting_btn.set_label("Start Meeting")
+                self._meeting_btn.add_css_class("idle")
+                self._meeting_btn.remove_css_class("recording-btn")
+                self.set_status(status)
+
+            if not self._app.stop_meeting_async(_on_finished):
+                self._meeting_btn.set_sensitive(True)
+                self._meeting_btn.set_label("Start Meeting")
+                self._meeting_btn.add_css_class("idle")
+                self._meeting_btn.remove_css_class("recording-btn")
                 self.set_status("Meeting ended")
         else:
             if not self._app.dependency_installer.is_available("whisper"):

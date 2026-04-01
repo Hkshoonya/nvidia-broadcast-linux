@@ -34,6 +34,33 @@ class MeetingTranscriberTests(unittest.TestCase):
         self.assertLessEqual(float(buffered.max()), 1.0)
         self.assertGreaterEqual(float(buffered.min()), -1.0)
 
+    def test_prepare_audio_removes_dc_and_normalizes_rms(self):
+        transcriber = MeetingTranscriber("base")
+        audio = np.full(1600, 0.02, dtype=np.float32)
+        prepared = transcriber._prepare_audio(audio, sample_rate=16000)
+        self.assertLess(abs(float(prepared.mean())), 1e-3)
+        self.assertTrue(np.isfinite(prepared).all())
+
+    def test_store_segment_replaces_shorter_overlap(self):
+        transcriber = MeetingTranscriber("base")
+        first = {
+            "text": "hello",
+            "start_time": 0.0,
+            "end_time": 1.0,
+            "confidence": -0.2,
+        }
+        second = {
+            "text": "hello world",
+            "start_time": 0.4,
+            "end_time": 1.4,
+            "confidence": -0.1,
+        }
+
+        self.assertTrue(transcriber._store_segment(type("Seg", (), first)()))
+        self.assertFalse(transcriber._store_segment(type("Seg", (), second)()))
+        self.assertEqual(len(transcriber.segments), 1)
+        self.assertEqual(transcriber.segments[0].text, "hello world")
+
     def test_on_future_done_appends_segments_and_emits_callback(self):
         transcriber = MeetingTranscriber("base")
         callback = mock.Mock()
@@ -53,6 +80,45 @@ class MeetingTranscriberTests(unittest.TestCase):
         self.assertEqual(len(transcriber.segments), 1)
         self.assertEqual(transcriber.segments[0].text, "hello world")
         callback.assert_called_once()
+
+    def test_on_future_done_skips_duplicate_overlap(self):
+        transcriber = MeetingTranscriber("base")
+        callback = mock.Mock()
+        transcriber.set_segment_callback(callback)
+        first = mock.Mock()
+        first.result.return_value = [
+            {
+                "text": "hello world",
+                "start_time": 0.0,
+                "end_time": 1.0,
+                "confidence": -0.1,
+            }
+        ]
+        second = mock.Mock()
+        second.result.return_value = [
+            {
+                "text": "hello world",
+                "start_time": 0.3,
+                "end_time": 1.2,
+                "confidence": -0.1,
+            }
+        ]
+
+        transcriber._on_future_done(first)
+        transcriber._on_future_done(second)
+
+        self.assertEqual(len(transcriber.segments), 1)
+        callback.assert_called_once()
+
+    def test_select_final_model_prefers_medium_for_short_meetings(self):
+        transcriber = MeetingTranscriber("base", final_model_size="small")
+        with mock.patch.object(transcriber, "_estimate_audio_duration", return_value=300.0):
+            self.assertEqual(transcriber._select_final_model("/tmp/fake.wav"), "medium")
+
+    def test_select_final_model_keeps_default_for_long_meetings(self):
+        transcriber = MeetingTranscriber("base", final_model_size="small")
+        with mock.patch.object(transcriber, "_estimate_audio_duration", return_value=4000.0):
+            self.assertEqual(transcriber._select_final_model("/tmp/fake.wav"), "small")
 
 
 if __name__ == "__main__":
