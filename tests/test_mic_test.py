@@ -34,9 +34,10 @@ class _DummyPipeline:
 
 
 class MicTestTests(unittest.TestCase):
-    @mock.patch("nvbroadcast.audio.mic_test.resolve_pipewire_target", return_value="alsa_output.test")
     @mock.patch("nvbroadcast.audio.mic_test.Gst.parse_launch")
-    def test_play_recording_uses_selected_speaker_target(self, parse_launch, _resolve):
+    @mock.patch("nvbroadcast.audio.mic_test.Gst.ElementFactory.find")
+    def test_play_recording_uses_selected_speaker_target(self, element_find, parse_launch):
+        element_find.return_value = object()
         pipeline = _DummyPipeline()
         parse_launch.return_value = pipeline
 
@@ -48,7 +49,7 @@ class MicTestTests(unittest.TestCase):
 
         self.assertTrue(parse_launch.called)
         pipeline_desc = parse_launch.call_args.args[0]
-        self.assertIn("pipewiresink target-object=alsa_output.test", pipeline_desc)
+        self.assertIn("pulsesink device=speaker0", pipeline_desc)
         self.assertTrue(mic_test.is_playing)
 
     @mock.patch("nvbroadcast.audio.mic_test.Gst.parse_launch")

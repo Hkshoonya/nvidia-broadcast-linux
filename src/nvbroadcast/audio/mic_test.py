@@ -122,8 +122,12 @@ class MicTest:
         try:
             sink = "autoaudiosink sync=false"
             if speaker_device:
-                target = resolve_pipewire_target(speaker_device)
-                sink = f"pipewiresink target-object={target} sync=false"
+                pulse_sink = Gst.ElementFactory.find("pulsesink") is not None
+                if pulse_sink:
+                    sink = f"pulsesink device={speaker_device} sync=false"
+                else:
+                    target = resolve_pipewire_target(speaker_device)
+                    sink = f"pipewiresink target-object={target} sync=false"
             self._play_pipeline = Gst.parse_launch(
                 f"filesrc location={self._test_file} ! "
                 f"wavparse ! audioconvert ! audioresample ! "
