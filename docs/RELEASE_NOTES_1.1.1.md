@@ -16,3 +16,5 @@ Release date: 2026-03-28
 - It focuses on runtime stability, lower perceived lag, and better live composite quality.
 - `DocZeus` remains the recommended default quality mode.
 - The learned neural matte refiner remains experimental and disabled by default.
+- Users still on `1.1.0` should upgrade to `1.1.1` for the current stable virtual-camera and meeting-transcription fixes.
+- Resolution changes now save immediately but should be applied by stopping and starting the app again.

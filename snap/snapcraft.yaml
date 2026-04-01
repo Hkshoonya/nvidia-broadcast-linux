@@ -8,6 +8,13 @@ description: |
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
+  Recommended update:
+  - If you are still on v1.1.0, refresh to v1.1.1 for a more stable virtual
+    camera path, lower live lag, cleaner replace edges, and more reliable local
+    meeting transcription.
+  - Resolution changes are saved safely and apply after you stop and start the
+    app again. This avoids camera hangs during live switching.
+
   Core features:
   - Blur your background
   - Replace your background with an image

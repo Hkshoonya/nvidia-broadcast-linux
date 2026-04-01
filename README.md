@@ -50,6 +50,8 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Meeting Transcription Reliability** — Faster startup, shorter chunking, and cleaner saved meeting audio
 - **Resolution Change Safety** — Resolution changes are saved safely and applied after restart instead of hanging the stream
 
+> If you are still on `v1.1.0`, update to `v1.1.1`. It is the recommended stable patch for better virtual-camera behavior, lower lag, and cleaner live compositing.
+
 ### v1.1.0 — Meeting Assistant Update
 
 - **Meeting Assistant Sidebar** — Collapsible live transcript and rolling summary inside the app
@@ -496,7 +498,7 @@ Reinstall CUDA runtime libraries:
 <details>
 <summary><strong>Resolution changes do not apply immediately</strong></summary>
 
-Resolution changes are now saved safely and applied after restart. This avoids the live-pipeline hang path that some cameras and loopback setups hit during hot restarts.
+Resolution changes are now saved safely and applied after you stop and start the app again. This avoids the live-pipeline hang path that some cameras and loopback setups hit during hot restarts.
 
 If a camera still behaves oddly after restart, verify its real supported modes:
 ```bash
