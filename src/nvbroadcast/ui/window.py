@@ -183,7 +183,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         header.pack_end(about_btn)
 
         self._update_url = ""
-        self._update_btn = Gtk.Button(label="Update Available")
+        self._update_btn = Gtk.Button(label="Priority Update")
         self._update_btn.add_css_class("suggested-action")
         self._update_btn.set_visible(False)
         self._update_btn.set_tooltip_text("Open the latest release download page")
@@ -1764,8 +1764,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def set_update_available(self, version: str, url: str):
         self._update_url = url
-        self._update_btn.set_label(f"Update v{version}")
-        self._update_btn.set_tooltip_text(f"Open release v{version}")
+        self._update_btn.set_label(f"Priority Update v{version}")
+        self._update_btn.set_tooltip_text(f"Open recommended stable release v{version}")
         self._update_btn.set_visible(True)
 
     def rebuild_mode_selector(self, compositing: str, profile: str):

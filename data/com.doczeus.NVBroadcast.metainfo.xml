@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.2" date="2026-04-02">
+      <description>
+        <p>Priority stability and meeting-quality update</p>
+        <ul>
+          <li>Improved final meeting transcript quality with better chunk cleanup and full-audio finalization</li>
+          <li>Moved meeting transcript, notes, and summary finalization off the UI thread to avoid end-meeting hangs</li>
+          <li>Persisted speaker selection and active profile state across restarts</li>
+          <li>Added reset-to-defaults for returning to a known-good setup quickly</li>
+          <li>Fixed microphone test recording and playback and expanded test duration choices to 30s, 45s, and 60s</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.1" date="2026-03-28">
       <description>
         <p>Stability and live-quality patch</p>

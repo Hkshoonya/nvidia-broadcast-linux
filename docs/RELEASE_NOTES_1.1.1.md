@@ -1,5 +1,7 @@
 # NV Broadcast 1.1.1
 
+> Superseded by `1.1.2`, which is now the recommended stable update for meeting quality, persistence, and audio test reliability.
+
 Release date: 2026-03-28
 
 ## Highlights

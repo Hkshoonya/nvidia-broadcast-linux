@@ -1,17 +1,19 @@
 name: nvbroadcast
 base: core24
-version: '1.1.1'
-summary: AI virtual camera with background effects and voice tools
+version: '1.1.2'
+summary: Priority stability update for AI camera, audio, and meeting tools
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  Recommended update:
-  - If you are still on v1.1.0, refresh to v1.1.1 for a more stable virtual
-    camera path, lower live lag, cleaner replace edges, and more reliable local
-    meeting transcription.
+  Priority update:
+  - If you are still on v1.1.0 or v1.1.1, refresh to v1.1.2 for the current
+    recommended stable build.
+  - v1.1.2 improves meeting transcription quality and finalization, persists
+    speaker selection and active profile state, adds reset-to-defaults, and
+    fixes microphone test recording/playback with longer 30s/45s/60s capture.
   - Resolution changes are saved safely and apply after you stop and start the
     app again. This avoids camera hangs during live switching.
 

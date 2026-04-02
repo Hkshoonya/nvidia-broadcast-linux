@@ -42,6 +42,16 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.2 — Priority Stability Update
+
+- **Meeting Transcript Quality** — Better chunk cleanup and a stronger final full-audio pass improve saved transcripts and notes
+- **No End-Meeting Freeze** — Meeting transcript, notes, and summary finalization now run off the UI thread
+- **Persistent Speaker + Profile State** — Speaker selection and the active profile now restore correctly after restart
+- **Reset to Defaults** — One-click recovery back to a known-good baseline
+- **Mic Test Fixed** — Recording and playback are more reliable, with `30s`, `45s`, and `60s` capture options plus early stop
+
+> If you are still on `v1.1.0` or `v1.1.1`, update to `v1.1.2`. It is the recommended stable patch for meeting quality, persistence, and audio test reliability.
+
 ### v1.1.1 — Stability Patch
 
 - **Virtual Camera Stability** — Safer Linux `v4l2loopback` sink startup and retry handling
@@ -50,7 +60,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Meeting Transcription Reliability** — Faster startup, shorter chunking, and cleaner saved meeting audio
 - **Resolution Change Safety** — Resolution changes are saved safely and applied after restart instead of hanging the stream
 
-> If you are still on `v1.1.0`, update to `v1.1.1`. It is the recommended stable patch for better virtual-camera behavior, lower lag, and cleaner live compositing.
+> If you are still on `v1.1.0`, update to `v1.1.1`. It improved virtual-camera behavior, lower lag, and cleaner live compositing.
 
 ### v1.1.0 — Meeting Assistant Update
 
@@ -69,7 +79,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Microphone Selection** — Full PipeWire/PulseAudio device enumeration
 - **Speaker Detection** — All output devices via PipeWire
 - **Audio Level Monitor** — Real-time VU meter with peak hold
-- **Mic Test** — Record 5s and play back to test your setup
+- **Mic Test** — Record 30s / 45s / 60s and play back to test your setup
 - **Meeting Mode** — Combined video+audio recording with live transcription and AI summary
 - **Recording Fix** — MP4 now includes audio track (NVENC video + AAC audio)
 - **Voice FX GPU Acceleration** — CuPy CUDA for warmth/gate/gain, scipy for filters (2.8ms/chunk)
@@ -159,7 +169,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Microphone Selection** — Full PipeWire/PulseAudio device enumeration
 - **Speaker Detection** — All output devices via PipeWire
 - **Audio Level Monitor** — Real-time VU meter with peak hold
-- **Mic Test** — Record 5s and play back to test your setup
+- **Mic Test** — Record 30s / 45s / 60s and play back to test your setup
 - **AI Meeting Transcription** — Local Whisper speech-to-text (GPU-accelerated)
 - **AI Meeting Summarizer** — Action items, questions, key points (fully local)
 - **Meeting Mode** — Video+audio recording with live transcription and AI summary
@@ -514,7 +524,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.1)
+│   ├── __init__.py              # Package version (1.1.2)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -547,7 +557,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.1)
+├── pyproject.toml               # Package config (v1.1.2)
 └── README.md
 ```
 

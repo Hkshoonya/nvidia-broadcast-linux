@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.1
+Version:        1.1.2
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -140,6 +140,12 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Thu Apr 02 2026 doczeus <harshit@kshoonya.com> - 1.1.2-1
+- Priority stability update for meeting transcription and settings persistence
+- Improve final transcript quality and move meeting finalization off the UI thread
+- Persist speaker selection and active profile state with reset-to-defaults support
+- Fix microphone test record/playback reliability and extend test durations to 30s/45s/60s
+
 * Fri Mar 28 2026 doczeus <harshit@kshoonya.com> - 1.1.1-1
 - Stabilize the virtual camera sink path on Linux loopback devices
 - Reduce live face-effect latency with shared landmark reuse and ROI relighting

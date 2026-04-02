@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 
 LATEST_RELEASE_URL = "https://api.github.com/repos/Hkshoonya/nvidia-broadcast-linux/releases/latest"
-DEFAULT_CHECK_INTERVAL_SECONDS = 12 * 60 * 60
+DEFAULT_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
 
 
 @dataclass

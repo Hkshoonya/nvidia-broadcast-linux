@@ -359,7 +359,7 @@ class NVBroadcastApp(Adw.Application):
             return False
         self._window.set_update_available(version, url)
         if announce:
-            self._window.set_status(f"Update available: v{version}")
+            self._window.set_status(f"Recommended stable update: v{version}")
         return False
 
     def _auto_start(self):
