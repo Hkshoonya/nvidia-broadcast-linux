@@ -1,21 +1,22 @@
 name: nvbroadcast
 base: core24
-version: '1.1.2'
-summary: Priority stability update for AI camera, audio, and meeting tools
+version: '1.1.3'
+summary: Meeting-first live quality update with adaptive tuning and better audio routing
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  Priority update:
-  - If you are still on v1.1.0 or v1.1.1, refresh to v1.1.2 for the current
-    recommended stable build.
-  - v1.1.2 improves meeting transcription quality and finalization, persists
-    speaker selection and active profile state, adds reset-to-defaults, and
-    fixes microphone test recording/playback with longer 30s/45s/60s capture.
-  - Resolution changes are saved safely and apply after you stop and start the
-    app again. This avoids camera hangs during live switching.
+  Recommended stable update:
+  - v1.1.3 reduces visible live delay by keeping the newest video frames
+    instead of letting stale frames build up under load.
+  - Auto - Adaptive now persists properly, warns on very weak devices, and can
+    recommend lighter capture settings when real-time performance collapses.
+  - Relighting is now fill-light biased, eye contact is safer for meetings, and
+    the processed microphone is exposed as "nvbroadcast" for meeting apps.
+  - Speaker denoise now honors the selected output device instead of relying on
+    whichever sink autoaudiosink guessed at runtime.
 
   Core features:
   - Blur your background
@@ -91,6 +92,8 @@ parts:
       - gstreamer1.0-plugins-base
       - gstreamer1.0-plugins-good
       - gstreamer1.0-plugins-bad
+      - pipewire-bin
+      - pulseaudio-utils
       - v4l-utils
       - libayatana-appindicator3-1
       - gir1.2-ayatanaappindicator3-0.1

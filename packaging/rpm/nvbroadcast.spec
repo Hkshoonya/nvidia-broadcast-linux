@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.2
+Version:        1.1.3
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -17,6 +17,8 @@ Requires:       libadwaita
 Requires:       gstreamer1-plugins-base
 Requires:       gstreamer1-plugins-good
 Requires:       gstreamer1-plugins-bad-free
+Requires:       pipewire-utils
+Requires:       pulseaudio-utils
 Requires:       v4l-utils
 Requires:       psmisc
 
@@ -140,6 +142,14 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Fri Apr 17 2026 doczeus <harshit@kshoonya.com> - 1.1.3-1
+- Improve live meeting quality with adaptive mode and safer low-FPS fallback
+- Reduce perceived lip-sync lag by preferring fresh frames over stale buffered video
+- Make relighting fill-light biased and soften eye contact defaults for live calls
+- Persist voice FX, output format, and adaptive capture settings across restart
+- Export the processed meeting mic as nvbroadcast and honor the selected speaker for denoise
+- Improve update surfacing and package metadata for GitHub releases, macOS pkg, and Snap users
+
 * Thu Apr 02 2026 doczeus <harshit@kshoonya.com> - 1.1.2-1
 - Priority stability update for meeting transcription and settings persistence
 - Improve final transcript quality and move meeting finalization off the UI thread

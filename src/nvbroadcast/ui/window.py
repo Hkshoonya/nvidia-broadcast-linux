@@ -184,10 +184,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         header.pack_end(about_btn)
 
         self._update_url = ""
-        self._update_btn = Gtk.Button(label="Priority Update")
+        self._update_btn = Gtk.Button(label="Update Available")
         self._update_btn.add_css_class("suggested-action")
         self._update_btn.set_visible(False)
-        self._update_btn.set_tooltip_text("Open the latest release download page")
+        self._update_btn.set_tooltip_text("Open the recommended upgrade target")
         self._update_btn.connect("clicked", self._open_update_release)
         header.pack_end(self._update_btn)
 
@@ -1862,10 +1862,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             return
         Gio.AppInfo.launch_default_for_uri(self._update_url, None)
 
-    def set_update_available(self, version: str, url: str):
+    def set_update_available(self, version: str, label: str, tooltip: str, url: str):
         self._update_url = url
-        self._update_btn.set_label(f"Priority Update v{version}")
-        self._update_btn.set_tooltip_text(f"Open recommended stable release v{version}")
+        if version and version not in label:
+            self._update_btn.set_label(f"{label} v{version}")
+        else:
+            self._update_btn.set_label(label)
+        self._update_btn.set_tooltip_text(tooltip)
         self._update_btn.set_visible(True)
 
     def rebuild_mode_selector(self, compositing: str, profile: str):

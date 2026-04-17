@@ -42,6 +42,17 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.3 — Meeting-First Live Quality Update
+
+- **Lower Visible Delay** — Live video now prefers the newest frames instead of letting stale buffers build up, which reduces the odd “lips move late” effect in meetings
+- **Auto - Adaptive Mode** — Hardware-aware tuning now persists across restart, warns on very weak devices, and can recommend lighter capture modes when real-time FPS collapses
+- **Better Live Face Effects** — Face relighting is now fill-light biased instead of darkening the face, and eye contact is more conservative so it distorts less
+- **Meeting-Selectable Mic** — The processed mic is exported as `nvbroadcast`, so Zoom, Meet, Teams, OBS, and similar apps can select it directly
+- **Correct Speaker Routing** — Speaker denoise now honors the selected output device instead of whichever sink the system guessed
+- **Release + Update Flow** — The app now surfaces platform-aware upgrade targets for GitHub releases, macOS `.pkg` downloads, and Snap installs
+
+> If you are still on `v1.1.2` or older, update to `v1.1.3`. This is the recommended stable build for live meetings, adaptive tuning, and corrected audio routing.
+
 ### v1.1.2 — Priority Stability Update
 
 - **Meeting Transcript Quality** — Better chunk cleanup and a stronger final full-audio pass improve saved transcripts and notes
@@ -87,7 +98,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 ### v0.3.0
 
 - **Eye Contact Correction** — MediaPipe iris tracking redirects your gaze to look at camera
-- **Face Relighting** — Matches face brightness and warmth to background
+- **Face Relighting** — Fill light guided by the scene
 - **Recording Mode** — NVENC hardware encode to MP4 (x264 fallback on non-NVIDIA)
 - **Performance Overlay** — Real-time FPS, GPU usage, VRAM, temperature monitoring
 - **User Profiles** — 5 built-in (Meeting, Streaming, Presentation, Gaming, Clean) + custom save/load
@@ -151,7 +162,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Auto Frame** — Face tracking with smooth zoom/pan
 - **Video Enhancement** — Skin smooth, enhance, sharpen, denoise, vignette
 - **Eye Contact Correction** — MediaPipe iris tracking redirects gaze to camera
-- **Face Relighting** — Matches face brightness and warmth to background
+- **Face Relighting** — Fill light guided by the scene
 - **Recording to MP4** — NVENC hardware encode (x264 fallback)
 - **User Profiles** — 5 built-in (Meeting, Streaming, etc.) + custom save/load
 - **Performance Overlay** — Real-time FPS, GPU usage, VRAM, temperature
@@ -336,6 +347,7 @@ When Edge Refine is toggled ON (Zeus/Killer modes):
 - **Linux** with NVIDIA driver 525+ (Pop!_OS, Ubuntu, Fedora, Arch, openSUSE, etc.)
 - **Python** 3.11+
 - **PipeWire** (virtual microphone)
+- **PulseAudio utilities** (`pactl`) for speaker-monitor routing and device resolution
 - **GStreamer** 1.20+ with plugins-base, plugins-good, plugins-bad
 - **GTK4** and **Libadwaita**
 - **v4l2loopback** kernel module
@@ -364,6 +376,14 @@ cd nvidia-broadcast-linux
 Requires macOS 12+, Homebrew, Python 3.11+. Installs GStreamer, GTK4 via Homebrew.
 CPU modes with CoreML acceleration on Apple Silicon. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
 
+### Linux — Snap Package
+
+```bash
+sudo snap install nvbroadcast
+```
+
+Snap users typically receive background refreshes from `snapd`. When the app sees a newer stable release, the in-app update button opens the Snap Store listing so the user can move directly into the store-managed upgrade path.
+
 ### Linux Installer Details
 
 The installer:
@@ -374,6 +394,12 @@ The installer:
 5. **Sets up virtual camera**, launcher scripts, desktop entry, systemd service
 6. **Verifies GPU acceleration** and writes initial config
 7. **Lets optional runtimes install later** inside the app without blocking the rest of the UI
+
+### Update Behavior
+
+- **Git checkout / manual Linux packages** — the app checks GitHub Releases and opens the matching release download page when a newer stable build is available
+- **macOS package installs** — the app prefers the latest `.pkg` release asset when one is published
+- **Snap installs** — the app opens the Snap Store listing; stable refreshes are normally handled by `snapd`
 
 ### Optional: TensorRT (for Zeus/Killer modes)
 
@@ -403,7 +429,7 @@ sudo apt install -y \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
     v4l-utils v4l2loopback-dkms \
-    pipewire-bin
+    pipewire-bin pulseaudio-utils
 
 # 2. Python venv
 python3 -m venv .venv --system-site-packages
@@ -524,7 +550,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.2)
+│   ├── __init__.py              # Package version (1.1.3)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -557,7 +583,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.2)
+├── pyproject.toml               # Package config (v1.1.3)
 └── README.md
 ```
 
@@ -590,6 +616,17 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 - [ ] NVIDIA Maxine SDK integration
 - [ ] Flatpak packaging
 - [x] Snap packaging
+
+## Future Upgrades
+
+- **Meeting lip-sync compensation** — explicit audio/video delay calibration so heavy live video stacks still land naturally in calls
+- **Per-device auto benchmark** — benchmark each camera mode and effect stack once, then pin the best stable settings for that machine
+- **Speaker diarization** — separate “me” vs “remote speaker” in live meeting transcripts and saved notes
+- **Local live captions** — optional on-screen captions and confidence-aware subtitle output for streams and calls
+- **Multi-person framing** — presenter mode for interviews, podcasts, and side-by-side calls
+- **AI meeting memory** — on-device semantic search across prior meetings, summaries, action items, and decisions
+- **Scene-aware relighting** — stronger face light that reacts to background direction, exposure, and skin tone without flattening the face
+- **Quality advisor** — explain exactly which effect, resolution, or backend is costing FPS on the current hardware
 
 ---
 

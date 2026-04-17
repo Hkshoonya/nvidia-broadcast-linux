@@ -64,6 +64,7 @@ nvidia-cuda-nvrtc-cu12
 #
 # Audio:
 #   pipewire-bin or pipewire-utils   — Virtual microphone (pw-loopback)
+#   pulseaudio-utils                 — Provides pactl for speaker routing
 #
 # System Tray:
 #   gir1.2-ayatanaappindicator3-0.1 — Tray icon (apt)

@@ -26,6 +26,7 @@ from nvbroadcast.core.config import load_config, save_config
 from nvbroadcast.core.updates import (
     fetch_latest_release,
     is_newer_version,
+    resolve_update_target,
     should_check_for_updates,
 )
 from nvbroadcast.video.pipeline import VideoPipeline
@@ -392,19 +393,35 @@ class NVBroadcastApp(Adw.Application):
             self.config.last_update_check = int(time.time())
             if release and is_newer_version(release.version, __version__):
                 self._update_release = release
+                target = resolve_update_target(release)
                 if self.config.last_notified_version != release.version:
                     self.config.last_notified_version = release.version
-                    GLib.idle_add(self._show_update_available, release.version, release.html_url, True)
+                    GLib.idle_add(
+                        self._show_update_available,
+                        release.version,
+                        target.button_label,
+                        target.tooltip,
+                        target.url,
+                        True,
+                    )
                 else:
-                    GLib.idle_add(self._show_update_available, release.version, release.html_url, False)
+                    GLib.idle_add(
+                        self._show_update_available,
+                        release.version,
+                        target.button_label,
+                        target.tooltip,
+                        target.url,
+                        False,
+                    )
             save_config(self.config)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _show_update_available(self, version: str, url: str, announce: bool):
+    def _show_update_available(self, version: str, label: str, tooltip: str, url: str,
+                               announce: bool):
         if self._window is None:
             return False
-        self._window.set_update_available(version, url)
+        self._window.set_update_available(version, label, tooltip, url)
         if announce:
             self._window.set_status(f"Recommended stable update: v{version}")
         return False

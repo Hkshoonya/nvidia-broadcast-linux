@@ -72,6 +72,7 @@ get_packages() {
             PKGS_PYTHON="python3-gi python3-gi-cairo"
             PKGS_TRAY="gir1.2-ayatanaappindicator3-0.1"
             PKGS_TOOLS="psmisc"  # provides fuser (camera power save)
+            PKGS_PULSE="pulseaudio-utils"  # provides pactl for speaker routing
             # PipeWire: pipewire-bin (Ubuntu 24.04+) or pipewire-utils (older/Debian)
             if apt-cache show pipewire-bin &>/dev/null 2>&1; then
                 PKGS_PIPEWIRE="pipewire-bin"
@@ -91,6 +92,7 @@ get_packages() {
             PKGS_PYTHON="python3-gobject python3-gobject-cairo"
             PKGS_TRAY="libayatana-appindicator-gtk3"
             PKGS_TOOLS="psmisc"
+            PKGS_PULSE="pulseaudio-utils"
             PKGS_PIPEWIRE="pipewire-utils"
             PKGS_VENV=""  # Included in python3 on Fedora
             ;;
@@ -102,6 +104,7 @@ get_packages() {
             PKGS_PYTHON="python-gobject"
             PKGS_TRAY="libayatana-appindicator"
             PKGS_TOOLS="psmisc"
+            PKGS_PULSE="libpulse"
             PKGS_PIPEWIRE="pipewire"
             PKGS_VENV=""  # Included in python on Arch
             ;;
@@ -113,6 +116,7 @@ get_packages() {
             PKGS_PYTHON="python3-gobject python3-gobject-cairo"
             PKGS_TRAY="typelib-1_0-AyatanaAppIndicator3-0_1"
             PKGS_TOOLS="psmisc"
+            PKGS_PULSE="pulseaudio-utils"
             PKGS_PIPEWIRE="pipewire-tools"
             PKGS_VENV=""
             ;;
@@ -124,6 +128,7 @@ get_packages() {
             PKGS_PYTHON=""
             PKGS_TRAY=""
             PKGS_TOOLS=""
+            PKGS_PULSE=""
             PKGS_PIPEWIRE=""
             PKGS_VENV=""
             ;;
@@ -272,7 +277,7 @@ echo "[1/7] Checking system packages..."
 
 get_packages
 
-ALL_PKGS="$PKGS_VIRTUAL_CAM $PKGS_GTK $PKGS_GST $PKGS_PYTHON $PKGS_TRAY $PKGS_TOOLS $PKGS_PIPEWIRE $PKGS_VENV"
+ALL_PKGS="$PKGS_VIRTUAL_CAM $PKGS_GTK $PKGS_GST $PKGS_PYTHON $PKGS_TRAY $PKGS_TOOLS $PKGS_PULSE $PKGS_PIPEWIRE $PKGS_VENV"
 
 if [ "$PKG_MANAGER" = "unknown" ]; then
     echo ""

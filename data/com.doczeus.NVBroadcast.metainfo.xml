@@ -19,7 +19,7 @@
     <ul>
       <li>Background blur, replace, or remove with 3 AI models</li>
       <li>Eye contact correction — look at camera while reading your screen</li>
-      <li>Face relighting — auto-match face lighting to background</li>
+      <li>Face relighting — fill light guided by the scene</li>
       <li>Voice studio — bass, treble, warmth, compression with GPU acceleration</li>
       <li>AI meeting transcription — local Whisper, no cloud</li>
       <li>AI meeting summarizer — action items, questions, key points</li>
@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.3" date="2026-04-17">
+      <description>
+        <p>Meeting-first live quality and packaging update</p>
+        <ul>
+          <li>Reduced visible live delay by preferring fresh video frames and dropping stale buffers under load</li>
+          <li>Added persistent Auto - Adaptive tuning with weak-device warnings and capture-mode recommendations</li>
+          <li>Made face relighting brighten-biased and softened eye-contact behavior for more natural live meetings</li>
+          <li>Exposed the processed microphone as nvbroadcast and fixed speaker denoise to honor the selected output device</li>
+          <li>Improved update surfacing for GitHub releases, Snap installs, and macOS package downloads</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.2" date="2026-04-02">
       <description>
         <p>Priority stability and meeting-quality update</p>

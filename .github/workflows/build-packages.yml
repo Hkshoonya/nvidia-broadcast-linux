@@ -77,6 +77,12 @@ jobs:
       - name: Install Python deps
         run: pip install numpy opencv-python-headless onnxruntime mediapipe pyvirtualcam
 
+      - name: Run macOS-safe unit tests
+        run: |
+          PYTHONPATH=src python3 -m unittest -v \
+            tests.test_updates \
+            tests.test_arch_support
+
       - name: Test platform detection
         run: |
           PYTHONPATH=src python3 -c "

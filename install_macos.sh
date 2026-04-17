@@ -109,15 +109,8 @@ pip install --upgrade pip setuptools wheel -q
 echo ""
 echo -e "${GREEN}[4/7]${NC} Installing Python dependencies..."
 
-pip install -q \
-    numpy \
-    opencv-python-headless \
-    onnxruntime \
-    mediapipe \
-    requests \
-    pyvirtualcam \
-    openai-whisper \
-    scipy
+pip install -q "$INSTALL_DIR"
+pip install -q openai-whisper
 
 # Try CoreML support for Apple Silicon
 if [[ "$(uname -m)" == "arm64" ]]; then

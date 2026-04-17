@@ -62,7 +62,7 @@ Package: nvbroadcast
 Version: ${VERSION}-${REV}
 Architecture: all
 Maintainer: doczeus <harshit@kshoonya.com>
-Depends: python3 (>= 3.11), python3-venv, python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, v4l-utils, v4l2loopback-dkms, psmisc
+Depends: python3 (>= 3.11), python3-venv, python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, v4l-utils, v4l2loopback-dkms, psmisc, pipewire-bin | pipewire-utils, pulseaudio-utils
 Recommends: gir1.2-ayatanaappindicator3-0.1
 Homepage: https://github.com/Hkshoonya/nvidia-broadcast-linux
 Description: NV Broadcast - Unofficial NVIDIA Broadcast for Linux
@@ -261,7 +261,8 @@ fi
 $PYTHON -m venv "$INSTALL_DIR/.venv" --system-site-packages 2>/dev/null || true
 source "$INSTALL_DIR/.venv/bin/activate"
 pip install --upgrade pip -q 2>/dev/null || true
-pip install -q numpy opencv-python-headless onnxruntime mediapipe requests pyvirtualcam 2>/dev/null || true
+pip install -q "$INSTALL_DIR" 2>/dev/null || true
+pip install -q openai-whisper 2>/dev/null || true
 
 # CoreML for Apple Silicon
 if [ "$(uname -m)" = "arm64" ]; then
