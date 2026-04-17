@@ -1253,15 +1253,17 @@ class VideoEffects:
             global_motion = diff.mean()
             motion_gate = np.clip(1.0 - global_motion * 18.0, 0.2, 1.0)
 
-            weight = np.full_like(alpha, 0.10 * motion_gate, dtype=np.float32)
+            # Keep replace-mode stabilization lighter than blur/remove so
+            # narrow hair gaps and under-arm openings can reopen quickly.
+            weight = np.full_like(alpha, 0.07 * motion_gate, dtype=np.float32)
             edge_mask = (alpha > 0.02) & (alpha < 0.98)
             fringe_mask = (alpha > 0.02) & (alpha < 0.35)
-            weight[edge_mask] = 0.22 * motion_gate
-            weight[fringe_mask] = 0.32 * motion_gate
+            weight[edge_mask] = 0.15 * motion_gate
+            weight[fringe_mask] = 0.21 * motion_gate
 
             dropping = alpha < prev - 0.04
-            weight[dropping] *= 0.35
-            np.clip(weight, 0.0, 0.45, out=weight)
+            weight[dropping] *= 0.18
+            np.clip(weight, 0.0, 0.30, out=weight)
 
             stable = weight * prev + (1.0 - weight) * alpha
 
@@ -1272,17 +1274,17 @@ class VideoEffects:
         matte_u8 = np.clip(matte * 255.0, 0, 255).astype(np.uint8)
         preserve_holes = self._preserve_large_internal_holes(
             matte_u8,
-            binary_threshold=82,
-            min_area_ratio=0.00018,
-            min_span_ratio=0.045,
+            binary_threshold=74,
+            min_area_ratio=0.00010,
+            min_span_ratio=0.030,
         )
         matte_u8 = self._fill_small_internal_holes(
             matte_u8,
-            binary_threshold=76,
-            fill_cutoff=70,
-            fill_value=205,
-            max_area_ratio=0.00015,
-            max_span_ratio=0.035,
+            binary_threshold=78,
+            fill_cutoff=58,
+            fill_value=184,
+            max_area_ratio=0.00008,
+            max_span_ratio=0.024,
         )
 
         if min(matte_u8.shape[:2]) >= 8:
@@ -1292,7 +1294,7 @@ class VideoEffects:
         mid = (matte > 0.04) & (matte < 0.55)
         matte[mid] = np.clip((matte[mid] - 0.05) / 0.95, 0.0, 1.0)
         fringe = (matte > 0.0) & (matte < 0.22)
-        matte[fringe] *= 0.58
+        matte[fringe] *= 0.72
         solid = stable > 0.86
         matte[solid] = np.maximum(matte[solid], 0.995)
         if preserve_holes.any():
@@ -1337,12 +1339,18 @@ class VideoEffects:
         logits = np.log(clipped / (1.0 - clipped))
         sharpened = 1.0 / (1.0 + np.exp(-(logits * (1.0 + 1.75 * focus))))
 
-        blend = np.clip(focus * 0.85, 0.0, 0.85)
+        blend = np.clip(focus * 0.80, 0.0, 0.80)
         result = matte * (1.0 - blend) + sharpened * blend
 
-        weak_edge_fringe = (result > 0.0) & (result < 0.16) & (edge_strength < 0.18)
-        result[weak_edge_fringe] *= 0.65
-        result[result < 0.10] = 0.0
+        supported_fine_fringe = (matte > 0.05) & (matte < 0.18) & (edge_strength >= 0.10)
+        result[supported_fine_fringe] = np.maximum(
+            result[supported_fine_fringe],
+            matte[supported_fine_fringe] * 0.78,
+        )
+
+        weak_edge_fringe = (result > 0.0) & (result < 0.12) & (edge_strength < 0.12)
+        result[weak_edge_fringe] *= 0.82
+        result[(result < 0.06) & (edge_strength < 0.10)] = 0.0
         result[result > 0.985] = 1.0
         return result.astype(np.float32)
 
@@ -1532,9 +1540,9 @@ class VideoEffects:
         if is_replace:
             preserve_holes = self._preserve_large_internal_holes(
                 a8,
-                binary_threshold=78,
-                min_area_ratio=0.00022,
-                min_span_ratio=0.05,
+                binary_threshold=70,
+                min_area_ratio=0.00012,
+                min_span_ratio=0.032,
             )
 
         # 1. Small close: fill tiny holes in hair/fine detail
@@ -1548,7 +1556,7 @@ class VideoEffects:
         #    more forgiving where wide feathering hides seams.
         h, w = a8.shape[:2]
         small = cv2.resize(a8, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
-        close_size = 5 if is_replace else 25
+        close_size = 3 if is_replace else 25
         close_lg = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (close_size, close_size)
         )
@@ -1557,16 +1565,16 @@ class VideoEffects:
 
         # 3. Fill interior holes. Replacement mode is intentionally more
         #    conservative so we do not inflate the subject outline.
-        threshold = 70 if is_replace else 30
-        fill_cutoff = 55 if is_replace else 100
-        fill_value = 180 if is_replace else 220
+        threshold = 72 if is_replace else 30
+        fill_cutoff = 46 if is_replace else 100
+        fill_value = 160 if is_replace else 220
         a8 = self._fill_small_internal_holes(
             a8,
             binary_threshold=threshold,
             fill_cutoff=fill_cutoff,
             fill_value=fill_value,
-            max_area_ratio=0.00018 if is_replace else 0.0007,
-            max_span_ratio=0.038 if is_replace else 0.07,
+            max_area_ratio=0.00009 if is_replace else 0.0007,
+            max_span_ratio=0.026 if is_replace else 0.07,
         )
 
         if is_replace:

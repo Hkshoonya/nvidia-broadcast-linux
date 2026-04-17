@@ -80,6 +80,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._install_pulse_id = 0
         self._pending_mode_key = ""
         self._pending_meeting_start = False
+        self._shown_advisories: set[str] = set()
         self._build_ui()
         self._populate_devices()
 
@@ -399,6 +400,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             {"name": "I420 — Firefox, Teams, WebRTC (most compatible)", "device": "I420"},
             {"name": "NV12 — OBS, VLC, GStreamer apps", "device": "NV12"},
         ])
+        self._format_selector.connect("device-changed", self._on_format_changed)
         input_card.append(self._format_selector)
 
         # Firefox compatibility toggle (only shown if Firefox is installed)
@@ -593,7 +595,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         )
         self._eye_contact_toggle.connect("toggled", self._on_eye_contact_toggled)
         ec_card.append(self._eye_contact_toggle)
-        self._eye_contact_slider = EffectSlider("Intensity", 0.7, 0.0, 1.0)
+        self._eye_contact_slider = EffectSlider("Intensity", 0.35, 0.0, 1.0)
         self._eye_contact_slider.set_sensitive(False)
         self._eye_contact_slider.connect("value-changed", self._on_eye_contact_intensity)
         ec_card.append(self._eye_contact_slider)
@@ -602,11 +604,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Face Relighting card
         rl_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._relighting_toggle = EffectToggle(
-            "Face Relighting", "Match face lighting to background"
+            "Face Relighting", "Fill light guided by the scene"
         )
         self._relighting_toggle.connect("toggled", self._on_relighting_toggled)
         rl_card.append(self._relighting_toggle)
-        self._relighting_slider = EffectSlider("Intensity", 0.5, 0.0, 1.0)
+        self._relighting_slider = EffectSlider("Intensity", 0.6, 0.0, 1.0)
         self._relighting_slider.set_sensitive(False)
         self._relighting_slider.connect("value-changed", self._on_relighting_intensity)
         rl_card.append(self._relighting_slider)
@@ -937,6 +939,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     @staticmethod
     def _mode_status_message(mode_key: str) -> str:
         messages = {
+            "auto": "Auto: adapt to the current device and step down when live FPS stays low",
             "doczeus": "DocZeus: best GPU quality for background replacement",
             "cuda_max": "CUDA High Quality: strong quality without fused compositing",
             "cuda_balanced": "CUDA Balanced: good quality with lighter GPU load",
@@ -956,6 +959,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         has_cuda = backends.get("cupy", False)
         has_trt = has_tensorrt_runtime()
         devices: list[dict[str, str]] = []
+        devices.append({"name": "Auto - Adaptive", "device": "auto"})
         for mode_key, label in [
             ("doczeus", "DocZeus - Best Quality GPU"),
             ("cuda_max", "CUDA - High Quality"),
@@ -986,6 +990,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         return devices
 
     def _sync_mode_selector(self):
+        if self._app.config.auto_mode:
+            for i, d in enumerate(self._mode_devices):
+                if d["device"] == "auto":
+                    self._profile_selector.set_selected_index(i)
+                    return
         mode_key = self._app.config.mode_key or self._profile_and_comp_to_mode(
             self._app.config.performance_profile,
             self._app.config.compositing,
@@ -997,6 +1006,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_mode_changed_selector(self, selector, mode_key):
         if getattr(self._app, '_restoring', False):
+            return
+        if mode_key == "auto":
+            self._app.set_auto_mode_enabled(True)
+            msg = self._mode_status_message(mode_key)
+            if msg:
+                self.set_status(msg)
             return
         unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
         if unsupported:
@@ -1018,23 +1033,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 ),
             )
             return
+        self._app.set_auto_mode_enabled(False)
         if mode_key in self._MODE_MAP:
-            profile, comp, trt, fused, nvdec = self._MODE_MAP[mode_key]
-            self._app.set_performance_profile(
-                profile, compositing=comp,
-                use_tensorrt=trt, use_fused_kernel=fused, use_nvdec=nvdec,
-                mode_key=mode_key,
-            )
-            msg = self._mode_status_message(mode_key)
-            if msg:
-                self.set_status(msg)
-            # Show edge refine toggle only for premium speed modes
-            is_premium = mode_key in ("killer", "zeus")
-            self._edge_refine_toggle.set_visible(is_premium)
-            self._edge_refine_toggle.set_sensitive(is_premium)
-            desired = is_premium and self._app.config.premium_edge_refine
-            if self._edge_refine_toggle.active != desired:
-                self._edge_refine_toggle.active = desired
+            self._app.apply_mode_key(mode_key)
 
     def _on_gpu_changed(self, selector, gpu_str):
         self._app.set_compute_gpu(int(gpu_str))
@@ -1072,6 +1073,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if self._updating_ui:
             return
         self._app.set_fps(int(fps_str))
+
+    def _on_format_changed(self, selector, fmt):
+        if self._updating_ui:
+            return
+        self._app.set_output_format(fmt)
 
     def _on_model_changed(self, selector, model):
         self._app.set_model(model)
@@ -1322,8 +1328,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     # --- Voice Effects ---
     def _on_vfx_toggled(self, t, active):
-        if self._app._audio_pipeline:
-            self._app._audio_pipeline.voice_fx.enabled = active
+        self._app.set_voice_fx_enabled(active)
         self._vfx_preset.set_sensitive(active)
         self._vfx_gpu_toggle.set_sensitive(active)
         for slider in self._vfx_sliders.values():
@@ -1333,19 +1338,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         from nvbroadcast.audio.voice_fx import VOICE_PRESETS
         if preset_name in VOICE_PRESETS:
             preset = VOICE_PRESETS[preset_name]
-            if self._app._audio_pipeline:
-                self._app._audio_pipeline.voice_fx.settings = preset
+            self._app.set_voice_fx_preset(preset_name)
             # Update sliders
             for key, slider in self._vfx_sliders.items():
                 slider._scale.set_value(getattr(preset, key, 0.0))
 
     def _on_vfx_gpu_toggled(self, t, active):
-        if self._app._audio_pipeline:
-            self._app._audio_pipeline.voice_fx.use_gpu = active
+        self._app.set_voice_fx_use_gpu(active)
 
     def _on_vfx_slider(self, slider, value, key):
-        if self._app._audio_pipeline:
-            setattr(self._app._audio_pipeline.voice_fx.settings, key, value)
+        self._app.set_voice_fx_param(key, value)
 
     # --- Mic Test ---
     def _on_test_duration_changed(self, selector, duration):
@@ -1453,10 +1455,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     # --- Profiles ---
     def _on_profile_selected(self, btn, name, popover):
         from nvbroadcast.core.config import apply_builtin_profile, save_config
-        apply_builtin_profile(self._app.config, name)
+        if not apply_builtin_profile(self._app.config, name):
+            return
         self._app.config.current_profile = name
         save_config(self._app.config)
-        self._apply_config_to_ui(self._app.config)
+        self._app.restore_current_config()
         self._profile_btn.set_label(f"Profile: {name}")
         popover.popdown()
         self.set_status(f"Switched to {name} profile")
@@ -1467,8 +1470,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if loaded:
             self._app.config = loaded
             self._app.config.current_profile = name
-            save_config(loaded)
-            self._apply_config_to_ui(loaded)
+            save_config(self._app.config)
+            self._app.restore_current_config()
+            if loaded.auto_mode:
+                self._app.set_auto_mode_enabled(True)
             self._profile_btn.set_label(f"Profile: {name}")
             popover.popdown()
             self.set_status(f"Switched to {name} profile")
@@ -1508,8 +1513,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         reset.current_profile = "Default"
         self._app.config = reset
         save_config(reset)
-        self._apply_config_to_ui(reset)
-        self.restore_settings(reset)
+        self._app.restore_current_config()
+        if reset.auto_mode:
+            self._app.set_auto_mode_enabled(True)
         self._profile_btn.set_label("Profile: Default")
         popover.popdown()
         self.set_status("Settings reset to defaults")
@@ -1563,6 +1569,25 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._noise_slider.set_sensitive(a.noise_removal)
         self._noise_slider._scale.set_value(a.noise_intensity)
         self._speaker_toggle.active = a.speaker_denoise
+        self._vfx_toggle.active = a.voice_fx_enabled
+        self._vfx_preset.set_sensitive(a.voice_fx_enabled)
+        self._vfx_gpu_toggle.active = a.voice_fx_use_gpu
+        self._vfx_gpu_toggle.set_sensitive(a.voice_fx_enabled)
+        for i, preset in enumerate(getattr(self._vfx_preset, "_devices", [])):
+            if preset["device"] == a.voice_fx_preset:
+                self._vfx_preset.set_selected_index(i)
+                break
+        voice_values = {
+            "bass_boost": a.voice_fx_bass_boost,
+            "treble": a.voice_fx_treble,
+            "warmth": a.voice_fx_warmth,
+            "compression": a.voice_fx_compression,
+            "gate_threshold": a.voice_fx_gate_threshold,
+            "gain": a.voice_fx_gain,
+        }
+        for key, slider in self._vfx_sliders.items():
+            slider.set_sensitive(a.voice_fx_enabled)
+            slider._scale.set_value(voice_values.get(key, 0.0))
         if a.mic_device:
             for i, mic in enumerate(getattr(self._mic_selector, "_devices", [])):
                 if mic["device"] == a.mic_device:
@@ -1610,9 +1635,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         """Restore saved settings to all UI controls."""
         v = config.video
         a = config.audio
-        mode_key = config.mode_key or self._profile_and_comp_to_mode(
-            config.performance_profile, config.compositing
+        mode_key = "auto" if config.auto_mode else (
+            config.mode_key or self._profile_and_comp_to_mode(
+                config.performance_profile, config.compositing
+            )
         )
+
+        self.sync_video_input_controls(config)
 
         # Model (0=rvm, 1=isnet, 2=birefnet)
         model_map = {"rvm": 0, "isnet": 1, "birefnet": 2}
@@ -1624,17 +1653,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if v.quality_preset in quality_map:
             self._quality_selector.set_selected_index(quality_map[v.quality_preset])
 
-        # Format (0=YUY2, 1=I420, 2=NV12)
-        fmt_map = {"YUY2": 0, "I420": 1, "NV12": 2}
-        if v.output_format in fmt_map:
-            self._format_selector.set_selected_index(fmt_map[v.output_format])
-
         for i, d in enumerate(self._mode_devices):
             if d["device"] == mode_key:
                 self._profile_selector.set_selected_index(i)
                 break
 
-        is_premium = mode_key in ("killer", "zeus")
+        resolved_mode = config.mode_key or self._profile_and_comp_to_mode(
+            config.performance_profile, config.compositing
+        )
+        is_premium = resolved_mode in ("killer", "zeus")
         self._edge_refine_toggle.set_visible(is_premium)
         self._edge_refine_toggle.set_sensitive(is_premium)
         desired = is_premium and config.premium_edge_refine
@@ -1688,6 +1715,25 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         if a.speaker_denoise:
             self._speaker_toggle.active = True
+        self._vfx_toggle.active = a.voice_fx_enabled
+        self._vfx_preset.set_sensitive(a.voice_fx_enabled)
+        self._vfx_gpu_toggle.active = a.voice_fx_use_gpu
+        self._vfx_gpu_toggle.set_sensitive(a.voice_fx_enabled)
+        for i, preset in enumerate(getattr(self._vfx_preset, "_devices", [])):
+            if preset["device"] == a.voice_fx_preset:
+                self._vfx_preset.set_selected_index(i)
+                break
+        voice_values = {
+            "bass_boost": a.voice_fx_bass_boost,
+            "treble": a.voice_fx_treble,
+            "warmth": a.voice_fx_warmth,
+            "compression": a.voice_fx_compression,
+            "gate_threshold": a.voice_fx_gate_threshold,
+            "gain": a.voice_fx_gain,
+        }
+        for key, slider in self._vfx_sliders.items():
+            slider.set_sensitive(a.voice_fx_enabled)
+            slider._scale.set_value(voice_values.get(key, 0.0))
         if a.speaker_device:
             for i, speaker in enumerate(getattr(self._speaker_selector, "_devices", [])):
                 if speaker["device"] == a.speaker_device:
@@ -1722,6 +1768,60 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Mirror
         self._mirror_toggle.active = v.mirror
         self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
+
+    def sync_video_input_controls(self, config):
+        """Sync camera, resolution, FPS, and format selectors from config."""
+        self._updating_ui = True
+        try:
+            camera_device = config.video.camera_device
+            for i, d in enumerate(getattr(self._camera_selector, "_devices", [])):
+                if d["device"] == camera_device:
+                    self._camera_selector.set_selected_index(i)
+                    break
+
+            self._camera_modes = list_camera_modes(camera_device)
+            res_devices = []
+            for mode in self._camera_modes:
+                w, h = mode["width"], mode["height"]
+                label = {
+                    (640, 360): "360p",
+                    (640, 480): "480p",
+                    (800, 600): "600p",
+                    (1024, 576): "576p",
+                    (960, 720): "720p 4:3",
+                    (1280, 720): "720p",
+                    (1280, 960): "960p",
+                    (1920, 1080): "1080p",
+                    (2560, 1440): "1440p",
+                    (3840, 2160): "4K",
+                }.get((w, h), f"{w}x{h}")
+                max_fps = max(mode["fps"]) if mode["fps"] else 30
+                res_devices.append({
+                    "name": f"{label} ({w}x{h}) {max_fps}fps",
+                    "device": f"{w}x{h}",
+                })
+            if not res_devices:
+                res_devices = [{"name": "1280x720", "device": "1280x720"}]
+            self._res_selector.set_devices(res_devices)
+
+            current_res = f"{config.video.width}x{config.video.height}"
+            for i, d in enumerate(res_devices):
+                if d["device"] == current_res:
+                    self._res_selector.set_selected_index(i)
+                    break
+
+            self._refresh_fps_options()
+            current_fps = str(config.video.fps)
+            for i, d in enumerate(getattr(self._fps_selector, "_devices", [])):
+                if d["device"] == current_fps:
+                    self._fps_selector.set_selected_index(i)
+                    break
+
+            fmt_map = {"YUY2": 0, "I420": 1, "NV12": 2}
+            if config.video.output_format in fmt_map:
+                self._format_selector.set_selected_index(fmt_map[config.video.output_format])
+        finally:
+            self._updating_ui = False
 
     def _show_about(self, button):
         # Load app icon from installed assets or source tree.
@@ -1800,6 +1900,21 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         installer.connect("job-started", self._on_install_job_started)
         installer.connect("job-progress", self._on_install_job_progress)
         installer.connect("job-completed", self._on_install_job_completed)
+
+    def show_advisory(self, key: str, title: str, reason: str):
+        if key in self._shown_advisories:
+            return
+        self._shown_advisories.add(key)
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK,
+            text=title,
+            secondary_text=reason,
+        )
+        dialog.connect("response", lambda d, *_: d.destroy())
+        dialog.present()
 
     def _prompt_dependency_install(self, install_key: str, title: str, reason: str):
         meta = self._app.dependency_installer.describe(install_key)

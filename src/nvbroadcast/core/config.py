@@ -50,9 +50,9 @@ class VideoConfig:
     auto_frame_zoom: float = 1.5
     mirror: bool = True
     eye_contact: bool = False
-    eye_contact_intensity: float = 0.7
+    eye_contact_intensity: float = 0.35
     relighting: bool = False
-    relighting_intensity: float = 0.5
+    relighting_intensity: float = 0.6
     edge: EdgeConfig = field(default_factory=EdgeConfig)
     beauty: BeautyConfig = field(default_factory=BeautyConfig)
 
@@ -64,6 +64,15 @@ class AudioConfig:
     noise_removal: bool = False
     noise_intensity: float = 1.0
     speaker_denoise: bool = False
+    voice_fx_enabled: bool = False
+    voice_fx_use_gpu: bool = True
+    voice_fx_preset: str = "Natural"
+    voice_fx_bass_boost: float = 0.0
+    voice_fx_treble: float = 0.0
+    voice_fx_warmth: float = 0.0
+    voice_fx_compression: float = 0.0
+    voice_fx_gate_threshold: float = 0.0
+    voice_fx_gain: float = 0.0
 
 
 # Performance profiles: control where the workload runs (CPU vs GPU)
@@ -141,6 +150,7 @@ class AppConfig:
     performance_profile: str = "balanced"  # max_quality, balanced, performance, potato
     compositing: str = "cpu"  # cpu, gstreamer_gl, cupy
     mode_key: str = ""  # killer, zeus, doczeus, cuda_max, etc.
+    auto_mode: bool = False
     premium_edge_refine: bool = True
     use_tensorrt: bool = False
     use_fused_kernel: bool = False
@@ -157,7 +167,7 @@ class AppConfig:
 
 
 def build_default_config(existing: AppConfig | None = None) -> AppConfig:
-    """Return a fresh default config while preserving app lifecycle flags."""
+    """Return a fresh default config while preserving app/runtime selections."""
     default = AppConfig()
     if existing is None:
         default.first_run = False
@@ -169,6 +179,7 @@ def build_default_config(existing: AppConfig | None = None) -> AppConfig:
     default.last_update_check = existing.last_update_check
     default.last_notified_version = existing.last_notified_version
     default.compute_gpu = existing.compute_gpu
+    default.auto_mode = existing.auto_mode
     return default
 
 
@@ -180,6 +191,7 @@ def _load_from_toml(filepath: Path) -> AppConfig:
     config = AppConfig()
     for k in ("compute_gpu", "performance_profile", "compositing",
               "mode_key", "premium_edge_refine",
+              "auto_mode",
               "use_tensorrt", "use_fused_kernel", "use_nvdec",
               "auto_start", "minimize_on_close", "check_for_updates",
               "last_update_check", "last_notified_version", "first_run",
@@ -231,6 +243,7 @@ def _config_to_toml(config: AppConfig) -> str:
         f'performance_profile = "{config.performance_profile}"',
         f'compositing = "{config.compositing}"',
         f'mode_key = "{config.mode_key}"',
+        f"auto_mode = {_bool(config.auto_mode)}",
         f"premium_edge_refine = {_bool(config.premium_edge_refine)}",
         f"use_tensorrt = {_bool(config.use_tensorrt)}",
         f"use_fused_kernel = {_bool(config.use_fused_kernel)}",
@@ -284,6 +297,15 @@ def _config_to_toml(config: AppConfig) -> str:
         f"noise_removal = {_bool(a.noise_removal)}",
         f"noise_intensity = {a.noise_intensity}",
         f"speaker_denoise = {_bool(a.speaker_denoise)}",
+        f"voice_fx_enabled = {_bool(a.voice_fx_enabled)}",
+        f"voice_fx_use_gpu = {_bool(a.voice_fx_use_gpu)}",
+        f'voice_fx_preset = "{a.voice_fx_preset}"',
+        f"voice_fx_bass_boost = {a.voice_fx_bass_boost}",
+        f"voice_fx_treble = {a.voice_fx_treble}",
+        f"voice_fx_warmth = {a.voice_fx_warmth}",
+        f"voice_fx_compression = {a.voice_fx_compression}",
+        f"voice_fx_gate_threshold = {a.voice_fx_gate_threshold}",
+        f"voice_fx_gain = {a.voice_fx_gain}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -344,9 +366,9 @@ def get_builtin_profiles() -> dict[str, dict]:
             "background_mode": "blur",
             "blur_intensity": 0.6,
             "eye_contact": True,
-            "eye_contact_intensity": 0.5,
+            "eye_contact_intensity": 0.35,
             "relighting": True,
-            "relighting_intensity": 0.4,
+            "relighting_intensity": 0.6,
             "beauty_enabled": True,
             "beauty_preset": "natural",
         },
@@ -357,7 +379,7 @@ def get_builtin_profiles() -> dict[str, dict]:
             "blur_intensity": 0.8,
             "eye_contact": False,
             "relighting": True,
-            "relighting_intensity": 0.6,
+            "relighting_intensity": 0.7,
             "beauty_enabled": True,
             "beauty_preset": "broadcast",
         },
@@ -367,7 +389,7 @@ def get_builtin_profiles() -> dict[str, dict]:
             "background_mode": "blur",
             "blur_intensity": 0.5,
             "eye_contact": True,
-            "eye_contact_intensity": 0.7,
+            "eye_contact_intensity": 0.3,
             "relighting": False,
             "beauty_enabled": False,
         },
@@ -423,7 +445,8 @@ def detect_system_capabilities() -> dict:
         "has_linux_arm64": False,
         "has_gl_compositor": False,
         "has_cupy": False,
-        "recommended_mode": "cpu_quality",
+        "recommended_mode": "auto",
+        "recommended_resolved_mode": "cpu_quality",
     }
 
     if IS_MACOS:
@@ -431,13 +454,13 @@ def detect_system_capabilities() -> dict:
         import platform as _pf
         caps["gpu_name"] = f"Apple {_pf.processor() or 'Silicon'}"
         caps["has_apple_silicon"] = _pf.machine() == "arm64"
-        caps["recommended_mode"] = "cpu_quality"
+        caps["recommended_resolved_mode"] = "cpu_quality"
         return caps
 
     if IS_LINUX and IS_ARM64:
         caps["has_linux_arm64"] = True
         caps["gpu_name"] = "Linux ARM64"
-        caps["recommended_mode"] = "cpu_quality"
+        caps["recommended_resolved_mode"] = "cpu_quality"
 
     # GPU detection (Linux — nvidia-smi)
     if supports_linux_gpu_stack():
@@ -478,19 +501,19 @@ def detect_system_capabilities() -> dict:
     # Auto-recommend based on hardware
     if caps["has_nvidia"]:
         if caps["has_cupy"]:
-            caps["recommended_mode"] = "gpu_cuda_best"
+            caps["recommended_resolved_mode"] = "gpu_cuda_best"
         elif caps["has_gl_compositor"]:
-            caps["recommended_mode"] = "gpu_balanced"
+            caps["recommended_resolved_mode"] = "gpu_balanced"
         elif caps["gpu_vram_mb"] >= 4096:
-            caps["recommended_mode"] = "gpu_balanced"  # Can install GL
+            caps["recommended_resolved_mode"] = "gpu_balanced"  # Can install GL
         else:
-            caps["recommended_mode"] = "cpu_quality"
+            caps["recommended_resolved_mode"] = "cpu_quality"
     elif caps["cpu_cores"] >= 8:
-        caps["recommended_mode"] = "cpu_quality"
+        caps["recommended_resolved_mode"] = "cpu_quality"
     elif caps["cpu_cores"] >= 4:
-        caps["recommended_mode"] = "cpu_light"
+        caps["recommended_resolved_mode"] = "cpu_light"
     else:
-        caps["recommended_mode"] = "low_end"
+        caps["recommended_resolved_mode"] = "low_end"
 
     return caps
 

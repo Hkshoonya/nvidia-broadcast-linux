@@ -51,6 +51,27 @@ from nvbroadcast.audio.meeting_capture import MeetingAudioCapture
 from nvbroadcast.ui.window import NVBroadcastWindow
 from nvbroadcast import __version__
 
+_AUTO_MODE_TARGET_FPS = {
+    "doczeus": 22.0,
+    "cuda_balanced": 20.0,
+    "cuda_perf": 16.0,
+    "cpu_quality": 18.0,
+    "cpu_light": 14.0,
+    "cpu_low": 10.0,
+}
+
+_MODE_LABELS = {
+    "doczeus": "DocZeus - Best Quality GPU",
+    "cuda_max": "CUDA - High Quality",
+    "cuda_balanced": "CUDA - Balanced",
+    "zeus": "Zeus - Fast GPU Mode",
+    "killer": "Killer - Fastest GPU Mode",
+    "cuda_perf": "CUDA - Fast",
+    "cpu_quality": "CPU - High Quality",
+    "cpu_light": "CPU - Fast",
+    "cpu_low": "CPU - Low End",
+}
+
 
 class NVBroadcastApp(Adw.Application):
     def __init__(self):
@@ -115,6 +136,12 @@ class NVBroadcastApp(Adw.Application):
         self._pending_start = None
         self._restart_source_id = 0
         self._pipeline_teardown = None
+        self._auto_tune_low_streak = 0
+        self._auto_tune_high_streak = 0
+        self._last_auto_tune_change = 0.0
+        self._manual_low_fps_streak = 0
+        self._last_manual_warning = 0.0
+        self._last_auto_capture_change = 0.0
         self._transcriber.set_segment_callback(self._on_transcript_segment)
 
     def do_startup(self):
@@ -161,6 +188,7 @@ class NVBroadcastApp(Adw.Application):
 
             # Start performance monitor
             self._perf_monitor.start()
+            GLib.timeout_add(2500, self._auto_tune_tick)
 
             # Intercept window close -> minimize to background instead of quit
             self._window.connect("close-request", self._on_close_request)
@@ -169,6 +197,10 @@ class NVBroadcastApp(Adw.Application):
             # from resetting effect states during restore)
             self._restoring = True
             self._restore_settings()
+            if self.config.auto_mode:
+                self.set_auto_mode_enabled(True)
+            else:
+                GLib.idle_add(self._maybe_warn_weak_device)
 
             # First-run setup wizard
             if self.config.first_run:
@@ -191,6 +223,21 @@ class NVBroadcastApp(Adw.Application):
     def _on_setup_complete(self, wizard, profile_name, gpu_index, compositing):
         """Called when first-run wizard finishes."""
         from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
+        if profile_name == "auto":
+            self.config.compute_gpu = gpu_index
+            self.config.first_run = False
+            self.config.current_profile = "Auto"
+            self._video_effects._gpu_index = gpu_index
+            self.set_auto_mode_enabled(True)
+            save_config(self.config)
+            self._window.rebuild_mode_selector(
+                self.config.compositing, self.config.performance_profile
+            )
+            if hasattr(self._window, '_gpu_selector') and self._window._gpu_selector:
+                self._window._gpu_selector.set_selected_index(gpu_index)
+            self._window.set_status("Auto mode enabled")
+            return
+
         # Apply profile
         apply_performance_profile(self.config, profile_name)
         self.config.compute_gpu = gpu_index
@@ -377,11 +424,17 @@ class NVBroadcastApp(Adw.Application):
 
     def _restore_settings(self):
         """Restore all saved settings to the UI and effects."""
+        from nvbroadcast.core.config import PERFORMANCE_PROFILES
+        from nvbroadcast.audio.voice_fx import VoiceFXSettings
+
         c = self.config
 
         # Restore model and quality preset
         self._video_effects._model_type = c.video.model
         self._video_effects._quality = c.video.quality_preset
+        self._video_effects._gpu_index = c.compute_gpu
+        self._video_effects.set_compositing(c.compositing)
+        self._beautifier.set_compositing(c.compositing)
         mapped = NVBroadcastWindow._MODE_MAP.get(c.mode_key)
         if mapped is not None:
             _, _, use_tensorrt, use_fused_kernel, use_nvdec = mapped
@@ -392,6 +445,9 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects.set_engine_mode(use_tensorrt, use_fused_kernel)
         self._use_nvdec = use_nvdec
         self._inline_inference = c.performance_profile in ("max_quality", "balanced")
+        profile = PERFORMANCE_PROFILES.get(c.performance_profile, {})
+        self._video_effects._skip_interval = profile.get("skip_interval", 1)
+        self._video_effects._apply_edge_config(c.video.edge)
         self._video_effects._edge_refine_enabled = c.premium_edge_refine and c.mode_key in ("killer", "zeus")
 
         # Restore background settings
@@ -425,6 +481,27 @@ class NVBroadcastApp(Adw.Application):
         self._autoframe.enabled = c.video.auto_frame
         self._autoframe.zoom_level = c.video.auto_frame_zoom
 
+        if c.audio.noise_removal or c.audio.voice_fx_enabled:
+            audio_pipeline = self._ensure_audio_pipeline()
+            audio_pipeline.effects.enabled = c.audio.noise_removal
+            audio_pipeline.effects.intensity = c.audio.noise_intensity
+            audio_pipeline.voice_fx.enabled = c.audio.voice_fx_enabled
+            audio_pipeline.voice_fx.use_gpu = c.audio.voice_fx_use_gpu
+            audio_pipeline.voice_fx.settings = VoiceFXSettings(
+                bass_boost=c.audio.voice_fx_bass_boost,
+                treble=c.audio.voice_fx_treble,
+                warmth=c.audio.voice_fx_warmth,
+                compression=c.audio.voice_fx_compression,
+                gate_threshold=c.audio.voice_fx_gate_threshold,
+                gain=c.audio.voice_fx_gain,
+            )
+            self._refresh_audio_pipeline()
+
+        if self._video_pipeline:
+            effects_fps = max(5, int(profile.get("effects_ratio", 1.0) * c.video.fps))
+            self._video_pipeline.set_effects_fps(effects_fps)
+            self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
+
         if self._vcam_available:
             self._window.set_status(f"Ready - Virtual camera at {self._vcam_device}")
         else:
@@ -432,6 +509,89 @@ class NVBroadcastApp(Adw.Application):
                 "Virtual camera not available. Run: "
                 'sudo modprobe v4l2loopback devices=1 video_nr=10 '
                 'card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4')
+
+    def restore_current_config(self):
+        """Replay the current config into UI and runtime under restore guards."""
+        previous = getattr(self, "_restoring", False)
+        self._restoring = True
+        try:
+            self._restore_settings()
+        finally:
+            self._restoring = previous
+
+    @staticmethod
+    def _capture_mode_rank(mode: tuple[int, int, int]) -> tuple[int, int]:
+        return (mode[0] * mode[1], mode[2])
+
+    def _current_capture_mode(self) -> tuple[int, int, int]:
+        return (
+            self.config.video.width,
+            self.config.video.height,
+            self.config.video.fps,
+        )
+
+    def _available_capture_modes(self) -> list[tuple[int, int, int]]:
+        from nvbroadcast.video.virtual_camera import list_camera_modes
+
+        capture_modes: list[tuple[int, int, int]] = []
+        for mode in list_camera_modes(self.config.video.camera_device):
+            width = mode["width"]
+            height = mode["height"]
+            for fps in sorted(set(mode["fps"]), reverse=True):
+                capture_modes.append((width, height, fps))
+        capture_modes.sort(key=self._capture_mode_rank, reverse=True)
+        return capture_modes
+
+    def _next_lower_capture_mode(self) -> tuple[int, int, int] | None:
+        available = self._available_capture_modes()
+        if not available:
+            return None
+
+        current = self._current_capture_mode()
+        current_rank = self._capture_mode_rank(current)
+        if current in available:
+            idx = available.index(current)
+            if idx < len(available) - 1:
+                return available[idx + 1]
+            return None
+
+        for mode in available:
+            if self._capture_mode_rank(mode) < current_rank:
+                return mode
+        return None
+
+    def _apply_capture_mode_choice(
+        self,
+        width: int,
+        height: int,
+        fps: int,
+        *,
+        status_prefix: str,
+        advisory_key: str | None = None,
+        advisory_title: str | None = None,
+        advisory_reason: str | None = None,
+    ) -> bool:
+        valid_fps = self._get_valid_fps(width, height, fps)
+        if self._current_capture_mode() == (width, height, valid_fps):
+            return False
+
+        self.config.video.width = width
+        self.config.video.height = height
+        self.config.video.fps = valid_fps
+        save_config(self.config)
+
+        if self._window is not None and hasattr(self._window, "sync_video_input_controls"):
+            self._window.sync_video_input_controls(self.config)
+
+        mode_text = f"{width}x{height} @ {valid_fps} fps"
+        if self._window is not None:
+            if self._streaming:
+                self._window.set_status(f"{status_prefix} {mode_text}. Restart the app to apply.")
+                if advisory_key and advisory_title and advisory_reason:
+                    self._window.show_advisory(advisory_key, advisory_title, advisory_reason)
+            else:
+                self._window.set_status(f"{status_prefix} {mode_text}")
+        return True
 
     # --- Video Pipeline ---
 
@@ -602,17 +762,20 @@ class NVBroadcastApp(Adw.Application):
         )
         if face_effects_active:
             landmarks = None
-            if self._eye_contact.enabled or self._relighter.enabled:
-                landmarker = get_shared_landmarker()
-                if landmarker.ready:
-                    landmarks = landmarker.detect(
-                        np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4),
-                        reuse_frames=2,
-                    )
+            landmarker = get_shared_landmarker()
+            if landmarker.ready:
+                landmarks = landmarker.request_async(
+                    np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4),
+                    reuse_frames=2,
+                )
 
             if self._beautifier.enabled:
                 result = self._beautifier.process_frame(
-                    result, width, height, landmarks=landmarks
+                    result,
+                    width,
+                    height,
+                    landmarks=landmarks,
+                    allow_inline_landmarks=False,
                 )
 
             frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4)
@@ -628,9 +791,9 @@ class NVBroadcastApp(Adw.Application):
                     alpha = self._video_effects._final_matte(frame, alpha, matte_version)
                     alpha_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
 
-            if self._eye_contact.enabled:
+            if self._eye_contact.enabled and landmarks is not None:
                 frame = self._eye_contact.process_frame(frame, landmarks=landmarks)
-            if self._relighter.enabled:
+            if self._relighter.enabled and landmarks is not None:
                 frame = self._relighter.process_frame(frame, alpha_u8, landmarks=landmarks)
 
             result = frame.tobytes()
@@ -737,6 +900,350 @@ class NVBroadcastApp(Adw.Application):
         if self._window:
             self._window.set_status(f"Mode: {profile['label']} | {infer_h}p")
 
+    def apply_mode_key(self, mode_key: str, status: str | None = None) -> bool:
+        """Apply one of the stable named modes and sync related UI state."""
+        mapped = NVBroadcastWindow._MODE_MAP.get(mode_key)
+        if mapped is None:
+            return False
+
+        profile, comp, trt, fused, nvdec = mapped
+        self.set_performance_profile(
+            profile,
+            compositing=comp,
+            use_tensorrt=trt,
+            use_fused_kernel=fused,
+            use_nvdec=nvdec,
+            mode_key=mode_key,
+        )
+
+        if self._window is not None:
+            is_premium = mode_key in ("killer", "zeus")
+            toggle = getattr(self._window, "_edge_refine_toggle", None)
+            if toggle is not None:
+                toggle.set_visible(is_premium)
+                toggle.set_sensitive(is_premium)
+                desired = is_premium and self.config.premium_edge_refine
+                if toggle.active != desired:
+                    toggle.active = desired
+            if hasattr(self._window, "_sync_mode_selector"):
+                self._window._sync_mode_selector()
+            if status:
+                self._window.set_status(status)
+            else:
+                msg = NVBroadcastWindow._mode_status_message(mode_key)
+                if msg:
+                    self._window.set_status(msg)
+        return True
+
+    def _available_auto_modes(self) -> list[str]:
+        """Return the stable modes that are usable on this machine right now."""
+        modes: list[str] = []
+        for mode_key in (
+            "doczeus",
+            "cuda_balanced",
+            "cuda_perf",
+            "cpu_quality",
+            "cpu_light",
+            "cpu_low",
+        ):
+            if self._dependency_installer.unsupported_reason_for_mode(mode_key):
+                continue
+            if self._dependency_installer.missing_for_mode(mode_key):
+                continue
+            modes.append(mode_key)
+        return modes or ["cpu_low"]
+
+    def _preferred_auto_mode(self) -> str:
+        """Pick the best stable starting mode for the current hardware."""
+        from nvbroadcast.core.config import detect_system_capabilities
+
+        caps = detect_system_capabilities()
+        available = self._available_auto_modes()
+
+        if caps["has_nvidia"]:
+            if caps["gpu_vram_mb"] >= 8192:
+                preferred = ["doczeus", "cuda_balanced", "cuda_perf"]
+            else:
+                preferred = ["cuda_balanced", "cuda_perf", "doczeus"]
+            preferred.extend(["cpu_quality", "cpu_light", "cpu_low"])
+        else:
+            if caps["cpu_cores"] >= 8:
+                preferred = ["cpu_quality", "cpu_light", "cpu_low"]
+            elif caps["cpu_cores"] >= 4:
+                preferred = ["cpu_light", "cpu_quality", "cpu_low"]
+            else:
+                preferred = ["cpu_low", "cpu_light", "cpu_quality"]
+
+        for mode_key in preferred:
+            if mode_key in available:
+                return mode_key
+        return available[0]
+
+    def _resolved_mode_key(self) -> str:
+        """Return the active concrete mode key."""
+        return self.config.mode_key or NVBroadcastWindow._profile_and_comp_to_mode(
+            self.config.performance_profile, self.config.compositing
+        )
+
+    @staticmethod
+    def _stable_mode_key(mode_key: str) -> str:
+        """Map premium or legacy modes onto the stable auto ladder."""
+        return {
+            "cuda_max": "doczeus",
+            "zeus": "cuda_balanced",
+            "killer": "cuda_perf",
+        }.get(mode_key, mode_key)
+
+    def _mode_label(self, mode_key: str) -> str:
+        """Return a human-readable label for a mode."""
+        return _MODE_LABELS.get(mode_key, mode_key)
+
+    @staticmethod
+    def _is_very_weak_device(caps: dict) -> bool:
+        """Return whether the detected hardware is likely latency-limited."""
+        if caps.get("has_linux_arm64") and not caps.get("has_nvidia"):
+            return True
+        if not caps.get("has_nvidia") and not caps.get("has_apple_silicon"):
+            return caps.get("cpu_cores", 4) <= 4
+        if caps.get("has_nvidia") and caps.get("gpu_vram_mb", 0) <= 2048:
+            return caps.get("cpu_cores", 4) <= 4
+        return False
+
+    def _recommended_capture_mode(self) -> tuple[int, int, int] | None:
+        """Return a lighter capture mode recommendation when one exists."""
+        from nvbroadcast.video.virtual_camera import list_camera_modes
+
+        modes = list_camera_modes(self.config.video.camera_device)
+        if not modes:
+            return None
+
+        preferred = [(640, 360, 30), (640, 480, 30), (800, 600, 30)]
+        for width, height, fps in preferred:
+            for mode in modes:
+                if mode["width"] != width or mode["height"] != height:
+                    continue
+                supported = [f for f in mode["fps"] if f <= fps]
+                if supported:
+                    return width, height, max(supported)
+                if mode["fps"]:
+                    return width, height, min(mode["fps"], key=lambda value: abs(value - fps))
+
+        smallest = min(modes, key=lambda mode: (mode["width"] * mode["height"], max(mode["fps"]) if mode["fps"] else 999))
+        if not smallest["fps"]:
+            return None
+        return smallest["width"], smallest["height"], min(smallest["fps"], key=lambda value: abs(value - 30))
+
+    def _recommendation_text(self, fallback_mode: str) -> str:
+        """Build user-facing advice for lower-latency manual fallback."""
+        lines = [
+            f"Recommended Mode: Auto - Adaptive or {self._mode_label(fallback_mode)}.",
+        ]
+        capture = self._recommended_capture_mode()
+        if capture is not None:
+            width, height, fps = capture
+            if (
+                self.config.video.width * self.config.video.height > width * height
+                or self.config.video.fps > fps
+            ):
+                lines.append(
+                    f"Recommended Camera Mode: {width}x{height} @ {fps} fps."
+                )
+                lines.append(
+                    "Resolution/FPS changes are saved and apply on the next clean app start."
+                )
+        lines.append(
+            "Your current saved settings stay unchanged until you explicitly change mode, profile, defaults, resolution, or FPS."
+        )
+        return "\n".join(lines)
+
+    def _lower_recommendation_mode(self) -> str:
+        """Return the next lower stable mode relative to the current one."""
+        ladder = self._available_auto_modes()
+        current = self._stable_mode_key(self._resolved_mode_key())
+        if current in ladder:
+            idx = ladder.index(current)
+            if idx < len(ladder) - 1:
+                return ladder[idx + 1]
+            return current
+        return self._preferred_auto_mode()
+
+    def _maybe_warn_weak_device(self):
+        """Warn once per launch when a very weak device uses a heavy manual mode."""
+        if self._window is None or self.config.first_run or self.config.auto_mode:
+            return False
+
+        from nvbroadcast.core.config import detect_system_capabilities
+
+        caps = detect_system_capabilities()
+        if not self._is_very_weak_device(caps):
+            return False
+
+        resolved_mode = self._resolved_mode_key()
+        fallback_mode = self._lower_recommendation_mode()
+        capture = self._recommended_capture_mode()
+        capture_heavy = (
+            capture is not None
+            and (
+                self.config.video.width * self.config.video.height > capture[0] * capture[1]
+                or self.config.video.fps > capture[2]
+            )
+        )
+        if resolved_mode in ("cpu_light", "cpu_low") and not capture_heavy:
+            return False
+
+        title = "Weak device detected"
+        reason = (
+            "This hardware is likely to struggle with heavier live video modes.\n\n"
+            f"{self._recommendation_text(fallback_mode)}"
+        )
+        self._window.set_status(
+            f"Weak device detected. Consider Auto or {self._mode_label(fallback_mode)}."
+        )
+        self._window.show_advisory("weak-device", title, reason)
+        return False
+
+    def set_auto_mode_enabled(self, enabled: bool):
+        """Enable or disable adaptive mode selection."""
+        self.config.auto_mode = enabled
+        self._auto_tune_low_streak = 0
+        self._auto_tune_high_streak = 0
+        self._last_auto_tune_change = time.monotonic()
+        self._manual_low_fps_streak = 0
+        self._last_manual_warning = 0.0
+        self._last_auto_capture_change = 0.0
+
+        if enabled:
+            resolved = self._preferred_auto_mode()
+            detail = NVBroadcastWindow._mode_status_message(resolved)
+            self.apply_mode_key(resolved, status=f"Auto: {detail}")
+            capture = self._recommended_capture_mode()
+            if capture is not None:
+                current_rank = self._capture_mode_rank(self._current_capture_mode())
+                target_rank = self._capture_mode_rank(capture)
+                if target_rank < current_rank:
+                    self._apply_capture_mode_choice(
+                        *capture,
+                        status_prefix="Auto capture:",
+                        advisory_key="auto-capture-enable" if self._streaming else None,
+                        advisory_title="Auto capture adjustment" if self._streaming else None,
+                        advisory_reason=(
+                            f"Auto mode saved a lighter camera mode ({capture[0]}x{capture[1]} @ {capture[2]} fps) "
+                            "to improve stability on this hardware. The current session keeps running and the new "
+                            "camera mode applies on the next clean app start."
+                        ) if self._streaming else None,
+                    )
+        else:
+            save_config(self.config)
+            if self._window is not None and hasattr(self._window, "_sync_mode_selector"):
+                self._window._sync_mode_selector()
+
+    def _auto_tune_tick(self):
+        """Adapt between stable modes when live FPS stays too low."""
+        if (
+            not self._streaming
+            or self._dependency_installer.busy
+            or self._pending_start is not None
+            or self._pipeline_teardown is not None
+            or not self._any_video_effects_active()
+        ):
+            self._auto_tune_low_streak = 0
+            self._auto_tune_high_streak = 0
+            self._manual_low_fps_streak = 0
+            return True
+
+        fps = self._perf_monitor.fps
+        if fps < 1.0:
+            return True
+
+        if not self.config.auto_mode:
+            stable_mode = self._stable_mode_key(self._resolved_mode_key())
+            target = _AUTO_MODE_TARGET_FPS.get(stable_mode, 15.0)
+            if fps < max(8.0, target - 2.0):
+                self._manual_low_fps_streak += 1
+            else:
+                self._manual_low_fps_streak = max(0, self._manual_low_fps_streak - 1)
+
+            now = time.monotonic()
+            if self._manual_low_fps_streak >= 3 and now - self._last_manual_warning >= 20.0:
+                fallback_mode = self._lower_recommendation_mode()
+                self._last_manual_warning = now
+                if self._window is not None:
+                    title = "Low live FPS detected"
+                    reason = (
+                        f"Processed video is currently rendering around {fps:.0f} fps in manual mode.\n\n"
+                        f"{self._recommendation_text(fallback_mode)}"
+                    )
+                    self._window.set_status(
+                        f"Low live FPS detected. Consider Auto or {self._mode_label(fallback_mode)}."
+                    )
+                    self._window.show_advisory("manual-low-fps", title, reason)
+                self._manual_low_fps_streak = 0
+            return True
+
+        ladder = self._available_auto_modes()
+        current = self.config.mode_key if self.config.mode_key in ladder else self._preferred_auto_mode()
+        if current not in ladder:
+            return True
+
+        idx = ladder.index(current)
+        target = _AUTO_MODE_TARGET_FPS.get(current, 15.0)
+        now = time.monotonic()
+        if now - self._last_auto_tune_change < 8.0:
+            return True
+
+        if fps < max(8.0, target - 2.0):
+            self._auto_tune_low_streak += 1
+            self._auto_tune_high_streak = 0
+        else:
+            self._auto_tune_low_streak = max(0, self._auto_tune_low_streak - 1)
+            next_up = ladder[idx - 1] if idx > 0 else None
+            next_up_target = _AUTO_MODE_TARGET_FPS.get(next_up, target) if next_up else target
+            if next_up and fps > next_up_target + 2.0:
+                self._auto_tune_high_streak += 1
+            else:
+                self._auto_tune_high_streak = max(0, self._auto_tune_high_streak - 1)
+
+        if self._auto_tune_low_streak >= 3 and idx < len(ladder) - 1:
+            next_mode = ladder[idx + 1]
+            detail = NVBroadcastWindow._mode_status_message(next_mode)
+            if self.apply_mode_key(
+                next_mode,
+                status=f"Auto: switched to {detail} to keep live FPS stable",
+            ):
+                self._last_auto_tune_change = now
+                self._auto_tune_low_streak = 0
+                self._auto_tune_high_streak = 0
+        elif self._auto_tune_low_streak >= 3 and idx == len(ladder) - 1:
+            next_capture = self._next_lower_capture_mode()
+            if next_capture and now - self._last_auto_capture_change >= 20.0:
+                if self._apply_capture_mode_choice(
+                    *next_capture,
+                    status_prefix="Auto capture: saved lighter camera mode",
+                    advisory_key="auto-capture-low-fps",
+                    advisory_title="Auto mode saved a lighter camera mode",
+                    advisory_reason=(
+                        "Auto mode is already on the lightest stable processing path, "
+                        f"so it saved {next_capture[0]}x{next_capture[1]} @ {next_capture[2]} fps "
+                        "for the next clean app start to reduce severe FPS collapse on this hardware."
+                    ),
+                ):
+                    self._last_auto_capture_change = now
+                    self._last_auto_tune_change = now
+                    self._auto_tune_low_streak = 0
+                    self._auto_tune_high_streak = 0
+        elif self._auto_tune_high_streak >= 8 and idx > 0:
+            next_mode = ladder[idx - 1]
+            detail = NVBroadcastWindow._mode_status_message(next_mode)
+            if self.apply_mode_key(
+                next_mode,
+                status=f"Auto: restored {detail}",
+            ):
+                self._last_auto_tune_change = now
+                self._auto_tune_low_streak = 0
+                self._auto_tune_high_streak = 0
+
+        return True
+
     def set_compute_gpu(self, gpu_index: int):
         """Switch the GPU used for AI compute."""
         if gpu_index == self.config.compute_gpu:
@@ -766,6 +1273,19 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects.quality = quality
         self.config.video.quality_preset = quality
         save_config(self.config)
+
+    def set_output_format(self, output_format: str):
+        if output_format == self.config.video.output_format:
+            return
+        self.config.video.output_format = output_format
+        save_config(self.config)
+        if self._window:
+            if self._streaming:
+                self._window.set_status(
+                    f"Format saved: {output_format}. Restart the app to apply."
+                )
+            else:
+                self._window.set_status(f"Format: {output_format}")
 
     def set_skip_interval(self, value: int):
         """Set how many frames to skip between inferences."""
@@ -1221,6 +1741,8 @@ class NVBroadcastApp(Adw.Application):
     def set_speaker_device(self, device: str):
         self.config.audio.speaker_device = device
         save_config(self.config)
+        if self.config.audio.speaker_denoise:
+            self._refresh_speaker_monitor()
 
     # --- Multi-camera ---
 
@@ -1242,22 +1764,43 @@ class NVBroadcastApp(Adw.Application):
 
     # --- Audio ---
 
+    def _ensure_audio_pipeline(self) -> AudioPipeline:
+        from nvbroadcast.audio.devices import resolve_pipewire_target
+
+        if self._audio_pipeline is None:
+            self._audio_pipeline = AudioPipeline()
+            self._audio_pipeline.configure(
+                mic_device=resolve_pipewire_target(self.config.audio.mic_device),
+                sample_rate=48000,
+            )
+            self._audio_pipeline.build()
+        return self._audio_pipeline
+
+    def _audio_pipeline_should_run(self) -> bool:
+        if self.config.audio.noise_removal:
+            return True
+        if self._audio_pipeline and self._audio_pipeline._voice_fx:
+            return self._audio_pipeline._voice_fx.enabled
+        return False
+
+    def _refresh_audio_pipeline(self):
+        pipeline = self._audio_pipeline
+        if pipeline is None:
+            if self._audio_pipeline_should_run():
+                pipeline = self._ensure_audio_pipeline()
+            else:
+                return
+
+        if self._audio_pipeline_should_run():
+            pipeline.start()
+        else:
+            pipeline.stop()
+
     def set_noise_removal(self, enabled: bool):
         self.config.audio.noise_removal = enabled
-        if enabled:
-            from nvbroadcast.audio.devices import resolve_pipewire_target
-            if self._audio_pipeline is None:
-                self._audio_pipeline = AudioPipeline()
-                self._audio_pipeline.configure(
-                    mic_device=resolve_pipewire_target(self.config.audio.mic_device),
-                    sample_rate=48000,
-                )
-                self._audio_pipeline.build()
-            self._audio_pipeline.effects.enabled = True
-            self._audio_pipeline.start()
-        else:
-            if self._audio_pipeline:
-                self._audio_pipeline.stop()
+        pipeline = self._ensure_audio_pipeline()
+        pipeline.effects.enabled = enabled
+        self._refresh_audio_pipeline()
         save_config(self.config)
 
     def set_noise_intensity(self, value: float):
@@ -1266,14 +1809,83 @@ class NVBroadcastApp(Adw.Application):
             self._audio_pipeline.effects.intensity = value
         save_config(self.config)
 
+    def set_voice_fx_enabled(self, enabled: bool):
+        pipeline = self._ensure_audio_pipeline()
+        pipeline.voice_fx.enabled = enabled
+        self._refresh_audio_pipeline()
+        self.config.audio.voice_fx_enabled = enabled
+        save_config(self.config)
+
+    def set_voice_fx_use_gpu(self, enabled: bool):
+        pipeline = self._ensure_audio_pipeline()
+        pipeline.voice_fx.use_gpu = enabled
+        self.config.audio.voice_fx_use_gpu = pipeline.voice_fx.use_gpu
+        save_config(self.config)
+
+    def _sync_voice_fx_config(self, preset_name: str | None = None):
+        if self._audio_pipeline is None or self._audio_pipeline._voice_fx is None:
+            return
+        settings = self._audio_pipeline.voice_fx.settings
+        self.config.audio.voice_fx_enabled = self._audio_pipeline.voice_fx.enabled
+        self.config.audio.voice_fx_use_gpu = self._audio_pipeline.voice_fx.use_gpu
+        if preset_name is not None:
+            self.config.audio.voice_fx_preset = preset_name
+        self.config.audio.voice_fx_bass_boost = settings.bass_boost
+        self.config.audio.voice_fx_treble = settings.treble
+        self.config.audio.voice_fx_warmth = settings.warmth
+        self.config.audio.voice_fx_compression = settings.compression
+        self.config.audio.voice_fx_gate_threshold = settings.gate_threshold
+        self.config.audio.voice_fx_gain = settings.gain
+
+    def set_voice_fx_preset(self, preset_name: str):
+        from nvbroadcast.audio.voice_fx import VOICE_PRESETS, VoiceFXSettings
+
+        if preset_name not in VOICE_PRESETS:
+            return
+
+        preset = VOICE_PRESETS[preset_name]
+        pipeline = self._ensure_audio_pipeline()
+        pipeline.voice_fx.settings = VoiceFXSettings(
+            bass_boost=preset.bass_boost,
+            treble=preset.treble,
+            warmth=preset.warmth,
+            compression=preset.compression,
+            gate_threshold=preset.gate_threshold,
+            gain=preset.gain,
+        )
+        self._sync_voice_fx_config(preset_name=preset_name)
+        save_config(self.config)
+
+    def set_voice_fx_param(self, param: str, value: float):
+        pipeline = self._ensure_audio_pipeline()
+        setattr(pipeline.voice_fx.settings, param, value)
+        self._sync_voice_fx_config()
+        save_config(self.config)
+
+    def _ensure_speaker_monitor(self) -> SpeakerMonitor:
+        if self._speaker_monitor is None:
+            self._speaker_monitor = SpeakerMonitor()
+        return self._speaker_monitor
+
+    def _refresh_speaker_monitor(self):
+        if not self.config.audio.speaker_denoise:
+            if self._speaker_monitor:
+                self._speaker_monitor.stop()
+            return
+
+        monitor = self._ensure_speaker_monitor()
+        monitor.configure(
+            speaker_device=self.config.audio.speaker_device,
+            sample_rate=48000,
+        )
+        monitor.build()
+        monitor.effects.enabled = True
+        monitor.start()
+
     def set_speaker_denoise(self, enabled: bool):
         self.config.audio.speaker_denoise = enabled
         if enabled:
-            if self._speaker_monitor is None:
-                self._speaker_monitor = SpeakerMonitor()
-                self._speaker_monitor.build()
-            self._speaker_monitor.effects.enabled = True
-            self._speaker_monitor.start()
+            self._refresh_speaker_monitor()
         else:
             if self._speaker_monitor:
                 self._speaker_monitor.stop()

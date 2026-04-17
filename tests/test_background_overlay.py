@@ -173,6 +173,39 @@ class BackgroundOverlayTests(unittest.TestCase):
             "replace refinement should keep meaningful interior gaps open",
         )
 
+    def test_replace_matte_preserves_narrow_hairline_gap(self):
+        effects = self._make_effects()
+
+        alpha = np.zeros((15, 15), dtype=np.float32)
+        alpha[2:14, 3:12] = 0.95
+        alpha[2:8, 7:8] = 0.02
+
+        matte = effects._replacement_matte(alpha)
+
+        self.assertLess(
+            float(matte[4, 7]),
+            0.45,
+            "thin but meaningful gaps near the head should stay visible",
+        )
+
+    def test_replace_matte_reopens_gap_quickly_across_frames(self):
+        effects = self._make_effects()
+
+        alpha_closed = np.zeros((15, 15), dtype=np.float32)
+        alpha_closed[2:14, 3:12] = 0.95
+
+        alpha_open = alpha_closed.copy()
+        alpha_open[2:8, 7:8] = 0.02
+
+        effects._replacement_matte(alpha_closed)
+        matte = effects._replacement_matte(alpha_open)
+
+        self.assertLess(
+            float(matte[4, 7]),
+            0.55,
+            "replacement temporal smoothing should not keep narrow gaps shut after they open",
+        )
+
     def test_despill_skips_near_solid_subject_pixels(self):
         effects = self._make_effects()
 
@@ -207,6 +240,29 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertLess(float(refined[6, 5]), float(matte[6, 5]), "foreground entry edge should tighten")
         self.assertGreater(float(refined[6, 6]), float(matte[6, 6]), "foreground exit edge should harden")
         self.assertEqual(float(refined[6, 0]), 0.0, "weak-edge background should stay clipped")
+
+    def test_edge_aware_replace_matte_preserves_supported_fine_fringe(self):
+        effects = self._make_effects()
+
+        frame = np.zeros((12, 12, 4), dtype=np.uint8)
+        frame[:, :6, :3] = 35
+        frame[:, 6:, :3] = 210
+        frame[:, :, 3] = 255
+
+        matte = np.zeros((12, 12), dtype=np.float32)
+        matte[:, 4] = 0.07
+        matte[:, 5] = 0.11
+        matte[:, 6] = 0.42
+        matte[:, 7] = 0.76
+        matte[:, 8:] = 0.97
+
+        refined = effects._edge_aware_replace_matte(frame, matte.copy())
+
+        self.assertGreater(
+            float(refined[6, 5]),
+            0.05,
+            "fine supported fringe near a real image edge should not be clipped away",
+        )
 
     def test_greenscreen_matte_is_tighter_than_replace_matte(self):
         effects = self._make_effects()

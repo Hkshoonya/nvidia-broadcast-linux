@@ -67,6 +67,9 @@ class AudioPipeline:
         source = Gst.ElementFactory.make("pipewiresrc", "mic-source")
         if self._mic_device:
             source.set_property("target-object", self._mic_device)
+        source.set_property("do-timestamp", True)
+        source.set_property("min-buffers", 2)
+        source.set_property("max-buffers", 4)
 
         # Convert to float32 mono
         convert_in = Gst.ElementFactory.make("audioconvert", "convert-in")
@@ -84,14 +87,18 @@ class AudioPipeline:
         # Appsink: extract audio for processing
         appsink = Gst.ElementFactory.make("appsink", "audio-sink")
         appsink.set_property("emit-signals", True)
-        appsink.set_property("max-buffers", 10)
-        appsink.set_property("drop", False)
+        appsink.set_property("max-buffers", 2)
+        appsink.set_property("drop", True)
         appsink.connect("new-sample", self._on_new_sample)
 
         # Appsrc: inject processed audio
         self._appsrc = Gst.ElementFactory.make("appsrc", "audio-src")
         self._appsrc.set_property("is-live", True)
         self._appsrc.set_property("format", Gst.Format.TIME)
+        self._appsrc.set_property("max-buffers", 2)
+        self._appsrc.set_property("max-time", 40 * Gst.MSECOND)
+        self._appsrc.set_property("leaky-type", 1)
+        self._appsrc.set_property("block", False)
         self._appsrc.set_property(
             "caps",
             Gst.Caps.from_string(
@@ -103,11 +110,14 @@ class AudioPipeline:
         # Output: virtual mic via PipeWire
         convert_out = Gst.ElementFactory.make("audioconvert", "convert-out")
         sink = Gst.ElementFactory.make("pipewiresink", "mic-output")
+        sink.set_property("mode", 2)  # provide
+        sink.set_property("sync", False)
+        sink.set_property("async", False)
         sink.set_property("stream-properties",
                           Gst.Structure.new_from_string(
-                              "properties,media.class=Audio/Source,"
+                              "properties,media.class=Audio/Source/Virtual,"
                               "node.name=nvbroadcast_mic,"
-                              'node.description="NVIDIA Broadcast Microphone"'
+                              'node.description="nvbroadcast"'
                           ))
 
         # Add all elements

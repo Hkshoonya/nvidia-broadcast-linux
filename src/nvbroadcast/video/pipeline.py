@@ -325,16 +325,32 @@ class VideoPipeline:
         )
 
         decoder = self._select_decoder(effects_mode=True)
+        fresh_queue = (
+            "queue max-size-buffers=1 max-size-bytes=0 "
+            "max-size-time=0 leaky=downstream"
+        )
 
         # No videorate — frame throttling is done in Python (_on_effects_sample)
-        # so mode/profile changes never require a pipeline restart.
+        # so mode/profile changes never require a pipeline restart. The leaky
+        # queues keep the capture path pinned to the newest frame if Python or
+        # face effects fall behind temporarily.
         self._pipeline = Gst.parse_launch(
             f"{camera_src} ! "
+            f"{fresh_queue} ! "
             f"{decoder} ! "
             f"video/x-raw,format=BGRA,width={self._width},height={self._height} ! "
-            f"appsink name=sink emit-signals=true max-buffers=2 drop=true sync=false"
+            f"{fresh_queue} ! "
+            f"appsink name=sink"
         )
         sink = self._pipeline.get_by_name("sink")
+        sink.set_property("emit-signals", True)
+        sink.set_property("max-buffers", 1)
+        sink.set_property("drop", True)
+        sink.set_property("sync", False)
+        sink.set_property("qos", True)
+        sink.set_property("processing-deadline", 0)
+        sink.set_property("max-lateness", 0)
+        sink.set_property("enable-last-sample", False)
         sink.connect("new-sample", self._on_effects_sample)
 
         bus = self._pipeline.get_bus()
@@ -370,13 +386,19 @@ class VideoPipeline:
                     f"appsrc name=src is-live=true format=time "
                     f"caps=video/x-raw,format=BGRA,width={self._width},"
                     f"height={self._height},framerate={self._fps}/1 ! "
-                    f"queue max-size-buffers=2 leaky=downstream ! "
+                    f"queue max-size-buffers=1 max-size-bytes=0 "
+                    f"max-size-time=0 leaky=downstream ! "
                     f"videoconvert ! "
                     f"video/x-raw,format={self._output_format},width={self._width},"
                     f"height={self._height},framerate={self._fps}/1 ! "
                     f"{self._v4l2sink_segment()}"
                 )
                 self._vcam_appsrc = self._vcam_pipeline.get_by_name("src")
+                if self._vcam_appsrc:
+                    self._vcam_appsrc.set_property("max-buffers", 1)
+                    self._vcam_appsrc.set_property("max-bytes", self._width * self._height * 4)
+                    self._vcam_appsrc.set_property("leaky-type", 2)
+                    self._vcam_appsrc.set_property("block", False)
 
                 vbus = self._vcam_pipeline.get_bus()
                 vbus.add_signal_watch()

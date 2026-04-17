@@ -19,6 +19,43 @@ def _pw_nodes() -> list[dict]:
         return []
 
 
+def _pactl_short(kind: str) -> list[tuple[str, str]]:
+    """Return `(index, name)` pairs from `pactl list <kind> short`."""
+    try:
+        result = subprocess.run(
+            ["pactl", "list", kind, "short"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except Exception:
+        return []
+
+    entries: list[tuple[str, str]] = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            entries.append((parts[0], parts[1]))
+    return entries
+
+
+def default_speaker_device() -> str:
+    """Return the current default speaker sink identifier, if available."""
+    try:
+        result = subprocess.run(
+            ["pactl", "info"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            if line.startswith("Default Sink:"):
+                return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+
+    speakers = list_speakers()
+    if speakers:
+        return speakers[0].get("device", "")
+    return ""
+
+
 def list_microphones() -> list[dict[str, str]]:
     """List available microphone devices via PipeWire/PulseAudio.
 
@@ -121,22 +158,32 @@ def resolve_pipewire_target(device: str) -> str:
     return device
 
 
-def resolve_speaker_monitor(device: str) -> str:
+def resolve_speaker_sink(device: str) -> str:
+    """Resolve a speaker selection to a concrete sink target."""
+    resolved = device or default_speaker_device()
+    return resolve_pipewire_target(resolved)
+
+
+def resolve_speaker_monitor_name(device: str) -> str:
     """Resolve a speaker sink selection to its monitor source name."""
-    target = resolve_pipewire_target(device)
+    target = resolve_speaker_sink(device)
     if not target:
         return ""
 
     monitor_name = f"{target}.monitor"
-    try:
-        result = subprocess.run(
-            ["pactl", "list", "sources", "short"],
-            capture_output=True, text=True, timeout=5
-        )
-        for line in result.stdout.strip().splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 2 and parts[1] == monitor_name:
-                return parts[0]
-    except Exception:
-        pass
+    for _source_id, source_name in _pactl_short("sources"):
+        if source_name == monitor_name:
+            return source_name
+    return monitor_name
+
+
+def resolve_speaker_monitor(device: str) -> str:
+    """Resolve a speaker sink selection to its monitor source name."""
+    monitor_name = resolve_speaker_monitor_name(device)
+    if not monitor_name:
+        return ""
+
+    for source_id, source_name in _pactl_short("sources"):
+        if source_name == monitor_name:
+            return source_id
     return monitor_name

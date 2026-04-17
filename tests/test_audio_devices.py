@@ -23,6 +23,21 @@ class AudioDeviceResolverTests(unittest.TestCase):
                 run.return_value.stdout = fake_sources
                 self.assertEqual(devices.resolve_speaker_monitor("alsa_output.demo"), "228")
 
+    def test_resolve_speaker_monitor_name_returns_monitor_source_name(self):
+        fake_sources = "228\talsa_output.demo.monitor\tPipeWire\ts16le 2ch 48000Hz\tRUNNING\n"
+        with mock.patch.object(devices, "resolve_pipewire_target", return_value="alsa_output.demo"):
+            with mock.patch("subprocess.run") as run:
+                run.return_value.stdout = fake_sources
+                self.assertEqual(
+                    devices.resolve_speaker_monitor_name("alsa_output.demo"),
+                    "alsa_output.demo.monitor",
+                )
+
+    def test_resolve_speaker_sink_uses_default_when_device_missing(self):
+        with mock.patch.object(devices, "default_speaker_device", return_value="alsa_output.default"):
+            with mock.patch.object(devices, "resolve_pipewire_target", return_value="alsa_output.default"):
+                self.assertEqual(devices.resolve_speaker_sink(""), "alsa_output.default")
+
 
 if __name__ == "__main__":
     unittest.main()

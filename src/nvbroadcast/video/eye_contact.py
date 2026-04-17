@@ -23,7 +23,7 @@ _RIGHT_IRIS = [473, 474, 475, 476, 477]
 class EyeContactCorrector:
     def __init__(self):
         self._enabled = False
-        self._intensity = 0.7
+        self._intensity = 0.45
 
     @property
     def enabled(self) -> bool:
@@ -82,8 +82,21 @@ class EyeContactCorrector:
         iris_center = iris_pts.mean(axis=0)
         eye_center = eye_pts.astype(float).mean(axis=0)
 
-        shift_x = -(iris_center[0] - eye_center[0]) * self._intensity * 1.8
-        shift_y = -(iris_center[1] - eye_center[1]) * self._intensity * 0.8
+        # Live eye contact needs to be conservative. Large whole-eye warps look
+        # unnatural quickly, especially during blinks or head turns.
+        eye_ratio = eh / max(ew, 1)
+        if eye_ratio < 0.18:
+            return frame
+
+        delta_x = iris_center[0] - eye_center[0]
+        delta_y = iris_center[1] - eye_center[1]
+        if abs(delta_x) > ew * 0.35 or abs(delta_y) > eh * 0.40:
+            return frame
+
+        shift_x = -delta_x * self._intensity * 0.75
+        shift_y = -delta_y * self._intensity * 0.20
+        shift_x = float(np.clip(shift_x, -max(1.0, ew * 0.12), max(1.0, ew * 0.12)))
+        shift_y = float(np.clip(shift_y, -max(0.5, eh * 0.08), max(0.5, eh * 0.08)))
 
         if abs(shift_x) < 0.3 and abs(shift_y) < 0.3:
             return frame
@@ -96,10 +109,14 @@ class EyeContactCorrector:
                                 borderMode=cv2.BORDER_REFLECT_101)
 
         mask = np.zeros((roi_h, roi_w), dtype=np.float32)
-        cx, cy = roi_w // 2, roi_h // 2
-        axes = (max(1, roi_w // 2 - 2), max(1, roi_h // 2 - 2))
+        cx = int(np.clip(iris_center[0] - x1, 0, roi_w - 1))
+        cy = int(np.clip(iris_center[1] - y1, 0, roi_h - 1))
+        axes = (
+            max(2, int(ew * 0.34)),
+            max(2, int(eh * 0.45)),
+        )
         cv2.ellipse(mask, (cx, cy), axes, 0, 0, 360, 1.0, -1)
-        mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=max(1.0, pad * 0.4))
+        mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=max(1.0, min(axes) * 0.7))
         mask = mask[:, :, np.newaxis]
 
         blended = (warped * mask + eye_roi * (1 - mask)).astype(np.uint8)

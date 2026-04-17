@@ -54,7 +54,7 @@ def build_pipeline(
     # Try MJPEG source first (most cameras use this for HD),
     # fall back to raw if MJPEG isn't available
     pipeline_str = (
-        f"v4l2src device={source_device} ! "
+        f"v4l2src device={source_device} io-mode=2 do-timestamp=true ! "
         f"image/jpeg,width={width},height={height},framerate={fps}/1 ! "
         f"jpegdec ! "
         f"videoconvert ! "
@@ -74,7 +74,7 @@ def build_pipeline(
     # Fallback: raw source (lower resolution may be needed)
     print("[NVIDIA Broadcast VCam] MJPEG not available, trying raw source...")
     pipeline_str = (
-        f"v4l2src device={source_device} ! "
+        f"v4l2src device={source_device} io-mode=2 do-timestamp=true ! "
         f"video/x-raw,width={width},height={height},framerate={fps}/1 ! "
         f"videoconvert ! "
         f"video/x-raw,format={fmt},width={width},height={height},framerate={fps}/1 ! "

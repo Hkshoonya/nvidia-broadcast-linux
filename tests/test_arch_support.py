@@ -24,7 +24,8 @@ class ArchSupportTests(unittest.TestCase):
 
         self.assertTrue(caps["has_linux_arm64"])
         self.assertFalse(caps["has_nvidia"])
-        self.assertEqual(caps["recommended_mode"], "cpu_quality")
+        self.assertEqual(caps["recommended_mode"], "auto")
+        self.assertEqual(caps["recommended_resolved_mode"], "cpu_quality")
 
     def test_arm64_compositing_backends_hide_cupy(self):
         import nvbroadcast.core.platform as platform_mod

@@ -3,10 +3,11 @@
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
-"""Face relighting — adjusts face lighting to match background.
+"""Face relighting — gentle fill light guided by scene brightness.
 
 Uses shared FaceLandmarker for face region detection.
-Analyzes background luminance and adjusts face brightness/warmth.
+Analyzes background luminance and warmth, then adds fill light without
+darkening already well-exposed faces.
 """
 
 import numpy as np
@@ -55,9 +56,10 @@ class FaceRelighter:
 
         h, w = frame.shape[:2]
 
-        # Analyze background every 10 frames
+        # Analyze immediately on startup and then every 10 frames so the effect
+        # does not feel "off" for the first few seconds of a live meeting.
         self._analyze_count += 1
-        if self._analyze_count % 10 == 0:
+        if self._analyze_count == 1 or self._analyze_count % 10 == 0:
             self._analyze_background(frame, alpha)
 
         # Build face mask from convex hull
@@ -92,10 +94,13 @@ class FaceRelighter:
         if face_lum < 1:
             return frame
 
-        # Brightness adjustment
+        # Fill-light adjustment. Darker backgrounds should not drag the face
+        # down; relighting is intended to open shadows, not dim the subject.
         target = self._bg_luminance
-        ratio = target / face_lum
-        ratio = max(0.6, min(1.6, ratio))
+        ratio = max(1.0, target / face_lum)
+        shadow_boost = max(0.0, (150.0 - face_lum) / 120.0)
+        ratio = max(ratio, 1.0 + shadow_boost * 0.35)
+        ratio = min(1.55, ratio)
         adj_ratio = 1.0 + (ratio - 1.0) * self._intensity
 
         output = frame.copy()
@@ -105,6 +110,13 @@ class FaceRelighter:
         for c in range(3):
             ch = adjusted[:, :, c]
             adjusted[:, :, c] = ch * (1 - face_mask) + (ch * adj_ratio) * face_mask
+
+        # Add a modest shadow lift so relighting is visible on darker faces
+        # even when the scene itself is not especially bright.
+        shadow_mask = np.clip((150.0 - face_gray) / 120.0, 0.0, 1.0) * face_mask
+        if shadow_mask.max() > 0:
+            lift = shadow_mask[:, :, np.newaxis] * (22.0 * self._intensity)
+            adjusted = np.clip(adjusted + lift, 0, 255)
 
         # Warmth adjustment
         if abs(self._bg_warmth) > 0.02:

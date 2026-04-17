@@ -18,6 +18,16 @@ from nvbroadcast.core.gpu import detect_gpus
 # Unified modes: each combines compositing + performance
 SETUP_MODES = [
     {
+        "key": "auto",
+        "label": "Auto - Adaptive",
+        "description": "Automatically picks the best stable mode for this device and adjusts if live FPS stays low.",
+        "compositing": "auto",
+        "profile": "auto",
+        "needs_cupy": False,
+        "needs_gl": False,
+        "min_vram": 0,
+    },
+    {
         "key": "gpu_cuda_best",
         "label": "CUDA GPU - Maximum Quality",
         "description": "CuPy CUDA compositing. All processing on GPU. Near-zero CPU.",
@@ -122,8 +132,9 @@ class SetupWizard(Adw.Window):
         intro = Gtk.Label(
             label=(
                 "This setup helps you pick the right mode for your machine.\n"
-                "GPU modes give the best quality, CPU modes are the safest fallback, "
-                "and some premium paths download extra runtimes on demand."
+                "Auto mode is recommended for most users. GPU modes give the best quality, "
+                "CPU modes are the safest fallback, and some premium paths download extra "
+                "runtimes on demand."
             )
         )
         intro.set_wrap(True)

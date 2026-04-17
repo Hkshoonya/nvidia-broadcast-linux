@@ -163,8 +163,14 @@ class FaceBeautifier:
                 if backend == "cupy":
                     self._compositing = "cpu"
 
-    def process_frame(self, frame_data: bytes, width: int, height: int,
-                      landmarks=None) -> bytes:
+    def process_frame(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        landmarks=None,
+        allow_inline_landmarks: bool = True,
+    ) -> bytes:
         """Apply beautification effects to a BGRA frame."""
         if not self._enabled or not self._initialized:
             return frame_data
@@ -184,7 +190,13 @@ class FaceBeautifier:
         # Refresh mask periodically. Landmark inference itself is shared across
         # all face effects, so this only rebuilds the beautify mask.
         if self._frame_counter % 5 == 0 or self._face_mask is None:
-            self._detect_face(frame, width, height, landmarks)
+            self._detect_face(
+                frame,
+                width,
+                height,
+                landmarks,
+                allow_inline_landmarks=allow_inline_landmarks,
+            )
 
         # CPU-only operations first (bilateral has no GPU equivalent)
         if self._denoise > 0:
@@ -282,11 +294,19 @@ class FaceBeautifier:
         self._vignette_cache = np.clip(1.0 - (dist - 0.3) * 0.8, 0.3, 1.0).astype(np.float32)
         self._vignette_size = (width, height)
 
-    def _detect_face(self, frame: np.ndarray, width: int, height: int,
-                     landmarks=None):
+    def _detect_face(
+        self,
+        frame: np.ndarray,
+        width: int,
+        height: int,
+        landmarks=None,
+        allow_inline_landmarks: bool = True,
+    ):
         """Build a beautify mask from shared face landmarks."""
         try:
             if landmarks is None:
+                if not allow_inline_landmarks:
+                    return
                 shared = get_shared_landmarker()
                 if not shared.ready:
                     self._face_mask = None

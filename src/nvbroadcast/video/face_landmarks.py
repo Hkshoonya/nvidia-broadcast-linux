@@ -9,6 +9,7 @@ Running 3 separate MediaPipe FaceLandmarkers (beautify, eye contact, relighting)
 costs ~60-90ms per frame. Sharing one instance reduces it to ~20-30ms.
 """
 
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -54,6 +55,9 @@ class SharedFaceLandmarker:
         self._last_frame_id = None
         self._last_result = None
         self._frames_since_infer = 0
+        self._lock = threading.Lock()
+        self._detect_lock = threading.Lock()
+        self._async_busy = False
         self._init()
 
     def _init(self):
@@ -84,6 +88,51 @@ class SharedFaceLandmarker:
     def ready(self) -> bool:
         return self._initialized and self._landmarker is not None
 
+    def latest(self):
+        """Return the most recent landmark result without running inference."""
+        with self._lock:
+            return self._last_result
+
+    def request_async(self, bgra_frame: np.ndarray, reuse_frames: int = 1):
+        """Kick off background detection and return the latest available result.
+
+        This keeps the live video path from blocking on MediaPipe while still
+        refreshing landmarks in the background often enough for face effects.
+        """
+        if not self.ready:
+            return None
+
+        frame_id = id(bgra_frame)
+        with self._lock:
+            cached = self._last_result
+            if frame_id == self._last_frame_id and cached is not None:
+                return cached
+
+            reuse_frames = max(1, int(reuse_frames))
+            if (
+                reuse_frames > 1
+                and cached is not None
+                and self._frames_since_infer < (reuse_frames - 1)
+            ):
+                self._frames_since_infer += 1
+                self._last_frame_id = frame_id
+                return cached
+
+            if self._async_busy:
+                self._last_frame_id = frame_id
+                return cached
+
+            frame_copy = bgra_frame.copy()
+            self._async_busy = True
+            self._last_frame_id = frame_id
+
+        threading.Thread(
+            target=self._detect_async,
+            args=(frame_copy, frame_id),
+            daemon=True,
+        ).start()
+        return cached
+
     def detect(self, bgra_frame: np.ndarray, reuse_frames: int = 1):
         """Detect face landmarks. Returns list of landmarks or None.
 
@@ -108,6 +157,29 @@ class SharedFaceLandmarker:
             self._last_frame_id = frame_id
             return self._last_result
 
+        with self._detect_lock:
+            landmarks = self._run_detection(bgra_frame)
+        with self._lock:
+            self._last_frame_id = frame_id
+            self._last_result = landmarks
+            self._frames_since_infer = 0
+        return landmarks
+
+    def _detect_async(self, bgra_frame: np.ndarray, frame_id: int):
+        """Background worker for non-blocking landmark refresh."""
+        try:
+            with self._detect_lock:
+                landmarks = self._run_detection(bgra_frame)
+            with self._lock:
+                self._last_frame_id = frame_id
+                self._last_result = landmarks
+                self._frames_since_infer = 0
+        finally:
+            with self._lock:
+                self._async_busy = False
+
+    def _run_detection(self, bgra_frame: np.ndarray):
+        """Run MediaPipe face landmark detection on a frame."""
         h, w = bgra_frame.shape[:2]
         if w >= 640 or h >= 360:
             scaled = cv2.resize(
@@ -125,19 +197,8 @@ class SharedFaceLandmarker:
         try:
             result = self._landmarker.detect_for_video(mp_image, ts)
         except Exception:
-            self._last_frame_id = frame_id
-            self._last_result = None
-            self._frames_since_infer = 0
             return None
 
         if result.face_landmarks:
-            landmarks = result.face_landmarks[0]
-            self._last_frame_id = frame_id
-            self._last_result = landmarks
-            self._frames_since_infer = 0
-            return landmarks
-        else:
-            self._last_frame_id = frame_id
-            self._last_result = None
-            self._frames_since_infer = 0
-            return None
+            return result.face_landmarks[0]
+        return None
