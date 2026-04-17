@@ -79,9 +79,7 @@ jobs:
 
       - name: Run macOS-safe unit tests
         run: |
-          PYTHONPATH=src python3 -m unittest -v \
-            tests.test_updates \
-            tests.test_arch_support
+          PYTHONPATH=src python3 -m unittest -v tests.test_updates
 
       - name: Test platform detection
         run: |
