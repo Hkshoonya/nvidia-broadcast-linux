@@ -14,9 +14,12 @@ class PackagingMetadataTests(unittest.TestCase):
         spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         self.assertIn("pip install openai-whisper", spec)
 
-    def test_snap_package_bundles_meeting_runtime(self):
+    def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
-        self.assertIn("- openai-whisper", snapcraft)
+        self.assertIn("- faster-whisper", snapcraft)
+        self.assertIn("- ctranslate2", snapcraft)
+        self.assertIn("- httpx", snapcraft)
+        self.assertNotIn("- openai-whisper", snapcraft)
 
 
 if __name__ == "__main__":

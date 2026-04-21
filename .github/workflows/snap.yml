@@ -66,8 +66,22 @@ jobs:
           snap: ${{ steps.snapcraft.outputs.snap }}
           release: stable
 
-      - name: Attach snap to GitHub Release
+      - name: Check GitHub release asset size
         if: startsWith(github.ref, 'refs/tags/v')
+        id: release-asset
+        run: |
+          SNAP_PATH="${{ steps.snapcraft.outputs.snap }}"
+          SNAP_SIZE="$(stat -c%s "$SNAP_PATH")"
+          echo "size=$SNAP_SIZE" >> "$GITHUB_OUTPUT"
+          if [ "$SNAP_SIZE" -lt 2147483648 ]; then
+            echo "attach=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "attach=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping GitHub release upload for $SNAP_PATH because it exceeds GitHub's 2 GiB release-asset limit."
+          fi
+
+      - name: Attach snap to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') && steps.release-asset.outputs.attach == 'true'
         uses: softprops/action-gh-release@v2
         with:
           draft: false

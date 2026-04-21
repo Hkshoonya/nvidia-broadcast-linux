@@ -78,7 +78,12 @@ parts:
       - mediapipe
       - onnxruntime
       - onnx
-      - openai-whisper
+      - faster-whisper
+      - ctranslate2
+      - huggingface-hub
+      - httpx
+      - tokenizers
+      - soundfile
       - scipy
       - pyrnnoise
       - psutil
