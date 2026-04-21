@@ -66,13 +66,13 @@ class AudioConfig:
     speaker_denoise: bool = False
     voice_fx_enabled: bool = False
     voice_fx_use_gpu: bool = True
-    voice_fx_preset: str = "Natural"
-    voice_fx_bass_boost: float = 0.0
-    voice_fx_treble: float = 0.0
-    voice_fx_warmth: float = 0.0
-    voice_fx_compression: float = 0.0
+    voice_fx_preset: str = "Studio"
+    voice_fx_bass_boost: float = 0.15
+    voice_fx_treble: float = 0.15
+    voice_fx_warmth: float = 0.25
+    voice_fx_compression: float = 0.7
     voice_fx_gate_threshold: float = 0.0
-    voice_fx_gain: float = 0.0
+    voice_fx_gain: float = 0.05
 
 
 # Performance profiles: control where the workload runs (CPU vs GPU)
@@ -162,6 +162,7 @@ class AppConfig:
     last_notified_version: str = ""
     first_run: bool = True  # Show setup wizard on first launch
     current_profile: str = "Default"
+    ui_card_expanded: dict[str, bool] = field(default_factory=dict)
     video: VideoConfig = field(default_factory=VideoConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
 
@@ -180,6 +181,7 @@ def build_default_config(existing: AppConfig | None = None) -> AppConfig:
     default.last_notified_version = existing.last_notified_version
     default.compute_gpu = existing.compute_gpu
     default.auto_mode = existing.auto_mode
+    default.ui_card_expanded = dict(existing.ui_card_expanded)
     return default
 
 
@@ -213,9 +215,61 @@ def _load_from_toml(filepath: Path) -> AppConfig:
                 if hasattr(config.video.beauty, k):
                     setattr(config.video.beauty, k, v)
     if "audio" in data:
+        raw_voice_fx_preset = data["audio"].get("voice_fx_preset", config.audio.voice_fx_preset)
         for k, v in data["audio"].items():
             if hasattr(config.audio, k):
                 setattr(config.audio, k, v)
+        from nvbroadcast.audio.voice_fx import (
+            DEFAULT_VOICE_FX_PRESET,
+            get_voice_fx_preset,
+            normalize_voice_fx_preset_name,
+        )
+
+        if raw_voice_fx_preset == "Natural":
+            legacy_values = (
+                config.audio.voice_fx_bass_boost,
+                config.audio.voice_fx_treble,
+                config.audio.voice_fx_warmth,
+                config.audio.voice_fx_compression,
+                config.audio.voice_fx_gate_threshold,
+                config.audio.voice_fx_gain,
+            )
+            if all(abs(value) <= 1e-6 for value in legacy_values):
+                migrated = get_voice_fx_preset(DEFAULT_VOICE_FX_PRESET)
+                if migrated is not None:
+                    config.audio.voice_fx_preset = DEFAULT_VOICE_FX_PRESET
+                    config.audio.voice_fx_bass_boost = migrated.bass_boost
+                    config.audio.voice_fx_treble = migrated.treble
+                    config.audio.voice_fx_warmth = migrated.warmth
+                    config.audio.voice_fx_compression = migrated.compression
+                    config.audio.voice_fx_gate_threshold = migrated.gate_threshold
+                    config.audio.voice_fx_gain = migrated.gain
+            else:
+                config.audio.voice_fx_preset = "Flat"
+        else:
+            config.audio.voice_fx_preset = normalize_voice_fx_preset_name(
+                config.audio.voice_fx_preset
+            )
+            # Migrate untouched legacy Studio defaults that gated too aggressively
+            # for typical meeting microphones.
+            if (
+                config.audio.voice_fx_preset == "Studio"
+                and abs(config.audio.voice_fx_bass_boost - 0.15) <= 1e-6
+                and abs(config.audio.voice_fx_treble - 0.15) <= 1e-6
+                and abs(config.audio.voice_fx_warmth - 0.25) <= 1e-6
+                and abs(config.audio.voice_fx_compression - 0.7) <= 1e-6
+                and abs(config.audio.voice_fx_gate_threshold - 0.25) <= 1e-6
+                and abs(config.audio.voice_fx_gain - 0.05) <= 1e-6
+            ):
+                migrated = get_voice_fx_preset("Studio")
+                if migrated is not None:
+                    config.audio.voice_fx_gate_threshold = migrated.gate_threshold
+    ui_cards = data.get("ui", {}).get("cards", {})
+    if isinstance(ui_cards, dict):
+        config.ui_card_expanded = {
+            str(key): bool(value)
+            for key, value in ui_cards.items()
+        }
     return config
 
 
@@ -307,6 +361,10 @@ def _config_to_toml(config: AppConfig) -> str:
         f"voice_fx_gate_threshold = {a.voice_fx_gate_threshold}",
         f"voice_fx_gain = {a.voice_fx_gain}",
     ]
+    if config.ui_card_expanded:
+        lines.extend(["", "[ui.cards]"])
+        for key in sorted(config.ui_card_expanded):
+            lines.append(f"{key} = {_bool(config.ui_card_expanded[key])}")
     return "\n".join(lines) + "\n"
 
 

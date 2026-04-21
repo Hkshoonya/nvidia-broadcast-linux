@@ -8,6 +8,8 @@
 import subprocess
 import json
 
+from nvbroadcast.audio.virtual_mic import VIRTUAL_MIC_SINK_NAME
+
 
 def _pw_nodes() -> list[dict]:
     try:
@@ -117,6 +119,8 @@ def list_speakers() -> list[dict[str, str]]:
             if media_class in ("Audio/Sink", "Audio/Sink/Virtual"):
                 name = props.get("node.description", props.get("node.name", "Unknown"))
                 device_id = props.get("node.name", str(node.get("id", "")))
+                if device_id == VIRTUAL_MIC_SINK_NAME:
+                    continue
                 speakers.append({"name": name, "device": device_id})
     except Exception:
         pass
@@ -132,6 +136,8 @@ def list_speakers() -> list[dict[str, str]]:
                 parts = line.split("\t")
                 if len(parts) >= 2:
                     device_id = parts[1]
+                    if device_id == VIRTUAL_MIC_SINK_NAME:
+                        continue
                     name = device_id.replace(".", " ").replace("_", " ")
                     speakers.append({"name": name, "device": device_id})
         except Exception:

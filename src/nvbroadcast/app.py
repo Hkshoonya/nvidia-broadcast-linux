@@ -103,7 +103,7 @@ class NVBroadcastApp(Adw.Application):
         self._beautifier = FaceBeautifier(compositing=self.config.compositing)
         self._eye_contact = EyeContactCorrector()
         self._relighter = FaceRelighter()
-        self._perf_monitor = PerfMonitor()
+        self._perf_monitor = PerfMonitor(gpu_index=self.config.compute_gpu)
         live_transcriber_model = os.getenv(
             "NVBROADCAST_TRANSCRIBER_MODEL",
             "base" if IS_ARM64 else "small",
@@ -442,7 +442,6 @@ class NVBroadcastApp(Adw.Application):
     def _restore_settings(self):
         """Restore all saved settings to the UI and effects."""
         from nvbroadcast.core.config import PERFORMANCE_PROFILES
-        from nvbroadcast.audio.voice_fx import VoiceFXSettings
 
         c = self.config
 
@@ -450,6 +449,7 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects._model_type = c.video.model
         self._video_effects._quality = c.video.quality_preset
         self._video_effects._gpu_index = c.compute_gpu
+        self._perf_monitor.set_gpu_index(c.compute_gpu)
         self._video_effects.set_compositing(c.compositing)
         self._beautifier.set_compositing(c.compositing)
         mapped = NVBroadcastWindow._MODE_MAP.get(c.mode_key)
@@ -504,14 +504,7 @@ class NVBroadcastApp(Adw.Application):
             audio_pipeline.effects.intensity = c.audio.noise_intensity
             audio_pipeline.voice_fx.enabled = c.audio.voice_fx_enabled
             audio_pipeline.voice_fx.use_gpu = c.audio.voice_fx_use_gpu
-            audio_pipeline.voice_fx.settings = VoiceFXSettings(
-                bass_boost=c.audio.voice_fx_bass_boost,
-                treble=c.audio.voice_fx_treble,
-                warmth=c.audio.voice_fx_warmth,
-                compression=c.audio.voice_fx_compression,
-                gate_threshold=c.audio.voice_fx_gate_threshold,
-                gain=c.audio.voice_fx_gain,
-            )
+            self._apply_voice_fx_settings_from_config(audio_pipeline)
             self._refresh_audio_pipeline()
 
         if self._video_pipeline:
@@ -1267,6 +1260,7 @@ class NVBroadcastApp(Adw.Application):
             return
         self.config.compute_gpu = gpu_index
         self._video_effects._gpu_index = gpu_index
+        self._perf_monitor.set_gpu_index(gpu_index)
         # Reload the model on the new GPU
         if self._video_effects.available:
             self._video_effects._cleanup_backend()
@@ -1276,6 +1270,7 @@ class NVBroadcastApp(Adw.Application):
         gpus = detect_gpus()
         name = gpus[gpu_index].name if gpu_index < len(gpus) else f"GPU {gpu_index}"
         if self._window:
+            self._window._update_gpu_info()
             self._window.set_status(f"Compute GPU: {name}")
 
     def set_model(self, model: str):
@@ -1747,13 +1742,8 @@ class NVBroadcastApp(Adw.Application):
     def set_microphone(self, device: str):
         self.config.audio.mic_device = device
         save_config(self.config)
-        # Restart audio pipeline if running
-        if self._audio_pipeline and self._audio_pipeline._running:
-            from nvbroadcast.audio.devices import resolve_pipewire_target
-            self._audio_pipeline.stop()
-            self._audio_pipeline.configure(mic_device=resolve_pipewire_target(device))
-            self._audio_pipeline.build()
-            self._audio_pipeline.start()
+        if self._audio_pipeline is not None:
+            self._rebuild_audio_pipeline(restart=self._audio_pipeline._running)
 
     def set_speaker_device(self, device: str):
         self.config.audio.speaker_device = device
@@ -1781,13 +1771,19 @@ class NVBroadcastApp(Adw.Application):
 
     # --- Audio ---
 
-    def _ensure_audio_pipeline(self) -> AudioPipeline:
+    def _resolved_audio_capture_device(self) -> str:
         from nvbroadcast.audio.devices import resolve_pipewire_target
+        from nvbroadcast.audio.virtual_mic import virtual_mic_backend
 
+        if IS_LINUX and virtual_mic_backend() == "pulse":
+            return self.config.audio.mic_device
+        return resolve_pipewire_target(self.config.audio.mic_device)
+
+    def _ensure_audio_pipeline(self) -> AudioPipeline:
         if self._audio_pipeline is None:
             self._audio_pipeline = AudioPipeline()
             self._audio_pipeline.configure(
-                mic_device=resolve_pipewire_target(self.config.audio.mic_device),
+                mic_device=self._resolved_audio_capture_device(),
                 sample_rate=48000,
             )
             self._audio_pipeline.build()
@@ -1813,6 +1809,46 @@ class NVBroadcastApp(Adw.Application):
         else:
             pipeline.stop()
 
+    def _rebuild_audio_pipeline(self, restart: bool | None = None):
+        if self._audio_pipeline is None:
+            return
+
+        should_restart = self._audio_pipeline._running if restart is None else restart
+        self._audio_pipeline.stop()
+        self._audio_pipeline.configure(
+            mic_device=self._resolved_audio_capture_device(),
+            sample_rate=48000,
+        )
+        self._audio_pipeline.build()
+        if should_restart and self._audio_pipeline_should_run():
+            self._audio_pipeline.start()
+
+    def _restart_audio_pipeline_for_live_settings(self):
+        if self._audio_pipeline is None or not self._audio_pipeline._running:
+            return
+        if not self._audio_pipeline.uses_helper_process:
+            return
+        self._rebuild_audio_pipeline(restart=True)
+
+    def _apply_voice_fx_settings_from_config(self, pipeline=None):
+        from nvbroadcast.audio.voice_fx import VoiceFXSettings, normalize_voice_fx_preset_name
+
+        if pipeline is None:
+            pipeline = self._ensure_audio_pipeline()
+
+        self.config.audio.voice_fx_preset = normalize_voice_fx_preset_name(
+            self.config.audio.voice_fx_preset
+        )
+        pipeline.voice_fx.settings = VoiceFXSettings(
+            bass_boost=self.config.audio.voice_fx_bass_boost,
+            treble=self.config.audio.voice_fx_treble,
+            warmth=self.config.audio.voice_fx_warmth,
+            compression=self.config.audio.voice_fx_compression,
+            gate_threshold=self.config.audio.voice_fx_gate_threshold,
+            gain=self.config.audio.voice_fx_gain,
+        )
+        return pipeline
+
     def set_noise_removal(self, enabled: bool):
         self.config.audio.noise_removal = enabled
         pipeline = self._ensure_audio_pipeline()
@@ -1824,10 +1860,11 @@ class NVBroadcastApp(Adw.Application):
         self.config.audio.noise_intensity = value
         if self._audio_pipeline:
             self._audio_pipeline.effects.intensity = value
+        self._restart_audio_pipeline_for_live_settings()
         save_config(self.config)
 
     def set_voice_fx_enabled(self, enabled: bool):
-        pipeline = self._ensure_audio_pipeline()
+        pipeline = self._apply_voice_fx_settings_from_config()
         pipeline.voice_fx.enabled = enabled
         self._refresh_audio_pipeline()
         self.config.audio.voice_fx_enabled = enabled
@@ -1837,6 +1874,7 @@ class NVBroadcastApp(Adw.Application):
         pipeline = self._ensure_audio_pipeline()
         pipeline.voice_fx.use_gpu = enabled
         self.config.audio.voice_fx_use_gpu = pipeline.voice_fx.use_gpu
+        self._restart_audio_pipeline_for_live_settings()
         save_config(self.config)
 
     def _sync_voice_fx_config(self, preset_name: str | None = None):
@@ -1855,28 +1893,23 @@ class NVBroadcastApp(Adw.Application):
         self.config.audio.voice_fx_gain = settings.gain
 
     def set_voice_fx_preset(self, preset_name: str):
-        from nvbroadcast.audio.voice_fx import VOICE_PRESETS, VoiceFXSettings
+        from nvbroadcast.audio.voice_fx import get_voice_fx_preset, normalize_voice_fx_preset_name
 
-        if preset_name not in VOICE_PRESETS:
+        preset = get_voice_fx_preset(preset_name)
+        if preset is None:
             return
 
-        preset = VOICE_PRESETS[preset_name]
         pipeline = self._ensure_audio_pipeline()
-        pipeline.voice_fx.settings = VoiceFXSettings(
-            bass_boost=preset.bass_boost,
-            treble=preset.treble,
-            warmth=preset.warmth,
-            compression=preset.compression,
-            gate_threshold=preset.gate_threshold,
-            gain=preset.gain,
-        )
-        self._sync_voice_fx_config(preset_name=preset_name)
+        pipeline.voice_fx.settings = preset
+        self._sync_voice_fx_config(preset_name=normalize_voice_fx_preset_name(preset_name))
+        self._restart_audio_pipeline_for_live_settings()
         save_config(self.config)
 
     def set_voice_fx_param(self, param: str, value: float):
         pipeline = self._ensure_audio_pipeline()
         setattr(pipeline.voice_fx.settings, param, value)
         self._sync_voice_fx_config()
+        self._restart_audio_pipeline_for_live_settings()
         save_config(self.config)
 
     def _ensure_speaker_monitor(self) -> SpeakerMonitor:

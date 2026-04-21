@@ -8,10 +8,11 @@ import time
 class PerfMonitor:
     """Polls GPU stats and tracks FPS."""
 
-    def __init__(self):
+    def __init__(self, gpu_index: int = 0):
         self._fps = 0.0
         self._frame_count = 0
         self._last_fps_time = time.monotonic()
+        self._gpu_index = gpu_index
         self._gpu_util = 0
         self._vram_used = 0
         self._vram_total = 0
@@ -57,11 +58,18 @@ class PerfMonitor:
     def gpu_temp(self) -> int:
         return self._gpu_temp
 
+    @property
+    def gpu_index(self) -> int:
+        return self._gpu_index
+
+    def set_gpu_index(self, gpu_index: int) -> None:
+        self._gpu_index = max(0, int(gpu_index))
+
     def format_status(self) -> str:
         """Format as a status bar string."""
         parts = [f"{self._fps:.0f} fps"]
         if self._vram_total > 0:
-            parts.append(f"GPU {self._gpu_util}%")
+            parts.append(f"GPU {self._gpu_index} {self._gpu_util}%")
             parts.append(f"VRAM {self._vram_used}MB/{self._vram_total}MB")
             parts.append(f"{self._gpu_temp}\u00b0C")
         return "  |  ".join(parts)
@@ -72,6 +80,7 @@ class PerfMonitor:
             try:
                 result = subprocess.run(
                     ["nvidia-smi",
+                     f"--id={self._gpu_index}",
                      "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
                      "--format=csv,noheader,nounits"],
                     capture_output=True, text=True, timeout=3,

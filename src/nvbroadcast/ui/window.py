@@ -27,7 +27,12 @@ from nvbroadcast.core.platform import has_tensorrt_runtime
 from nvbroadcast.core.resources import find_app_icon
 
 
-def _collapsible_card(title: str, content: Gtk.Widget, expanded: bool = True) -> Gtk.Box:
+def _collapsible_card(
+    title: str,
+    content: Gtk.Widget,
+    expanded: bool = True,
+    on_toggled=None,
+) -> tuple[Gtk.Box, Gtk.Revealer, Gtk.Image]:
     """Wrap a card in a collapsible container with a clickable header."""
     outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     outer.add_css_class("effect-card")
@@ -63,9 +68,11 @@ def _collapsible_card(title: str, content: Gtk.Widget, expanded: bool = True) ->
         chevron.set_from_icon_name(
             "pan-down-symbolic" if visible else "pan-end-symbolic"
         )
+        if on_toggled is not None:
+            on_toggled(visible)
 
     header_btn.connect("clicked", _toggle)
-    return outer
+    return outer, revealer, chevron
 
 
 class NVBroadcastWindow(Adw.ApplicationWindow):
@@ -81,8 +88,53 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._pending_mode_key = ""
         self._pending_meeting_start = False
         self._shown_advisories: set[str] = set()
+        self._card_revealers: dict[str, Gtk.Revealer] = {}
+        self._card_chevrons: dict[str, Gtk.Image] = {}
+        self._card_defaults: dict[str, bool] = {}
         self._build_ui()
         self._populate_devices()
+
+    def _card_expanded(self, key: str, default: bool) -> bool:
+        value = self._app.config.ui_card_expanded.get(key)
+        return default if value is None else bool(value)
+
+    def _set_card_expanded(self, key: str, expanded: bool, persist: bool = False) -> None:
+        revealer = self._card_revealers.get(key)
+        if revealer is not None:
+            revealer.set_reveal_child(expanded)
+        chevron = self._card_chevrons.get(key)
+        if chevron is not None:
+            chevron.set_from_icon_name(
+                "pan-down-symbolic" if expanded else "pan-end-symbolic"
+            )
+        if persist:
+            self._app.config.ui_card_expanded[key] = expanded
+            save_config(self._app.config)
+
+    def _sync_card_states(self, config) -> None:
+        for key, default in self._card_defaults.items():
+            expanded = bool(config.ui_card_expanded.get(key, default))
+            self._set_card_expanded(key, expanded, persist=False)
+
+    def _build_collapsible_card(
+        self,
+        key: str,
+        title: str,
+        content: Gtk.Widget,
+        expanded: bool = True,
+    ) -> Gtk.Box:
+        self._card_defaults[key] = expanded
+        card, revealer, chevron = _collapsible_card(
+            title,
+            content,
+            expanded=self._card_expanded(key, expanded),
+            on_toggled=lambda visible, card_key=key: self._set_card_expanded(
+                card_key, visible, persist=True
+            ),
+        )
+        self._card_revealers[key] = revealer
+        self._card_chevrons[key] = chevron
+        return card
 
     def _build_ui(self):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -421,7 +473,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._fps_selector.connect("device-changed", self._on_fps_changed)
         input_card.append(self._fps_selector)
 
-        box.append(_collapsible_card("Input", input_card, expanded=True))
+        box.append(self._build_collapsible_card("input", "Input", input_card, expanded=True))
 
         # Processing card (mode, GPU, mirror, edge refine)
         proc_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -476,7 +528,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._edge_refine_toggle.connect("toggled", self._on_edge_refine_toggled)
         proc_card.append(self._edge_refine_toggle)
 
-        box.append(_collapsible_card("Processing", proc_card, expanded=True))
+        box.append(self._build_collapsible_card("processing", "Processing", proc_card, expanded=True))
 
         # Background effect card
         bg_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -575,7 +627,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         bg_card.append(adv_expander)
         self._adv_expander = adv_expander
 
-        box.append(_collapsible_card("Background", bg_card, expanded=False))
+        box.append(self._build_collapsible_card("background", "Background", bg_card, expanded=False))
 
         # Auto Frame card
         af_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -586,7 +638,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._zoom_slider.set_sensitive(False)
         self._zoom_slider.connect("value-changed", self._on_zoom_changed)
         af_card.append(self._zoom_slider)
-        box.append(_collapsible_card("Auto Frame", af_card, expanded=False))
+        box.append(self._build_collapsible_card("auto_frame", "Auto Frame", af_card, expanded=False))
 
         # Eye Contact card
         ec_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -599,7 +651,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._eye_contact_slider.set_sensitive(False)
         self._eye_contact_slider.connect("value-changed", self._on_eye_contact_intensity)
         ec_card.append(self._eye_contact_slider)
-        box.append(_collapsible_card("Eye Contact", ec_card, expanded=False))
+        box.append(self._build_collapsible_card("eye_contact", "Eye Contact", ec_card, expanded=False))
 
         # Face Relighting card
         rl_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -612,7 +664,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._relighting_slider.set_sensitive(False)
         self._relighting_slider.connect("value-changed", self._on_relighting_intensity)
         rl_card.append(self._relighting_slider)
-        box.append(_collapsible_card("Face Relighting", rl_card, expanded=False))
+        box.append(self._build_collapsible_card("face_relighting", "Face Relighting", rl_card, expanded=False))
 
         # Video Enhancement card
         beauty_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -661,7 +713,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             beauty_card.append(row_box)
             self._beauty_controls[key] = {"toggle": toggle, "slider": slider, "default": default_val}
 
-        box.append(_collapsible_card("Video Enhancement", beauty_card, expanded=False))
+        box.append(self._build_collapsible_card("video_enhancement", "Video Enhancement", beauty_card, expanded=False))
 
         return box
 
@@ -711,7 +763,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._noise_slider.set_sensitive(False)
         self._noise_slider.connect("value-changed", self._on_noise_intensity_changed)
         mic_card.append(self._noise_slider)
-        box.append(_collapsible_card("Microphone", mic_card, expanded=True))
+        box.append(self._build_collapsible_card("microphone", "Microphone", mic_card, expanded=True))
 
         # Voice Effects card
         vfx_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -723,12 +775,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Preset selector
         self._vfx_preset = DeviceSelector("Preset")
         self._vfx_preset.set_devices([
-            {"name": "Natural", "device": "Natural"},
-            {"name": "Radio (warm + compressed)", "device": "Radio"},
+            {"name": "Studio (recommended)", "device": "Studio"},
             {"name": "Podcast (balanced)", "device": "Podcast"},
+            {"name": "Radio (warm + compressed)", "device": "Radio"},
             {"name": "Deep Voice (bass heavy)", "device": "Deep Voice"},
             {"name": "Bright (treble boost)", "device": "Bright"},
-            {"name": "Studio (professional)", "device": "Studio"},
+            {"name": "Flat (no color)", "device": "Flat"},
         ])
         self._vfx_preset.set_sensitive(False)
         self._vfx_preset.connect("device-changed", self._on_vfx_preset)
@@ -756,7 +808,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             vfx_card.append(slider)
             self._vfx_sliders[key] = slider
 
-        box.append(_collapsible_card("Voice Effects", vfx_card, expanded=False))
+        box.append(self._build_collapsible_card("voice_effects", "Voice Effects", vfx_card, expanded=False))
 
         # Mic Test card
         test_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -773,6 +825,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._test_duration_selector.set_selected_index(0)
         self._test_duration_selector.connect("device-changed", self._on_test_duration_changed)
         test_row.append(self._test_duration_selector)
+
+        self._test_source_selector = DeviceSelector("Source")
+        self._test_source_selector.set_devices([
+            {"name": "Processed", "device": "processed"},
+            {"name": "Original", "device": "original"},
+        ])
+        self._test_source_selector.set_selected_index(0)
+        self._test_source_selector.connect("device-changed", self._on_test_source_changed)
+        test_row.append(self._test_source_selector)
 
         self._test_rec_btn = Gtk.Button(label="Record 30s")
         self._test_rec_btn.add_css_class("flat")
@@ -792,7 +853,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         test_row.append(self._test_status)
 
         test_card.append(test_row)
-        box.append(_collapsible_card("Mic Test", test_card, expanded=False))
+        box.append(self._build_collapsible_card("mic_test", "Mic Test", test_card, expanded=False))
 
         # Speaker card
         spk_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -805,7 +866,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._speaker_toggle = EffectToggle("Noise Removal", "Remove noise from incoming audio")
         self._speaker_toggle.connect("toggled", self._on_speaker_toggled)
         spk_card.append(self._speaker_toggle)
-        box.append(_collapsible_card("Speakers", spk_card, expanded=True))
+        box.append(self._build_collapsible_card("speakers", "Speakers", spk_card, expanded=True))
 
         box.append(Gtk.Box(vexpand=True))  # spacer
 
@@ -1333,11 +1394,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._vfx_gpu_toggle.set_sensitive(active)
         for slider in self._vfx_sliders.values():
             slider.set_sensitive(active)
+        if active:
+            self._sync_voice_fx_ui_from_config()
 
     def _on_vfx_preset(self, selector, preset_name):
-        from nvbroadcast.audio.voice_fx import VOICE_PRESETS
-        if preset_name in VOICE_PRESETS:
-            preset = VOICE_PRESETS[preset_name]
+        from nvbroadcast.audio.voice_fx import get_voice_fx_preset
+        preset = get_voice_fx_preset(preset_name)
+        if preset is not None:
             self._app.set_voice_fx_preset(preset_name)
             # Update sliders
             for key, slider in self._vfx_sliders.items():
@@ -1350,6 +1413,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.set_voice_fx_param(key, value)
 
     # --- Mic Test ---
+    def _on_test_source_changed(self, selector, source):
+        if hasattr(self, "_mic_test") and self._mic_test.is_recording:
+            return
+        if source == "processed":
+            self._test_status.set_text("Processed test records the meeting mic output.")
+        else:
+            self._test_status.set_text("Original test records the raw microphone.")
+
     def _on_test_duration_changed(self, selector, duration):
         if hasattr(self, "_mic_test") and self._mic_test.is_recording:
             return
@@ -1369,16 +1440,23 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         mic = self._mic_selector.get_selected_device() or ""
         duration = int(self._test_duration_selector.get_selected_device() or "30")
+        source_mode = self._test_source_selector.get_selected_device() or "processed"
+        if source_mode == "processed":
+            if not (self._app.config.audio.noise_removal or self._app.config.audio.voice_fx_enabled):
+                self._test_status.set_text("Enable Noise Removal or Voice Effects for Processed test.")
+                return
+            mic = "nvbroadcast_mic"
         self._test_rec_btn.set_sensitive(True)
         self._test_rec_btn.set_label("Stop Recording")
         self._test_play_btn.set_sensitive(False)
-        self._test_status.set_text(f"Recording for up to {duration}s...")
+        label = "Processed" if source_mode == "processed" else "Original"
+        self._test_status.set_text(f"Recording {label.lower()} sample for up to {duration}s...")
 
         def on_done():
             self._test_rec_btn.set_sensitive(True)
             self._test_rec_btn.set_label(f"Record {duration}s")
             self._test_play_btn.set_sensitive(True)
-            self._test_status.set_text("Recorded. Click Play.")
+            self._test_status.set_text(f"{label} sample ready. Click Play.")
 
         self._mic_test.start_recording(mic, duration=duration, on_complete=on_done)
 
@@ -1399,6 +1477,23 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._test_status.set_text("Ready")
 
         self._mic_test.play_recording(speaker_device=speaker, on_complete=on_done)
+
+    def _sync_voice_fx_ui_from_config(self):
+        a = self._app.config.audio
+        for i, preset in enumerate(getattr(self._vfx_preset, "_devices", [])):
+            if preset["device"] == a.voice_fx_preset:
+                self._vfx_preset.set_selected_index(i)
+                break
+        voice_values = {
+            "bass_boost": a.voice_fx_bass_boost,
+            "treble": a.voice_fx_treble,
+            "warmth": a.voice_fx_warmth,
+            "compression": a.voice_fx_compression,
+            "gate_threshold": a.voice_fx_gate_threshold,
+            "gain": a.voice_fx_gain,
+        }
+        for key, slider in self._vfx_sliders.items():
+            slider._scale.set_value(voice_values.get(key, 0.0))
 
     # --- VU Meter ---
     def _start_vu_meter(self):
@@ -1468,6 +1563,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         from nvbroadcast.core.config import load_profile, save_config
         loaded = load_profile(name)
         if loaded:
+            loaded.ui_card_expanded = dict(self._app.config.ui_card_expanded)
             self._app.config = loaded
             self._app.config.current_profile = name
             save_config(self._app.config)
@@ -1573,21 +1669,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._vfx_preset.set_sensitive(a.voice_fx_enabled)
         self._vfx_gpu_toggle.active = a.voice_fx_use_gpu
         self._vfx_gpu_toggle.set_sensitive(a.voice_fx_enabled)
-        for i, preset in enumerate(getattr(self._vfx_preset, "_devices", [])):
-            if preset["device"] == a.voice_fx_preset:
-                self._vfx_preset.set_selected_index(i)
-                break
-        voice_values = {
-            "bass_boost": a.voice_fx_bass_boost,
-            "treble": a.voice_fx_treble,
-            "warmth": a.voice_fx_warmth,
-            "compression": a.voice_fx_compression,
-            "gate_threshold": a.voice_fx_gate_threshold,
-            "gain": a.voice_fx_gain,
-        }
-        for key, slider in self._vfx_sliders.items():
+        self._sync_voice_fx_ui_from_config()
+        for slider in self._vfx_sliders.values():
             slider.set_sensitive(a.voice_fx_enabled)
-            slider._scale.set_value(voice_values.get(key, 0.0))
         if a.mic_device:
             for i, mic in enumerate(getattr(self._mic_selector, "_devices", [])):
                 if mic["device"] == a.mic_device:
@@ -1621,7 +1705,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _update_gpu_info(self):
         gpus = detect_gpus()
         if gpus:
-            compute = select_compute_gpu(gpus)
+            compute = select_compute_gpu(gpus, self._app.config.compute_gpu)
             lines = [
                 f"GPU {g.index}: {g.name}"
                 f"{' [Compute]' if compute and g.index == compute.index else ' [Display]'}"
@@ -1642,6 +1726,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         )
 
         self.sync_video_input_controls(config)
+        self._sync_card_states(config)
+        if self._gpu_selector is not None:
+            self._gpu_selector.set_selected_index(config.compute_gpu)
+        self._update_gpu_info()
 
         # Model (0=rvm, 1=isnet, 2=birefnet)
         model_map = {"rvm": 0, "isnet": 1, "birefnet": 2}
@@ -1719,21 +1807,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._vfx_preset.set_sensitive(a.voice_fx_enabled)
         self._vfx_gpu_toggle.active = a.voice_fx_use_gpu
         self._vfx_gpu_toggle.set_sensitive(a.voice_fx_enabled)
-        for i, preset in enumerate(getattr(self._vfx_preset, "_devices", [])):
-            if preset["device"] == a.voice_fx_preset:
-                self._vfx_preset.set_selected_index(i)
-                break
-        voice_values = {
-            "bass_boost": a.voice_fx_bass_boost,
-            "treble": a.voice_fx_treble,
-            "warmth": a.voice_fx_warmth,
-            "compression": a.voice_fx_compression,
-            "gate_threshold": a.voice_fx_gate_threshold,
-            "gain": a.voice_fx_gain,
-        }
-        for key, slider in self._vfx_sliders.items():
+        self._sync_voice_fx_ui_from_config()
+        for slider in self._vfx_sliders.values():
             slider.set_sensitive(a.voice_fx_enabled)
-            slider._scale.set_value(voice_values.get(key, 0.0))
         if a.speaker_device:
             for i, speaker in enumerate(getattr(self._speaker_selector, "_devices", [])):
                 if speaker["device"] == a.speaker_device:

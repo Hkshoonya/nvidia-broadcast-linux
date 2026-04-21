@@ -33,6 +33,40 @@ class VoiceFXSettings:
     gain: float = 0.0             # -1.0 to 1.0 (output volume adjustment)
 
 
+def clone_voice_fx_settings(settings: "VoiceFXSettings") -> "VoiceFXSettings":
+    """Return a detached copy of a settings object."""
+    return VoiceFXSettings(
+        bass_boost=settings.bass_boost,
+        treble=settings.treble,
+        warmth=settings.warmth,
+        compression=settings.compression,
+        gate_threshold=settings.gate_threshold,
+        gain=settings.gain,
+    )
+
+
+def normalize_voice_fx_preset_name(preset_name: str | None) -> str:
+    """Normalize legacy preset names to the current UI-facing presets."""
+    if not preset_name:
+        return "Flat"
+    if preset_name == "Natural":
+        return "Flat"
+    return preset_name
+
+
+def is_flat_voice_fx_settings(settings: "VoiceFXSettings", tol: float = 1e-6) -> bool:
+    """Return whether the settings are effectively a no-op."""
+    values = (
+        settings.bass_boost,
+        settings.treble,
+        settings.warmth,
+        settings.compression,
+        settings.gate_threshold,
+        settings.gain,
+    )
+    return all(abs(value) <= tol for value in values)
+
+
 class VoiceFX:
     """Real-time voice effects processor."""
 
@@ -65,7 +99,12 @@ class VoiceFX:
     def enabled(self, value: bool):
         self._enabled = value
 
-    def process_chunk(self, audio: np.ndarray, sample_rate: int = 48000) -> np.ndarray:
+    def process_chunk(
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        gate_reference: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Process an audio chunk with all enabled effects.
 
         Uses GPU (CuPy) when available for batch processing all effects
@@ -81,10 +120,13 @@ class VoiceFX:
         if not self._enabled:
             return audio
 
+        if gate_reference is None:
+            gate_reference = audio
+
         # GPU path: upload once, process all, download once
         if self._use_gpu and _HAS_CUPY and len(audio) > 512:
             try:
-                return self._process_gpu(audio, sample_rate)
+                return self._process_gpu(audio, sample_rate, gate_reference)
             except Exception:
                 pass  # Fall through to CPU
 
@@ -93,7 +135,7 @@ class VoiceFX:
 
         # Noise gate — silence audio below threshold
         if s.gate_threshold > 0:
-            result = self._noise_gate(result, s.gate_threshold)
+            result = self._noise_gate(result, s.gate_threshold, gate_reference)
 
         # Bass boost/cut — low-shelf filter at ~200Hz
         if abs(s.bass_boost) > 0.01:
@@ -119,18 +161,21 @@ class VoiceFX:
         # Clip to prevent distortion
         return np.clip(result, -1.0, 1.0)
 
-    def _process_gpu(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+    def _process_gpu(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        gate_reference: np.ndarray | None = None,
+    ) -> np.ndarray:
         """GPU batch processing — all effects in one upload/download cycle."""
         s = self.settings
         d = cp.asarray(audio, dtype=cp.float32)
 
         # Noise gate
         if s.gate_threshold > 0:
-            thresh_db = -60 + s.gate_threshold * 40
-            thresh_linear = 10 ** (thresh_db / 20)
-            rms = float(cp.sqrt(cp.mean(d ** 2)))
-            if rms < thresh_linear:
-                d = d * 0.01
+            reference = audio if gate_reference is None else gate_reference
+            threshold_linear = self._gate_threshold_linear(s.gate_threshold)
+            d = d * self._gate_gain(self._reference_rms(reference), threshold_linear)
 
         # Warmth (GPU-friendly — no state)
         if s.warmth > 0.01:
@@ -156,15 +201,38 @@ class VoiceFX:
 
         return np.clip(result, -1.0, 1.0).astype(np.float32)
 
-    def _noise_gate(self, audio: np.ndarray, threshold: float) -> np.ndarray:
-        """Simple noise gate — zero out audio below threshold."""
-        # Threshold maps 0-1 to -60dB to -20dB
+    @staticmethod
+    def _gate_threshold_linear(threshold: float) -> float:
+        """Map a 0..1 gate control to a conservative linear threshold."""
         thresh_db = -60 + threshold * 40
-        thresh_linear = 10 ** (thresh_db / 20)
-        rms = np.sqrt(np.mean(audio ** 2))
-        if rms < thresh_linear:
-            return audio * 0.01  # Near-silent, not hard zero (avoids clicks)
-        return audio
+        return 10 ** (thresh_db / 20)
+
+    @staticmethod
+    def _reference_rms(reference_audio: np.ndarray) -> float:
+        """Compute an RMS level used for gate decisions."""
+        if reference_audio.size == 0:
+            return 0.0
+        return float(np.sqrt(np.mean(reference_audio.astype(np.float64) ** 2)))
+
+    @staticmethod
+    def _gate_gain(rms: float, threshold_linear: float) -> float:
+        """Return a soft gate gain based on the reference RMS."""
+        if threshold_linear <= 0 or rms >= threshold_linear:
+            return 1.0
+        ratio = max(rms / threshold_linear, 0.0)
+        return max(0.1, ratio * ratio)
+
+    def _noise_gate(
+        self,
+        audio: np.ndarray,
+        threshold: float,
+        reference_audio: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Simple noise gate — attenuate only when the reference level is quiet."""
+        reference = audio if reference_audio is None else reference_audio
+        thresh_linear = self._gate_threshold_linear(threshold)
+        rms = self._reference_rms(reference)
+        return audio * self._gate_gain(rms, thresh_linear)
 
     def _bass_filter(self, audio: np.ndarray, amount: float,
                      sample_rate: int) -> np.ndarray:
@@ -227,25 +295,36 @@ class VoiceFX:
 
 # Presets for common use cases
 VOICE_PRESETS = {
-    "Natural": VoiceFXSettings(),
+    "Flat": VoiceFXSettings(),
     "Radio": VoiceFXSettings(
         bass_boost=0.3, treble=0.2, warmth=0.3,
-        compression=0.5, gate_threshold=0.2, gain=0.1
+        compression=0.5, gate_threshold=0.1, gain=0.1
     ),
     "Podcast": VoiceFXSettings(
         bass_boost=0.2, treble=0.1, warmth=0.2,
-        compression=0.6, gate_threshold=0.3, gain=0.0
+        compression=0.6, gate_threshold=0.12, gain=0.0
     ),
     "Deep Voice": VoiceFXSettings(
         bass_boost=0.6, treble=-0.2, warmth=0.4,
-        compression=0.3, gate_threshold=0.1, gain=0.1
+        compression=0.3, gate_threshold=0.08, gain=0.1
     ),
     "Bright": VoiceFXSettings(
         bass_boost=-0.1, treble=0.5, warmth=0.0,
-        compression=0.2, gate_threshold=0.1, gain=0.0
+        compression=0.2, gate_threshold=0.08, gain=0.0
     ),
     "Studio": VoiceFXSettings(
         bass_boost=0.15, treble=0.15, warmth=0.25,
-        compression=0.7, gate_threshold=0.25, gain=0.05
+        compression=0.7, gate_threshold=0.0, gain=0.05
     ),
 }
+
+DEFAULT_VOICE_FX_PRESET = "Studio"
+
+
+def get_voice_fx_preset(preset_name: str | None) -> VoiceFXSettings | None:
+    """Return a copied preset definition by name, handling legacy aliases."""
+    normalized = normalize_voice_fx_preset_name(preset_name)
+    preset = VOICE_PRESETS.get(normalized)
+    if preset is None:
+        return None
+    return clone_voice_fx_settings(preset)
