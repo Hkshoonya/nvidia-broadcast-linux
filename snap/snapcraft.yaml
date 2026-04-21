@@ -1,7 +1,7 @@
 name: nvbroadcast
 base: core24
-version: '1.1.3'
-summary: Meeting-first live quality update with adaptive tuning
+version: '1.1.4'
+summary: Audio and packaging reliability patch for meetings
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
@@ -9,14 +9,15 @@ description: |
   local meeting transcription into one app.
 
   Recommended stable update:
-  - v1.1.3 reduces visible live delay by keeping the newest video frames
-    instead of letting stale frames build up under load.
-  - Auto - Adaptive now persists properly, warns on very weak devices, and can
-    recommend lighter capture settings when real-time performance collapses.
-  - Relighting is now fill-light biased, eye contact is safer for meetings, and
-    the processed microphone is exposed as "nvbroadcast" for meeting apps.
-  - Speaker denoise now honors the selected output device instead of relying on
-    whichever sink autoaudiosink guessed at runtime.
+  - v1.1.4 stabilizes the processed nvbroadcast microphone for browser and
+    meeting app compatibility on Linux.
+  - Packaged installs now ship the local meeting transcription runtime more
+    consistently, and the optional runtime installer validates imports
+    correctly before claiming Whisper is ready.
+  - Saved meeting finalization no longer depends on an external ffmpeg binary
+    for the app's own WAV capture path.
+  - Release smoke and CI packaging checks now cover the meeting runtime path
+    and are opted into Node 24 ahead of the GitHub Actions runtime migration.
 
   Core features:
   - Blur your background
@@ -77,6 +78,7 @@ parts:
       - mediapipe
       - onnxruntime
       - onnx
+      - openai-whisper
       - scipy
       - pyrnnoise
       - psutil

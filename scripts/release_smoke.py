@@ -61,6 +61,7 @@ def main() -> int:
             "tests.test_dependency_installer",
             "tests.test_background_overlay",
             "tests.test_meeting_store",
+            "tests.test_packaging_metadata",
             "tests.test_summarizer",
             "tests.test_training_bundle",
             "tests.test_transcriber",

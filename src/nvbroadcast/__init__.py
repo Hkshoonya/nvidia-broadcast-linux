@@ -18,7 +18,7 @@ replacement, auto-framing, video enhancement, and noise cancellation.
 Created by doczeus (https://github.com/Hkshoonya)
 """
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 __author__ = "doczeus"
 __license__ = "GPL-3.0"
 __url__ = "https://github.com/Hkshoonya/nvidia-broadcast-linux"

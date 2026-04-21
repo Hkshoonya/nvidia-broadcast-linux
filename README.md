@@ -42,6 +42,16 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.4 — Audio and Packaging Reliability Patch
+
+- **Browser-Safe Processed Mic** — The Linux `nvbroadcast` microphone path is now stable for Chrome, Discord, Meet, and similar apps instead of hanging or opening with silence
+- **Meeting Runtime Fixed** — The optional Whisper runtime installer now validates real imports before claiming success and includes the missing `httpx` dependency
+- **Packaged Meeting Runtime** — Release installers now bundle the local meeting transcription runtime more consistently so packaged installs do not depend on the in-app runtime path as often
+- **No External `ffmpeg` Requirement For Saved Meetings** — The app now reads its own saved WAV meeting capture directly for the final transcript pass
+- **Release Checks Tightened** — Packaging CI is opted into Node 24 early, and release smoke now covers dependency-installer, transcriber, summarizer, meeting-store, and packaging metadata checks
+
+> If you are still on `v1.1.3` or older, update to `v1.1.4`. This is the recommended stable patch for meeting audio reliability and packaged runtime consistency.
+
 ### v1.1.3 — Meeting-First Live Quality Update
 
 - **Lower Visible Delay** — Live video now prefers the newest frames instead of letting stale buffers build up, which reduces the odd “lips move late” effect in meetings
@@ -384,6 +394,8 @@ sudo snap install nvbroadcast
 
 Snap users typically receive background refreshes from `snapd`. When the app sees a newer stable release, the in-app update button opens the Snap Store listing so the user can move directly into the store-managed upgrade path.
 
+Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
+
 ### Linux Installer Details
 
 The installer:
@@ -550,7 +562,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.3)
+│   ├── __init__.py              # Package version (1.1.4)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -583,7 +595,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.3)
+├── pyproject.toml               # Package config (v1.1.4)
 └── README.md
 ```
 

@@ -409,9 +409,10 @@ class MeetingTranscriber:
                 f"[Transcriber] Final pass backend: {backend} "
                 f"({model_name}, {device_name})"
             )
+            source = self._load_audio_source(audio_path)
             future = executor.submit(
                 _decode_with_worker,
-                audio_path,
+                source,
                 0.0,
                 False,
                 self._language,
@@ -423,6 +424,33 @@ class MeetingTranscriber:
             return [TranscriptSegment(**seg) for seg in segments]
         finally:
             executor.shutdown(wait=True, cancel_futures=True)
+
+    def _load_audio_source(self, audio_path: str) -> np.ndarray | str:
+        """Load meeting WAV files directly so final passes do not depend on ffmpeg."""
+        if audio_path.lower().endswith(".wav"):
+            audio, sample_rate = self._read_wav_file(audio_path)
+            return self._prepare_audio(audio, sample_rate)
+        return audio_path
+
+    def _read_wav_file(self, audio_path: str) -> tuple[np.ndarray, int]:
+        with wave.open(audio_path, "rb") as wav_file:
+            channels = max(1, wav_file.getnchannels())
+            sample_width = wav_file.getsampwidth()
+            sample_rate = wav_file.getframerate() or self._sample_rate
+            frames = wav_file.readframes(wav_file.getnframes())
+
+        if sample_width == 1:
+            audio = (np.frombuffer(frames, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+        elif sample_width == 2:
+            audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+        elif sample_width == 4:
+            audio = np.frombuffer(frames, dtype=np.int32).astype(np.float32) / 2147483648.0
+        else:
+            raise ValueError(f"Unsupported WAV sample width: {sample_width}")
+
+        if channels > 1:
+            audio = audio.reshape(-1, channels).mean(axis=1)
+        return audio.astype(np.float32, copy=False), sample_rate
 
     def _prepare_audio(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
         """Resample, de-bias, and normalize speech before decode."""

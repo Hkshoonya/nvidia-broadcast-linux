@@ -15,6 +15,8 @@ fi
 # Install Python dependencies
 "$VENV_DIR/bin/pip" install --upgrade pip -q
 "$VENV_DIR/bin/pip" install "$INSTALL_DIR" -q
+"$VENV_DIR/bin/pip" install openai-whisper -q 2>/dev/null || \
+    echo "NV Broadcast: openai-whisper install failed (meeting transcription may require in-app runtime install)"
 
 # Install CuPy if NVIDIA GPU detected
 if command -v nvidia-smi &>/dev/null; then

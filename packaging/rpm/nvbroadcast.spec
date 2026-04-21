@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.3
+Version:        1.1.4
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -116,6 +116,7 @@ if [ ! -d /opt/nvbroadcast/.venv ]; then
 fi
 /opt/nvbroadcast/.venv/bin/pip install --upgrade pip -q
 /opt/nvbroadcast/.venv/bin/pip install /opt/nvbroadcast -q
+/opt/nvbroadcast/.venv/bin/pip install openai-whisper -q 2>/dev/null || true
 
 # Install CuPy if NVIDIA GPU present
 if command -v nvidia-smi &>/dev/null; then
@@ -142,6 +143,13 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Mon Apr 21 2026 doczeus <harshit@kshoonya.com> - 1.1.4-1
+- Stabilize Linux processed-mic routing for browser and meeting app compatibility
+- Fix optional meeting runtime validation and include the missing httpx dependency
+- Package the local meeting transcription runtime for release installers
+- Remove saved-meeting final-pass dependence on an external ffmpeg binary
+- Opt GitHub Actions packaging workflows into Node 24 ahead of runner migration
+
 * Fri Apr 17 2026 doczeus <harshit@kshoonya.com> - 1.1.3-1
 - Improve live meeting quality with adaptive mode and safer low-FPS fallback
 - Reduce perceived lip-sync lag by preferring fresh frames over stale buffered video

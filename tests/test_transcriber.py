@@ -1,4 +1,7 @@
 import unittest
+import wave
+from pathlib import Path
+import tempfile
 from unittest import mock
 
 import numpy as np
@@ -119,6 +122,25 @@ class MeetingTranscriberTests(unittest.TestCase):
         transcriber = MeetingTranscriber("base", final_model_size="small")
         with mock.patch.object(transcriber, "_estimate_audio_duration", return_value=4000.0):
             self.assertEqual(transcriber._select_final_model("/tmp/fake.wav"), "small")
+
+    def test_load_audio_source_reads_wav_without_external_decoder(self):
+        transcriber = MeetingTranscriber("base")
+        samples = np.array([0, 16384, -16384, 8192], dtype=np.int16)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav_path = Path(tmpdir) / "meeting.wav"
+            with wave.open(str(wav_path), "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(16000)
+                wav_file.writeframes(samples.tobytes())
+
+            source = transcriber._load_audio_source(str(wav_path))
+
+        self.assertIsInstance(source, np.ndarray)
+        self.assertEqual(source.dtype, np.float32)
+        self.assertEqual(source.shape[0], samples.shape[0])
+        self.assertTrue(np.isfinite(source).all())
 
 
 if __name__ == "__main__":
