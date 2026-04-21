@@ -58,8 +58,12 @@ def main() -> int:
             str(PYTHON), "-m", "unittest", "-v",
             "tests.test_updates",
             "tests.test_audio_devices",
+            "tests.test_dependency_installer",
             "tests.test_background_overlay",
+            "tests.test_meeting_store",
+            "tests.test_summarizer",
             "tests.test_training_bundle",
+            "tests.test_transcriber",
         ],
         "unit tests",
     )

@@ -12,7 +12,7 @@ back to GTK, and keeps the rest of the app usable while dependencies download.
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import re
 import subprocess
 import sys
@@ -36,10 +36,13 @@ def _has_cupy() -> bool:
 
 
 def _has_whisper() -> bool:
-    return (
-        importlib.util.find_spec("faster_whisper") is not None
-        or importlib.util.find_spec("whisper") is not None
-    )
+    for module_name in ("faster_whisper", "whisper"):
+        try:
+            importlib.import_module(module_name)
+            return True
+        except Exception:
+            continue
+    return False
 
 
 def _supports_cuda_runtime() -> bool:
@@ -104,6 +107,7 @@ PACKAGE_SPECS = {
             "faster-whisper",
             "ctranslate2",
             "huggingface-hub",
+            "httpx",
             "tokenizers",
             "soundfile",
         ],
@@ -112,7 +116,7 @@ PACKAGE_SPECS = {
         "verify": _has_whisper,
         "help": (
             "Retry later with: .venv/bin/pip install --no-deps "
-            "faster-whisper ctranslate2 huggingface-hub tokenizers soundfile"
+            "faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile"
         ),
     },
 }
