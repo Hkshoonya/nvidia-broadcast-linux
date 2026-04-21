@@ -1,5 +1,34 @@
 import unittest
+import sys
+import types
 from unittest import mock
+
+
+if "gi" not in sys.modules:
+    gi = types.ModuleType("gi")
+    repository = types.ModuleType("gi.repository")
+
+    class _DummyGObjectModule:
+        class Object:
+            pass
+
+        class SignalFlags:
+            RUN_FIRST = 0
+
+    class _DummyGLibModule:
+        @staticmethod
+        def idle_add(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+    def _require_version(*_args, **_kwargs):
+        return None
+
+    gi.require_version = _require_version
+    repository.GObject = _DummyGObjectModule
+    repository.GLib = _DummyGLibModule
+    gi.repository = repository
+    sys.modules["gi"] = gi
+    sys.modules["gi.repository"] = repository
 
 from nvbroadcast.core import dependency_installer
 

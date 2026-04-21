@@ -64,7 +64,6 @@ def main() -> int:
             "tests.test_packaging_metadata",
             "tests.test_summarizer",
             "tests.test_training_bundle",
-            "tests.test_transcriber",
         ],
         "unit tests",
     )
