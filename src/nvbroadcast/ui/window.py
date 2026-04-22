@@ -23,7 +23,7 @@ from nvbroadcast.video.virtual_camera import (
     list_camera_devices, list_camera_modes,
     get_firefox_profiles, is_firefox_pipewire_disabled, set_firefox_pipewire,
 )
-from nvbroadcast.core.platform import has_tensorrt_runtime
+from nvbroadcast.core.platform import has_tensorrt_runtime, supports_tensorrt_python
 from nvbroadcast.core.resources import find_app_icon
 
 
@@ -1035,7 +1035,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
             missing = self._app.dependency_installer.missing_for_mode(mode_key)
             if unsupported:
-                label += " (not available on this system)"
+                if mode_key in ("zeus", "killer") and not supports_tensorrt_python():
+                    label += " (requires Python 3.8-3.13)"
+                else:
+                    label += " (not available on this system)"
                 devices.append({"name": label, "device": mode_key})
                 continue
             if not has_cuda and mode_key.startswith(("doczeus", "cuda_", "zeus", "killer")):

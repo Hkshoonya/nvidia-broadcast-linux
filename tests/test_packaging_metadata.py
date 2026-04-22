@@ -11,6 +11,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("pip install tensorrt-cu12", install_script)
         self.assertNotIn("tensorrt-cu12-bindings", install_script)
         self.assertNotIn("tensorrt-cu12-libs", install_script)
+        self.assertIn("requires Python 3.8-3.13", install_script)
 
     def test_debian_postinst_installs_meeting_runtime(self):
         postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()

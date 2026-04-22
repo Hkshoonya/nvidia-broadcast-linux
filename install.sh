@@ -486,9 +486,11 @@ echo ""
 
 # TensorRT (Zeus/Killer inference optimization)
 TRT_INSTALLED=false
+TRT_SUPPORTED=false
 if "$VENV_DIR/bin/python" -c "import tensorrt" 2>/dev/null; then
     echo "  [installed] TensorRT — Optimized inference for Zeus/Killer modes"
     TRT_INSTALLED=true
+    TRT_SUPPORTED=true
 else
     echo "  2) TensorRT (~4GB) — Unlocks:"
     echo "     - Optimized model inference (future TRT engine support)"
@@ -496,6 +498,7 @@ else
     echo ""
     if [ "$HAS_NVIDIA" = true ]; then
         if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 8 ] && [ "$PY_MINOR" -le 13 ]; then
+            TRT_SUPPORTED=true
             read -rp "  Install TensorRT? [y/N] " install_trt
             install_trt="${install_trt:-N}"
             if [[ "$install_trt" =~ ^[Yy]$ ]]; then
@@ -524,7 +527,13 @@ echo ""
 # Summary of optional packages
 echo "  Optional packages summary:"
 echo "    CuPy:     $( [ "$CUPY_INSTALLED" = true ] && echo "INSTALLED (Killer/Zeus/DocZeus modes)" || echo "NOT INSTALLED (CPU modes only)" )"
-echo "    TensorRT: $( [ "$TRT_INSTALLED" = true ] && echo "INSTALLED (optimized inference)" || echo "NOT INSTALLED (standard CUDA inference)" )"
+if [ "$TRT_INSTALLED" = true ]; then
+    echo "    TensorRT: INSTALLED (optimized inference)"
+elif [ "$TRT_SUPPORTED" = true ]; then
+    echo "    TensorRT: NOT INSTALLED (optional for Zeus/Killer)"
+else
+    echo "    TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
+fi
 
 # Set compositing based on what's installed
 if [ "$CUPY_INSTALLED" = true ]; then
@@ -735,12 +744,23 @@ echo ""
 echo "  System: $DISTRO_NAME ($PKG_MANAGER)"
 echo "  Compositing: $COMPOSITING"
 echo "  CuPy: $( [ "$CUPY_INSTALLED" = true ] && echo "YES (Killer/Zeus/DocZeus modes)" || echo "NO (install later for GPU modes)" )"
-echo "  TensorRT: $( [ "$TRT_INSTALLED" = true ] && echo "YES" || echo "NO (install later for optimized inference)" )"
+if [ "$TRT_INSTALLED" = true ]; then
+    echo "  TensorRT: YES"
+elif [ "$TRT_SUPPORTED" = true ]; then
+    echo "  TensorRT: NO (install later for Zeus/Killer optimization)"
+else
+    echo "  TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
+fi
 echo ""
 echo "  Available modes:"
 if [ "$CUPY_INSTALLED" = true ]; then
-    echo "    Killer  — 48fps fused CUDA (fastest)"
-    echo "    Zeus    — 33fps GPU-optimized"
+    if [ "$TRT_SUPPORTED" = true ]; then
+        echo "    Killer  — 48fps fused CUDA (fastest)"
+        echo "    Zeus    — 33fps GPU-optimized"
+    else
+        echo "    Killer  — unavailable on Python $PY_VER (TensorRT requires 3.8-3.13)"
+        echo "    Zeus    — unavailable on Python $PY_VER (TensorRT requires 3.8-3.13)"
+    fi
     echo "    DocZeus — 23fps full quality + fused kernel"
 fi
 echo "    CUDA Max/Balanced/Perf — standard GPU modes"
