@@ -24,7 +24,14 @@ import gi
 gi.require_version("GObject", "2.0")
 from gi.repository import GObject, GLib
 
-from nvbroadcast.core.platform import IS_ARM64, IS_LINUX, has_tensorrt_runtime, supports_linux_gpu_stack
+from nvbroadcast.core.platform import (
+    IS_ARM64,
+    IS_LINUX,
+    has_tensorrt_runtime,
+    supports_linux_gpu_stack,
+    supports_tensorrt_python,
+    tensorrt_python_unsupported_reason,
+)
 
 
 def _has_cupy() -> bool:
@@ -47,6 +54,10 @@ def _has_whisper() -> bool:
 
 def _supports_cuda_runtime() -> bool:
     return supports_linux_gpu_stack()
+
+
+def _supports_tensorrt_runtime() -> bool:
+    return supports_linux_gpu_stack() and supports_tensorrt_python()
 
 
 def _verify_cupy() -> bool:
@@ -85,11 +96,14 @@ PACKAGE_SPECS = {
             "for faster ONNX execution."
         ),
         "install_args": ["install", "tensorrt-cu12"],
-        "supported": _supports_cuda_runtime,
+        "supported": _supports_tensorrt_runtime,
         "check": has_tensorrt_runtime,
         "verify": has_tensorrt_runtime,
         "help": "Retry later with: .venv/bin/pip install tensorrt-cu12",
-        "unsupported_reason": "TensorRT premium modes are currently available only on Linux x86_64 systems.",
+        "unsupported_reason": (
+            "TensorRT premium modes are currently available only on Linux x86_64 "
+            "with Python 3.8-3.13."
+        ),
     },
     "whisper": {
         "title": "Meeting Transcription Runtime",
@@ -194,6 +208,11 @@ class DependencyInstaller(GObject.Object):
             and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
         ):
             return "GPU CUDA and TensorRT modes are not available on Linux arm64 yet. Use CPU modes for now."
+        if mode_key in ("zeus", "killer") and not supports_tensorrt_python():
+            return (
+                f"{tensorrt_python_unsupported_reason()} "
+                "Use DocZeus or the CUDA modes instead."
+            )
         return None
 
     def missing_for_mode(self, mode_key: str) -> list[str]:

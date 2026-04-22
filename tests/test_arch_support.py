@@ -3,7 +3,11 @@ from unittest import mock
 
 from nvbroadcast.core.config import detect_compositing_backends, detect_system_capabilities
 from nvbroadcast.core.dependency_installer import DependencyInstaller
-from nvbroadcast.core.platform import linux_multiarch_triplet
+from nvbroadcast.core.platform import (
+    linux_multiarch_triplet,
+    supports_tensorrt_python,
+    tensorrt_python_unsupported_reason,
+)
 
 
 class ArchSupportTests(unittest.TestCase):
@@ -43,6 +47,22 @@ class ArchSupportTests(unittest.TestCase):
             reason = installer.unsupported_reason_for_mode("doczeus")
         self.assertIsNotNone(reason)
         self.assertIn("Linux arm64", reason)
+
+    def test_tensorrt_python_support_range(self):
+        self.assertTrue(supports_tensorrt_python((3, 13)))
+        self.assertFalse(supports_tensorrt_python((3, 14)))
+
+    def test_tensorrt_modes_report_python_version_unsupported(self):
+        installer = DependencyInstaller()
+        with mock.patch("nvbroadcast.core.dependency_installer.supports_tensorrt_python", return_value=False), \
+             mock.patch(
+                 "nvbroadcast.core.dependency_installer.tensorrt_python_unsupported_reason",
+                 return_value=tensorrt_python_unsupported_reason((3, 14)),
+             ):
+            reason = installer.unsupported_reason_for_mode("zeus")
+        self.assertIsNotNone(reason)
+        self.assertIn("Python 3.14", reason)
+        self.assertIn("DocZeus", reason)
 
 
 if __name__ == "__main__":

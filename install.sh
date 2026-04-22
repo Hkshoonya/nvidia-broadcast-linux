@@ -495,19 +495,25 @@ else
     echo "     - Potential 2-5x inference speedup on supported models"
     echo ""
     if [ "$HAS_NVIDIA" = true ]; then
-        read -rp "  Install TensorRT? [y/N] " install_trt
-        install_trt="${install_trt:-N}"
-        if [[ "$install_trt" =~ ^[Yy]$ ]]; then
-            echo "  Installing TensorRT (this may take several minutes)..."
-            if "$VENV_DIR/bin/pip" install tensorrt tensorrt-cu12 tensorrt-cu12-bindings tensorrt-cu12-libs onnx -q 2>&1; then
-                echo "  TensorRT installed!"
-                TRT_INSTALLED=true
+        if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 8 ] && [ "$PY_MINOR" -le 13 ]; then
+            read -rp "  Install TensorRT? [y/N] " install_trt
+            install_trt="${install_trt:-N}"
+            if [[ "$install_trt" =~ ^[Yy]$ ]]; then
+                echo "  Installing TensorRT (this may take several minutes)..."
+                if "$VENV_DIR/bin/pip" install tensorrt-cu12 onnx -q 2>&1; then
+                    echo "  TensorRT installed!"
+                    TRT_INSTALLED=true
+                else
+                    echo "  WARNING: TensorRT installation failed. Skipping."
+                    echo "  Retry later: $VENV_DIR/bin/pip install tensorrt-cu12"
+                fi
             else
-                echo "  WARNING: TensorRT installation failed. Skipping."
-                echo "  Retry later: $VENV_DIR/bin/pip install tensorrt tensorrt-cu12"
+                echo "  Skipped. Install later: $VENV_DIR/bin/pip install tensorrt-cu12"
             fi
         else
-            echo "  Skipped. Install later: $VENV_DIR/bin/pip install tensorrt tensorrt-cu12 tensorrt-cu12-bindings tensorrt-cu12-libs"
+            echo "  [skipped] TensorRT wheels are not available for Python $PY_VER yet."
+            echo "            Supported Python versions: 3.8-3.13"
+            echo "            Use DocZeus or CUDA modes, or install Python 3.13 for TensorRT."
         fi
     else
         echo "  [skipped] No NVIDIA GPU detected."
@@ -749,7 +755,7 @@ echo "    Resolution Safety        — save changes without hanging the stream"
 echo ""
 echo "  To install optional packages later:"
 echo "    CuPy:     $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
-echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt tensorrt-cu12 tensorrt-cu12-bindings tensorrt-cu12-libs"
+echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt-cu12"
 echo ""
 echo "  First run:"
 if [[ ":$PATH:" != *":$INSTALL_PREFIX/bin:"* ]]; then

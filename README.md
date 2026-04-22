@@ -416,8 +416,12 @@ The installer:
 ### Optional: TensorRT (for Zeus/Killer modes)
 
 ```bash
-.venv/bin/pip install tensorrt tensorrt-cu12 onnx
+.venv/bin/pip install tensorrt-cu12 onnx
 ```
+
+TensorRT Python wheels are currently published for Python `3.8` through `3.13`
+on Linux `x86_64`. If you are on Python `3.14+`, use `DocZeus` or the CUDA
+modes instead.
 
 ### Supported Distros
 

@@ -1035,7 +1035,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
             missing = self._app.dependency_installer.missing_for_mode(mode_key)
             if unsupported:
-                label += " (not available on this architecture)"
+                label += " (not available on this system)"
                 devices.append({"name": label, "device": mode_key})
                 continue
             if not has_cuda and mode_key.startswith(("doczeus", "cuda_", "zeus", "killer")):

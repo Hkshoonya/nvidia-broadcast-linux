@@ -8,6 +8,7 @@
 import platform
 import subprocess
 import shutil
+import sys
 import ctypes
 import ctypes.util
 
@@ -28,6 +29,25 @@ def linux_multiarch_triplet() -> str:
 def supports_linux_gpu_stack() -> bool:
     """Return whether the Linux CUDA/TensorRT optional stack is supported."""
     return IS_LINUX and IS_X86_64
+
+
+def supports_tensorrt_python(version_info: tuple[int, int] | None = None) -> bool:
+    """Return whether NVIDIA publishes TensorRT Python wheels for this version."""
+    if version_info is None:
+        version_info = (sys.version_info.major, sys.version_info.minor)
+    major, minor = version_info
+    return major == 3 and 8 <= minor <= 13
+
+
+def tensorrt_python_unsupported_reason(version_info: tuple[int, int] | None = None) -> str:
+    """Human-readable reason when TensorRT wheels are unavailable for Python."""
+    if version_info is None:
+        version_info = (sys.version_info.major, sys.version_info.minor)
+    major, minor = version_info
+    return (
+        "TensorRT Python wheels are currently available only for Python 3.8-3.13 "
+        f"on Linux x86_64. This system is running Python {major}.{minor}."
+    )
 
 
 def has_nvidia_gpu() -> bool:
