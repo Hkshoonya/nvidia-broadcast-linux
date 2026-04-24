@@ -6,11 +6,14 @@
 """Effect control widgets - toggles, sliders, mode selectors, and background picker."""
 
 import os
+from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GObject, Gio
+
+from nvbroadcast.core.resources import find_bundled_backgrounds
 
 
 class EffectToggle(Adw.ActionRow):
@@ -139,6 +142,15 @@ class BackgroundImagePicker(Gtk.Box):
         lbl.set_size_request(80, -1)
         self.append(lbl)
 
+        self._bundled_paths = find_bundled_backgrounds()
+        self._bundled_model = ["Bundled examples"] + [
+            self._background_label(path) for path in self._bundled_paths
+        ]
+        self._bundled_dropdown = Gtk.DropDown.new_from_strings(self._bundled_model)
+        self._bundled_dropdown.set_selected(0)
+        self._bundled_dropdown.connect("notify::selected", self._on_bundled_changed)
+        self.append(self._bundled_dropdown)
+
         self._path_label = Gtk.Label(label="None selected")
         self._path_label.set_hexpand(True)
         self._path_label.set_xalign(0)
@@ -151,10 +163,57 @@ class BackgroundImagePicker(Gtk.Box):
         self.append(btn)
 
         self._selected_path = ""
+        if self._bundled_paths:
+            self.set_selected_path(str(self._bundled_paths[0]))
 
     @property
     def selected_path(self) -> str:
         return self._selected_path
+
+    def ensure_default_selected(self) -> str:
+        if self._selected_path:
+            return self._selected_path
+        if not self._bundled_paths:
+            return ""
+        path = str(self._bundled_paths[0])
+        self.set_selected_path(path)
+        return path
+
+    def set_selected_path(self, path: str):
+        self._selected_path = path
+        self._path_label.set_text(os.path.basename(path))
+        self._path_label.set_opacity(1.0)
+
+        selected = 0
+        try:
+            candidate = Path(path).resolve()
+        except Exception:
+            candidate = None
+
+        if candidate is not None:
+            for idx, bundled in enumerate(self._bundled_paths, start=1):
+                try:
+                    if bundled.resolve() == candidate:
+                        selected = idx
+                        break
+                except Exception:
+                    continue
+
+        if self._bundled_dropdown.get_selected() != selected:
+            self._bundled_dropdown.set_selected(selected)
+
+    def _background_label(self, path: Path) -> str:
+        return path.stem.replace("_", " ").title()
+
+    def _on_bundled_changed(self, dropdown, _pspec):
+        idx = dropdown.get_selected()
+        if idx <= 0:
+            return
+        path = str(self._bundled_paths[idx - 1])
+        if path == self._selected_path:
+            return
+        self.set_selected_path(path)
+        self.emit("image-selected", path)
 
     def _on_browse(self, button):
         """Open native file chooser dialog for image selection."""
@@ -196,9 +255,7 @@ class BackgroundImagePicker(Gtk.Box):
             gfile = dialog.open_finish(result)
             if gfile:
                 path = gfile.get_path()
-                self._selected_path = path
-                self._path_label.set_text(os.path.basename(path))
-                self._path_label.set_opacity(1.0)
+                self.set_selected_path(path)
                 self.emit("image-selected", path)
         except Exception:
             pass  # User cancelled

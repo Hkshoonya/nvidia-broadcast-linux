@@ -80,5 +80,6 @@ where = ["src"]
 "share/icons/hicolor/scalable/apps" = ["data/icons/com.doczeus.NVBroadcast.svg"]
 "share/nvbroadcast/backgrounds" = [
     "data/backgrounds/gradient_bg.png",
+    "data/backgrounds/studio_bg.png",
     "data/backgrounds/test_bg.png",
 ]

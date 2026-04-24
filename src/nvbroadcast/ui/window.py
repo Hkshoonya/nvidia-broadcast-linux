@@ -1150,10 +1150,18 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.set_quality(quality)
 
     def _on_bg_mode_changed(self, s, mode):
+        if getattr(self._app, '_restoring', False):
+            return
         self._app.set_bg_mode(mode)
         self._bg_image_picker.set_sensitive(mode == "replace")
+        if mode == "replace":
+            path = self._bg_image_picker.ensure_default_selected()
+            if path:
+                self._app.set_bg_image(path)
 
     def _on_bg_image_selected(self, p, path):
+        if getattr(self._app, '_restoring', False):
+            return
         self._app.set_bg_image(path)
 
     def _on_blur_changed(self, s, v):
@@ -1766,10 +1774,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Background image path
         if v.background_image:
-            import os
-            self._bg_image_picker._selected_path = v.background_image
-            self._bg_image_picker._path_label.set_text(os.path.basename(v.background_image))
-            self._bg_image_picker._path_label.set_opacity(1.0)
+            self._bg_image_picker.set_selected_path(v.background_image)
 
         # Sliders
         self._blur_slider._scale.set_value(v.blur_intensity)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 APP_ICON = "com.doczeus.NVBroadcast.svg"
+DEFAULT_BACKGROUND = "studio_bg.png"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -39,3 +40,28 @@ def find_app_icon() -> Path | None:
         PROJECT_ROOT / "data" / "icons" / APP_ICON,
     ]
     return _existing(share_candidates)
+
+
+def find_backgrounds_dir() -> Path | None:
+    share_candidates = [
+        Path(sys.prefix) / "share" / "nvbroadcast" / "backgrounds",
+        Path.home() / ".local" / "share" / "nvbroadcast" / "backgrounds",
+        Path("/usr/local/share/nvbroadcast/backgrounds"),
+        Path("/usr/share/nvbroadcast/backgrounds"),
+        PROJECT_ROOT / "data" / "backgrounds",
+    ]
+    return _existing(share_candidates)
+
+
+def find_bundled_backgrounds() -> list[Path]:
+    bg_dir = find_backgrounds_dir()
+    if bg_dir is None:
+        return []
+
+    backgrounds = sorted(bg_dir.glob("*.png"))
+    if not backgrounds:
+        return []
+
+    defaults = [path for path in backgrounds if path.name == DEFAULT_BACKGROUND]
+    others = [path for path in backgrounds if path.name != DEFAULT_BACKGROUND]
+    return defaults + others

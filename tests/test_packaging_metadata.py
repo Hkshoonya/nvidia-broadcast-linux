@@ -28,6 +28,10 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("- httpx", snapcraft)
         self.assertNotIn("- openai-whisper", snapcraft)
 
+    def test_packaged_backgrounds_include_bundled_default(self):
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        self.assertIn("data/backgrounds/studio_bg.png", pyproject)
+
 
 if __name__ == "__main__":
     unittest.main()

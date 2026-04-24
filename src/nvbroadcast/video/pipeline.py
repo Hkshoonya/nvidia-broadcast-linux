@@ -500,12 +500,13 @@ class VideoPipeline:
             # Paused: push frozen frame, skip all processing
             if self._paused and self._frozen_frame:
                 output = self._frozen_frame
-                if self._vcam_enabled and self._running and self._vcam_appsrc:
+                appsrc = self._vcam_appsrc
+                if self._vcam_enabled and self._running and appsrc:
                     vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
                     vcam_buf.fill(0, output)
                     vcam_buf.pts = buf_pts
                     vcam_buf.duration = buf_duration
-                    self._vcam_appsrc.emit("push-buffer", vcam_buf)
+                    appsrc.emit("push-buffer", vcam_buf)
                 return Gst.FlowReturn.OK
 
             # Background: kick off alpha inference (heavy, non-blocking)
@@ -542,28 +543,32 @@ class VideoPipeline:
                 self._latest_frame = output
 
             # Push to vcam at full fps
+            appsrc = self._vcam_appsrc
+            frame_bridge = getattr(self, '_frame_bridge', None)
+            pyvirtualcam = getattr(self, '_pyvirtualcam', None)
             if self._vcam_enabled and self._running:
-                if self._vcam_appsrc:
+                if appsrc:
                     vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
                     vcam_buf.fill(0, output)
                     vcam_buf.pts = buf_pts
                     vcam_buf.duration = buf_duration
-                    self._vcam_appsrc.emit("push-buffer", vcam_buf)
-                elif getattr(self, '_frame_bridge', None):
-                    self._frame_bridge.write_frame(output)
-                elif getattr(self, '_pyvirtualcam', None):
+                    appsrc.emit("push-buffer", vcam_buf)
+                elif frame_bridge:
+                    frame_bridge.write_frame(output)
+                elif pyvirtualcam:
                     import numpy as np
                     frame = np.frombuffer(output, dtype=np.uint8).reshape(
                         self._height, self._width, 4
                     )
-                    self._pyvirtualcam.send(frame[:, :, :3])
+                    pyvirtualcam.send(frame[:, :, :3])
 
             # Push to recording if active
-            if self._recording and self._rec_appsrc:
+            rec_appsrc = self._rec_appsrc
+            if self._recording and rec_appsrc:
                 rec_buf = Gst.Buffer.new_allocate(None, len(output), None)
                 rec_buf.fill(0, output)
                 rec_buf.pts = buf_pts
-                self._rec_appsrc.emit("push-buffer", rec_buf)
+                rec_appsrc.emit("push-buffer", rec_buf)
 
             return Gst.FlowReturn.OK
         finally:

@@ -1,6 +1,10 @@
 import unittest
 from unittest import mock
 
+import gi
+gi.require_version("Gst", "1.0")
+from gi.repository import Gst
+
 from nvbroadcast.video.pipeline import VideoPipeline
 
 
@@ -67,6 +71,45 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertFalse(pipeline._rebuild_pending)
         self.assertEqual(pipeline._rebuild_source_id, 0)
         self.assertEqual(pipeline._teardown_source_id, 456)
+
+    def test_effects_sample_uses_stable_vcam_appsrc_reference(self):
+        pipeline = VideoPipeline()
+        pipeline._running = True
+        pipeline._vcam_enabled = True
+        pipeline._width = 2
+        pipeline._height = 2
+        pipeline._effect_callback = lambda frame, _w, _h: frame
+
+        frame = bytes([0] * (pipeline._width * pipeline._height * 4))
+        sample_buffer = Gst.Buffer.new_wrapped(frame)
+        sample_buffer.pts = 123
+        sample_buffer.duration = 456
+
+        sample = mock.Mock()
+        sample.get_buffer.return_value = sample_buffer
+        appsink = mock.Mock()
+        appsink.emit.return_value = sample
+
+        class RaceAppSrc:
+            def __init__(self, owner):
+                self.owner = owner
+                self.calls = 0
+
+            def __bool__(self):
+                self.owner._vcam_appsrc = None
+                return True
+
+            def emit(self, signal_name, _buffer):
+                self.calls += 1
+                return None
+
+        appsrc = RaceAppSrc(pipeline)
+        pipeline._vcam_appsrc = appsrc
+
+        result = pipeline._on_effects_sample(appsink)
+
+        self.assertEqual(result, Gst.FlowReturn.OK)
+        self.assertEqual(appsrc.calls, 1)
 
 
 if __name__ == "__main__":
