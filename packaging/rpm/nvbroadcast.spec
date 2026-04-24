@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.4
+Version:        1.1.5
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -143,6 +143,13 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Fri Apr 24 2026 doczeus <harshit@kshoonya.com> - 1.1.5-1
+- Stabilize effect and mode switching to avoid camera device-busy, freeze, and teardown races
+- Recognize current TensorRT cu12 package layouts and improve Zeus/Killer TensorRT runtime handoff
+- Deduplicate stale nvbroadcast mic and speaker devices and quiet startup audio restore churn
+- Scope beautify denoise to the face ROI and preserve raw history to reduce motion smear on face and glasses
+- Reduce false replace-mode shoulder and underarm background breakout during raised-hand overlap
+
 * Mon Apr 21 2026 doczeus <harshit@kshoonya.com> - 1.1.4-1
 - Stabilize Linux processed-mic routing for browser and meeting app compatibility
 - Fix optional meeting runtime validation and include the missing httpx dependency

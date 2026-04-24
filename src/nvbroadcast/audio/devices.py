@@ -11,6 +11,19 @@ import json
 from nvbroadcast.audio.virtual_mic import VIRTUAL_MIC_SINK_NAME
 
 
+def _dedupe_devices(entries: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Preserve order while removing duplicate device/name pairs."""
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict[str, str]] = []
+    for entry in entries:
+        key = (entry.get("device", ""), entry.get("name", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(entry)
+    return deduped
+
+
 def _pw_nodes() -> list[dict]:
     try:
         result = subprocess.run(
@@ -76,7 +89,7 @@ def list_microphones() -> list[dict[str, str]]:
                 name = props.get("node.description", props.get("node.name", "Unknown"))
                 device_id = props.get("node.name", str(node.get("id", "")))
                 # Skip our own virtual mic
-                if "nvbroadcast" in name.lower():
+                if "nvbroadcast" in name.lower() or device_id == "nvbroadcast_mic":
                     continue
                 mics.append({"name": name, "device": device_id})
     except Exception:
@@ -93,12 +106,13 @@ def list_microphones() -> list[dict[str, str]]:
                 parts = line.split("\t")
                 if len(parts) >= 2:
                     device_id = parts[1]
-                    if "monitor" not in device_id.lower():
+                    if "monitor" not in device_id.lower() and device_id != "nvbroadcast_mic":
                         name = device_id.replace(".", " ").replace("_", " ")
                         mics.append({"name": name, "device": device_id})
         except Exception:
             pass
 
+    mics = _dedupe_devices(mics)
     if not mics:
         mics.append({"name": "Default Microphone", "device": ""})
 
@@ -119,7 +133,7 @@ def list_speakers() -> list[dict[str, str]]:
             if media_class in ("Audio/Sink", "Audio/Sink/Virtual"):
                 name = props.get("node.description", props.get("node.name", "Unknown"))
                 device_id = props.get("node.name", str(node.get("id", "")))
-                if device_id == VIRTUAL_MIC_SINK_NAME:
+                if device_id == VIRTUAL_MIC_SINK_NAME or "nvbroadcast" in name.lower():
                     continue
                 speakers.append({"name": name, "device": device_id})
     except Exception:
@@ -136,13 +150,14 @@ def list_speakers() -> list[dict[str, str]]:
                 parts = line.split("\t")
                 if len(parts) >= 2:
                     device_id = parts[1]
-                    if device_id == VIRTUAL_MIC_SINK_NAME:
+                    if device_id == VIRTUAL_MIC_SINK_NAME or "nvbroadcast" in device_id.lower():
                         continue
                     name = device_id.replace(".", " ").replace("_", " ")
                     speakers.append({"name": name, "device": device_id})
         except Exception:
             pass
 
+    speakers = _dedupe_devices(speakers)
     if not speakers:
         speakers.append({"name": "Default Speaker", "device": ""})
 

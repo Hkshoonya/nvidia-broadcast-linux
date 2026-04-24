@@ -7,6 +7,7 @@ from unittest import mock
 from nvbroadcast.core.config import detect_compositing_backends, detect_system_capabilities
 from nvbroadcast.core.dependency_installer import DependencyInstaller
 from nvbroadcast.core.platform import (
+    get_trt_cache_dir,
     get_tensorrt_lib_dirs,
     has_tensorrt_runtime,
     linux_multiarch_triplet,
@@ -105,6 +106,11 @@ class ArchSupportTests(unittest.TestCase):
                  mock.patch("nvbroadcast.core.platform.ctypes.CDLL", return_value=object()), \
                  mock.patch("importlib.util.find_spec", side_effect=fake_find_spec):
                 self.assertTrue(has_tensorrt_runtime())
+
+    def test_get_trt_cache_dir_is_per_gpu_under_config(self):
+        config_dir = Path("/tmp/nvbroadcast-test-config")
+        with mock.patch("nvbroadcast.core.constants.CONFIG_DIR", config_dir):
+            self.assertEqual(get_trt_cache_dir(1), config_dir / "trt_cache" / "gpu1")
 
 
 if __name__ == "__main__":

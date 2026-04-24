@@ -56,6 +56,47 @@ class AudioDeviceResolverTests(unittest.TestCase):
 
         self.assertEqual(speakers, [{"name": "Demo Speaker", "device": "alsa_output.demo"}])
 
+    def test_list_speakers_dedupes_duplicate_entries(self):
+        fake_nodes = [
+            {
+                "type": "PipeWire:Interface:Node",
+                "id": 45,
+                "info": {"props": {"node.name": "alsa_output.demo", "node.description": "Demo Speaker", "media.class": "Audio/Sink"}},
+            },
+            {
+                "type": "PipeWire:Interface:Node",
+                "id": 46,
+                "info": {"props": {"node.name": "alsa_output.demo", "node.description": "Demo Speaker", "media.class": "Audio/Sink"}},
+            },
+        ]
+        with mock.patch.object(devices, "_pw_nodes", return_value=fake_nodes):
+            speakers = devices.list_speakers()
+
+        self.assertEqual(speakers, [{"name": "Demo Speaker", "device": "alsa_output.demo"}])
+
+    def test_list_microphones_skips_virtual_mic_and_dedupes(self):
+        fake_nodes = [
+            {
+                "type": "PipeWire:Interface:Node",
+                "id": 33,
+                "info": {"props": {"node.name": "alsa_input.demo", "node.description": "Demo Mic", "media.class": "Audio/Source"}},
+            },
+            {
+                "type": "PipeWire:Interface:Node",
+                "id": 34,
+                "info": {"props": {"node.name": "alsa_input.demo", "node.description": "Demo Mic", "media.class": "Audio/Source"}},
+            },
+            {
+                "type": "PipeWire:Interface:Node",
+                "id": 35,
+                "info": {"props": {"node.name": "nvbroadcast_mic", "node.description": "nvbroadcast", "media.class": "Audio/Source"}},
+            },
+        ]
+        with mock.patch.object(devices, "_pw_nodes", return_value=fake_nodes):
+            mics = devices.list_microphones()
+
+        self.assertEqual(mics, [{"name": "Demo Mic", "device": "alsa_input.demo"}])
+
 
 if __name__ == "__main__":
     unittest.main()

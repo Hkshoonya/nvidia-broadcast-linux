@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.5" date="2026-04-24">
+      <description>
+        <p>Stability and live-quality patch for meetings and streaming</p>
+        <ul>
+          <li>Stabilized effect and mode switching so the camera path is less likely to freeze, die, or hit device-busy teardown races</li>
+          <li>Fixed TensorRT detection for current tensorrt-cu12 package layouts and improved Zeus/Killer runtime handoff</li>
+          <li>Cleaned duplicate nvbroadcast mic and speaker entries and reduced startup audio restore churn</li>
+          <li>Scoped beautify denoise to the face ROI to reduce motion smear on the face and glasses</li>
+          <li>Reduced false replace-mode shoulder and underarm background breakout during raised-hand overlap</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.4" date="2026-04-21">
       <description>
         <p>Audio and packaging reliability patch for meetings</p>

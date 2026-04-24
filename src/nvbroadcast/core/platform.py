@@ -11,6 +11,7 @@ import shutil
 import sys
 import ctypes
 import ctypes.util
+from pathlib import Path
 
 IS_LINUX = platform.system() == "Linux"
 IS_MACOS = platform.system() == "Darwin"
@@ -106,6 +107,15 @@ def get_tensorrt_lib_dirs() -> list:
     return dirs
 
 
+def get_trt_cache_dir(gpu_index: int) -> Path:
+    """Return a per-GPU TensorRT cache directory under user config."""
+    from nvbroadcast.core.constants import CONFIG_DIR
+
+    cache_dir = CONFIG_DIR / "trt_cache" / f"gpu{gpu_index}"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
 def has_tensorrt_runtime() -> bool:
     """Check whether TensorRT EP is actually runnable on this system."""
     if not supports_linux_gpu_stack():
@@ -172,16 +182,15 @@ def get_gst_camera_caps(device: str, width: int, height: int, fps: int) -> str:
 
 
 def get_onnx_providers(gpu_index: int = 0,
-                       use_tensorrt: bool = False) -> list:
+                       use_tensorrt: bool = False,
+                       trt_cache_path: str | None = None) -> list:
     """Return the ONNX Runtime execution providers for this platform."""
     import onnxruntime as ort
     available = ort.get_available_providers()
     providers = []
 
     if supports_linux_gpu_stack() and use_tensorrt and 'TensorrtExecutionProvider' in available:
-        from pathlib import Path
-        cache_dir = str(Path(__file__).parent.parent.parent.parent / "models" / "trt_cache")
-        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        cache_dir = trt_cache_path or str(get_trt_cache_dir(gpu_index))
         providers.append(('TensorrtExecutionProvider', {
             'device_id': gpu_index,
             'trt_max_workspace_size': 2 * 1024 * 1024 * 1024,

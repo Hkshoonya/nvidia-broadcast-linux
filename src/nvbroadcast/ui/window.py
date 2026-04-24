@@ -1320,6 +1320,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             print(f"[NV Broadcast] Mic enumeration failed: {e}")
 
     def _on_mic_changed(self, selector, device):
+        if getattr(self._app, "_restoring", False):
+            return
         self._app.set_microphone(device)
         self.set_status(f"Microphone: {device}")
 
@@ -1338,6 +1340,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             print(f"[NV Broadcast] Speaker enumeration failed: {e}")
 
     def _on_speaker_changed(self, selector, device):
+        if getattr(self._app, "_restoring", False):
+            return
         self._app.set_speaker_device(device)
         self.set_status(f"Speaker: {device}")
 
@@ -1400,6 +1404,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     # --- Voice Effects ---
     def _on_vfx_toggled(self, t, active):
+        if getattr(self._app, "_restoring", False):
+            return
         self._app.set_voice_fx_enabled(active)
         self._vfx_preset.set_sensitive(active)
         self._vfx_gpu_toggle.set_sensitive(active)
@@ -1409,6 +1415,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._sync_voice_fx_ui_from_config()
 
     def _on_vfx_preset(self, selector, preset_name):
+        if getattr(self._app, "_restoring", False):
+            return
         from nvbroadcast.audio.voice_fx import get_voice_fx_preset
         preset = get_voice_fx_preset(preset_name)
         if preset is not None:
@@ -1418,9 +1426,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 slider._scale.set_value(getattr(preset, key, 0.0))
 
     def _on_vfx_gpu_toggled(self, t, active):
+        if getattr(self._app, "_restoring", False):
+            return
         self._app.set_voice_fx_use_gpu(active)
 
     def _on_vfx_slider(self, slider, value, key):
+        if getattr(self._app, "_restoring", False):
+            return
         self._app.set_voice_fx_param(key, value)
 
     # --- Mic Test ---
@@ -1698,13 +1710,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         print(f"[NV Broadcast] Profile applied: bg={v.background_removal}, eye={v.eye_contact}, relight={v.relighting}, beauty={v.beauty.enabled}")
 
     def _on_noise_toggled(self, t, active):
+        if getattr(self._app, "_restoring", False):
+            return
         self._app.set_noise_removal(active)
         self._noise_slider.set_sensitive(active)
 
     def _on_noise_intensity_changed(self, s, v):
+        if getattr(self._app, "_restoring", False):
+            return
         self._app.set_noise_intensity(v)
 
     def _on_speaker_toggled(self, t, active):
+        if getattr(self._app, "_restoring", False):
+            return
         self._app.set_speaker_denoise(active)
 
     # --- Public ---

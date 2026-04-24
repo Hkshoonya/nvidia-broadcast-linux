@@ -7,6 +7,8 @@ and compositing logic with synthetic frames.
 from __future__ import annotations
 
 import sys
+import threading
+import time
 import types
 import unittest
 
@@ -124,6 +126,159 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertIsNone(effects._stable_alpha)
         self.assertEqual(effects._matte_version, start_version + 1)
 
+    def test_engine_mode_switch_waits_for_inflight_inference(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._bg_removal_enabled = True
+        effects._refine_alpha = lambda alpha: alpha
+        effects._temporal_smooth = lambda alpha, _version=None: alpha
+
+        infer_started = threading.Event()
+        release_infer = threading.Event()
+        switch_done = threading.Event()
+
+        class _FakeBackend:
+            def __init__(self):
+                self._MAX_INFER_HEIGHT = 720
+                self._trt_requested = True
+                self.tensorrt_requested = []
+                self.reset_calls = 0
+
+            def infer(self, frame, width, height):
+                infer_started.set()
+                release_infer.wait(1.0)
+                return np.ones((height, width), dtype=np.float32)
+
+            def set_tensorrt_requested(self, enabled):
+                self.tensorrt_requested.append(enabled)
+
+            def reset_state(self):
+                self.reset_calls += 1
+
+        backend = _FakeBackend()
+        effects._backend = backend
+        frame = np.zeros((4, 4, 4), dtype=np.uint8)
+
+        infer_result: list[np.ndarray] = []
+
+        def _run_infer():
+            infer_result.append(effects._run_inference(frame, 4, 4, effects._matte_version))
+
+        infer_thread = threading.Thread(target=_run_infer)
+        infer_thread.start()
+        self.assertTrue(infer_started.wait(0.5))
+
+        def _switch_mode():
+            effects.set_engine_mode(True, False)
+            switch_done.set()
+
+        switch_thread = threading.Thread(target=_switch_mode)
+        switch_thread.start()
+
+        time.sleep(0.05)
+        self.assertFalse(switch_done.is_set(), "mode switch should wait for in-flight inference")
+
+        release_infer.set()
+        infer_thread.join(1.0)
+        switch_thread.join(1.0)
+
+        self.assertTrue(switch_done.is_set())
+        self.assertEqual(len(infer_result), 1)
+        self.assertEqual(backend.tensorrt_requested, [True])
+        self.assertEqual(backend._MAX_INFER_HEIGHT, 480)
+        self.assertEqual(backend.reset_calls, 1)
+
+    def test_engine_mode_schedules_reload_when_tensorrt_boundary_changes(self):
+        effects = self._make_effects()
+        effects._initialized = True
+
+        class _FakeBackend:
+            def __init__(self, trt_requested: bool):
+                self._MAX_INFER_HEIGHT = 720
+                self._trt_requested = trt_requested
+
+        original_backend = _FakeBackend(False)
+        effects._backend = original_backend
+
+        scheduled = []
+
+        effects._schedule_engine_reload = lambda use_tensorrt, infer_h: scheduled.append(
+            (use_tensorrt, infer_h)
+        )
+
+        effects.set_engine_mode(True, False)
+
+        self.assertEqual(scheduled, [(True, 480)])
+        self.assertIs(effects._backend, original_backend)
+
+    def test_run_inference_skips_while_engine_reload_is_in_progress(self):
+        effects = self._make_effects()
+        effects._initialized = True
+
+        class _FakeBackend:
+            def __init__(self):
+                self.calls = 0
+
+            def infer(self, frame, width, height):
+                self.calls += 1
+                return np.ones((height, width), dtype=np.float32)
+
+        backend = _FakeBackend()
+        effects._backend = backend
+        effects._engine_reload_in_progress = True
+        frame = np.zeros((4, 4, 4), dtype=np.uint8)
+
+        alpha = effects._run_inference(frame, 4, 4, effects._matte_version)
+
+        self.assertIsNone(alpha)
+        self.assertEqual(backend.calls, 0)
+
+    def test_engine_reload_warms_backend_before_swap(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._last_frame_size = (4, 4)
+
+        warmed = threading.Event()
+
+        class _FakeBackend:
+            def __init__(self, name):
+                self.name = name
+                self._MAX_INFER_HEIGHT = 720
+                self.cleanup_calls = 0
+                self.infer_calls = []
+                self.reset_calls = 0
+
+            def infer(self, frame, width, height):
+                self.infer_calls.append((width, height, frame.shape))
+                warmed.set()
+                return np.ones((height, width), dtype=np.float32)
+
+            def cleanup(self):
+                self.cleanup_calls += 1
+
+            def reset_state(self):
+                self.reset_calls += 1
+
+        original = _FakeBackend("original")
+        replacement = _FakeBackend("replacement")
+        effects._backend = original
+        effects._build_backend = lambda: (replacement, "replacement ready")
+
+        effects._schedule_engine_reload(True, 360)
+
+        self.assertTrue(warmed.wait(1.0), "replacement backend should warm before swap")
+        limit = time.time() + 1.0
+        while time.time() < limit:
+            if effects._backend is replacement and not effects._engine_reload_in_progress:
+                break
+            time.sleep(0.01)
+
+        self.assertIs(effects._backend, replacement)
+        self.assertFalse(effects._engine_reload_in_progress)
+        self.assertEqual(replacement.reset_calls, 1)
+        self.assertEqual(replacement.infer_calls, [(4, 4, (4, 4, 4))])
+        self.assertEqual(original.cleanup_calls, 1)
+
     def test_replace_matte_fills_small_internal_holes(self):
         effects = self._make_effects()
 
@@ -142,22 +297,33 @@ class BackgroundOverlayTests(unittest.TestCase):
 
         self.assertGreater(float(matte[2, 2]), 0.7, "small internal holes should be filled in replace mode")
 
-    def test_replace_matte_preserves_large_internal_gap(self):
+    def test_preserve_large_internal_holes_prefers_narrow_slits_over_blob_holes(self):
         effects = self._make_effects()
 
-        alpha = np.zeros((9, 9), dtype=np.float32)
-        alpha[1:8, 1:8] = 0.96
-        alpha[3:6, 3:6] = 0.02
+        mask = np.zeros((40, 40), dtype=np.uint8)
+        mask[5:35, 5:35] = 255
+        mask[12:22, 12:22] = 0
+        mask[8:28, 26:28] = 0
 
-        matte = effects._replacement_matte(alpha)
-
-        self.assertLess(
-            float(matte[4, 4]),
-            0.25,
-            "large openings like under-arm gaps should not be filled shut",
+        preserved = effects._preserve_large_internal_holes(
+            mask,
+            binary_threshold=127,
+            min_area_ratio=0.0001,
+            min_span_ratio=0.01,
+            min_aspect_ratio=2.0,
+            max_area_ratio=0.05,
         )
 
-    def test_refine_alpha_preserves_large_internal_gap_in_replace_mode(self):
+        self.assertFalse(
+            bool(preserved[16, 16]),
+            "broad internal blob holes should not be preserved in replace mode",
+        )
+        self.assertTrue(
+            bool(preserved[16, 26]),
+            "narrow finger-like slits should stay eligible for preservation",
+        )
+
+    def test_refine_alpha_closes_broad_internal_gap_in_replace_mode(self):
         effects = self._make_effects()
         effects._bg_mode = "replace"
 
@@ -167,10 +333,10 @@ class BackgroundOverlayTests(unittest.TestCase):
 
         refined = effects._refine_alpha(alpha)
 
-        self.assertLess(
+        self.assertGreater(
             float(refined[5, 5]),
-            0.35,
-            "replace refinement should keep meaningful interior gaps open",
+            0.80,
+            "replace refinement should close broad artifact holes inside the silhouette",
         )
 
     def test_replace_matte_preserves_narrow_hairline_gap(self):
@@ -219,6 +385,34 @@ class BackgroundOverlayTests(unittest.TestCase):
         out = effects._despill_fringe(fg, alpha)
 
         self.assertTrue(np.array_equal(out, fg), "despill should not recolor solid foreground regions")
+
+    def test_despill_repaints_dark_replace_fringe(self):
+        effects = self._make_effects()
+
+        fg = np.zeros((8, 8, 4), dtype=np.uint8)
+        fg[:, :, 2] = 175
+        fg[:, :, 3] = 255
+        fg[2:6, 2:6, 2] = 220
+        fg[:, 1, :3] = 22
+        fg[:, 6, :3] = 22
+
+        alpha = np.zeros((8, 8), dtype=np.float32)
+        alpha[:, 1] = 0.22
+        alpha[:, 2:6] = 0.98
+        alpha[:, 6] = 0.22
+
+        cleaned = effects._despill_fringe(fg, alpha)
+
+        self.assertGreater(
+            int(cleaned[4, 1, 2]),
+            int(fg[4, 1, 2]),
+            "replace-mode despill should pull dark shoulder fringe toward subject color",
+        )
+        self.assertGreater(
+            int(cleaned[4, 6, 2]),
+            int(fg[4, 6, 2]),
+            "replace-mode despill should clean both sides of the fringe",
+        )
 
     def test_edge_aware_replace_matte_hardens_transition_on_real_edges(self):
         effects = self._make_effects()

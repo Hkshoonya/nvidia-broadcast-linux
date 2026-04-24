@@ -45,7 +45,7 @@ class FaceBeautifier:
 
     Effects:
     - Skin smoothing: Bilateral filter on face skin regions
-    - Denoising: Fast temporal + spatial denoise on full frame
+    - Denoising: Motion-aware temporal + spatial denoise on face ROI
     - Edge darkening: Subtle vignette centered on face
     - Face enhancement: Brightness, contrast, warmth boost on face
     - Eye/lip sharpening: Unsharp mask on detail regions
@@ -377,23 +377,55 @@ class FaceBeautifier:
         return frame
 
     def _apply_denoise(self, frame: np.ndarray) -> np.ndarray:
-        """Fast temporal + spatial denoising using cv2 (SIMD-optimized)."""
+        """Face-local temporal denoising that avoids recursive motion smear."""
         intensity = self._denoise
-        bgr = frame[:, :, :3]
+        raw_bgr = frame[:, :, :3].copy()
 
-        # Temporal denoising: cv2.addWeighted is SIMD-fast (~1ms)
-        if self._prev_frame is not None:
-            weight = 0.1 + intensity * 0.2
-            bgr = cv2.addWeighted(bgr, 1.0 - weight, self._prev_frame, weight, 0)
+        bbox = self._face_bbox
+        mask = self._face_mask
+        if bbox is None or mask is None:
+            # Keep raw history current, but do not blur the whole composited frame.
+            self._prev_frame = raw_bgr
+            return frame
 
-        self._prev_frame = bgr.copy()
+        x, y, w, h = bbox
+        pad = 16
+        y1 = max(0, y - pad)
+        y2 = min(frame.shape[0], y + h + pad)
+        x1 = max(0, x - pad)
+        x2 = min(frame.shape[1], x + w + pad)
+        if x2 <= x1 or y2 <= y1:
+            self._prev_frame = raw_bgr
+            return frame
 
-        # Spatial denoising: light blur only at higher intensities
-        if intensity > 0.3:
+        roi = raw_bgr[y1:y2, x1:x2]
+        roi_mask = mask[y1:y2, x1:x2]
+        denoised = roi.copy()
+
+        if self._prev_frame is not None and self._prev_frame.shape == raw_bgr.shape:
+            prev_roi = self._prev_frame[y1:y2, x1:x2]
+            diff = cv2.absdiff(roi, prev_roi)
+            motion = float(diff.mean()) * (1.0 / 255.0)
+            motion_gate = float(np.clip(1.0 - motion * 8.0, 0.15, 1.0))
+            weight = (0.06 + intensity * 0.16) * motion_gate
+            if weight > 0.01:
+                denoised = cv2.addWeighted(roi, 1.0 - weight, prev_roi, weight, 0)
+
+        if intensity > 0.35:
             k = 3 if intensity < 0.7 else 5
-            bgr = cv2.GaussianBlur(bgr, (k, k), 0)
+            denoised = cv2.GaussianBlur(denoised, (k, k), 0)
 
-        frame[:, :, :3] = bgr
+        mask_f = (roi_mask.astype(np.float32) / 255.0 * intensity)[:, :, np.newaxis]
+        frame[y1:y2, x1:x2, :3] = np.clip(
+            roi.astype(np.float32) * (1.0 - mask_f)
+            + denoised.astype(np.float32) * mask_f,
+            0,
+            255,
+        ).astype(np.uint8)
+
+        # Store the raw frame, never the already-denoised output, so motion
+        # does not compound blur across frames.
+        self._prev_frame = raw_bgr
         return frame
 
     def _apply_edge_darken(self, frame: np.ndarray,

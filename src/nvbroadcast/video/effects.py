@@ -14,6 +14,7 @@ Supported models:
 import os
 import platform as _platform
 import json
+import tempfile
 
 # Force CUDA device ordering to match nvidia-smi (PCI bus ID order) — Linux only
 if _platform.system() != "Darwin":
@@ -26,7 +27,8 @@ from pathlib import Path
 import numpy as np
 import cv2
 
-from nvbroadcast.core.platform import get_tensorrt_lib_dirs
+from nvbroadcast.core.constants import CONFIG_DIR
+from nvbroadcast.core.platform import get_tensorrt_lib_dirs, get_trt_cache_dir
 
 
 def _preload_cuda_libs():
@@ -144,7 +146,8 @@ QUALITY_PRESETS = {
 
 def _create_session(model_path: str, gpu_index: int,
                     use_tensorrt: bool = False,
-                    cpu_only: bool = False) -> ort.InferenceSession:
+                    cpu_only: bool = False,
+                    trt_cache_path: str | None = None) -> ort.InferenceSession:
     """Create an ONNX Runtime session.
 
     use_tensorrt=True enables TensorRT EP (Zeus/Killer modes) for 3-5x faster inference.
@@ -156,11 +159,154 @@ def _create_session(model_path: str, gpu_index: int,
         providers = ["CPUExecutionProvider"]
     else:
         from nvbroadcast.core.platform import get_onnx_providers
-        providers = get_onnx_providers(gpu_index, use_tensorrt)
+        providers = get_onnx_providers(gpu_index, use_tensorrt, trt_cache_path=trt_cache_path)
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     opts.log_severity_level = 3
     return ort.InferenceSession(str(model_path), opts, providers=providers)
+
+
+def _rvm_channel_map(model) -> dict[str, int]:
+    """Infer recurrent tensor channel counts from the ONNX graph outputs."""
+    channel_map: dict[str, int] = {}
+    for value_info in model.graph.output:
+        name = value_info.name
+        if not (name.startswith("r") and name.endswith("o")):
+            continue
+        dims = value_info.type.tensor_type.shape.dim
+        if len(dims) < 2 or not dims[1].HasField("dim_value"):
+            continue
+        channel_map[name[:2]] = int(dims[1].dim_value)
+    return channel_map
+
+
+def _set_tensor_shape(value_info, dims: list[int | str]) -> None:
+    """Overwrite an ONNX tensor shape with concrete ints or symbolic names."""
+    shape = value_info.type.tensor_type.shape.dim
+    for dim, value in zip(shape, dims):
+        dim.ClearField("dim_value")
+        dim.ClearField("dim_param")
+        if isinstance(value, int):
+            dim.dim_value = value
+        else:
+            dim.dim_param = value
+
+
+def _replace_initializer(model, name: str, array) -> None:
+    """Insert or replace an ONNX initializer tensor."""
+    from onnx import numpy_helper
+
+    for idx, init in enumerate(model.graph.initializer):
+        if init.name == name:
+            del model.graph.initializer[idx]
+            break
+    model.graph.initializer.append(numpy_helper.from_array(array, name=name))
+
+
+def _replace_node_input(node, index: int, value: str) -> None:
+    """Set a node input slot, extending the input list if needed."""
+    while len(node.input) <= index:
+        node.input.append("")
+    node.input[index] = value
+
+
+def _prepare_rvm_tensorrt_model(model_path: Path,
+                                infer_shape: tuple[int, int] | None = None,
+                                downsample_ratio: float | None = None,
+                                recurrent_shapes: dict[str, tuple[int, ...]] | None = None) -> Path:
+    """Create a TRT-safe RVM graph by decoupling recurrent state symbols.
+
+    The upstream RVM ONNX export reuses the same symbolic height/width names for
+    the full frame input and every recurrent state tensor. TensorRT interprets
+    those shared names as equality constraints, which is incorrect and causes
+    Zeus/Killer engine build failures. This patch keeps the graph math intact
+    and only fixes the tensor metadata for TensorRT.
+
+    When infer_shape is provided, the patch also freezes the input/output resize
+    path for that exact frame size so TensorRT does not have to solve the RVM
+    dynamic Resize graph on first inference.
+    """
+    compat_dir = CONFIG_DIR / "trt_models"
+    suffix = "_dimfix_v2"
+    if infer_shape is not None:
+        infer_w, infer_h = infer_shape
+        suffix += f"_{infer_w}x{infer_h}"
+        if downsample_ratio is not None:
+            suffix += f"_ds{int(round(downsample_ratio * 1000.0))}"
+    compat_path = compat_dir / f"{model_path.stem}{suffix}{model_path.suffix}"
+    try:
+        compat_dir.mkdir(parents=True, exist_ok=True)
+        if compat_path.exists() and compat_path.stat().st_mtime >= model_path.stat().st_mtime:
+            return compat_path
+
+        import onnx
+
+        model = onnx.load(str(model_path))
+        channel_map = _rvm_channel_map(model)
+
+        for value_info in list(model.graph.input) + list(model.graph.output):
+            name = value_info.name
+            if not (name.startswith("r") and name.endswith(("i", "o"))):
+                continue
+            prefix = name[:2]
+            channels = channel_map.get(prefix)
+            if recurrent_shapes and prefix in recurrent_shapes:
+                _, chan, rh, rw = recurrent_shapes[prefix]
+                _set_tensor_shape(value_info, [1, chan, rh, rw])
+                continue
+            if channels is None:
+                continue
+            _set_tensor_shape(value_info, [1, channels, f"{name}_h", f"{name}_w"])
+
+        if infer_shape is not None:
+            infer_w, infer_h = infer_shape
+            for value_info in list(model.graph.input) + list(model.graph.output):
+                if value_info.name == "src":
+                    _set_tensor_shape(value_info, [1, 3, infer_h, infer_w])
+                elif value_info.name == "fgr":
+                    _set_tensor_shape(value_info, [1, 3, infer_h, infer_w])
+                elif value_info.name == "pha":
+                    _set_tensor_shape(value_info, [1, 1, infer_h, infer_w])
+
+            if downsample_ratio is not None:
+                resize_scales = np.array(
+                    [1.0, 1.0, downsample_ratio, downsample_ratio], dtype=np.float32
+                )
+                _replace_initializer(model, "nvb_static_resize3_scales", resize_scales)
+                rgba_sizes = np.array([1, 4, infer_h, infer_w], dtype=np.int64)
+                _replace_initializer(model, "nvb_static_rgb_sizes", rgba_sizes)
+                _replace_initializer(model, "nvb_static_alpha_sizes", rgba_sizes)
+
+                for node in model.graph.node:
+                    if node.name == "Resize_3":
+                        _replace_node_input(node, 2, "nvb_static_resize3_scales")
+                    elif node.name == "Resize_292":
+                        _replace_node_input(node, 3, "nvb_static_rgb_sizes")
+                    elif node.name == "Resize_306":
+                        _replace_node_input(node, 3, "nvb_static_alpha_sizes")
+
+            model = onnx.shape_inference.infer_shapes(model)
+
+        with tempfile.NamedTemporaryFile(
+            prefix=compat_path.stem + ".",
+            suffix=compat_path.suffix + ".tmp",
+            dir=compat_dir,
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            onnx.save(model, str(tmp_path))
+            tmp_path.replace(compat_path)
+        finally:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+        return compat_path
+    except Exception as exc:
+        print(f"[NV Broadcast] TensorRT RVM model patch failed, using original graph: {exc}", flush=True)
+        return model_path
 
 
 # ─── Fused CUDA Kernel (DocZeus/Killer modes) ──────────────────────────────────
@@ -274,61 +420,227 @@ class _RVMBackend:
         self._downsample_ratio = None
         self._active_trt = False
         self._base_model_path = None
+        self._trt_model_path = None
+        self._trt_cache_path = None
+        self._trt_requested = False
+        self._trt_disabled = False
+        self._trt_session_shape = None
+        self._trt_seed_shape = None
         self._trt_fallback_logged = False
+        self._reset_retry_logged = False
+        self._runtime_demote_logged = False
+        self._cuda_recovery_logged = False
 
     def load(self, quality: str, use_tensorrt: bool = False) -> str:
         preset = QUALITY_PRESETS[quality]
         base_model_path = _download_model(preset["model"], preset["url"])
         self._base_model_path = base_model_path
-        model_path = base_model_path
-        # Use shape-inferred model for TensorRT
-        if use_tensorrt:
-            trt_path = model_path.with_name(
-                model_path.stem + "_trt" + model_path.suffix
-            )
-            if trt_path.exists():
-                model_path = trt_path
+        self._trt_requested = bool(use_tensorrt)
+        self._trt_disabled = False
+        self._trt_session_shape = None
+        self._trt_model_path = base_model_path
+        self._trt_cache_path = None
+        self._runtime_demote_logged = False
+        self._cuda_recovery_logged = False
 
-        self.session = _create_session(
-            model_path, self._gpu_index, use_tensorrt=use_tensorrt
-        )
+        if use_tensorrt:
+            trt_path = base_model_path.with_name(
+                base_model_path.stem + "_trt" + base_model_path.suffix
+            )
+            self._trt_model_path = trt_path if trt_path.exists() else base_model_path
+            self._trt_cache_path = str(get_trt_cache_dir(self._gpu_index))
+            self.session = _create_session(base_model_path, self._gpu_index, use_tensorrt=False)
+        else:
+            self.session = _create_session(base_model_path, self._gpu_index, use_tensorrt=False)
+
         active = self.session.get_providers()[0]
         self._active_trt = "TensorrtExecutionProvider" in active
-
-        # TensorRT parser/build can fail internally and leave us on CPU. In that
-        # case, explicitly reload the session on CUDA so premium modes remain
-        # functional instead of silently becoming a broken CPU path.
-        if use_tensorrt and "CPUExecutionProvider" in active:
-            _release_session(self.session)
-            self.session = _create_session(base_model_path, self._gpu_index, use_tensorrt=False)
-            active = self.session.get_providers()[0]
-            self._active_trt = False
 
         self._downsample_ratio = np.array([preset["downsample"]], dtype=np.float32)
         self._r1 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r2 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r3 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
+        self._trt_seed_shape = None
         device = _get_device_name(self.session, self._gpu_index)
         msg = f"RVM loaded on {device} | {preset['label']}"
         if use_tensorrt:
-            if self._active_trt:
-                msg += " [TensorRT]"
-            else:
-                msg += " [TRT fallback to CUDA]"
+            msg += " [TensorRT build on first frame]"
         return msg
 
     def _fallback_to_cuda(self):
         """Recreate the session on CUDA after TRT runtime/build failure."""
-        if not self._active_trt or self._base_model_path is None:
+        if self._base_model_path is None:
             return
         _release_session(self.session)
         self.session = _create_session(self._base_model_path, self._gpu_index, use_tensorrt=False)
         self._active_trt = False
+        self._trt_disabled = True
+        self._trt_session_shape = None
         self.reset_state()
         if not self._trt_fallback_logged:
             print("[NV Broadcast] TensorRT runtime failed during inference - falling back to CUDA", flush=True)
             self._trt_fallback_logged = True
+
+    def set_tensorrt_requested(self, enabled: bool) -> None:
+        """Update live TRT intent after a UI/profile mode change."""
+        self._trt_requested = enabled
+        self._trt_disabled = False if enabled else True
+        self._runtime_demote_logged = False
+        self._cuda_recovery_logged = False
+        if enabled:
+            return
+        self._active_trt = False
+        self._trt_session_shape = None
+        if self._base_model_path is None or self.session is None:
+            return
+        providers = self.session.get_providers()
+        if providers and "CUDAExecutionProvider" in providers[0]:
+            return
+        _release_session(self.session)
+        self.session = _create_session(self._base_model_path, self._gpu_index, use_tensorrt=False)
+
+    def _sync_runtime_provider_state(self) -> None:
+        """Keep local TRT flags aligned with the session's active provider order."""
+        if self.session is None:
+            return
+        providers = self.session.get_providers()
+        if not providers:
+            return
+        active = providers[0]
+        if "TensorrtExecutionProvider" in active:
+            return
+        if not self._active_trt:
+            return
+        self._active_trt = False
+        self._trt_disabled = True
+        self._trt_session_shape = None
+        if not self._runtime_demote_logged:
+            print("[NV Broadcast] TensorRT session demoted to CUDA at runtime", flush=True)
+            self._runtime_demote_logged = True
+
+    @staticmethod
+    def _is_shape_transition_error(exc: Exception) -> bool:
+        """Return True for recoverable recurrent-state shape transitions only."""
+        msg = str(exc).lower()
+        tokens = (
+            "invalid dimensions",
+            "got invalid dimensions",
+            "shape mismatch",
+            "shape inference",
+            "mismatch between",
+            "dimension mismatch",
+            "invalid rank",
+            "invalid feed input name",
+            "unexpected input data type",
+            "tensor shape",
+            "r1i",
+            "r2i",
+            "r3i",
+            "r4i",
+        )
+        return any(token in msg for token in tokens)
+
+    @staticmethod
+    def _is_cuda_runtime_error(exc: Exception) -> bool:
+        """Return True for runtime CUDA/ORT failures that require session rebuild."""
+        msg = str(exc).lower()
+        tokens = (
+            "cuda failure",
+            "invalid resource handle",
+            "cudaeventrecord",
+            "cuda stream",
+            "cuda_call",
+            "cudnn",
+            "cuda error",
+        )
+        return any(token in msg for token in tokens)
+
+    def _recover_cuda_session(self, exc: Exception) -> bool:
+        """Recreate the CUDA session after a runtime failure."""
+        if self._base_model_path is None:
+            return False
+        try:
+            _release_session(self.session)
+            self.session = _create_session(self._base_model_path, self._gpu_index, use_tensorrt=False)
+            self._active_trt = False
+            self._trt_disabled = False
+            self._trt_session_shape = None
+            self.reset_state()
+            if not self._cuda_recovery_logged:
+                print(
+                    f"[NV Broadcast] Recreated CUDA inference session after runtime failure: {exc}",
+                    flush=True,
+                )
+                self._cuda_recovery_logged = True
+            return True
+        except Exception:
+            return False
+
+    def _ensure_trt_state(self, src: np.ndarray, infer_w: int, infer_h: int) -> None:
+        """Seed TRT recurrent tensors with real feature-map shapes for this input."""
+        if (not self._trt_requested or self._trt_disabled or
+                self._base_model_path is None or self._trt_model_path is None):
+            return
+        if self._active_trt and self._trt_session_shape == (infer_w, infer_h):
+            return
+
+        warmup_inputs = {
+            'src': src,
+            'r1i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'r2i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'r3i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'r4i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'downsample_ratio': self._downsample_ratio,
+        }
+        warmup_session = self.session
+        release_warmup = False
+        if warmup_session is None or self._active_trt:
+            warmup_session = _create_session(self._base_model_path, self._gpu_index, use_tensorrt=False)
+            release_warmup = True
+        try:
+            outputs = warmup_session.run(None, warmup_inputs)
+        finally:
+            if release_warmup:
+                _release_session(warmup_session)
+
+        self._r1, self._r2 = outputs[2], outputs[3]
+        self._r3, self._r4 = outputs[4], outputs[5]
+        recurrent_shapes = {
+            'r1': outputs[2].shape,
+            'r2': outputs[3].shape,
+            'r3': outputs[4].shape,
+            'r4': outputs[5].shape,
+        }
+        static_model_path = _prepare_rvm_tensorrt_model(
+            self._trt_model_path,
+            infer_shape=(infer_w, infer_h),
+            downsample_ratio=float(self._downsample_ratio[0]),
+            recurrent_shapes=recurrent_shapes,
+        )
+        new_session = _create_session(
+            static_model_path,
+            self._gpu_index,
+            use_tensorrt=True,
+            trt_cache_path=self._trt_cache_path,
+        )
+        active = new_session.get_providers()[0]
+        if "TensorrtExecutionProvider" not in active:
+            _release_session(new_session)
+            self._trt_disabled = True
+            self._trt_session_shape = None
+            self._active_trt = False
+            if self.session is None or "CUDAExecutionProvider" not in self.session.get_providers()[0]:
+                self.session = _create_session(self._base_model_path, self._gpu_index, use_tensorrt=False)
+            return
+
+        old_session = self.session
+        self.session = new_session
+        if old_session is not None and old_session is not new_session:
+            _release_session(old_session)
+        self._active_trt = True
+        self._trt_session_shape = (infer_w, infer_h)
+        self._trt_seed_shape = (infer_w, infer_h)
 
     # Max input resolution for preprocessing — above this, downsample first.
     # 720p is the sweet spot: fast preprocessing, model quality maintained.
@@ -358,19 +670,43 @@ class _RVMBackend:
             'downsample_ratio': self._downsample_ratio,
         }
         try:
+            if self._trt_requested and not self._trt_disabled:
+                self._ensure_trt_state(src, infer_w, infer_h)
+                inputs['r1i'] = self._r1
+                inputs['r2i'] = self._r2
+                inputs['r3i'] = self._r3
+                inputs['r4i'] = self._r4
             outputs = self.session.run(None, inputs)
-        except Exception:
+            self._sync_runtime_provider_state()
+        except Exception as exc:
             if self._active_trt:
                 self._fallback_to_cuda()
-                outputs = self.session.run(None, inputs)
-            else:
-                # Shape mismatch from resolution change — reset and retry
-                self.reset_state()
                 inputs['r1i'] = self._r1
                 inputs['r2i'] = self._r2
                 inputs['r3i'] = self._r3
                 inputs['r4i'] = self._r4
                 outputs = self.session.run(None, inputs)
+                self._sync_runtime_provider_state()
+            else:
+                # Shape mismatch from resolution change — reset and retry
+                if self._is_shape_transition_error(exc):
+                    if not self._reset_retry_logged:
+                        print(f"[NV Broadcast] RVM state reset after recoverable shape transition: {exc}", flush=True)
+                        self._reset_retry_logged = True
+                    self.reset_state()
+                    inputs['r1i'] = self._r1
+                    inputs['r2i'] = self._r2
+                    inputs['r3i'] = self._r3
+                    inputs['r4i'] = self._r4
+                    outputs = self.session.run(None, inputs)
+                elif self._is_cuda_runtime_error(exc) and self._recover_cuda_session(exc):
+                    inputs['r1i'] = self._r1
+                    inputs['r2i'] = self._r2
+                    inputs['r3i'] = self._r3
+                    inputs['r4i'] = self._r4
+                    outputs = self.session.run(None, inputs)
+                else:
+                    raise
 
         alpha = outputs[1][0, 0]
         self._r1, self._r2 = outputs[2], outputs[3]
@@ -395,12 +731,16 @@ class _RVMBackend:
         self._r2 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r3 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
+        self._trt_session_shape = None
+        self._trt_seed_shape = None
         print("[NV Broadcast] RVM recurrent states reset", flush=True)
 
     def cleanup(self):
         _release_session(self.session)
         self.session = None
         self._r1 = self._r2 = self._r3 = self._r4 = None
+        self._trt_session_shape = None
+        self._trt_seed_shape = None
 
 
 class _SingleFrameBackend:
@@ -852,6 +1192,9 @@ class VideoEffects:
         self._matte_version = 0
         self._skip_interval = 1
         self._temporal_strength = 0.34  # EMA weight for temporal smoothing
+        self._engine_reload_generation = 0
+        self._engine_reload_in_progress = False
+        self._last_frame_size = None
 
         # Alpha refinement
         self._apply_edge_config(edge_config)
@@ -865,10 +1208,22 @@ class VideoEffects:
             self._prev_alpha = None
             self._stable_alpha = None
 
+    def _prepare_backend_handoff(self):
+        """Invalidate temporal state while keeping the last matte visible."""
+        with self._state_lock:
+            self._matte_version += 1
+            self._prev_alpha = None
+            self._stable_alpha = None
+
     def _matte_snapshot(self) -> tuple[np.ndarray | None, int]:
         """Return the current cached alpha and its generation."""
         with self._state_lock:
             return self._cached_alpha, self._matte_version
+
+    def _remember_frame_size(self, width: int, height: int) -> None:
+        """Track the most recent live frame size for backend handoff warmup."""
+        with self._state_lock:
+            self._last_frame_size = (width, height)
 
     def _commit_alpha(self, alpha: np.ndarray, matte_version: int) -> bool:
         """Store an alpha mask only if matte state has not been invalidated."""
@@ -1024,18 +1379,23 @@ class VideoEffects:
             print(f"[NV Broadcast] SVG load failed: {e}")
             return None
 
+    def _build_backend(self):
+        """Create and load a backend for the current model/settings."""
+        if self._model_type == "rvm":
+            backend = _RVMBackend(self._gpu_index)
+            msg = backend.load(self._quality, use_tensorrt=self._use_tensorrt)
+        else:
+            backend = _SingleFrameBackend(self._gpu_index, self._model_type)
+            msg = backend.load()
+        return backend, msg
+
     def initialize(self) -> bool:
         """Initialize the active model backend."""
         if self._initialized:
             return True
 
         try:
-            if self._model_type == "rvm":
-                backend = _RVMBackend(self._gpu_index)
-                msg = backend.load(self._quality, use_tensorrt=self._use_tensorrt)
-            else:
-                backend = _SingleFrameBackend(self._gpu_index, self._model_type)
-                msg = backend.load()
+            backend, msg = self._build_backend()
 
             with self._lock:
                 self._backend = backend
@@ -1048,10 +1408,68 @@ class VideoEffects:
             print(f"[NV Broadcast] Failed to initialize model: {e}")
             return False
 
+    def _schedule_engine_reload(self, use_tensorrt: bool, infer_h: int) -> None:
+        """Reload the backend in the background and swap atomically when ready."""
+        with self._lock:
+            self._engine_reload_generation += 1
+            generation = self._engine_reload_generation
+            old_backend = self._backend
+            self._engine_reload_in_progress = True
+        with self._state_lock:
+            warm_size = self._last_frame_size
+        warm_frame = None
+        if warm_size is not None:
+            warm_width, warm_height = warm_size
+            warm_frame = np.zeros((warm_height, warm_width, 4), dtype=np.uint8)
+            warm_frame[:, :, 3] = 255
+
+        def _worker():
+            try:
+                backend, msg = self._build_backend()
+                if hasattr(backend, '_MAX_INFER_HEIGHT'):
+                    old_h = backend._MAX_INFER_HEIGHT
+                    backend._MAX_INFER_HEIGHT = infer_h
+                    if old_h != infer_h:
+                        backend.reset_state()
+                else:
+                    old_h = infer_h
+
+                if warm_frame is not None:
+                    try:
+                        backend.infer(warm_frame, warm_frame.shape[1], warm_frame.shape[0])
+                    except Exception as warm_error:
+                        raise RuntimeError(f"backend warmup failed: {warm_error}") from warm_error
+
+                with self._lock:
+                    if generation != self._engine_reload_generation:
+                        backend.cleanup()
+                        return
+                    previous = self._backend
+                    self._backend = backend
+                    self._initialized = True
+                    self._engine_reload_in_progress = False
+                self._prepare_backend_handoff()
+                if previous is not None and previous is not backend:
+                    previous.cleanup()
+                print(f"[NV Broadcast] {msg}")
+                if hasattr(backend, '_MAX_INFER_HEIGHT') and old_h != infer_h:
+                    print(f"[NV Broadcast] Inference resolution: {old_h}p → {infer_h}p")
+            except Exception as e:
+                print(f"[NV Broadcast] Failed to reload model backend: {e}")
+                with self._lock:
+                    if generation == self._engine_reload_generation:
+                        self._engine_reload_in_progress = False
+                        if old_backend is not None:
+                            self._backend = old_backend
+                            self._initialized = True
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def update_alpha(self, frame_data: bytes, width: int, height: int) -> None:
         """Run inference to update the cached alpha mask. Call from background thread."""
         if not self._bg_removal_enabled or not self._initialized:
             return
+        self._remember_frame_size(width, height)
         _, matte_version = self._matte_snapshot()
 
         frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
@@ -1202,8 +1620,15 @@ class VideoEffects:
     def _preserve_large_internal_holes(mask_u8: np.ndarray,
                                        binary_threshold: int,
                                        min_area_ratio: float,
-                                       min_span_ratio: float) -> np.ndarray:
-        """Return a mask of meaningful interior openings that should stay open."""
+                                       min_span_ratio: float,
+                                       min_aspect_ratio: float = 1.0,
+                                       max_area_ratio: float | None = None) -> np.ndarray:
+        """Return a mask of meaningful interior openings that should stay open.
+
+        Replace mode should preserve narrow slit-like gaps, but broad blob-like
+        interior holes are usually motion artifacts and should not be forced
+        open against the final matte.
+        """
         _, binary = cv2.threshold(mask_u8, binary_threshold, 255, cv2.THRESH_BINARY)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
@@ -1221,6 +1646,7 @@ class VideoEffects:
         min_area = max(6, int(h * w * min_area_ratio))
         min_w = max(3, int(w * min_span_ratio))
         min_h = max(3, int(h * min_span_ratio))
+        max_area = None if max_area_ratio is None else max(8, int(h * w * max_area_ratio))
 
         preserve = np.zeros_like(mask_u8, dtype=bool)
         num, labels, stats, _centroids = cv2.connectedComponentsWithStats(holes, connectivity=8)
@@ -1228,7 +1654,15 @@ class VideoEffects:
             area = int(stats[idx, cv2.CC_STAT_AREA])
             span_w = int(stats[idx, cv2.CC_STAT_WIDTH])
             span_h = int(stats[idx, cv2.CC_STAT_HEIGHT])
-            if area < min_area and span_w < min_w and span_h < min_h:
+            if area < min_area:
+                continue
+            if max_area is not None and area > max_area:
+                continue
+            if span_w < min_w and span_h < min_h:
+                continue
+            short_span = max(1, min(span_w, span_h))
+            long_span = max(span_w, span_h)
+            if float(long_span) / float(short_span) < min_aspect_ratio:
                 continue
             preserve |= labels == idx
         return preserve
@@ -1275,16 +1709,18 @@ class VideoEffects:
         preserve_holes = self._preserve_large_internal_holes(
             matte_u8,
             binary_threshold=74,
-            min_area_ratio=0.00010,
-            min_span_ratio=0.030,
+            min_area_ratio=0.00008,
+            min_span_ratio=0.018,
+            min_aspect_ratio=2.0,
+            max_area_ratio=0.0011,
         )
         matte_u8 = self._fill_small_internal_holes(
             matte_u8,
             binary_threshold=78,
             fill_cutoff=58,
             fill_value=184,
-            max_area_ratio=0.00008,
-            max_span_ratio=0.024,
+            max_area_ratio=0.00012,
+            max_span_ratio=0.028,
         )
 
         if min(matte_u8.shape[:2]) >= 8:
@@ -1401,6 +1837,7 @@ class VideoEffects:
         """Composite current frame with cached alpha. Fast — no inference."""
         if not self._bg_removal_enabled or not self._initialized:
             return frame_data
+        self._remember_frame_size(width, height)
         alpha, matte_version = self._matte_snapshot()
         if alpha is None:
             return frame_data
@@ -1444,6 +1881,7 @@ class VideoEffects:
         if not self._bg_removal_enabled or not self._initialized:
             return frame_data
 
+        self._remember_frame_size(width, height)
         frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
         if not frame.flags.writeable:
             frame = frame.copy()
@@ -1476,12 +1914,20 @@ class VideoEffects:
                        matte_version: int | None = None) -> np.ndarray | None:
         """Run the active backend's inference and refine the alpha."""
         with self._lock:
+            if self._engine_reload_in_progress:
+                return None
             backend = self._backend
             if backend is None:
                 return None
 
         try:
-            alpha = backend.infer(frame, width, height)
+            with self._lock:
+                if self._engine_reload_in_progress:
+                    return None
+                backend = self._backend
+                if backend is None:
+                    return None
+                alpha = backend.infer(frame, width, height)
             if alpha is not None:
                 # Refine first, then temporal smooth on the FINAL output.
                 # RVM's raw edges jitter 6-8% — smoothing the final result
@@ -1541,8 +1987,10 @@ class VideoEffects:
             preserve_holes = self._preserve_large_internal_holes(
                 a8,
                 binary_threshold=70,
-                min_area_ratio=0.00012,
-                min_span_ratio=0.032,
+                min_area_ratio=0.00008,
+                min_span_ratio=0.018,
+                min_aspect_ratio=2.0,
+                max_area_ratio=0.0011,
             )
 
         # 1. Small close: fill tiny holes in hair/fine detail
@@ -1573,8 +2021,8 @@ class VideoEffects:
             binary_threshold=threshold,
             fill_cutoff=fill_cutoff,
             fill_value=fill_value,
-            max_area_ratio=0.00009 if is_replace else 0.0007,
-            max_span_ratio=0.026 if is_replace else 0.07,
+            max_area_ratio=0.00014 if is_replace else 0.0007,
+            max_span_ratio=0.030 if is_replace else 0.07,
         )
 
         if is_replace:
@@ -1712,14 +2160,31 @@ class VideoEffects:
                 new_h = 480   # Zeus
             else:
                 new_h = 720   # Standard/DocZeus
+
+            reload_backend = False
+            old_h = new_h
+            changed = False
             with self._lock:
-                old_h = self._backend._MAX_INFER_HEIGHT
-                self._backend._MAX_INFER_HEIGHT = new_h
-                # Only reset recurrent states if resolution actually changed
-                if old_h != new_h:
-                    self._backend.reset_state()
-                    self.reset_cached_mattes()
-                    print(f"[NV Broadcast] Inference resolution: {old_h}p → {new_h}p")
+                backend = self._backend
+                if backend is None or not hasattr(backend, '_MAX_INFER_HEIGHT'):
+                    return
+                current_trt = bool(getattr(backend, "_trt_requested", False))
+                reload_backend = current_trt != bool(use_tensorrt)
+                if not reload_backend and hasattr(backend, "set_tensorrt_requested"):
+                    backend.set_tensorrt_requested(use_tensorrt)
+                old_h = backend._MAX_INFER_HEIGHT
+                if not reload_backend:
+                    backend._MAX_INFER_HEIGHT = new_h
+                    # Only reset recurrent states if resolution actually changed
+                    if old_h != new_h:
+                        backend.reset_state()
+                        changed = True
+            if reload_backend:
+                self._schedule_engine_reload(use_tensorrt, new_h)
+                return
+            if changed:
+                self.reset_cached_mattes()
+                print(f"[NV Broadcast] Inference resolution: {old_h}p → {new_h}p")
 
     def set_compositing(self, backend: str):
         """Switch compositing backend (cpu, gstreamer_gl, cupy)."""
@@ -1831,7 +2296,8 @@ class VideoEffects:
         result = np.where(
             fringe_4ch,
             np.clip(
-                result.astype(np.float32) * (1.0 - blend_4ch) + clean_color.astype(np.float32) * blend_4ch,
+                result.astype(np.float32) * (1.0 - blend_4ch)
+                + clean_color.astype(np.float32) * blend_4ch,
                 0, 255
             ).astype(np.uint8),
             result,
@@ -1904,7 +2370,10 @@ class VideoEffects:
                 self._backend.cleanup()
             self._backend = None
             self._initialized = False
+            self._engine_reload_in_progress = False
         self.reset_cached_mattes()
+        with self._state_lock:
+            self._last_frame_size = None
 
     def cleanup(self):
         self._cleanup_backend()

@@ -35,6 +35,72 @@ def _run_pactl(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _pulse_short(kind: str) -> list[str]:
+    result = _run_pactl(["list", kind, "short"])
+    if result.returncode != 0:
+        return []
+    return [line for line in result.stdout.strip().splitlines() if line.strip()]
+
+
+def _list_pulse_virtual_modules() -> tuple[list[int], list[int]]:
+    """Return Pulse module ids for any existing nvbroadcast sink/source pair."""
+    result = _run_pactl(["list", "short", "modules"])
+    if result.returncode != 0:
+        return [], []
+
+    sink_ids: list[int] = []
+    source_ids: list[int] = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) < 3:
+            continue
+        module_id, module_name, args = parts
+        try:
+            parsed_id = int(module_id)
+        except ValueError:
+            continue
+        if module_name == "module-null-sink" and f"sink_name={VIRTUAL_MIC_SINK_NAME}" in args:
+            sink_ids.append(parsed_id)
+        elif module_name == "module-remap-source" and f"source_name={VIRTUAL_MIC_SOURCE_NAME}" in args:
+            source_ids.append(parsed_id)
+    return sink_ids, source_ids
+
+
+def _pulse_named_nodes() -> tuple[list[str], list[str]]:
+    """Return Pulse source/sink names currently present for the virtual mic."""
+    source_names = []
+    sink_names = []
+    for line in _pulse_short("sources"):
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[1] == VIRTUAL_MIC_SOURCE_NAME:
+            source_names.append(parts[1])
+        elif len(parts) >= 2 and parts[1] == f"{VIRTUAL_MIC_SINK_NAME}.monitor":
+            sink_names.append(parts[1])
+    for line in _pulse_short("sinks"):
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[1] == VIRTUAL_MIC_SINK_NAME:
+            sink_names.append(parts[1])
+    return source_names, sink_names
+
+
+def _sync_pulse_virtual_ids() -> bool:
+    """Adopt an already-existing single Pulse virtual mic pair."""
+    global _pulse_sink_module_id, _pulse_source_module_id
+
+    sink_ids, source_ids = _list_pulse_virtual_modules()
+    source_names, sink_names = _pulse_named_nodes()
+    if len(sink_ids) == 1 and len(source_ids) == 1 and source_names and sink_names:
+        _pulse_sink_module_id = sink_ids[0]
+        _pulse_source_module_id = source_ids[0]
+        return True
+    return False
+
+
+def _destroy_pulse_virtual_modules(module_ids: list[int]) -> None:
+    for module_id in module_ids:
+        _run_pactl(["unload-module", str(module_id)])
+
+
 def virtual_mic_backend() -> str:
     """Return the preferred virtual mic backend available on this system."""
     if shutil.which("pactl") is not None:
@@ -55,17 +121,18 @@ def virtual_mic_sink_name() -> str:
 
 
 def _pulse_virtual_mic_active() -> bool:
-    if _pulse_sink_module_id is None or _pulse_source_module_id is None:
-        return False
-    result = _run_pactl(["list", "short", "sources"])
-    return VIRTUAL_MIC_SOURCE_NAME in result.stdout
+    source_names, sink_names = _pulse_named_nodes()
+    return bool(source_names and sink_names)
 
 
 def _create_pulse_virtual_mic() -> bool:
     global _pulse_sink_module_id, _pulse_source_module_id
 
-    if _pulse_virtual_mic_active():
+    if _sync_pulse_virtual_ids():
         return True
+    if _pulse_virtual_mic_active():
+        sink_ids, source_ids = _list_pulse_virtual_modules()
+        _destroy_pulse_virtual_modules(list(dict.fromkeys(source_ids + sink_ids)))
 
     _pulse_sink_module_id = None
     _pulse_source_module_id = None
@@ -123,10 +190,13 @@ def _create_pulse_virtual_mic() -> bool:
 def _destroy_pulse_virtual_mic():
     global _pulse_sink_module_id, _pulse_source_module_id
 
-    for module_id in (_pulse_source_module_id, _pulse_sink_module_id):
-        if module_id is None:
-            continue
-        _run_pactl(["unload-module", str(module_id)])
+    sink_ids, source_ids = _list_pulse_virtual_modules()
+    module_ids = list(dict.fromkeys(
+        [module_id for module_id in (_pulse_source_module_id, _pulse_sink_module_id) if module_id is not None]
+        + source_ids
+        + sink_ids
+    ))
+    _destroy_pulse_virtual_modules(module_ids)
     _pulse_source_module_id = None
     _pulse_sink_module_id = None
 
@@ -188,14 +258,16 @@ def destroy_virtual_mic():
     """Remove the virtual microphone."""
     global _pw_loopback_process
 
+    if virtual_mic_backend() == "pulse":
+        sink_ids, source_ids = _list_pulse_virtual_modules()
+        if _pulse_sink_module_id is not None or _pulse_source_module_id is not None or sink_ids or source_ids:
+            _destroy_pulse_virtual_mic()
+            print("[NVIDIA Broadcast] Virtual microphone removed")
+            return
+
     # If we created Pulse modules in this process, unload them directly.
     # Avoid probing pactl first here; teardown should be deterministic and
     # should not depend on a live source query succeeding.
-    if _pulse_sink_module_id is not None or _pulse_source_module_id is not None:
-        _destroy_pulse_virtual_mic()
-        print("[NVIDIA Broadcast] Virtual microphone removed")
-        return
-
     if _pw_loopback_process is not None:
         if _pw_loopback_process.poll() is None:
             _pw_loopback_process.send_signal(signal.SIGTERM)

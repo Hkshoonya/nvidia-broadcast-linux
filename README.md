@@ -42,6 +42,16 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.5 — Stability and Live Quality Patch
+
+- **Safer Effect + Mode Switching** — Video pipeline rebuilds now wait for teardown properly, which reduces camera freezes, device-busy failures, and mode-switch crashes
+- **TensorRT Detection Fixed** — Zeus and Killer now recognize current `tensorrt-cu12` installs correctly and handle the TensorRT handoff more safely
+- **Duplicate Audio Devices Cleaned Up** — Stale `nvbroadcast` mic and speaker duplicates are deduped, and startup restore no longer churns the virtual-audio path as aggressively
+- **Better Motion On Face + Glasses** — Beautify denoise is now limited to the face ROI and keeps raw history, which reduces motion smear and disappearing glasses during movement
+- **Replace Mode Overlap Improved** — Raised hands near shoulders and underarms are less likely to blow false holes through the background during motion
+
+> If you are still on `v1.1.4` or older, update to `v1.1.5`. This is the recommended stable patch for switch stability, TensorRT detection, and current live-quality fixes.
+
 ### v1.1.4 — Audio and Packaging Reliability Patch
 
 - **Browser-Safe Processed Mic** — The Linux `nvbroadcast` microphone path is now stable for Chrome, Discord, Meet, and similar apps instead of hanging or opening with silence
@@ -566,7 +576,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.4)
+│   ├── __init__.py              # Package version (1.1.5)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -599,7 +609,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.4)
+├── pyproject.toml               # Package config (v1.1.5)
 └── README.md
 ```
 
