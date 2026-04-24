@@ -64,6 +64,8 @@ class VideoPipeline:
         self._teardown_source_id = 0
         self._teardown_capture = None
         self._teardown_vcam = None
+        self._rebuild_source_id = 0
+        self._rebuild_pending = False
         self._callbacks_in_flight = 0
         self._callback_lock = threading.Lock()
 
@@ -250,9 +252,25 @@ class VideoPipeline:
             self._effects_active = active
             return
 
-        # Rebuild pipeline in the new mode (deferred to avoid blocking GTK main loop)
+        # Rebuild pipeline in the new mode only after teardown completes.
         self._effects_active = active
-        GLib.idle_add(self._rebuild_pipeline)
+        self._queue_rebuild()
+
+    def _queue_rebuild(self):
+        """Schedule one teardown-safe rebuild on the GTK main loop."""
+        self._rebuild_pending = True
+        if self._rebuild_source_id:
+            return
+        self._rebuild_source_id = GLib.timeout_add(
+            10, self._rebuild_pipeline, priority=GLib.PRIORITY_HIGH
+        )
+
+    def _cancel_rebuild(self):
+        """Drop any pending internal rebuild request."""
+        if self._rebuild_source_id:
+            GLib.source_remove(self._rebuild_source_id)
+            self._rebuild_source_id = 0
+        self._rebuild_pending = False
 
     def build(self, vcam_enabled: bool = True) -> None:
         self._vcam_enabled = vcam_enabled
@@ -661,10 +679,24 @@ class VideoPipeline:
         return True
 
     def _rebuild_pipeline(self):
-        """Rebuild pipeline after mode change. Runs on GTK main loop via idle_add."""
-        self.stop()
-        self.build(vcam_enabled=self._vcam_enabled)
-        self.start()
+        """Rebuild pipeline after mode change once devices are actually free."""
+        if not self._rebuild_pending:
+            self._rebuild_source_id = 0
+            return False
+
+        if self._pipeline is not None:
+            self.stop(clear_rebuild_request=False)
+            return True
+
+        if not self._teardown_done:
+            return True
+
+        self._rebuild_source_id = 0
+        try:
+            self.build(vcam_enabled=self._vcam_enabled)
+            self.start()
+        finally:
+            self._rebuild_pending = False
         return False
 
     def start(self):
@@ -676,7 +708,9 @@ class VideoPipeline:
             self._pipeline.set_state(Gst.State.PLAYING)
         self._running = True
 
-    def stop(self):
+    def stop(self, clear_rebuild_request: bool = True):
+        if clear_rebuild_request:
+            self._cancel_rebuild()
         with self._teardown_lock:
             if not self._teardown_done:
                 return
@@ -707,6 +741,7 @@ class VideoPipeline:
         application shutdown we want the opposite: drain callbacks deterministically
         and release native resources before Python/GTK starts finalizing.
         """
+        self._cancel_rebuild()
         with self._teardown_lock:
             self._running = False
             if self._teardown_source_id:

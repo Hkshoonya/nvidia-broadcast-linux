@@ -26,6 +26,8 @@ from pathlib import Path
 import numpy as np
 import cv2
 
+from nvbroadcast.core.platform import get_tensorrt_lib_dirs
+
 
 def _preload_cuda_libs():
     """Pre-load pip-installed NVIDIA libs for ONNX Runtime CUDA + TensorRT.
@@ -50,9 +52,7 @@ def _preload_cuda_libs():
                         except OSError:
                             pass
         # TensorRT libs (Zeus/Killer modes)
-        spec = importlib.util.find_spec("tensorrt_libs")
-        if spec and spec.submodule_search_locations:
-            lib_dir = Path(spec.submodule_search_locations[0])
+        for lib_dir in get_tensorrt_lib_dirs():
             # Load main libs first, then builders
             for pattern in ("libnvinfer.so*", "libnvinfer_plugin.so*",
                             "libnvonnxparser.so*", "libnvinfer_builder*.so*"):

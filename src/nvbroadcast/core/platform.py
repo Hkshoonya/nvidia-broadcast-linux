@@ -17,6 +17,11 @@ IS_MACOS = platform.system() == "Darwin"
 MACHINE = platform.machine().lower()
 IS_ARM64 = MACHINE in ("arm64", "aarch64")
 IS_X86_64 = MACHINE in ("x86_64", "amd64")
+TENSORRT_LIB_MODULES = (
+    "tensorrt_libs",
+    "tensorrt_cu12_libs",
+    "tensorrt_cu13_libs",
+)
 
 
 def linux_multiarch_triplet() -> str:
@@ -75,6 +80,32 @@ def has_pyvirtualcam() -> bool:
         return False
 
 
+def get_tensorrt_lib_dirs() -> list:
+    """Return candidate package directories that may contain TensorRT libs."""
+    try:
+        import importlib.util
+        from pathlib import Path
+    except Exception:
+        return []
+
+    dirs = []
+    seen: set[str] = set()
+    for module_name in TENSORRT_LIB_MODULES:
+        spec = importlib.util.find_spec(module_name)
+        if not spec or not spec.submodule_search_locations:
+            continue
+        root = Path(spec.submodule_search_locations[0])
+        for candidate in (root, root / "lib"):
+            if not candidate.is_dir():
+                continue
+            key = str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            dirs.append(candidate)
+    return dirs
+
+
 def has_tensorrt_runtime() -> bool:
     """Check whether TensorRT EP is actually runnable on this system."""
     if not supports_linux_gpu_stack():
@@ -93,20 +124,13 @@ def has_tensorrt_runtime() -> bool:
         return True
 
     try:
-        import importlib.util
-        from pathlib import Path
-
-        spec = importlib.util.find_spec("tensorrt_libs")
-        if not spec or not spec.submodule_search_locations:
-            return False
-
-        lib_dir = Path(spec.submodule_search_locations[0])
-        for so in sorted(lib_dir.glob("libnvinfer.so*")):
-            try:
-                ctypes.CDLL(str(so))
-                return True
-            except OSError:
-                continue
+        for lib_dir in get_tensorrt_lib_dirs():
+            for so in sorted(lib_dir.glob("libnvinfer.so*")):
+                try:
+                    ctypes.CDLL(str(so))
+                    return True
+                except OSError:
+                    continue
     except Exception:
         return False
 

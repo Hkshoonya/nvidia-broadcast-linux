@@ -1,9 +1,14 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import mock
 
 from nvbroadcast.core.config import detect_compositing_backends, detect_system_capabilities
 from nvbroadcast.core.dependency_installer import DependencyInstaller
 from nvbroadcast.core.platform import (
+    get_tensorrt_lib_dirs,
+    has_tensorrt_runtime,
     linux_multiarch_triplet,
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
@@ -63,6 +68,43 @@ class ArchSupportTests(unittest.TestCase):
         self.assertIsNotNone(reason)
         self.assertIn("Python 3.14", reason)
         self.assertIn("DocZeus", reason)
+
+    def test_get_tensorrt_lib_dirs_accepts_current_cu12_package_name(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lib_dir = root / "lib"
+            lib_dir.mkdir()
+
+            def fake_find_spec(name: str):
+                if name == "tensorrt_cu12_libs":
+                    return SimpleNamespace(submodule_search_locations=[str(root)])
+                return None
+
+            with mock.patch("importlib.util.find_spec", side_effect=fake_find_spec):
+                dirs = get_tensorrt_lib_dirs()
+
+        self.assertEqual(dirs, [root, lib_dir])
+
+    def test_has_tensorrt_runtime_accepts_current_cu12_lib_package(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "libnvinfer.so.10").touch()
+
+            fake_ort = SimpleNamespace(
+                get_available_providers=lambda: ["TensorrtExecutionProvider"]
+            )
+
+            def fake_find_spec(name: str):
+                if name == "tensorrt_cu12_libs":
+                    return SimpleNamespace(submodule_search_locations=[str(root)])
+                return None
+
+            with mock.patch.dict("sys.modules", {"onnxruntime": fake_ort}), \
+                 mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True), \
+                 mock.patch("nvbroadcast.core.platform.ctypes.util.find_library", return_value=None), \
+                 mock.patch("nvbroadcast.core.platform.ctypes.CDLL", return_value=object()), \
+                 mock.patch("importlib.util.find_spec", side_effect=fake_find_spec):
+                self.assertTrue(has_tensorrt_runtime())
 
 
 if __name__ == "__main__":
