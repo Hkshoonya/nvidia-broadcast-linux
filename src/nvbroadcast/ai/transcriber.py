@@ -67,7 +67,10 @@ def _missing_backend_help(preference: str = "auto") -> str:
             "(advanced optional backend; startup keeps it isolated from the GUI process)"
         )
     if preference == "faster-whisper":
-        return "Run: pip install faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile"
+        return (
+            "Run: pip install ctranslate2 huggingface-hub httpx tokenizers soundfile && "
+            "pip install --no-deps faster-whisper"
+        )
     return "Run: pip install faster-whisper"
 
 

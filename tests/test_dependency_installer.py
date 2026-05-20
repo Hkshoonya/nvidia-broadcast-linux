@@ -84,8 +84,22 @@ class DependencyInstallerTests(unittest.TestCase):
             )
 
     def test_whisper_package_spec_installs_httpx(self):
-        install_args = dependency_installer.PACKAGE_SPECS["whisper"]["install_args"]
-        self.assertIn("httpx", install_args)
+        steps = dependency_installer.PACKAGE_SPECS["whisper"]["install_steps"]
+        flat = [token for step in steps for token in step]
+        self.assertIn("httpx", flat)
+
+    def test_whisper_package_spec_resolves_http_stack_with_deps(self):
+        """faster-whisper goes in with --no-deps to skip CPU onnxruntime, but
+        the http/hub stack must be installed with full dependency resolution so
+        httpcore/anyio/h11/certifi/idna actually land in the venv."""
+        steps = dependency_installer.PACKAGE_SPECS["whisper"]["install_steps"]
+        self.assertEqual(len(steps), 2)
+        deps_step, faster_whisper_step = steps
+        self.assertNotIn("--no-deps", deps_step)
+        self.assertIn("httpx", deps_step)
+        self.assertIn("huggingface-hub", deps_step)
+        self.assertIn("--no-deps", faster_whisper_step)
+        self.assertIn("faster-whisper", faster_whisper_step)
 
 
 if __name__ == "__main__":
