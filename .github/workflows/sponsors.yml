@@ -6,10 +6,15 @@ name: Update Sponsors
 # supporters appear across every project that uses this workflow. To reuse it in
 # another repo: copy this file + the `<!-- featured -->` / `<!-- sponsors -->`
 # marker comments into that repo's README/SPONSORS.md, and add the SPONSORS_TOKEN
-# secret there too.
+# secret there too. (Or call the reusable workflow in Hkshoonya/.github — see
+# SPONSORS_SETUP.md.)
 #
 # There is no per-repo "sponsorship" Actions trigger (those webhooks fire at the
 # account level), so this runs on a daily schedule plus a manual button.
+#
+# Third-party actions are pinned to commit SHAs because they receive SPONSORS_TOKEN.
+# Templates use {{ login }} only (GitHub usernames are [A-Za-z0-9-]); sponsor-set
+# display names / urls are NOT interpolated, to avoid HTML/attribute injection.
 
 on:
   schedule:
@@ -24,51 +29,51 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       # --- Featured tier: Creator+ ($50/mo+ = 5000 cents), bigger avatars ---
       - name: Featured sponsors → README
-        uses: JamesIves/github-sponsors-readme-action@v1
+        uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
         with:
           token: ${{ secrets.SPONSORS_TOKEN }}
           file: README.md
           marker: featured
           minimum: 5000
           fallback: '<em>No featured sponsors yet — <a href="https://github.com/sponsors/Hkshoonya">become a Creator-tier sponsor</a> and your logo appears here. 💎</em>'
-          template: '<a href="{{ url }}" title="{{ name }}"><img src="{{ avatarUrl }}" width="80" alt="{{ name }}"></a>&nbsp;'
+          template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="80" alt="{{ login }}"></a>&nbsp;'
 
       # --- All sponsors: every public backer, smaller avatars ---
       - name: All sponsors → README
-        uses: JamesIves/github-sponsors-readme-action@v1
+        uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
         with:
           token: ${{ secrets.SPONSORS_TOKEN }}
           file: README.md
           marker: sponsors
           fallback: '<em>No public backers yet — <a href="https://github.com/sponsors/Hkshoonya">be the first</a>! ☕</em>'
-          template: '<a href="{{ url }}" title="{{ name }}"><img src="{{ avatarUrl }}" width="55" alt="{{ name }}"></a>&nbsp;'
+          template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="55" alt="{{ login }}"></a>&nbsp;'
 
       # --- Same walls in the dedicated SPONSORS.md page ---
       - name: Featured sponsors → SPONSORS.md
-        uses: JamesIves/github-sponsors-readme-action@v1
+        uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
         with:
           token: ${{ secrets.SPONSORS_TOKEN }}
           file: SPONSORS.md
           marker: featured
           minimum: 5000
           fallback: '<em>No featured sponsors yet — <a href="https://github.com/sponsors/Hkshoonya">become a Creator-tier sponsor</a>. 💎</em>'
-          template: '<a href="{{ url }}" title="{{ name }}"><img src="{{ avatarUrl }}" width="90" alt="{{ name }}"></a>&nbsp;'
+          template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="90" alt="{{ login }}"></a>&nbsp;'
 
       - name: All sponsors → SPONSORS.md
-        uses: JamesIves/github-sponsors-readme-action@v1
+        uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
         with:
           token: ${{ secrets.SPONSORS_TOKEN }}
           file: SPONSORS.md
           marker: sponsors
           fallback: '<em>No public backers yet — <a href="https://github.com/sponsors/Hkshoonya">be the first</a>! ☕</em>'
-          template: '<a href="{{ url }}" title="{{ name }}"><img src="{{ avatarUrl }}" width="64" alt="{{ name }}"></a>&nbsp;'
+          template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="64" alt="{{ login }}"></a>&nbsp;'
 
       - name: Commit updated sponsor walls
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5
         with:
           commit_message: 'chore: refresh sponsor walls [skip ci]'
           file_pattern: 'README.md SPONSORS.md'
