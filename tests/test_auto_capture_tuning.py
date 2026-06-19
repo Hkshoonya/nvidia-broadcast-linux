@@ -92,6 +92,61 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertFalse(app._compute_inline_inference())
 
+    def test_cpu_focus_auto_modes_avoid_gpu_ladder(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.compute_focus = "cpu"
+        app._dependency_installer = SimpleNamespace(
+            unsupported_reason_for_mode=lambda _mode: None,
+            missing_for_mode=lambda _mode: [],
+        )
+
+        caps = {"has_nvidia": True, "gpu_vram_mb": 24576, "cpu_cores": 16}
+        with mock.patch("nvbroadcast.core.config.detect_system_capabilities", return_value=caps):
+            self.assertEqual(
+                app._available_auto_modes(),
+                ["cpu_quality", "cpu_light", "cpu_low"],
+            )
+            self.assertEqual(app._preferred_auto_mode(), "cpu_quality")
+
+    def test_gpu_focus_auto_modes_prefer_cuda_ladder(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.compute_focus = "gpu"
+        app._dependency_installer = SimpleNamespace(
+            unsupported_reason_for_mode=lambda _mode: None,
+            missing_for_mode=lambda _mode: [],
+        )
+
+        caps = {"has_nvidia": True, "gpu_vram_mb": 4096, "cpu_cores": 16}
+        with mock.patch("nvbroadcast.core.config.detect_system_capabilities", return_value=caps):
+            self.assertEqual(
+                app._available_auto_modes(),
+                ["doczeus", "cuda_balanced", "cuda_perf", "cpu_quality", "cpu_light", "cpu_low"],
+            )
+            self.assertEqual(app._preferred_auto_mode(), "cuda_balanced")
+
+    @mock.patch("nvbroadcast.app.save_config")
+    def test_set_compute_focus_applies_preferred_manual_mode(self, _save):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.auto_mode = True
+        app._preferred_auto_mode = mock.Mock(return_value="cpu_quality")
+        app.apply_mode_key = mock.Mock(return_value=True)
+
+        changed = NVBroadcastApp.set_compute_focus(app, "cpu")
+
+        self.assertTrue(changed)
+        self.assertEqual(app.config.compute_focus, "cpu")
+        self.assertFalse(app.config.auto_mode)
+        app.apply_mode_key.assert_called_once()
+        self.assertEqual(app.apply_mode_key.call_args.args[0], "cpu_quality")
+
+    def test_mode_compute_focus_maps_premium_modes_to_stable_ladder(self):
+        self.assertEqual(NVBroadcastApp._mode_compute_focus("killer"), "gpu")
+        self.assertEqual(NVBroadcastApp._mode_compute_focus("zeus"), "gpu")
+        self.assertEqual(NVBroadcastApp._mode_compute_focus("cpu_light"), "cpu")
+
     def test_profile_infer_height_uses_process_scale(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()

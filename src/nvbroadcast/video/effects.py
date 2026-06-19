@@ -1690,33 +1690,66 @@ class VideoEffects:
                 self._prev_alpha = alpha.copy()
             return alpha
 
-        # Per-pixel motion and global motion
-        diff = np.abs(alpha - prev)
-        global_motion = diff.mean()
-
-        # Motion gate: inversely proportional to movement
-        # Still → 1.0, fast motion → 0.15 (never zero — always some smoothing)
-        motion_gate = np.clip(1.0 - global_motion * 20.0, 0.15, 1.0)
-        base_w = self._temporal_strength * motion_gate
-
         if self._bg_mode == "remove":
             base_scale = 0.12
             edge_scale = 1.6
             fringe_scale = 2.2
             max_weight = 0.55
             fringe_min, fringe_max = 0.05, 0.22
+            drop_scale = 0.12
         elif self._bg_mode == "replace":
             base_scale = 0.16
-            edge_scale = 2.0
-            fringe_scale = 2.8
-            max_weight = 0.62
+            edge_scale = 2.15
+            fringe_scale = 3.15
+            max_weight = 0.66
             fringe_min, fringe_max = 0.03, 0.26
+            drop_scale = 0.2
         else:
             base_scale = 0.2
             edge_scale = 2.5
             fringe_scale = 3.5
             max_weight = 0.7
             fringe_min, fringe_max = 0.03, 0.30
+            drop_scale = 0.2
+
+        diff = np.abs(alpha - prev)
+        global_motion = diff.mean()
+        result = self._temporal_smooth_region(
+            alpha,
+            prev,
+            global_motion,
+            base_scale,
+            edge_scale,
+            fringe_scale,
+            max_weight,
+            fringe_min,
+            fringe_max,
+            drop_scale,
+        )
+
+        with self._state_lock:
+            if matte_version is not None and matte_version != self._matte_version:
+                return alpha
+            self._prev_alpha = result.copy()
+        return result
+
+    def _temporal_smooth_region(
+        self,
+        alpha: np.ndarray,
+        prev: np.ndarray,
+        global_motion: float,
+        base_scale: float,
+        edge_scale: float,
+        fringe_scale: float,
+        max_weight: float,
+        fringe_min: float,
+        fringe_max: float,
+        drop_scale: float,
+    ) -> np.ndarray:
+        # Motion gate: inversely proportional to movement. Still -> 1.0, fast
+        # motion -> 0.15 so there is always some anti-flicker stabilization.
+        motion_gate = np.clip(1.0 - global_motion * 20.0, 0.15, 1.0)
+        base_w = self._temporal_strength * motion_gate
 
         # Three-tier smoothing weights:
         # Edge/transition (0.03-0.97): strongest — these jitter most
@@ -1731,17 +1764,11 @@ class VideoEffects:
         # Cap weight to prevent ghosting
         np.clip(weight, 0, max_weight, out=weight)
 
-        # Asymmetric: dropping alpha (person leaving an area) gets less
-        # smoothing to avoid ghost trails
+        # Asymmetric: dropping alpha gets less smoothing to avoid ghost trails.
         dropping = alpha < prev - 0.05
-        weight[dropping] *= 0.12 if self._bg_mode == "remove" else 0.2
+        weight[dropping] *= drop_scale
 
-        result = weight * prev + (1.0 - weight) * alpha
-        with self._state_lock:
-            if matte_version is not None and matte_version != self._matte_version:
-                return alpha
-            self._prev_alpha = result.copy()
-        return result
+        return weight * prev + (1.0 - weight) * alpha
 
     def _refresh_temporal_strength(self) -> None:
         """Tune temporal smoothing for the active model/engine/effect mode."""
@@ -1770,7 +1797,8 @@ class VideoEffects:
                                    fill_cutoff: int,
                                    fill_value: int,
                                    max_area_ratio: float,
-                                   max_span_ratio: float) -> np.ndarray:
+                                   max_span_ratio: float,
+                                   reference_shape: tuple[int, int] | None = None) -> np.ndarray:
         """Fill only tiny interior holes while preserving real body gaps.
 
         Large openings like under-arm gaps or spaces between hair strands and
@@ -1791,9 +1819,10 @@ class VideoEffects:
             return mask_u8
 
         h, w = mask_u8.shape[:2]
-        max_area = max(6, int(h * w * max_area_ratio))
-        max_w = max(2, int(w * max_span_ratio))
-        max_h = max(2, int(h * max_span_ratio))
+        ref_h, ref_w = reference_shape or (h, w)
+        max_area = max(6, int(ref_h * ref_w * max_area_ratio))
+        max_w = max(2, int(ref_w * max_span_ratio))
+        max_h = max(2, int(ref_h * max_span_ratio))
 
         num, labels, stats, _centroids = cv2.connectedComponentsWithStats(holes, connectivity=8)
         filled = mask_u8.copy()
@@ -1814,7 +1843,8 @@ class VideoEffects:
                                        min_area_ratio: float,
                                        min_span_ratio: float,
                                        min_aspect_ratio: float = 1.0,
-                                       max_area_ratio: float | None = None) -> np.ndarray:
+                                       max_area_ratio: float | None = None,
+                                       reference_shape: tuple[int, int] | None = None) -> np.ndarray:
         """Return a mask of meaningful interior openings that should stay open.
 
         Replace mode should preserve narrow slit-like gaps, but broad blob-like
@@ -1835,10 +1865,11 @@ class VideoEffects:
             return np.zeros_like(mask_u8, dtype=bool)
 
         h, w = mask_u8.shape[:2]
-        min_area = max(6, int(h * w * min_area_ratio))
-        min_w = max(3, int(w * min_span_ratio))
-        min_h = max(3, int(h * min_span_ratio))
-        max_area = None if max_area_ratio is None else max(8, int(h * w * max_area_ratio))
+        ref_h, ref_w = reference_shape or (h, w)
+        min_area = max(6, int(ref_h * ref_w * min_area_ratio))
+        min_w = max(3, int(ref_w * min_span_ratio))
+        min_h = max(3, int(ref_h * min_span_ratio))
+        max_area = None if max_area_ratio is None else max(8, int(ref_h * ref_w * max_area_ratio))
 
         preserve = np.zeros_like(mask_u8, dtype=bool)
         num, labels, stats, _centroids = cv2.connectedComponentsWithStats(holes, connectivity=8)
@@ -1866,7 +1897,8 @@ class VideoEffects:
                                        min_span_ratio: float,
                                        max_span_ratio: float,
                                        min_aspect_ratio: float = 2.0,
-                                       max_area_ratio: float | None = None) -> np.ndarray:
+                                       max_area_ratio: float | None = None,
+                                       reference_shape: tuple[int, int] | None = None) -> np.ndarray:
         """Return narrow exterior channels that closing should not bridge.
 
         These are background slits connected to the outer background, such as
@@ -1881,9 +1913,10 @@ class VideoEffects:
             return np.zeros_like(original_u8, dtype=bool)
 
         h, w = original_u8.shape[:2]
-        min_long = max(3, int(max(h, w) * min_span_ratio))
-        max_short = max(2, min(12, int(min(h, w) * max_span_ratio)))
-        max_area = None if max_area_ratio is None else max(8, int(h * w * max_area_ratio))
+        ref_h, ref_w = reference_shape or (h, w)
+        min_long = max(3, int(max(ref_h, ref_w) * min_span_ratio))
+        max_short = max(2, min(12, int(min(ref_h, ref_w) * max_span_ratio)))
+        max_area = None if max_area_ratio is None else max(8, int(ref_h * ref_w * max_area_ratio))
 
         preserve = np.zeros_like(original_u8, dtype=bool)
         num, labels, stats, _centroids = cv2.connectedComponentsWithStats(added, connectivity=8)
@@ -1932,30 +1965,58 @@ class VideoEffects:
             if matte_version is not None and matte_version != self._matte_version:
                 return alpha
             prev = self._stable_alpha
+
+        stable = self._stabilized_replacement_alpha(alpha, prev, preserve_detail)
+        matte = self._replacement_matte_from_stable(
+            alpha,
+            stable,
+            preserve_detail,
+            reference_shape=alpha.shape[:2],
+        )
+
+        with self._state_lock:
+            if matte_version is not None and matte_version != self._matte_version:
+                return alpha
+            self._stable_alpha = stable.copy()
+        return matte
+
+    def _stabilized_replacement_alpha(
+        self,
+        alpha: np.ndarray,
+        prev: np.ndarray | None,
+        preserve_detail: bool,
+    ) -> np.ndarray:
         if prev is None or prev.shape != alpha.shape:
-            stable = alpha.copy()
-        else:
-            diff = np.abs(alpha - prev)
-            global_motion = diff.mean()
-            motion_gate = np.clip(1.0 - global_motion * 18.0, 0.2, 1.0)
+            return alpha.copy()
 
-            # Keep replace-mode stabilization lighter than blur/remove so
-            # narrow hair gaps and under-arm openings can reopen quickly.
-            base_weight = 0.05 if preserve_detail else 0.07
-            edge_weight = 0.11 if preserve_detail else 0.15
-            fringe_weight = 0.16 if preserve_detail else 0.21
-            weight = np.full_like(alpha, base_weight * motion_gate, dtype=np.float32)
-            edge_mask = (alpha > 0.02) & (alpha < 0.98)
-            fringe_mask = (alpha > 0.02) & (alpha < 0.35)
-            weight[edge_mask] = edge_weight * motion_gate
-            weight[fringe_mask] = fringe_weight * motion_gate
+        diff = np.abs(alpha - prev)
+        global_motion = diff.mean()
+        motion_gate = np.clip(1.0 - global_motion * 18.0, 0.2, 1.0)
 
-            dropping = alpha < prev - 0.04
-            weight[dropping] *= 0.10 if preserve_detail else 0.18
-            np.clip(weight, 0.0, 0.24 if preserve_detail else 0.30, out=weight)
+        # Keep replace-mode stabilization lighter than blur/remove so
+        # narrow hair gaps and under-arm openings can reopen quickly.
+        base_weight = 0.05 if preserve_detail else 0.07
+        edge_weight = 0.11 if preserve_detail else 0.15
+        fringe_weight = 0.16 if preserve_detail else 0.21
+        weight = np.full_like(alpha, base_weight * motion_gate, dtype=np.float32)
+        edge_mask = (alpha > 0.02) & (alpha < 0.98)
+        fringe_mask = (alpha > 0.02) & (alpha < 0.35)
+        weight[edge_mask] = edge_weight * motion_gate
+        weight[fringe_mask] = fringe_weight * motion_gate
 
-            stable = weight * prev + (1.0 - weight) * alpha
+        dropping = alpha < prev - 0.04
+        weight[dropping] *= 0.10 if preserve_detail else 0.18
+        np.clip(weight, 0.0, 0.24 if preserve_detail else 0.30, out=weight)
 
+        return weight * prev + (1.0 - weight) * alpha
+
+    def _replacement_matte_from_stable(
+        self,
+        alpha: np.ndarray,
+        stable: np.ndarray,
+        preserve_detail: bool,
+        reference_shape: tuple[int, int] | None = None,
+    ) -> np.ndarray:
         matte = np.clip((stable - 0.05) / 0.95, 0.0, 1.0)
         matte[matte < 0.012] = 0.0
         matte[matte > 0.985] = 1.0
@@ -1968,6 +2029,13 @@ class VideoEffects:
             sw = max(8, matte_u8.shape[1] // work_scale)
             sh = max(8, matte_u8.shape[0] // work_scale)
             work_mask = cv2.resize(matte_u8, (sw, sh), interpolation=cv2.INTER_AREA)
+        work_reference_shape = reference_shape
+        if reference_shape is not None and work_scale > 1:
+            ref_h, ref_w = reference_shape
+            work_reference_shape = (
+                max(8, ref_h // work_scale),
+                max(8, ref_w // work_scale),
+            )
 
         preserve_holes_small = self._preserve_large_internal_holes(
             work_mask,
@@ -1976,6 +2044,7 @@ class VideoEffects:
             min_span_ratio=0.018,
             min_aspect_ratio=2.0,
             max_area_ratio=0.0011,
+            reference_shape=work_reference_shape,
         )
         work_mask = self._fill_small_internal_holes(
             work_mask,
@@ -1984,6 +2053,7 @@ class VideoEffects:
             fill_value=184,
             max_area_ratio=0.00012,
             max_span_ratio=0.028,
+            reference_shape=work_reference_shape,
         )
 
         if min(work_mask.shape[:2]) >= 8 and not preserve_detail:
@@ -2011,11 +2081,6 @@ class VideoEffects:
         if preserve_holes.any():
             matte[preserve_holes] = np.minimum(matte[preserve_holes], alpha[preserve_holes])
         matte[matte < 0.12] = 0.0
-
-        with self._state_lock:
-            if matte_version is not None and matte_version != self._matte_version:
-                return alpha
-            self._stable_alpha = stable.copy()
         return matte
 
     def _replacement_matte_cached(self, alpha: np.ndarray,
@@ -2040,6 +2105,58 @@ class VideoEffects:
             self._cached_replace_matte_source_serial = alpha_serial
         return matte
 
+    @staticmethod
+    def _mask_roi_bounds(mask: np.ndarray, pad: int = 0) -> tuple[int, int, int, int] | None:
+        rows = np.flatnonzero(mask.any(axis=1))
+        cols = np.flatnonzero(mask.any(axis=0))
+        if rows.size == 0 or cols.size == 0:
+            return None
+        h, w = mask.shape[:2]
+        x0 = max(0, int(cols[0]) - pad)
+        y0 = max(0, int(rows[0]) - pad)
+        x1 = min(w, int(cols[-1]) + pad + 1)
+        y1 = min(h, int(rows[-1]) + pad + 1)
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return x0, y0, x1, y1
+
+    @staticmethod
+    def _active_alpha_roi_bounds(
+        alpha: np.ndarray,
+        prev: np.ndarray | None = None,
+        threshold: float = 0.03,
+        pad: int = 64,
+    ) -> tuple[int, int, int, int] | None:
+        h, w = alpha.shape[:2]
+        if max(h, w) < 640 and min(h, w) < 360:
+            return None
+
+        active = alpha > threshold
+        if prev is not None and prev.shape == alpha.shape:
+            active |= prev > threshold
+        bounds = VideoEffects._mask_roi_bounds(active, pad=pad)
+        if bounds is None:
+            return None
+
+        x0, y0, x1, y1 = bounds
+        roi_w = x1 - x0
+        roi_h = y1 - y0
+        if roi_w < 8 or roi_h < 8:
+            return None
+        if roi_w * roi_h >= int(h * w * 0.88):
+            return None
+        return bounds
+
+    @staticmethod
+    def _scaled_roi_pad(shape: tuple[int, ...], ratio: float = 0.12) -> int:
+        h, w = shape[:2]
+        return max(48, min(96, int(round(min(h, w) * ratio))))
+
+    @staticmethod
+    def _edge_roi_pad(shape: tuple[int, ...]) -> int:
+        h, w = shape[:2]
+        return max(24, min(48, int(round(min(h, w) * 0.08))))
+
     def _edge_aware_replace_matte(self, frame: np.ndarray, matte: np.ndarray) -> np.ndarray:
         """Sharpen replace-mode transitions where the camera frame has a real edge.
 
@@ -2054,16 +2171,61 @@ class VideoEffects:
         preserve_detail = self._quality == "quality"
 
         h, w = matte.shape[:2]
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY).astype(np.float32) * (1.0 / 255.0)
         transition = (matte > 0.05) & (matte < 0.95)
         if not transition.any():
             return matte
 
-        if max(h, w) >= 960 or min(h, w) >= 540:
+        use_hd_roi = max(h, w) >= 960 or min(h, w) >= 540
+        downsample = use_hd_roi
+        if use_hd_roi:
+            bounds = self._mask_roi_bounds(transition, pad=self._edge_roi_pad(matte.shape))
+            if bounds is not None:
+                x0, y0, x1, y1 = bounds
+                roi_w = x1 - x0
+                roi_h = y1 - y0
+                roi_area = roi_w * roi_h
+                if roi_w >= 8 and roi_h >= 8 and roi_area < int(h * w * 0.88):
+                    refined_roi = self._edge_aware_replace_matte_region(
+                        frame[y0:y1, x0:x1],
+                        matte[y0:y1, x0:x1],
+                        transition[y0:y1, x0:x1],
+                        preserve_detail,
+                        downsample=downsample,
+                    )
+                    result = matte.copy()
+                    result[y0:y1, x0:x1] = refined_roi
+                    return result.astype(np.float32)
+
             # The edge-aware pass is only a local confidence signal for the
-            # transition band. At meeting resolutions, quarter-resolution
-            # gradients preserve that signal while cutting a meaningful amount
-            # of per-frame CPU work on replace mode.
+            # transition band. At HD sizes, quarter-resolution gradients
+            # preserve that signal while cutting per-frame CPU work.
+            return self._edge_aware_replace_matte_region(
+                frame,
+                matte,
+                transition,
+                preserve_detail,
+                downsample=downsample,
+            )
+        else:
+            return self._edge_aware_replace_matte_region(
+                frame,
+                matte,
+                transition,
+                preserve_detail,
+                downsample=False,
+            )
+
+    @staticmethod
+    def _edge_aware_replace_matte_region(
+        frame: np.ndarray,
+        matte: np.ndarray,
+        transition: np.ndarray,
+        preserve_detail: bool,
+        downsample: bool,
+    ) -> np.ndarray:
+        h, w = matte.shape[:2]
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY).astype(np.float32) * (1.0 / 255.0)
+        if downsample:
             sw = max(8, w // 4)
             sh = max(8, h // 4)
             gray_small = cv2.resize(gray, (sw, sh), interpolation=cv2.INTER_AREA)
@@ -2141,12 +2303,65 @@ class VideoEffects:
             return matte
         return refiner.refine(frame, matte)
 
+    def _stabilize_replace_matte_edges(self, matte: np.ndarray) -> np.ndarray:
+        """Damp final replace-edge shimmer after edge-aware sharpening."""
+        h, w = matte.shape[:2]
+        with self._state_lock:
+            prev_u8 = self._latest_final_matte_u8
+            prev_size = self._latest_final_matte_size
+        if prev_u8 is None or prev_size != (w, h) or prev_u8.shape != matte.shape:
+            return matte
+
+        edge = ((matte > 0.02) & (matte < 0.98)) | ((prev_u8 > 5) & (prev_u8 < 250))
+        bounds = self._mask_roi_bounds(edge, pad=self._scaled_roi_pad(matte.shape))
+        if bounds is None:
+            return matte
+
+        x0, y0, x1, y1 = bounds
+        matte_roi = matte[y0:y1, x0:x1]
+        prev_roi_u8 = prev_u8[y0:y1, x0:x1]
+        prev_roi = prev_roi_u8.astype(np.float32) * (1.0 / 255.0)
+        edge_roi = ((matte_roi > 0.02) & (matte_roi < 0.98)) | (
+            (prev_roi_u8 > 5) & (prev_roi_u8 < 250)
+        )
+        edge_y, edge_x = np.nonzero(edge_roi)
+        if edge_x.size == 0:
+            return matte
+
+        matte_values = matte_roi[edge_y, edge_x]
+        prev_values = prev_roi[edge_y, edge_x]
+        diff = np.abs(matte_values - prev_values)
+        small_change = diff < 0.24
+        if not small_change.any():
+            return matte
+
+        edge_motion = float(diff.mean())
+        motion_gate = float(np.clip(1.0 - edge_motion * 4.0, 0.25, 1.0))
+        stable_y = edge_y[small_change]
+        stable_x = edge_x[small_change]
+        matte_stable = matte_values[small_change]
+        prev_stable = prev_values[small_change]
+        weight = np.full_like(matte_stable, 0.28 * motion_gate, dtype=np.float32)
+
+        fringe = (
+            ((matte_stable > 0.02) & (matte_stable < 0.35))
+            | ((prev_stable > 0.02) & (prev_stable < 0.35))
+        )
+        weight[fringe] = 0.42 * motion_gate
+
+        dropping = matte_stable < prev_stable - 0.04
+        weight[dropping] *= 0.12
+
+        matte_roi[stable_y, stable_x] = weight * prev_stable + (1.0 - weight) * matte_stable
+        return matte
+
     def _final_matte(self, frame: np.ndarray, alpha: np.ndarray,
                      matte_version: int | None = None) -> np.ndarray:
         if self._bg_mode == "replace":
             matte = self._replacement_matte_cached(alpha, matte_version)
             matte = self._edge_aware_replace_matte(frame, matte)
-            return self._apply_learned_refiner("replace", frame, matte)
+            matte = self._apply_learned_refiner("replace", frame, matte)
+            return self._stabilize_replace_matte_edges(matte)
         if self._bg_mode == "remove":
             matte = self._greenscreen_matte(frame, alpha, matte_version)
             return self._apply_learned_refiner("remove", frame, matte)
@@ -2321,6 +2536,13 @@ class VideoEffects:
             self._sigmoid_midpoint = float(sigmoid_midpoint)
 
     def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
+        return self._refine_alpha_full(alpha, reference_shape=alpha.shape[:2])
+
+    def _refine_alpha_full(
+        self,
+        alpha: np.ndarray,
+        reference_shape: tuple[int, int] | None = None,
+    ) -> np.ndarray:
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
         is_replace = self._bg_mode == "replace"
         preserve_detail = is_replace and self._quality == "quality"
@@ -2334,6 +2556,7 @@ class VideoEffects:
                 min_span_ratio=0.018,
                 min_aspect_ratio=2.0,
                 max_area_ratio=0.0011,
+                reference_shape=reference_shape,
             )
 
         # 1. Small close: fill tiny holes in hair/fine detail
@@ -2352,6 +2575,7 @@ class VideoEffects:
                 max_span_ratio=0.24,
                 min_aspect_ratio=2.0,
                 max_area_ratio=None,
+                reference_shape=reference_shape,
             )
         # 2. Half-resolution close: keep replacement tighter, keep blur/remove
         #    more forgiving where wide feathering hides seams. Quality replace
@@ -2379,6 +2603,7 @@ class VideoEffects:
             fill_value=fill_value,
             max_area_ratio=0.00014 if is_replace else 0.0007,
             max_span_ratio=0.030 if is_replace else 0.07,
+            reference_shape=reference_shape,
         )
 
         if is_replace:
@@ -2480,7 +2705,11 @@ class VideoEffects:
                     self._fused_bg_size = (width, height)
                 bg_gpu = self._fused_bg_gpu
 
-            # Upload all to GPU in one batch
+            # Upload all to GPU in one batch. Keep replace-mode foreground
+            # cleanup identical to the CPU/CuPy blend path so hair/edge fringe
+            # does not reappear only in DocZeus/Killer fused compositing.
+            if self._bg_mode == "replace" and self._bg_image is not None:
+                frame = self._prepare_replace_foreground(frame, alpha)
             fg_gpu = cp.asarray(frame)
             alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
             output_gpu = cp.empty_like(fg_gpu)
@@ -2638,7 +2867,7 @@ class VideoEffects:
         # Create a "clean color" reference by blurring only solid person pixels.
         # Process at half resolution for speed (32ms → ~4ms).
         h, w = fg.shape[:2]
-        hw, hh = w // 2, h // 2
+        hw, hh = max(1, w // 2), max(1, h // 2)
         fg_small = cv2.resize(fg, (hw, hh), interpolation=cv2.INTER_AREA)
         alpha_small = cv2.resize(alpha, (hw, hh), interpolation=cv2.INTER_AREA)
         solid_2d = (alpha_small > solid_threshold).astype(np.float32)
@@ -2660,35 +2889,64 @@ class VideoEffects:
         fringe = (alpha > 0.03) & (alpha < 0.35)
         if not fringe.any():
             return fg
-        result = fg.copy()
+        h, w = alpha.shape[:2]
+        active = fringe | (alpha > 0.72)
+        bounds = self._mask_roi_bounds(active, pad=self._edge_roi_pad(alpha.shape))
+        if bounds is not None:
+            x0, y0, x1, y1 = bounds
+            roi_area = (x1 - x0) * (y1 - y0)
+            if roi_area < int(h * w * 0.92):
+                fg_roi = fg[y0:y1, x0:x1]
+                cleaned = self._despill_fringe_region(
+                    fg_roi,
+                    alpha[y0:y1, x0:x1],
+                    fringe[y0:y1, x0:x1],
+                )
+                if cleaned is fg_roi:
+                    return fg
+                result = fg.copy()
+                result[y0:y1, x0:x1] = cleaned
+                return result
+        return self._despill_fringe_region(fg, alpha, fringe)
+
+    def _despill_fringe_region(
+        self,
+        fg: np.ndarray,
+        alpha: np.ndarray,
+        fringe: np.ndarray,
+    ) -> np.ndarray:
+        fringe = fringe.copy()
+        fringe_y, fringe_x = np.nonzero(fringe)
+        if fringe_x.size == 0:
+            return fg
+
         clean_color = self._clean_color_reference(fg, alpha, solid_threshold=0.88)
 
         # Blend fringe pixels toward clean color based on how contaminated they are
         # alpha=0.03 → ~45% clean color, alpha=0.35 → 0%
         color_delta = np.mean(
             np.abs(
-                result[:, :, :3].astype(np.int16) - clean_color[:, :, :3].astype(np.int16)
+                fg[fringe_y, fringe_x, :3].astype(np.int16)
+                - clean_color[fringe_y, fringe_x, :3].astype(np.int16)
             ),
-            axis=2,
+            axis=1,
         )
-        contamination = color_delta > 10.0
-        fringe &= contamination
-        if not fringe.any():
-            return result
+        contaminated = color_delta > 10.0
+        if not contaminated.any():
+            return fg
 
-        blend = np.clip((0.35 - alpha) / 0.32, 0.0, 1.0) * 0.45
-        blend_4ch = blend[:, :, np.newaxis].astype(np.float32)
-        fringe_4ch = fringe[:, :, np.newaxis]
-
-        result = np.where(
-            fringe_4ch,
-            np.clip(
-                result.astype(np.float32) * (1.0 - blend_4ch)
-                + clean_color.astype(np.float32) * blend_4ch,
-                0, 255
-            ).astype(np.uint8),
-            result,
-        )
+        fringe_y = fringe_y[contaminated]
+        fringe_x = fringe_x[contaminated]
+        result = fg.copy()
+        blend = np.clip((0.35 - alpha[fringe_y, fringe_x]) / 0.32, 0.0, 1.0) * 0.45
+        blend = blend[:, np.newaxis].astype(np.float32)
+        repaired = np.clip(
+            fg[fringe_y, fringe_x].astype(np.float32) * (1.0 - blend)
+            + clean_color[fringe_y, fringe_x].astype(np.float32) * blend,
+            0,
+            255,
+        ).astype(np.uint8)
+        result[fringe_y, fringe_x] = repaired
         return result
 
     def _prepare_greenscreen_foreground(self, fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
@@ -2726,6 +2984,10 @@ class VideoEffects:
 
         return np.where(fringe_4ch, repaired.astype(np.uint8), result)
 
+    def _prepare_replace_foreground(self, fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+        """Clean replace-mode foreground fringe before blending."""
+        return self._despill_fringe(fg, alpha)
+
     def _apply_replace(self, frame: np.ndarray, alpha: np.ndarray,
                        width: int, height: int) -> np.ndarray:
         if self._bg_image is None:
@@ -2733,8 +2995,7 @@ class VideoEffects:
         if self._frame_size != (width, height):
             self._resized_bg = self._resize_bg(self._bg_image, width, height)
             self._frame_size = (width, height)
-        # Despill: remove webcam background color from hair fringe pixels
-        frame = self._despill_fringe(frame, alpha)
+        frame = self._prepare_replace_foreground(frame, alpha)
         return self._blend(frame, self._resized_bg, alpha)
 
     def _resize_bg(self, bg: np.ndarray, target_w: int, target_h: int) -> np.ndarray:

@@ -1,6 +1,6 @@
 name: nvbroadcast
 base: core24
-version: '1.1.9'
+version: '1.1.10'
 summary: Live background performance and stability patch
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
@@ -9,6 +9,20 @@ description: |
   local meeting transcription into one app.
 
   Recommended stable update:
+  - v1.1.10 improves live background replacement edges around hair, shoulders,
+    raised hands, and finger gaps while reducing the extra CPU cost added by
+    edge cleanup.
+  - A new Compute selector lets users choose Auto, GPU Focused, or CPU Focused
+    behavior depending on whether they want quality, GPU preference, or lower
+    GPU load.
+  - GPU Focused now clearly selects the DocZeus/CUDA path when available, while
+    CPU Focused keeps users on CPU modes when they want to leave GPU resources
+    free.
+  - Meeting transcription packaging still uses the lighter faster-whisper
+    runtime, with openai-whisper kept optional and guarded for compatible Python
+    versions only.
+  - Project sponsor/backer links, public sponsor walls, and About-window backer
+    credits are easier to find.
   - v1.1.9 fixes the local meeting transcription runtime installer so all
     required faster-whisper support packages are installed correctly in the
     app, Debian/RPM packages, and macOS package path.

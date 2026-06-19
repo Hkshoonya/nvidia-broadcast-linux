@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.9
+Version:        1.1.10
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -144,6 +144,13 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Fri Jun 19 2026 doczeus <harshit@kshoonya.com> - 1.1.10-1
+- Improve live background replace edge stability around hair, shoulders, hands, and fingers
+- Apply replace-mode fringe cleanup in the fused CUDA compositing path and reduce CPU cleanup cost
+- Add Auto/GPU Focused/CPU Focused compute controls for clearer performance tradeoffs
+- Keep meeting runtime packaging on faster-whisper and guard openai-whisper on newer Python versions
+- Add auto-updating GitHub Sponsors walls and visible sponsor recognition
+
 * Sat May 23 2026 doczeus <harshit@kshoonya.com> - 1.1.9-1
 - Fix meeting transcription runtime installation across app, Debian/RPM, and macOS package paths
 - Split faster-whisper installation so its support packages keep their required dependencies

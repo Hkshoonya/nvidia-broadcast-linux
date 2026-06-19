@@ -69,6 +69,17 @@ _AUTO_MODE_TARGET_FPS = {
     "cpu_low": 10.0,
 }
 
+_COMPUTE_FOCUS_VALUES = {"auto", "gpu", "cpu"}
+_COMPUTE_FOCUS_LABELS = {
+    "auto": "Auto",
+    "gpu": "GPU Focused",
+    "cpu": "CPU Focused",
+}
+
+_GPU_AUTO_MODES = ("doczeus", "cuda_balanced", "cuda_perf")
+_CPU_AUTO_MODES = ("cpu_quality", "cpu_light", "cpu_low")
+_AUTO_MODE_ORDER = (*_GPU_AUTO_MODES, *_CPU_AUTO_MODES)
+
 _MODE_LABELS = {
     "doczeus": "DocZeus - Best Quality GPU",
     "cuda_max": "CUDA - High Quality",
@@ -105,6 +116,7 @@ class NVBroadcastApp(Adw.Application):
             "doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer",
         }:
             self.config.mode_key = "cpu_quality"
+            self.config.compute_focus = "cpu"
             self.config.compositing = "cpu"
             self.config.performance_profile = "max_quality"
             self.config.use_tensorrt = False
@@ -1110,6 +1122,8 @@ class NVBroadcastApp(Adw.Application):
                     toggle.active = desired
             if hasattr(self._window, "_sync_mode_selector"):
                 self._window._sync_mode_selector()
+            if hasattr(self._window, "_sync_compute_focus_selector"):
+                self._window._sync_compute_focus_selector()
             if hasattr(self._window, "_sync_quality_selector"):
                 self._window._sync_quality_selector()
             if status:
@@ -1123,19 +1137,21 @@ class NVBroadcastApp(Adw.Application):
     def _available_auto_modes(self) -> list[str]:
         """Return the stable modes that are usable on this machine right now."""
         modes: list[str] = []
-        for mode_key in (
-            "doczeus",
-            "cuda_balanced",
-            "cuda_perf",
-            "cpu_quality",
-            "cpu_light",
-            "cpu_low",
-        ):
+        for mode_key in _AUTO_MODE_ORDER:
             if self._dependency_installer.unsupported_reason_for_mode(mode_key):
                 continue
             if self._dependency_installer.missing_for_mode(mode_key):
                 continue
             modes.append(mode_key)
+
+        focus = self._compute_focus()
+        if focus == "cpu":
+            cpu_modes = [mode for mode in _CPU_AUTO_MODES if mode in modes]
+            return cpu_modes or modes or ["cpu_low"]
+        if focus == "gpu":
+            gpu_modes = [mode for mode in _GPU_AUTO_MODES if mode in modes]
+            cpu_fallback = [mode for mode in _CPU_AUTO_MODES if mode in modes]
+            return gpu_modes + cpu_fallback if gpu_modes else cpu_fallback or modes or ["cpu_low"]
         return modes or ["cpu_low"]
 
     def _preferred_auto_mode(self) -> str:
@@ -1144,8 +1160,16 @@ class NVBroadcastApp(Adw.Application):
 
         caps = detect_system_capabilities()
         available = self._available_auto_modes()
+        focus = self._compute_focus()
 
-        if caps["has_nvidia"]:
+        if focus == "cpu":
+            if caps["cpu_cores"] >= 8:
+                preferred = ["cpu_quality", "cpu_light", "cpu_low"]
+            elif caps["cpu_cores"] >= 4:
+                preferred = ["cpu_light", "cpu_quality", "cpu_low"]
+            else:
+                preferred = ["cpu_low", "cpu_light", "cpu_quality"]
+        elif caps["has_nvidia"]:
             if caps["gpu_vram_mb"] >= 8192:
                 preferred = ["doczeus", "cuda_balanced", "cuda_perf"]
             else:
@@ -1163,6 +1187,21 @@ class NVBroadcastApp(Adw.Application):
             if mode_key in available:
                 return mode_key
         return available[0]
+
+    def _compute_focus(self) -> str:
+        """Return the normalized compute-focus policy."""
+        focus = getattr(self.config, "compute_focus", "auto")
+        return focus if focus in _COMPUTE_FOCUS_VALUES else "auto"
+
+    @staticmethod
+    def _mode_compute_focus(mode_key: str) -> str:
+        """Infer the resource focus represented by a concrete mode."""
+        stable = NVBroadcastApp._stable_mode_key(mode_key)
+        if stable in _GPU_AUTO_MODES:
+            return "gpu"
+        if stable in _CPU_AUTO_MODES:
+            return "cpu"
+        return "auto"
 
     def _resolved_mode_key(self) -> str:
         """Return the active concrete mode key."""
@@ -1252,8 +1291,9 @@ class NVBroadcastApp(Adw.Application):
 
     def _recommendation_text(self, fallback_mode: str) -> str:
         """Build user-facing advice for lower-latency manual fallback."""
+        focus_label = _COMPUTE_FOCUS_LABELS.get(self._compute_focus(), "Auto")
         lines = [
-            f"Recommended Mode: Auto - Adaptive or {self._mode_label(fallback_mode)}.",
+            f"Recommended Mode: {focus_label} or {self._mode_label(fallback_mode)}.",
         ]
         capture = self._recommended_capture_mode()
         if capture is not None:
@@ -1322,6 +1362,8 @@ class NVBroadcastApp(Adw.Application):
     def set_auto_mode_enabled(self, enabled: bool):
         """Enable or disable adaptive mode selection."""
         self.config.auto_mode = enabled
+        if enabled:
+            self.config.compute_focus = "auto"
         self._auto_tune_low_streak = 0
         self._auto_tune_high_streak = 0
         self._last_auto_tune_change = time.monotonic()
@@ -1353,6 +1395,39 @@ class NVBroadcastApp(Adw.Application):
             save_config(self.config)
             if self._window is not None and hasattr(self._window, "_sync_mode_selector"):
                 self._window._sync_mode_selector()
+
+    def set_compute_focus(self, focus: str, *, apply_mode: bool = True) -> bool:
+        """Switch the high-level CPU/GPU resource policy."""
+        if focus not in _COMPUTE_FOCUS_VALUES:
+            return False
+
+        self.config.compute_focus = focus
+        self._auto_tune_low_streak = 0
+        self._auto_tune_high_streak = 0
+        self._last_auto_tune_change = time.monotonic()
+        self._manual_low_fps_streak = 0
+        self._last_manual_warning = 0.0
+
+        if focus == "auto":
+            self.set_auto_mode_enabled(True)
+            return True
+
+        self.config.auto_mode = False
+        if apply_mode:
+            mode_key = self._preferred_auto_mode()
+            detail = NVBroadcastWindow._mode_status_message(mode_key)
+            return self.apply_mode_key(
+                mode_key,
+                status=f"{_COMPUTE_FOCUS_LABELS[focus]}: {detail}",
+            )
+
+        save_config(self.config)
+        if self._window is not None:
+            if hasattr(self._window, "_sync_compute_focus_selector"):
+                self._window._sync_compute_focus_selector()
+            if hasattr(self._window, "_sync_mode_selector"):
+                self._window._sync_mode_selector()
+        return True
 
     def _auto_tune_tick(self):
         """Adapt between stable modes when live FPS stays too low."""

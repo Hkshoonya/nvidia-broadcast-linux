@@ -57,6 +57,7 @@ class BackgroundOverlayTests(unittest.TestCase):
         from nvbroadcast.video.effects import VideoEffects
 
         cls.VideoEffects = VideoEffects
+        cls.effects_module = sys.modules["nvbroadcast.video.effects"]
 
     def _make_effects(self):
         effects = self.VideoEffects()
@@ -65,6 +66,39 @@ class BackgroundOverlayTests(unittest.TestCase):
         effects._bg_image[:, :, 0] = 240
         effects._bg_image[:, :, 3] = 255
         return effects
+
+    class _FakeCupy:
+        float32 = np.float32 if np is not None else float
+        int32 = np.int32 if np is not None else int
+        uint8 = np.uint8 if np is not None else "uint8"
+        newaxis = np.newaxis if np is not None else None
+
+        class cuda:
+            class Stream:
+                class null:
+                    @staticmethod
+                    def synchronize():
+                        return None
+
+        @staticmethod
+        def asarray(value, dtype=None):
+            return np.asarray(value, dtype=dtype)
+
+        @staticmethod
+        def asnumpy(value):
+            return np.asarray(value)
+
+        @staticmethod
+        def empty_like(value):
+            return np.empty_like(value)
+
+        @staticmethod
+        def zeros(shape, dtype=None):
+            return np.zeros(shape, dtype=dtype)
+
+        @staticmethod
+        def ones(shape, dtype=None):
+            return np.ones(shape, dtype=dtype)
 
     def test_replace_composite_uses_background_and_foreground(self):
         effects = self._make_effects()
@@ -496,6 +530,91 @@ class BackgroundOverlayTests(unittest.TestCase):
             "replace-mode despill should clean both sides of the fringe",
         )
 
+    def test_despill_crops_to_active_subject_region(self):
+        effects = self._make_effects()
+
+        fg = np.zeros((480, 640, 4), dtype=np.uint8)
+        fg[:, :, :3] = 24
+        fg[:, :, 3] = 255
+        fg[170:310, 260:380, 2] = 220
+        fg[160:320, 245:255, :3] = 22
+
+        alpha = np.zeros((480, 640), dtype=np.float32)
+        alpha[170:310, 260:380] = 0.98
+        alpha[160:320, 245:255] = 0.20
+
+        calls = []
+
+        def clean_reference(fg_arg, alpha_arg, solid_threshold=0.88):
+            calls.append(fg_arg.shape)
+            clean = fg_arg.copy()
+            clean[:, :, 2] = 220
+            return clean
+
+        effects._clean_color_reference = clean_reference
+        cleaned = effects._despill_fringe(fg, alpha)
+
+        self.assertEqual(len(calls), 1)
+        self.assertLess(calls[0][0] * calls[0][1], fg.shape[0] * fg.shape[1])
+        self.assertGreater(int(cleaned[200, 250, 2]), int(fg[200, 250, 2]))
+        self.assertTrue(np.array_equal(cleaned[20, 20], fg[20, 20]))
+
+    def test_apply_replace_uses_shared_foreground_cleanup(self):
+        effects = self._make_effects()
+
+        fg = np.zeros((4, 4, 4), dtype=np.uint8)
+        fg[:, :, 2] = 40
+        fg[:, :, 3] = 255
+        alpha = np.ones((4, 4), dtype=np.float32)
+
+        calls = []
+
+        def prepare_replace(fg_arg, alpha_arg):
+            calls.append((fg_arg.shape, alpha_arg.shape))
+            cleaned = fg_arg.copy()
+            cleaned[:, :, 2] = 220
+            return cleaned
+
+        effects._prepare_replace_foreground = prepare_replace
+        out = effects._apply_replace(fg, alpha, 4, 4)
+
+        self.assertEqual(calls, [((4, 4, 4), (4, 4))])
+        self.assertEqual(int(out[2, 2, 2]), 220)
+
+    def test_fused_replace_uses_shared_foreground_cleanup(self):
+        effects = self._make_effects()
+        effects._cupy = self._FakeCupy()
+
+        fg = np.zeros((4, 4, 4), dtype=np.uint8)
+        fg[:, :, 2] = 40
+        fg[:, :, 3] = 255
+        alpha = np.ones((4, 4), dtype=np.float32)
+
+        calls = []
+
+        def prepare_replace(fg_arg, alpha_arg):
+            calls.append((fg_arg.shape, alpha_arg.shape))
+            cleaned = fg_arg.copy()
+            cleaned[:, :, 2] = 220
+            return cleaned
+        effects._prepare_replace_foreground = prepare_replace
+
+        def fake_kernel(_grid, _block, args):
+            fg_gpu = args[0]
+            output_gpu = args[5]
+            output_gpu[:] = fg_gpu
+
+        original_kernel = self.effects_module._get_fused_kernel
+        self.effects_module._get_fused_kernel = lambda: fake_kernel
+        try:
+            out = effects._composite_fused(fg, alpha, 4, 4)
+        finally:
+            self.effects_module._get_fused_kernel = original_kernel
+
+        self.assertEqual(calls, [((4, 4, 4), (4, 4))])
+        self.assertIsNotNone(out)
+        self.assertEqual(int(out[2, 2, 2]), 220)
+
     def test_edge_aware_replace_matte_hardens_transition_on_real_edges(self):
         effects = self._make_effects()
 
@@ -539,6 +658,40 @@ class BackgroundOverlayTests(unittest.TestCase):
             0.05,
             "fine supported fringe near a real image edge should not be clipped away",
         )
+
+    def test_edge_aware_replace_matte_hd_uses_transition_roi(self):
+        effects = self._make_effects()
+        effects._quality = "ultra"
+
+        frame = np.zeros((576, 1024, 4), dtype=np.uint8)
+        frame[:, :512, :3] = 25
+        frame[:, 512:, :3] = 230
+        frame[:, :, 3] = 255
+
+        matte = np.zeros((576, 1024), dtype=np.float32)
+        matte[220:360, 508] = 0.18
+        matte[220:360, 510] = 0.34
+        matte[220:360, 512] = 0.66
+        matte[220:360, 514] = 0.82
+        matte[220:360, 516:540] = 0.98
+        matte[10:20, 10:20] = 0.98
+
+        calls = []
+        original_region = effects._edge_aware_replace_matte_region
+
+        def counted_region(frame_arg, matte_arg, transition_arg, preserve_detail, downsample):
+            calls.append(frame_arg.shape[:2])
+            return original_region(frame_arg, matte_arg, transition_arg, preserve_detail, downsample)
+
+        effects._edge_aware_replace_matte_region = counted_region
+        refined = effects._edge_aware_replace_matte(frame, matte.copy())
+
+        self.assertEqual(len(calls), 1)
+        self.assertLess(calls[0][0], frame.shape[0], "HD edge pass should crop vertically to the transition band")
+        self.assertLess(calls[0][1], frame.shape[1], "HD edge pass should crop horizontally to the transition band")
+        self.assertLess(float(refined[280, 510]), float(matte[280, 510]), "ROI edge should still tighten entry fringe")
+        self.assertGreater(float(refined[280, 512]), float(matte[280, 512]), "ROI edge should still harden exit fringe")
+        self.assertEqual(float(refined[12, 12]), float(matte[12, 12]), "solid pixels outside the ROI must be untouched")
 
     def test_greenscreen_matte_is_tighter_than_replace_matte(self):
         effects = self._make_effects()
@@ -600,6 +753,49 @@ class BackgroundOverlayTests(unittest.TestCase):
         remove_strength = effects._temporal_strength
         self.assertLess(remove_strength, replace_strength, "green-screen mode should smooth less than replace mode")
 
+    def test_active_alpha_roi_bounds_includes_480p_meeting_frames(self):
+        effects = self._make_effects()
+
+        alpha = np.zeros((480, 854), dtype=np.float32)
+        alpha[120:360, 280:560] = 0.95
+
+        bounds = effects._active_alpha_roi_bounds(alpha, threshold=0.03, pad=32)
+
+        self.assertIsNotNone(bounds)
+        x0, y0, x1, y1 = bounds
+        self.assertLess((x1 - x0) * (y1 - y0), alpha.size)
+
+        small_alpha = np.zeros((320, 480), dtype=np.float32)
+        small_alpha[90:230, 160:320] = 0.95
+        self.assertIsNone(
+            effects._active_alpha_roi_bounds(small_alpha, threshold=0.03, pad=32),
+            "small preview frames should keep the simple full-frame path",
+        )
+
+    def test_temporal_smooth_480p_uses_full_frame_for_edge_stability(self):
+        effects = self._make_effects()
+        effects._bg_mode = "replace"
+
+        prev = np.zeros((480, 854), dtype=np.float32)
+        prev[120:360, 280:560] = 0.92
+        alpha = np.zeros_like(prev)
+        alpha[122:362, 282:562] = 0.95
+        effects._prev_alpha = prev
+
+        calls = []
+        original_region = effects._temporal_smooth_region
+
+        def counted_region(alpha_arg, prev_arg, *args):
+            calls.append(alpha_arg.shape)
+            return original_region(alpha_arg, prev_arg, *args)
+
+        effects._temporal_smooth_region = counted_region
+        result = effects._temporal_smooth(alpha)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0], alpha.shape, "480p temporal smoothing should stay full-frame to avoid edge shimmer")
+        self.assertEqual(float(result[0, 0]), 0.0, "inactive background outside the ROI should remain clipped")
+
     def test_final_matte_can_use_learned_replace_refiner(self):
         effects = self._make_effects()
 
@@ -621,6 +817,27 @@ class BackgroundOverlayTests(unittest.TestCase):
         final = effects._final_matte(frame, alpha)
 
         self.assertGreater(float(final[4, 4]), float(heuristic[4, 4]), "learned refiner should be able to modify final replace matte")
+
+    def test_final_replace_matte_stabilizer_damps_small_edge_changes(self):
+        effects = self._make_effects()
+
+        prev = np.zeros((8, 8), dtype=np.float32)
+        prev[:, 3] = 0.24
+        prev[:, 4] = 0.76
+        matte = np.zeros((8, 8), dtype=np.float32)
+        matte[:, 3] = 0.20
+        matte[:, 4] = 0.80
+
+        effects._latest_final_matte_u8 = np.clip(prev * 255.0, 0, 255).astype(np.uint8)
+        effects._latest_final_matte_size = (8, 8)
+
+        original_entry = float(matte[4, 3])
+        original_exit = float(matte[4, 4])
+        stabilized = effects._stabilize_replace_matte_edges(matte)
+
+        self.assertGreater(float(stabilized[4, 3]), original_entry)
+        self.assertLess(float(stabilized[4, 4]), original_exit)
+        self.assertEqual(float(stabilized[0, 0]), 0.0)
 
     def test_final_matte_quality_preserves_narrow_finger_gap(self):
         effects = self._make_effects()

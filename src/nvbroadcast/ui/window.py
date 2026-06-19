@@ -478,6 +478,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Processing card (mode, GPU, mirror, edge refine)
         proc_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
 
+        self._compute_focus_selector = DeviceSelector("Compute")
+        self._compute_focus_selector.set_devices([
+            {"name": "Auto - adapt CPU/GPU/FPS", "device": "auto"},
+            {"name": "GPU Focused - prefer CUDA/GPU modes", "device": "gpu"},
+            {"name": "CPU Focused - avoid GPU workload", "device": "cpu"},
+        ])
+        self._compute_focus_selector.connect("device-changed", self._on_compute_focus_changed)
+        proc_card.append(self._compute_focus_selector)
+
         self._mode_devices = self._build_mode_devices()
 
         self._profile_selector = DeviceSelector("Mode")
@@ -1068,11 +1077,25 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 self._profile_selector.set_selected_index(i)
                 break
 
+    def _sync_compute_focus_selector(self):
+        focus = getattr(self._app.config, "compute_focus", "auto")
+        if focus not in {"auto", "gpu", "cpu"}:
+            focus = "auto"
+        for i, d in enumerate(getattr(self._compute_focus_selector, "_devices", [])):
+            if d["device"] == focus:
+                self._compute_focus_selector.set_selected_index(i)
+                break
+
     def _sync_quality_selector(self):
         quality_map = {"performance": 0, "balanced": 1, "quality": 2, "ultra": 3}
         idx = quality_map.get(self._app.config.video.quality_preset)
         if idx is not None:
             self._quality_selector.set_selected_index(idx)
+
+    def _on_compute_focus_changed(self, selector, focus):
+        if getattr(self._app, '_restoring', False):
+            return
+        self._app.set_compute_focus(focus)
 
     def _on_mode_changed_selector(self, selector, mode_key):
         if getattr(self._app, '_restoring', False):
@@ -1103,6 +1126,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 ),
             )
             return
+        self._app.set_compute_focus(self._app._mode_compute_focus(mode_key), apply_mode=False)
         self._app.set_auto_mode_enabled(False)
         if mode_key in self._MODE_MAP:
             self._app.apply_mode_key(mode_key)
@@ -1762,6 +1786,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         self.sync_video_input_controls(config)
         self._sync_card_states(config)
+        self._sync_compute_focus_selector()
         if self._gpu_selector is not None:
             self._gpu_selector.set_selected_index(config.compute_gpu)
         self._update_gpu_info()
@@ -1964,6 +1989,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 "Created by doczeus | AI Powered"
             ),
         )
+        if hasattr(about, "add_credit_section"):
+            about.add_credit_section("Backers & Supporters", ["Mattsky https://github.com/Mattsky"])
         about.add_link("Sponsor on GitHub", "https://github.com/sponsors/Hkshoonya")
         about.present()
 

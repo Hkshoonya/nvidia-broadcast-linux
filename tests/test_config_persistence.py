@@ -15,6 +15,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         config = AppConfig()
         config.current_profile = "Meeting"
         config.last_python_runtime_notice = "python-runtime-3.14"
+        config.compute_focus = "gpu"
         config.auto_mode = True
         config.mode_key = "cpu_light"
         config.ui_card_expanded = {
@@ -42,6 +43,7 @@ class ConfigPersistenceTests(unittest.TestCase):
 
         self.assertEqual(loaded.current_profile, "Meeting")
         self.assertEqual(loaded.last_python_runtime_notice, "python-runtime-3.14")
+        self.assertEqual(loaded.compute_focus, "gpu")
         self.assertTrue(loaded.auto_mode)
         self.assertEqual(loaded.mode_key, "cpu_light")
         self.assertEqual(loaded.ui_card_expanded, {
@@ -67,6 +69,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         existing.last_notified_version = "1.1.1"
         existing.last_python_runtime_notice = "python-runtime-3.14"
         existing.compute_gpu = 2
+        existing.compute_focus = "cpu"
         existing.auto_mode = True
         existing.current_profile = "Custom"
         existing.ui_card_expanded = {"background": True}
@@ -83,6 +86,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(reset.last_notified_version, "1.1.1")
         self.assertEqual(reset.last_python_runtime_notice, "python-runtime-3.14")
         self.assertEqual(reset.compute_gpu, 2)
+        self.assertEqual(reset.compute_focus, "cpu")
         self.assertTrue(reset.auto_mode)
         self.assertEqual(reset.ui_card_expanded, {"background": True})
         self.assertEqual(reset.current_profile, "Default")
@@ -109,6 +113,19 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(config.compositing, "cpu")
         self.assertEqual((config.video.width, config.video.height, config.video.fps), (640, 360, 30))
         self.assertEqual(config.video.output_format, "I420")
+
+    def test_invalid_compute_focus_loads_as_auto(self):
+        raw = 'compute_focus = "broken"\n'
+
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(raw)
+            loaded = _load_from_toml(path)
+
+        self.assertEqual(loaded.compute_focus, "auto")
 
     def test_legacy_natural_voice_fx_defaults_migrate_to_audible_preset(self):
         legacy = """

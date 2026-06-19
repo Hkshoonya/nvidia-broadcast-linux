@@ -15,7 +15,15 @@ onnxruntime>=1.16; sys_platform == "darwin"
 onnx>=1.14
 
 # AI Meeting Transcription (local Whisper, no cloud)
-openai-whisper>=20231117
+# faster-whisper is the packaged default path; openai-whisper remains optional
+# and is guarded because its dependency stack does not support Python 3.14+ yet.
+faster-whisper
+ctranslate2
+huggingface-hub
+httpx
+tokenizers
+soundfile
+openai-whisper>=20231117; python_version < "3.14"
 scipy>=1.11
 
 # Cross-platform virtual camera (macOS: OBS Virtual Camera backend)

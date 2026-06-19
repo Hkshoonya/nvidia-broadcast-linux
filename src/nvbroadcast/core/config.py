@@ -147,6 +147,7 @@ COMPOSITING_BACKENDS = {
 @dataclass
 class AppConfig:
     compute_gpu: int = 0
+    compute_focus: str = "auto"  # auto, gpu, cpu
     performance_profile: str = "balanced"  # max_quality, balanced, performance, potato
     compositing: str = "cpu"  # cpu, gstreamer_gl, cupy
     mode_key: str = ""  # killer, zeus, doczeus, cuda_max, etc.
@@ -182,6 +183,7 @@ def build_default_config(existing: AppConfig | None = None) -> AppConfig:
     default.last_notified_version = existing.last_notified_version
     default.last_python_runtime_notice = existing.last_python_runtime_notice
     default.compute_gpu = existing.compute_gpu
+    default.compute_focus = existing.compute_focus
     default.auto_mode = existing.auto_mode
     default.ui_card_expanded = dict(existing.ui_card_expanded)
     return default
@@ -193,7 +195,7 @@ def _load_from_toml(filepath: Path) -> AppConfig:
         data = tomllib.load(f)
 
     config = AppConfig()
-    for k in ("compute_gpu", "performance_profile", "compositing",
+    for k in ("compute_gpu", "compute_focus", "performance_profile", "compositing",
               "mode_key", "premium_edge_refine",
               "auto_mode",
               "use_tensorrt", "use_fused_kernel", "use_nvdec",
@@ -203,6 +205,8 @@ def _load_from_toml(filepath: Path) -> AppConfig:
               "current_profile"):
         if k in data:
             setattr(config, k, data[k])
+    if config.compute_focus not in ("auto", "gpu", "cpu"):
+        config.compute_focus = "auto"
     if "video" in data:
         for k, v in data["video"].items():
             if k in ("edge", "beauty"):
@@ -297,6 +301,7 @@ def _config_to_toml(config: AppConfig) -> str:
     e = v.edge
     lines = [
         f"compute_gpu = {config.compute_gpu}",
+        f'compute_focus = "{config.compute_focus}"',
         f'performance_profile = "{config.performance_profile}"',
         f'compositing = "{config.compositing}"',
         f'mode_key = "{config.mode_key}"',

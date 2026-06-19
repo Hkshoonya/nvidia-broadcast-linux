@@ -42,6 +42,16 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.10 — Live Edge Quality and Compute Control Update
+
+- **Cleaner Live Background Edges** — Background replace is steadier around hair, shoulders, raised hands, and finger gaps during motion
+- **Less Edge Cleanup Cost** — The DocZeus/fused CUDA path now uses the same replace-mode foreground cleanup while the CPU fringe cleanup does less full-frame work
+- **New Compute Selector** — Users can choose Auto, GPU Focused, or CPU Focused depending on whether they want automatic tuning, CUDA preference, or lower GPU load
+- **Meeting Dependencies Stay Safe** — Packaged installs continue using the lighter `faster-whisper` runtime, and `openai-whisper` remains guarded for Python versions that support it
+- **Sponsors Are Visible** — Public GitHub Sponsors now show in the README, dedicated sponsor wall, and About window so users can see who is backing the project
+
+> If you are still on `v1.1.9` or older, update to `v1.1.10`. This is the recommended stable update for live background edge quality, compute-mode clarity, and release packaging safety.
+
 ### v1.1.9 — Meeting Runtime Dependency Hotfix
 
 - **Meeting Transcription Install Fixed** — The app now installs `faster-whisper` safely without skipping the support packages required for local transcription
@@ -614,7 +624,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.9)
+│   ├── __init__.py              # Package version (1.1.10)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -647,7 +657,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.9)
+├── pyproject.toml               # Package config (v1.1.10)
 └── README.md
 ```
 

@@ -27,16 +27,25 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_rpm_postinst_installs_meeting_runtime(self):
         spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
-        self.assertIn("pip install --no-deps faster-whisper", spec)
-        self.assertIn("pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", spec)
-        self.assertNotIn("openai-whisper", spec)
-        self.assertNotIn("install --no-deps faster-whisper ctranslate2", spec)
+        postinst = spec.split("%post", 1)[1].split("%preun", 1)[0]
+        self.assertIn("pip install --no-deps faster-whisper", postinst)
+        self.assertIn("pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", postinst)
+        self.assertNotIn("openai-whisper", postinst)
+        self.assertNotIn("install --no-deps faster-whisper ctranslate2", postinst)
 
     def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()
         self.assertIn("pip install -q --no-deps faster-whisper", script)
         self.assertIn("pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", script)
         self.assertNotIn("install -q --no-deps faster-whisper ctranslate2", script)
+
+    def test_macos_source_installer_guards_openai_whisper(self):
+        script = (REPO_ROOT / "install_macos.sh").read_text()
+        self.assertIn("pip install -q --no-deps faster-whisper", script)
+        self.assertIn("pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", script)
+        self.assertIn("sys.version_info < (3, 14)", script)
+        self.assertIn('"openai-whisper>=20231117"', script)
+        self.assertNotIn("pip install -q openai-whisper\n", script)
 
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
@@ -56,6 +65,14 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("httpx", pyproject)
         self.assertIn('openai-whisper>=20231117; python_version < "3.14"', pyproject)
 
+    def test_requirements_keep_meeting_runtime_python314_safe(self):
+        requirements = (REPO_ROOT / "requirements.txt").read_text()
+        self.assertIn("faster-whisper", requirements)
+        self.assertIn("ctranslate2", requirements)
+        self.assertIn("httpx", requirements)
+        self.assertIn('openai-whisper>=20231117; python_version < "3.14"', requirements)
+        self.assertNotIn("\nopenai-whisper>=20231117\n", requirements)
+
     def test_sponsor_walls_keep_action_markers_balanced(self):
         for relative in ("README.md", "SPONSORS.md"):
             content = (REPO_ROOT / relative).read_text()
@@ -71,6 +88,12 @@ class PackagingMetadataTests(unittest.TestCase):
             workflow.count("if: steps.sponsor-token.outputs.available == 'true'"),
             5,
         )
+
+    def test_about_window_lists_public_backers_by_tier(self):
+        window = (REPO_ROOT / "src" / "nvbroadcast" / "ui" / "window.py").read_text()
+        self.assertIn('add_credit_section("Backers & Supporters"', window)
+        self.assertIn("Mattsky https://github.com/Mattsky", window)
+        self.assertNotIn('add_credit_section("Featured Sponsors"', window)
 
 
 if __name__ == "__main__":

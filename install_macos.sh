@@ -68,6 +68,17 @@ echo -e "  Python: $($PYTHON --version)"
 echo -e "  macOS: $(sw_vers -productVersion)"
 echo -e "  Arch: $(uname -m)"
 
+PYTHON_MINOR=$($PYTHON - <<'PY'
+import sys
+print(sys.version_info.minor)
+PY
+)
+if [[ "$PYTHON_MINOR" -ge 14 ]]; then
+    echo -e "${YELLOW}  Python runtime notice: Python 3.14+ detected.${NC}"
+    echo -e "${YELLOW}  openai-whisper is skipped until its dependency stack supports this Python version.${NC}"
+    echo -e "${YELLOW}  Local meeting transcription still uses faster-whisper.${NC}"
+fi
+
 # ── Step 2: Install system dependencies ──────────────────────────────────────
 
 echo ""
@@ -110,7 +121,20 @@ echo ""
 echo -e "${GREEN}[4/7]${NC} Installing Python dependencies..."
 
 pip install -q "$INSTALL_DIR"
-pip install -q openai-whisper
+pip install -q --no-deps faster-whisper 2>/dev/null && \
+    pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm 2>/dev/null || \
+    echo -e "${YELLOW}  faster-whisper install failed; meeting transcription may require in-app runtime install.${NC}"
+
+if python - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info < (3, 14) else 1)
+PY
+then
+    pip install -q "openai-whisper>=20231117" 2>/dev/null || \
+        echo -e "${YELLOW}  openai-whisper install failed; faster-whisper remains the supported local backend.${NC}"
+else
+    echo -e "${YELLOW}  Skipping openai-whisper on Python 3.14+; faster-whisper remains installed.${NC}"
+fi
 
 # Try CoreML support for Apple Silicon
 if [[ "$(uname -m)" == "arm64" ]]; then
