@@ -27,6 +27,8 @@ workflow needs a Personal Access Token:
    - (Tip: add it once as an **organization** secret if your repos live under an org, so you don't repeat this per repo.)
 
 That's it — the next scheduled run (or a manual **Actions → Update Sponsors → Run workflow**) fills the walls.
+If the secret is not configured yet, the workflow exits successfully without
+changing the sponsor walls.
 
 ## How it refreshes
 

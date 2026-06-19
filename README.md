@@ -712,11 +712,11 @@ This project takes ongoing work across GPU runtimes, packaging, camera/audio com
 
 ### 💎 Featured Sponsors
 
-<!-- featured --><!-- featured -->
+<!-- featured --><em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya">become a Creator-tier sponsor</a> and your logo appears here.</em><!-- featured -->
 
 ### 💚 Backers &amp; Supporters
 
-<!-- sponsors --><!-- sponsors -->
+<!-- sponsors --><a href="https://github.com/Mattsky" title="Mattsky"><img src="https://avatars.githubusercontent.com/u/2619664?u=a3e9b73765da4dd8f3472520e40c9588c65a7803&v=4" width="55" alt="Mattsky"></a>&nbsp;<!-- sponsors -->
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya">GitHub Sponsors</a> ·

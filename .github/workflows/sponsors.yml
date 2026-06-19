@@ -31,8 +31,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Check Sponsors token
+        id: sponsor-token
+        env:
+          SPONSORS_TOKEN: ${{ secrets.SPONSORS_TOKEN }}
+        run: |
+          if [ -n "$SPONSORS_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SPONSORS_TOKEN is not configured yet; skipping sponsor wall refresh."
+          fi
+
       # --- Featured tier: Creator+ ($50/mo+ = 5000 cents), bigger avatars ---
       - name: Featured sponsors → README
+        if: steps.sponsor-token.outputs.available == 'true'
         uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
         with:
           token: ${{ secrets.SPONSORS_TOKEN }}
@@ -44,6 +57,7 @@ jobs:
 
       # --- All sponsors: every public backer, smaller avatars ---
       - name: All sponsors → README
+        if: steps.sponsor-token.outputs.available == 'true'
         uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
         with:
           token: ${{ secrets.SPONSORS_TOKEN }}
@@ -54,6 +68,7 @@ jobs:
 
       # --- Same walls in the dedicated SPONSORS.md page ---
       - name: Featured sponsors → SPONSORS.md
+        if: steps.sponsor-token.outputs.available == 'true'
         uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
         with:
           token: ${{ secrets.SPONSORS_TOKEN }}
@@ -64,6 +79,7 @@ jobs:
           template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="90" alt="{{ login }}"></a>&nbsp;'
 
       - name: All sponsors → SPONSORS.md
+        if: steps.sponsor-token.outputs.available == 'true'
         uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
         with:
           token: ${{ secrets.SPONSORS_TOKEN }}
@@ -73,6 +89,7 @@ jobs:
           template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="64" alt="{{ login }}"></a>&nbsp;'
 
       - name: Commit updated sponsor walls
+        if: steps.sponsor-token.outputs.available == 'true'
         uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5
         with:
           commit_message: 'chore: refresh sponsor walls [skip ci]'

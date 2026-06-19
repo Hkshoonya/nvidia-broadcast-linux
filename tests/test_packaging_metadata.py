@@ -56,6 +56,22 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("httpx", pyproject)
         self.assertIn('openai-whisper>=20231117; python_version < "3.14"', pyproject)
 
+    def test_sponsor_walls_keep_action_markers_balanced(self):
+        for relative in ("README.md", "SPONSORS.md"):
+            content = (REPO_ROOT / relative).read_text()
+            self.assertEqual(content.count("<!-- featured -->"), 2, relative)
+            self.assertEqual(content.count("<!-- sponsors -->"), 2, relative)
+            self.assertIn("https://github.com/Mattsky", content)
+
+    def test_sponsors_workflow_noops_without_token(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "sponsors.yml").read_text()
+        self.assertIn("id: sponsor-token", workflow)
+        self.assertIn("SPONSORS_TOKEN is not configured yet", workflow)
+        self.assertEqual(
+            workflow.count("if: steps.sponsor-token.outputs.available == 'true'"),
+            5,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

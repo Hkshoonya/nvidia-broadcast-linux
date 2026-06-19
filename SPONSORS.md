@@ -22,7 +22,7 @@
 
 *Creator ($50/mo), Studio/Pro ($100/mo) &amp; Company ($200/mo) tiers — and $100+ one-time Patrons.*
 
-<!-- featured --><!-- featured -->
+<!-- featured --><em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya">become a Creator-tier sponsor</a>.</em><!-- featured -->
 
 ---
 
@@ -30,7 +30,7 @@
 
 *Everyone helping keep NVIDIA Broadcast on Linux — and DocZeus's other projects — moving forward.*
 
-<!-- sponsors --><!-- sponsors -->
+<!-- sponsors --><a href="https://github.com/Mattsky" title="Mattsky"><img src="https://avatars.githubusercontent.com/u/2619664?u=a3e9b73765da4dd8f3472520e40c9588c65a7803&v=4" width="64" alt="Mattsky"></a>&nbsp;<!-- sponsors -->
 
 ---
 
