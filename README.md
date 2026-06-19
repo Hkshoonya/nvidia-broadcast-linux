@@ -710,6 +710,14 @@ This project takes ongoing work across GPU runtimes, packaging, camera/audio com
   </a>
 </p>
 
+### 💎 Featured Sponsors
+
+<!-- featured --><!-- featured -->
+
+### 💚 Backers &amp; Supporters
+
+<!-- sponsors --><!-- sponsors -->
+
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya">GitHub Sponsors</a> ·
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues">Report bugs</a> ·
