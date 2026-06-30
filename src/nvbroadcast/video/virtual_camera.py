@@ -7,6 +7,7 @@
 
 import subprocess
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -25,6 +26,18 @@ _VIRTUAL_CAMERA_MARKERS = (
     "nvbroadcast",
     "obs virtual camera",
 )
+_SAFE_FPS = (30, 25, 24, 15)
+_STEPWISE_RESOLUTION_CANDIDATES = (
+    (3840, 2160),
+    (2560, 1440),
+    (1920, 1080),
+    (1280, 720),
+    (960, 540),
+    (800, 600),
+    (640, 480),
+    (640, 360),
+    (320, 240),
+)
 
 
 def _is_virtual_camera_name(value: str) -> bool:
@@ -42,6 +55,87 @@ def _is_raw_format(fmt: str) -> bool:
 
 def _is_supported_camera_format(fmt: str) -> bool:
     return _is_mjpeg_format(fmt) or _is_raw_format(fmt)
+
+
+def _camera_format_name(fmt: str) -> str:
+    return "mjpeg" if _is_mjpeg_format(fmt) else "raw"
+
+
+def _camera_format_priority(fmt: str) -> int:
+    """Prefer compressed capture first, then raw fallback."""
+    return 0 if _is_mjpeg_format(fmt) else 1
+
+
+def _fps_sort_key(candidate_fps: int, desired_fps: int) -> tuple[int, int, int]:
+    """Sort by closest FPS, preferring lower stable rates on ties."""
+    return (
+        abs(candidate_fps - desired_fps),
+        1 if candidate_fps > desired_fps else 0,
+        -candidate_fps,
+    )
+
+
+def _parse_interval_fps_values(line: str) -> list[int]:
+    """Parse FPS values from V4L2 interval lines.
+
+    Most devices print `(30.000 fps)`. Some virtual/phone webcams print a
+    stepwise seconds range instead; in that case, keep common stable rates that
+    fit the reported range.
+    """
+    if "fps" in line and "(" in line:
+        try:
+            fps_str = line.split("(", 1)[1].split(" fps", 1)[0]
+            return [int(float(fps_str))]
+        except (IndexError, ValueError):
+            return []
+
+    interval_range = line.split("with step", 1)[0]
+    seconds = [
+        float(value)
+        for value in re.findall(r"(\d+(?:\.\d+)?)s", interval_range)
+    ]
+    if not seconds:
+        return []
+    if len(seconds) == 1:
+        if seconds[0] <= 0:
+            return []
+        return [max(1, int(round(1 / seconds[0])))]
+
+    min_seconds = min(seconds)
+    max_seconds = max(seconds)
+    if min_seconds <= 0 or max_seconds <= 0:
+        return []
+
+    min_fps = int(round(1 / max_seconds))
+    max_fps = int(round(1 / min_seconds))
+    values = {
+        fps for fps in (60, *_SAFE_FPS)
+        if min_fps <= fps <= max_fps
+    }
+    values.update({min_fps, max_fps})
+    return sorted(value for value in values if value > 0)
+
+
+def _stepwise_resolutions(line: str) -> list[tuple[int, int]]:
+    """Return conservative candidate resolutions from a V4L2 stepwise range."""
+    pairs = [
+        (int(width), int(height))
+        for width, height in re.findall(r"(\d+)x(\d+)", line)
+    ]
+    if len(pairs) < 2:
+        return pairs
+
+    min_width = min(width for width, _height in pairs)
+    max_width = max(width for width, _height in pairs)
+    min_height = min(height for _width, height in pairs)
+    max_height = max(height for _width, height in pairs)
+
+    candidates = set(pairs)
+    for width, height in _STEPWISE_RESOLUTION_CANDIDATES:
+        if min_width <= width <= max_width and min_height <= height <= max_height:
+            candidates.add((width, height))
+
+    return sorted(candidates, key=lambda item: item[0] * item[1])
 
 
 def is_v4l2loopback_loaded() -> bool:
@@ -214,7 +308,7 @@ def _parse_v4l2_format_modes(output: str) -> list[dict]:
     """Parse `v4l2-ctl --list-formats-ext` into supported camera modes."""
     modes: dict[tuple[str, int, int], set[int]] = {}
     current_format = ""
-    current_res: tuple[int, int] | None = None
+    current_resolutions: list[tuple[int, int]] = []
 
     for line in output.split("\n"):
         stripped = line.strip()
@@ -224,7 +318,7 @@ def _parse_v4l2_format_modes(output: str) -> list[dict]:
         if stripped.startswith("[") and "]: '" in stripped:
             parts = stripped.split("'", 2)
             current_format = parts[1].upper() if len(parts) > 1 else ""
-            current_res = None
+            current_resolutions = []
             continue
 
         if not current_format or not _is_supported_camera_format(current_format):
@@ -234,18 +328,23 @@ def _parse_v4l2_format_modes(output: str) -> list[dict]:
             try:
                 res = stripped.split("Discrete", 1)[1].strip()
                 width, height = res.split("x", 1)
-                current_res = (int(width), int(height))
-                modes.setdefault((current_format, *current_res), set())
+                current_resolutions = [(int(width), int(height))]
+                for current_res in current_resolutions:
+                    modes.setdefault((current_format, *current_res), set())
             except (IndexError, ValueError):
-                current_res = None
+                current_resolutions = []
             continue
 
-        if current_res and "fps" in stripped and "(" in stripped:
-            try:
-                fps_str = stripped.split("(", 1)[1].split(" fps", 1)[0]
-                modes[(current_format, *current_res)].add(int(float(fps_str)))
-            except (IndexError, ValueError):
-                continue
+        if stripped.startswith(("Size: Stepwise", "Size: Continuous")):
+            current_resolutions = _stepwise_resolutions(stripped)
+            for current_res in current_resolutions:
+                modes.setdefault((current_format, *current_res), set())
+            continue
+
+        if current_resolutions and stripped.startswith("Interval:"):
+            for fps in _parse_interval_fps_values(stripped):
+                for current_res in current_resolutions:
+                    modes[(current_format, *current_res)].add(fps)
 
     result = []
     for (fmt, width, height), fps_list in sorted(
@@ -298,6 +397,121 @@ def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
     return result
 
 
+def camera_mode_candidates(
+    device: str,
+    width: int,
+    height: int,
+    fps: int,
+) -> list[dict]:
+    """Return ordered capture modes for a camera.
+
+    The first candidate preserves the requested mode when it is supported. The
+    rest are safer fallbacks for phone/virtual webcams that advertise unusual
+    modes or fail at high FPS during GStreamer startup.
+    """
+    if IS_MACOS:
+        return [{"format": "raw", "width": width, "height": height, "fps": fps}]
+
+    format_modes = list_camera_format_modes(device)
+    if not format_modes:
+        # Preserve previous behavior when probing fails, but keep one raw retry
+        # available for cameras that reject MJPEG at runtime.
+        return [
+            {"format": "mjpeg", "width": width, "height": height, "fps": fps},
+            {"format": "raw", "width": width, "height": height, "fps": fps},
+        ]
+
+    expanded: list[dict] = []
+    for mode in format_modes:
+        for mode_fps in mode["fps"]:
+            expanded.append({
+                "format": _camera_format_name(mode["format"]),
+                "format_code": mode["format"],
+                "width": mode["width"],
+                "height": mode["height"],
+                "fps": mode_fps,
+            })
+
+    desired_area = max(1, width * height)
+
+    def format_priority(mode: dict) -> int:
+        return _camera_format_priority(mode.get("format_code", ""))
+
+    groups: list[list[dict]] = []
+
+    exact = [
+        mode for mode in expanded
+        if mode["width"] == width and mode["height"] == height and mode["fps"] == fps
+    ]
+    groups.append(sorted(exact, key=format_priority))
+
+    same_resolution = [
+        mode for mode in expanded
+        if mode["width"] == width and mode["height"] == height and mode["fps"] != fps
+    ]
+    groups.append(sorted(
+        same_resolution,
+        key=lambda mode: (*_fps_sort_key(mode["fps"], fps), format_priority(mode)),
+    ))
+
+    for fallback_width, fallback_height, fallback_fps in (
+        (1280, 720, 30),
+        (640, 480, 30),
+    ):
+        fallback = [
+            mode for mode in expanded
+            if mode["width"] == fallback_width and mode["height"] == fallback_height
+        ]
+        groups.append(sorted(
+            fallback,
+            key=lambda mode: (
+                *_fps_sort_key(mode["fps"], fallback_fps),
+                format_priority(mode),
+            ),
+        ))
+
+    def general_key(mode: dict) -> tuple[int, int, int, int, int, int]:
+        area = mode["width"] * mode["height"]
+        return (
+            0 if area <= desired_area else 1,
+            abs(area - desired_area),
+            *_fps_sort_key(mode["fps"], fps),
+            format_priority(mode),
+        )
+
+    groups.append(sorted(expanded, key=general_key))
+
+    candidates: list[dict] = []
+    seen: set[tuple[str, int, int, int]] = set()
+    for group in groups:
+        for mode in group:
+            key = (mode["format"], mode["width"], mode["height"], mode["fps"])
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append({
+                "format": mode["format"],
+                "width": mode["width"],
+                "height": mode["height"],
+                "fps": mode["fps"],
+            })
+
+    return candidates
+
+
+def select_camera_mode(
+    device: str,
+    width: int,
+    height: int,
+    fps: int,
+) -> dict:
+    """Return the best capture mode for a camera."""
+    candidates = camera_mode_candidates(device, width, height, fps)
+    if candidates:
+        return candidates[0]
+    return {"format": "mjpeg", "width": width, "height": height, "fps": fps}
+
+
 def select_camera_capture_format(
     device: str,
     width: int,
@@ -308,34 +522,7 @@ def select_camera_capture_format(
     if IS_MACOS:
         return "raw"
 
-    format_modes = list_camera_format_modes(device)
-    if not format_modes:
-        # Preserve the previous default when the camera cannot be probed.
-        return "mjpeg"
-
-    matching_fps = [
-        mode for mode in format_modes
-        if mode["width"] == width and mode["height"] == height and fps in mode["fps"]
-    ]
-    if any(_is_mjpeg_format(mode["format"]) for mode in matching_fps):
-        return "mjpeg"
-    if any(_is_raw_format(mode["format"]) for mode in matching_fps):
-        return "raw"
-
-    matching_resolution = [
-        mode for mode in format_modes
-        if mode["width"] == width and mode["height"] == height
-    ]
-    if any(_is_mjpeg_format(mode["format"]) for mode in matching_resolution):
-        return "mjpeg"
-    if any(_is_raw_format(mode["format"]) for mode in matching_resolution):
-        return "raw"
-
-    if any(_is_mjpeg_format(mode["format"]) for mode in format_modes):
-        return "mjpeg"
-    if any(_is_raw_format(mode["format"]) for mode in format_modes):
-        return "raw"
-    return "mjpeg"
+    return select_camera_mode(device, width, height, fps)["format"]
 
 
 @lru_cache(maxsize=32)

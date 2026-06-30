@@ -16,6 +16,12 @@ description: |
     nodes after reboot or device-order changes.
   - The headless nvbroadcast-vcam command now uses the same camera compatibility
     path as the main app.
+  - Source installs no longer auto-start the headless passthrough service beside
+    the main app, which avoids blank preview and busy-camera conflicts after
+    login.
+  - Audio filtering now installs the PyAV dependency with the core app, so
+    RNNoise mic and speaker cleanup can initialize without requiring meeting
+    transcription extras first.
   - Source, Debian, RPM, and amd64 Snap installs now use the corrected CUDA
     runtime package paths for NVIDIA systems.
   - Source, Debian, RPM, and amd64 Snap installs now install the CUDA mode
@@ -116,6 +122,7 @@ parts:
       - httpx
       - tokenizers
       - soundfile
+      - av
       - scipy
       - pyrnnoise
       - psutil

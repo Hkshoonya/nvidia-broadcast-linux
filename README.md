@@ -47,10 +47,12 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **OBS White Preview Fixed** — The camera pipeline now handles cameras that expose raw video modes instead of MJPEG for the selected resolution
 - **Safer Camera Auto-Detection** — Startup now avoids stale, metadata-only, and virtual-loopback camera nodes after reboot, reducing blank preview and “no effects” cases
 - **Headless Virtual Camera Fixed Too** — `nvbroadcast-vcam` uses the same camera compatibility path as the main app, so OBS-only workflows get the same fix
+- **GUI/Headless Camera Race Fixed** — Source installs no longer auto-start the headless passthrough service beside the main app, preventing blank preview and busy-camera conflicts after login
+- **Audio Filtering Dependency Fixed** — RNNoise mic/speaker cleanup now installs its PyAV dependency with the core app, so audio routing does not silently run unfiltered
 - **CUDA Runtime Packaging Fixed** — Source, Debian, RPM, and amd64 Snap installs now use the correct package paths for the CUDA mode runtime
 - **Regression Tests Added** — Release checks now cover raw-camera fallback, camera-node filtering, headless virtual camera behavior, and package metadata consistency
 
-> If you are still on `v1.1.10` or older, update to `v1.1.11`. This is the recommended stable patch for OBS camera compatibility and package install reliability.
+> If you are still on `v1.1.10` or older, update to `v1.1.11`. This is the recommended stable patch for OBS camera compatibility, audio filtering, and package install reliability.
 
 ### v1.1.10 — Live Edge Quality and Compute Control Update
 
@@ -584,14 +586,42 @@ nvbroadcast-vcam --format i420      # Firefox-compatible format
 
 ### As a System Service
 
+Use this only for no-GUI/headless passthrough workflows. Do not run the
+headless service at the same time as the GUI app, because both need exclusive
+access to the physical camera and `NVbroadcast` virtual camera.
+
 ```bash
-systemctl --user enable nvbroadcast-vcam
-systemctl --user start nvbroadcast-vcam
+systemctl --user enable --now nvbroadcast-vcam
+
+# If you use the GUI app instead:
+systemctl --user disable --now nvbroadcast-vcam
 ```
+
+The headless command is a passthrough producer for OBS/browser workflows. For
+full background effects, start the main NVbroadcast app first, then select the
+`NVbroadcast` camera in OBS or your meeting app.
 
 ---
 
 ## Troubleshooting
+
+<details>
+<summary><strong>OBS shows v4l2loopback-000, an old camera name, or a blank feed</strong></summary>
+
+OBS can only display frames after NVbroadcast is actively writing to the virtual
+camera. Start the main app for background effects, then select `NVbroadcast` in
+OBS. Do not run `nvbroadcast-vcam` and the main app at the same time.
+
+If the visible camera name is still old after an update, close OBS, browsers,
+meeting apps, and NVbroadcast, then reboot. Advanced users can reload the
+loopback device instead:
+
+```bash
+sudo modprobe -r v4l2loopback
+sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4
+```
+
+</details>
 
 <details>
 <summary><strong>Chrome doesn't see the virtual camera</strong></summary>

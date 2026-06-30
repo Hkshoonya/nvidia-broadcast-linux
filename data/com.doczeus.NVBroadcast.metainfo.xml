@@ -69,6 +69,8 @@
           <li>Fixed white preview and missing-effects cases on cameras that expose raw video modes instead of MJPEG for the selected resolution</li>
           <li>Avoided stale, metadata-only, and virtual-loopback camera nodes during startup after device order changes</li>
           <li>Updated the headless virtual camera command to use the same camera compatibility path as the main app</li>
+          <li>Prevented source installs from auto-starting the headless passthrough service beside the main app, avoiding blank preview and busy-camera conflicts after login</li>
+          <li>Installed the PyAV dependency with the core app so RNNoise mic and speaker cleanup can initialize reliably</li>
           <li>Fixed CUDA runtime package paths for source, Debian, RPM, and amd64 Snap installs</li>
           <li>Added regression tests for raw-camera fallback, camera-node filtering, headless virtual camera behavior, and package metadata consistency</li>
         </ul>

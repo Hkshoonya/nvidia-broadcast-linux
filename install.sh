@@ -370,9 +370,12 @@ fi
 echo ""
 echo "[2/7] Configuring virtual camera (v4l2loopback)..."
 
+V4L2_DEVICE_NUM=10
+V4L2_DEVICE="/dev/video${V4L2_DEVICE_NUM}"
+V4L2_LABEL="NVbroadcast"
 V4L2_CONF="/etc/modprobe.d/nvbroadcast-v4l2loopback.conf"
 V4L2_LOAD="/etc/modules-load.d/nvbroadcast-v4l2loopback.conf"
-V4L2_OPTIONS='options v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4'
+V4L2_OPTIONS="options v4l2loopback devices=1 video_nr=${V4L2_DEVICE_NUM} card_label=\"${V4L2_LABEL}\" exclusive_caps=1 max_buffers=4"
 
 # Remove old BluCast configs if present
 sudo rm -f /etc/modprobe.d/blucast-v4l2loopback.conf 2>/dev/null || true
@@ -395,17 +398,47 @@ if [ ! -f "$V4L2_LOAD" ]; then
 fi
 
 if ! lsmod | grep -q v4l2loopback; then
-    sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4 2>/dev/null || \
+    sudo modprobe v4l2loopback devices=1 video_nr="${V4L2_DEVICE_NUM}" card_label="${V4L2_LABEL}" exclusive_caps=1 max_buffers=4 2>/dev/null || \
         echo "WARNING: Could not load v4l2loopback. You may need to reboot or install kernel headers."
 else
-    echo "v4l2loopback already loaded"
-    echo "If the visible camera name is old, reboot or reload v4l2loopback when the camera is not in use."
+    LIVE_VCAM_NAME="$(cat "/sys/class/video4linux/video${V4L2_DEVICE_NUM}/name" 2>/dev/null || true)"
+    if [ "$LIVE_VCAM_NAME" = "$V4L2_LABEL" ]; then
+        echo "v4l2loopback already loaded with ${V4L2_LABEL}"
+    else
+        echo "v4l2loopback already loaded"
+        if [ -n "$LIVE_VCAM_NAME" ]; then
+            echo "Current ${V4L2_DEVICE} name: ${LIVE_VCAM_NAME}"
+        fi
+
+        LOOPBACK_COUNT="unknown"
+        if command -v v4l2-ctl &>/dev/null; then
+            LOOPBACK_COUNT="$(v4l2-ctl --list-devices 2>/dev/null | grep -c 'v4l2loopback' || true)"
+        fi
+
+        VCAM_IN_USE=false
+        if command -v fuser &>/dev/null && [ -e "$V4L2_DEVICE" ] && fuser -s "$V4L2_DEVICE" 2>/dev/null; then
+            VCAM_IN_USE=true
+        fi
+
+        if [ "$LOOPBACK_COUNT" = "1" ] && [ "$VCAM_IN_USE" = false ]; then
+            echo "Reloading v4l2loopback to apply camera name ${V4L2_LABEL}..."
+            if sudo modprobe -r v4l2loopback 2>/dev/null && \
+               sudo modprobe v4l2loopback devices=1 video_nr="${V4L2_DEVICE_NUM}" card_label="${V4L2_LABEL}" exclusive_caps=1 max_buffers=4 2>/dev/null; then
+                echo "Reloaded v4l2loopback with camera name ${V4L2_LABEL}"
+            else
+                echo "WARNING: Could not reload v4l2loopback. Reboot after installation to apply the camera name."
+            fi
+        else
+            echo "Skipping live v4l2loopback reload because ${V4L2_DEVICE} is in use or another loopback device exists."
+            echo "Close OBS/browser/meeting apps and reboot to apply camera name ${V4L2_LABEL}."
+        fi
+    fi
 fi
 
-if [ -e /dev/video10 ]; then
-    echo "Virtual camera device: /dev/video10"
+if [ -e "$V4L2_DEVICE" ]; then
+    echo "Virtual camera device: $V4L2_DEVICE"
 else
-    echo "WARNING: /dev/video10 not found. You may need to reboot."
+    echo "WARNING: $V4L2_DEVICE not found. You may need to reboot."
 fi
 
 # ─── Step 3: Python Environment ─────────────────────────────────────────────
@@ -446,6 +479,13 @@ for mod in numpy cv2 mediapipe onnxruntime PIL psutil onnx; do
         echo "  $mod ... FAILED"
     fi
 done
+
+if "$VENV_DIR/bin/python" -c "import av; import av.option" 2>/dev/null; then
+    echo "  av ... OK"
+else
+    FAILED_PY+=("av")
+    echo "  av ... FAILED"
+fi
 
 if "$VENV_DIR/bin/python" -c "from pyrnnoise import rnnoise" 2>/dev/null; then
     echo "  pyrnnoise ... OK"
@@ -777,10 +817,17 @@ WantedBy=graphical-session.target
 EOF
 
 if systemctl --user daemon-reload 2>/dev/null; then
-    systemctl --user enable nvbroadcast-vcam.service 2>/dev/null || true
-    echo "Systemd service installed and enabled (auto-starts on login)"
+    if [ "${NVBROADCAST_ENABLE_HEADLESS_SERVICE:-0}" = "1" ]; then
+        systemctl --user enable nvbroadcast-vcam.service 2>/dev/null || true
+        echo "Systemd service installed and enabled for headless mode"
+    else
+        systemctl --user disable nvbroadcast-vcam.service 2>/dev/null || true
+        systemctl --user stop nvbroadcast-vcam.service 2>/dev/null || true
+        echo "Systemd service installed but disabled by default"
+        echo "  Enable only for no-GUI/headless use: systemctl --user enable --now nvbroadcast-vcam.service"
+    fi
 else
-    echo "Service file installed (run 'systemctl --user daemon-reload && systemctl --user enable nvbroadcast-vcam' from your desktop session)"
+    echo "Service file installed (run 'systemctl --user daemon-reload && systemctl --user enable --now nvbroadcast-vcam' only for headless/no-GUI use)"
 fi
 
 # ─── Step 7: Desktop Autostart ──────────────────────────────────────────────

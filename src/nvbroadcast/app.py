@@ -10,6 +10,7 @@ minimizes to background on close. Browser picks up virtual camera automatically.
 """
 
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -197,11 +198,52 @@ class NVBroadcastApp(Adw.Application):
                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
                 )
 
+        self._stop_headless_vcam_service()
         try:
             self._vcam_device = ensure_virtual_camera()
             self._vcam_available = True
         except RuntimeError as e:
             print(f"[NV Broadcast] Virtual camera unavailable: {e}")
+
+    def _stop_headless_vcam_service(self) -> bool:
+        """Stop the optional headless passthrough service before GUI capture.
+
+        The GUI owns the physical camera and v4l2loopback sink while it is
+        running. If the headless service is still active from login, both
+        processes race for `/dev/video*` and the GUI starts with a white
+        preview or a busy virtual camera.
+        """
+        if not IS_LINUX:
+            return False
+
+        service = "nvbroadcast-vcam.service"
+        try:
+            active = subprocess.run(
+                ["systemctl", "--user", "is-active", "--quiet", service],
+                check=False,
+                timeout=1,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+        if active.returncode != 0:
+            return False
+
+        try:
+            subprocess.run(
+                ["systemctl", "--user", "stop", service],
+                check=False,
+                timeout=3,
+            )
+            time.sleep(0.2)
+            print(
+                "[NV Broadcast] Stopped headless virtual camera service; "
+                "GUI will own the camera while open",
+                flush=True,
+            )
+            return True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
 
     def do_activate(self):
         if self._window is None:
@@ -762,7 +804,7 @@ class NVBroadcastApp(Adw.Application):
             return False
 
         from nvbroadcast.core.config import PERFORMANCE_PROFILES
-        from nvbroadcast.video.virtual_camera import resolve_camera_device
+        from nvbroadcast.video.virtual_camera import resolve_camera_device, select_camera_mode
 
         resolved_camera = resolve_camera_device(
             camera_device or self.config.video.camera_device
@@ -773,6 +815,30 @@ class NVBroadcastApp(Adw.Application):
                 flush=True,
             )
             camera_device = resolved_camera
+
+        selected_mode = select_camera_mode(
+            camera_device,
+            self.config.video.width,
+            self.config.video.height,
+            self.config.video.fps,
+        )
+        if (
+            selected_mode["width"] != self.config.video.width
+            or selected_mode["height"] != self.config.video.height
+            or selected_mode["fps"] != self.config.video.fps
+        ):
+            print(
+                "[NV Broadcast] Camera mode changed: "
+                f"{self.config.video.width}x{self.config.video.height}@"
+                f"{self.config.video.fps} -> "
+                f"{selected_mode['width']}x{selected_mode['height']}@"
+                f"{selected_mode['fps']}",
+                flush=True,
+            )
+            self.config.video.width = selected_mode["width"]
+            self.config.video.height = selected_mode["height"]
+            self.config.video.fps = selected_mode["fps"]
+            save_config(self.config)
 
         profile = PERFORMANCE_PROFILES.get(self.config.performance_profile, {})
         # Validate fps before building pipeline

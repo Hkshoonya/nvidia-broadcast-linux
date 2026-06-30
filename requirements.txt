@@ -30,6 +30,7 @@ scipy>=1.11
 pyvirtualcam>=0.4; sys_platform == "darwin"
 
 # Audio
+av>=12
 pyrnnoise>=0.4
 
 # GPU Compositing (recommended — 150x faster blend, Linux/NVIDIA only)

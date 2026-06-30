@@ -4,6 +4,7 @@ set -e
 
 DEVICE_NUM=10
 LABEL="NVbroadcast"
+DEVICE="/dev/video${DEVICE_NUM}"
 
 echo "=== NVbroadcast Virtual Camera Setup ==="
 
@@ -18,17 +19,51 @@ fi
 
 # Check if module is loaded
 if lsmod | grep -q v4l2loopback; then
-    echo "v4l2loopback is already loaded"
-    if [ -e "/dev/video${DEVICE_NUM}" ]; then
-        echo "Virtual camera device /dev/video${DEVICE_NUM} already exists"
-        v4l2-ctl -d "/dev/video${DEVICE_NUM}" --all 2>/dev/null | head -5 || true
-        echo "If the visible camera name is old, reboot or reload v4l2loopback when the camera is not in use."
+    LIVE_NAME="$(cat "/sys/class/video4linux/video${DEVICE_NUM}/name" 2>/dev/null || true)"
+    if [ "$LIVE_NAME" = "$LABEL" ]; then
+        echo "v4l2loopback is already loaded with ${LABEL}"
+        if [ -e "$DEVICE" ]; then
+            echo "Virtual camera device ${DEVICE} already exists"
+            v4l2-ctl -d "$DEVICE" --all 2>/dev/null | head -5 || true
+        fi
         exit 0
     fi
+
+    echo "v4l2loopback is already loaded"
+    if [ -n "$LIVE_NAME" ]; then
+        echo "Current ${DEVICE} name: ${LIVE_NAME}"
+    fi
+
+    LOOPBACK_COUNT="unknown"
+    if command -v v4l2-ctl &>/dev/null; then
+        LOOPBACK_COUNT="$(v4l2-ctl --list-devices 2>/dev/null | grep -c 'v4l2loopback' || true)"
+    fi
+
+    DEVICE_IN_USE=false
+    if command -v fuser &>/dev/null && [ -e "$DEVICE" ] && fuser -s "$DEVICE" 2>/dev/null; then
+        DEVICE_IN_USE=true
+    fi
+
+    if [ "$LOOPBACK_COUNT" = "1" ] && [ "$DEVICE_IN_USE" = false ]; then
+        echo "Reloading v4l2loopback to apply camera name ${LABEL}..."
+        sudo modprobe -r v4l2loopback
+        sudo modprobe v4l2loopback \
+            devices=1 \
+            video_nr=${DEVICE_NUM} \
+            card_label="${LABEL}" \
+            exclusive_caps=1 \
+            max_buffers=4
+        echo "Virtual camera reloaded at ${DEVICE}"
+        exit 0
+    fi
+
+    echo "Skipping live reload because ${DEVICE} is in use or another loopback device exists."
+    echo "Close OBS/browser/meeting apps and reboot to apply camera name ${LABEL}."
+    exit 0
 fi
 
 # Load module
-echo "Loading v4l2loopback with device /dev/video${DEVICE_NUM}..."
+echo "Loading v4l2loopback with device ${DEVICE}..."
 sudo modprobe v4l2loopback \
     devices=1 \
     video_nr=${DEVICE_NUM} \
@@ -36,4 +71,4 @@ sudo modprobe v4l2loopback \
     exclusive_caps=1 \
     max_buffers=4
 
-echo "Virtual camera created at /dev/video${DEVICE_NUM}"
+echo "Virtual camera created at ${DEVICE}"

@@ -52,6 +52,39 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("unavailable until CuPy installs", install_script)
         self.assertIn("CUDA modes still need GPU inference runtime", install_script)
 
+    def test_source_installer_does_not_auto_enable_headless_vcam_service(self):
+        install_script = (REPO_ROOT / "install.sh").read_text()
+        self.assertIn("NVBROADCAST_ENABLE_HEADLESS_SERVICE", install_script)
+        self.assertIn("installed but disabled by default", install_script)
+        self.assertIn("disable nvbroadcast-vcam.service", install_script)
+        self.assertIn("stop nvbroadcast-vcam.service", install_script)
+
+    def test_source_setup_safely_migrates_live_v4l2loopback_label(self):
+        install_script = (REPO_ROOT / "install.sh").read_text()
+        setup_script = (REPO_ROOT / "scripts" / "setup_v4l2loopback.sh").read_text()
+
+        for script in (install_script, setup_script):
+            self.assertIn("LIVE", script)
+            self.assertIn("LOOPBACK_COUNT", script)
+            self.assertIn("fuser -s", script)
+            self.assertIn("modprobe -r v4l2loopback", script)
+            self.assertIn("Skipping live", script)
+            self.assertIn('card_label="${', script)
+
+    def test_core_runtime_includes_audio_denoiser_import_dependencies(self):
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        requirements = (REPO_ROOT / "requirements.txt").read_text()
+        install_script = (REPO_ROOT / "install.sh").read_text()
+        self.assertIn('"pyrnnoise>=0.4"', pyproject)
+        self.assertIn('"av>=12"', pyproject)
+        self.assertIn("pyrnnoise>=0.4", requirements)
+        self.assertIn("av>=12", requirements)
+        self.assertIn("- pyrnnoise", snapcraft)
+        self.assertIn("- av", snapcraft)
+        self.assertIn("import av; import av.option", install_script)
+        self.assertIn("av ... OK", install_script)
+
     def test_readme_documents_cuda_extra_for_source_gpu_installs(self):
         readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn('pip install -e ".[cuda]"', readme)
@@ -91,7 +124,9 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('else VIRTUAL_CAM_LABEL', constants)
         self.assertIn('card_label="NVbroadcast"', readme)
         self.assertIn('select **"NVbroadcast"** as your camera', readme)
-        self.assertIn('card_label="NVbroadcast"', install_script)
+        self.assertIn('V4L2_LABEL="NVbroadcast"', install_script)
+        self.assertIn('card_label=\\"${V4L2_LABEL}\\"', install_script)
+        self.assertIn('card_label="${V4L2_LABEL}"', install_script)
         self.assertIn("Description=NVbroadcast Virtual Camera Service", install_script)
         self.assertIn('card_label="NVbroadcast"', config_template)
         self.assertIn("Description=NVbroadcast Virtual Camera Service", build_packages)

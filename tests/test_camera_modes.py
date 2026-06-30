@@ -3,9 +3,11 @@ import unittest
 from unittest import mock
 
 from nvbroadcast.video.virtual_camera import (
+    camera_mode_candidates,
     list_camera_devices,
     list_camera_format_modes,
     list_camera_modes,
+    select_camera_mode,
     select_camera_capture_format,
 )
 
@@ -103,6 +105,55 @@ ioctl: VIDIOC_ENUM_FMT
                 select_camera_capture_format("/dev/video0", 1280, 720, 30),
                 "mjpeg",
             )
+
+    def test_camera_mode_candidates_step_down_from_high_fps_phone_mode(self):
+        output = """
+ioctl: VIDIOC_ENUM_FMT
+        Type: Video Capture
+        [0]: 'MJPG' (Motion-JPEG, compressed)
+                Size: Discrete 1280x720
+                        Interval: Discrete 0.033s (30.000 fps)
+        [1]: 'YUYV' (YUYV 4:2:2)
+                Size: Discrete 640x480
+                        Interval: Discrete 0.033s (30.000 fps)
+"""
+        run_result = mock.Mock(returncode=0, stdout=output)
+        with mock.patch("nvbroadcast.video.virtual_camera.subprocess.run", return_value=run_result):
+            candidates = camera_mode_candidates("/dev/video0", 1280, 720, 60)
+
+        self.assertEqual(
+            candidates[:2],
+            [
+                {"format": "mjpeg", "width": 1280, "height": 720, "fps": 30},
+                {"format": "raw", "width": 640, "height": 480, "fps": 30},
+            ],
+        )
+        self.assertEqual(
+            select_camera_mode("/dev/video0", 1280, 720, 60),
+            {"format": "mjpeg", "width": 1280, "height": 720, "fps": 30},
+        )
+
+    def test_camera_mode_candidates_parse_stepwise_phone_webcam_modes(self):
+        output = """
+ioctl: VIDIOC_ENUM_FMT
+        Type: Video Capture
+        [0]: 'MJPG' (Motion-JPEG, compressed)
+                Size: Stepwise 320x240 - 1920x1080 with step 2/2
+                        Interval: Stepwise 0.016s - 0.067s with step 0.001s
+"""
+        run_result = mock.Mock(returncode=0, stdout=output)
+        with mock.patch("nvbroadcast.video.virtual_camera.subprocess.run", return_value=run_result):
+            modes = list_camera_format_modes("/dev/video0")
+            candidates = camera_mode_candidates("/dev/video0", 1280, 720, 60)
+
+        self.assertIn(
+            {"format": "MJPG", "width": 1280, "height": 720, "fps": [15, 24, 25, 30, 60, 62]},
+            modes,
+        )
+        self.assertEqual(
+            candidates[0],
+            {"format": "mjpeg", "width": 1280, "height": 720, "fps": 60},
+        )
 
     def test_list_camera_devices_skips_metadata_and_loopback_nodes(self):
         list_output = """

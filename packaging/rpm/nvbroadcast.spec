@@ -153,6 +153,8 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Fix OBS and meeting-app white preview cases on cameras that expose raw video modes instead of MJPEG
 - Avoid stale, metadata-only, and virtual-loopback camera nodes after reboot or device-order changes
 - Apply the same camera compatibility path to the headless virtual camera command
+- Prevent source installs from auto-starting the headless passthrough service beside the main app
+- Install the PyAV audio dependency with the core app so RNNoise filtering initializes reliably
 - Fix CUDA runtime package paths for source, Debian, RPM, and amd64 Snap installs
 - Add regression coverage for camera-mode fallback, camera-node filtering, headless virtual camera behavior, and package metadata
 

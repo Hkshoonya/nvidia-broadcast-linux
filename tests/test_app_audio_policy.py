@@ -56,6 +56,33 @@ class AppAudioPolicyTests(unittest.TestCase):
         self.assertFalse(NVBroadcastApp._preload_transcriber_when_idle(fake))
         fake._preload_transcriber.assert_called_once_with()
 
+    @mock.patch("nvbroadcast.app.time.sleep")
+    @mock.patch("nvbroadcast.app.subprocess.run")
+    @mock.patch("nvbroadcast.app.IS_LINUX", True)
+    def test_gui_startup_stops_active_headless_vcam_service(self, run, _sleep):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        run.side_effect = [
+            mock.Mock(returncode=0),
+            mock.Mock(returncode=0),
+        ]
+
+        self.assertTrue(NVBroadcastApp._stop_headless_vcam_service(app))
+
+        self.assertEqual(run.call_args_list[0].args[0], [
+            "systemctl", "--user", "is-active", "--quiet", "nvbroadcast-vcam.service",
+        ])
+        self.assertEqual(run.call_args_list[1].args[0], [
+            "systemctl", "--user", "stop", "nvbroadcast-vcam.service",
+        ])
+
+    @mock.patch("nvbroadcast.app.subprocess.run", return_value=mock.Mock(returncode=3))
+    @mock.patch("nvbroadcast.app.IS_LINUX", True)
+    def test_gui_startup_leaves_inactive_headless_vcam_service_alone(self, run):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+
+        self.assertFalse(NVBroadcastApp._stop_headless_vcam_service(app))
+        run.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

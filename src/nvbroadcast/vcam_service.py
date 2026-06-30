@@ -17,6 +17,7 @@ Usage:
 import signal
 import sys
 import argparse
+import subprocess
 
 import gi
 
@@ -33,10 +34,11 @@ from nvbroadcast.core.constants import (
 from nvbroadcast.core.config import load_config
 from nvbroadcast.core.platform import get_gst_camera_caps
 from nvbroadcast.video.virtual_camera import (
+    camera_mode_candidates,
     ensure_virtual_camera,
     list_camera_devices,
     resolve_camera_device,
-    select_camera_capture_format,
+    select_camera_mode,
 )
 
 
@@ -55,6 +57,7 @@ def build_pipeline(
     height: int,
     fps: int,
     output_format: str,
+    capture_format: str | None = None,
 ) -> Gst.Pipeline:
     """Build a headless webcam -> v4l2loopback pipeline.
 
@@ -63,7 +66,13 @@ def build_pipeline(
     """
     fmt = OUTPUT_FORMATS.get(output_format.lower(), "YUY2")
 
-    capture_format = select_camera_capture_format(source_device, width, height, fps)
+    if capture_format is None:
+        selected_mode = select_camera_mode(source_device, width, height, fps)
+        width = selected_mode["width"]
+        height = selected_mode["height"]
+        fps = selected_mode["fps"]
+        capture_format = selected_mode["format"]
+
     camera_src = get_gst_camera_caps(
         source_device, width, height, fps, capture_format=capture_format
     )
@@ -103,6 +112,154 @@ def build_pipeline(
     return pipeline
 
 
+def _start_pipeline_once(pipeline: Gst.Pipeline) -> bool:
+    """Start a pipeline and catch immediate negotiation failures."""
+    ret = pipeline.set_state(Gst.State.PLAYING)
+    if ret == Gst.StateChangeReturn.FAILURE:
+        return False
+
+    try:
+        state_ret, _state, _pending = pipeline.get_state(2 * Gst.SECOND)
+        if state_ret == Gst.StateChangeReturn.FAILURE:
+            return False
+    except Exception:
+        # Some test doubles and platform backends do not expose get_state
+        # cleanly. If set_state did not fail, keep previous permissive behavior.
+        pass
+
+    try:
+        bus = pipeline.get_bus()
+        message = bus.timed_pop_filtered(
+            2 * Gst.SECOND,
+            Gst.MessageType.ERROR | Gst.MessageType.ASYNC_DONE,
+        )
+        if message and message.type == Gst.MessageType.ERROR:
+            err, debug = message.parse_error()
+            print(f"[NVIDIA Broadcast VCam] Startup error: {err.message}")
+            if debug:
+                print(f"[NVIDIA Broadcast VCam] Startup debug: {debug}")
+            return False
+    except Exception:
+        pass
+
+    return True
+
+
+def _describe_vcam_device(device: str) -> str:
+    """Return a short diagnostic string for a v4l2loopback device."""
+    if not device.startswith("/dev/video"):
+        return "non-v4l2"
+
+    caps = "unknown"
+    holders = "unknown"
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "-D", "-d", device],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        if "Video Output" in result.stdout:
+            caps = "output"
+        elif "Video Capture" in result.stdout:
+            caps = "capture"
+        elif result.returncode == 0:
+            caps = "unreported"
+    except Exception:
+        pass
+
+    try:
+        result = subprocess.run(
+            ["fuser", "-v", device],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        merged = (result.stdout + " " + result.stderr).strip()
+        holders = merged.replace("\n", " | ") if merged else "none"
+    except Exception:
+        pass
+
+    return f"caps={caps}, holders={holders}"
+
+
+def _vcam_ready_for_writer(device: str) -> bool:
+    """Return whether the virtual camera can accept a writer pipeline."""
+    if not device.startswith("/dev/video"):
+        return True
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "-D", "-d", device],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return True
+    if result.returncode != 0:
+        return False
+    return "Video Output" in result.stdout
+
+
+def start_pipeline_with_fallback(
+    source_device: str,
+    vcam_device: str,
+    width: int,
+    height: int,
+    fps: int,
+    output_format: str,
+) -> tuple[Gst.Pipeline | None, dict | None]:
+    """Start the first working camera mode, retrying safer phone-webcam paths."""
+    if not _vcam_ready_for_writer(vcam_device):
+        print(
+            "[NVIDIA Broadcast VCam] Virtual camera is busy or already opened "
+            f"by another process ({_describe_vcam_device(vcam_device)})."
+        )
+        print(
+            "[NVIDIA Broadcast VCam] Close video apps or stop the GUI/headless "
+            "service before starting nvbroadcast-vcam."
+        )
+        return None, None
+
+    candidates = camera_mode_candidates(source_device, width, height, fps)
+    for index, mode in enumerate(candidates, start=1):
+        if (
+            mode["width"] != width
+            or mode["height"] != height
+            or mode["fps"] != fps
+            or index > 1
+        ):
+            print(
+                "[NVIDIA Broadcast VCam] Trying camera mode "
+                f"{mode['width']}x{mode['height']}@{mode['fps']}fps "
+                f"({mode['format']})"
+            )
+
+        pipeline = build_pipeline(
+            source_device,
+            vcam_device,
+            mode["width"],
+            mode["height"],
+            mode["fps"],
+            output_format,
+            capture_format=mode["format"],
+        )
+        if _start_pipeline_once(pipeline):
+            return pipeline, mode
+
+        print(
+            "[NVIDIA Broadcast VCam] Camera mode failed: "
+            f"{mode['width']}x{mode['height']}@{mode['fps']}fps "
+            f"({mode['format']})"
+        )
+        try:
+            pipeline.set_state(Gst.State.NULL)
+        except Exception:
+            pass
+
+    return None, None
+
+
 def on_bus_message(bus, message, loop):
     """Handle GStreamer bus messages."""
     t = message.type
@@ -131,7 +288,7 @@ def main():
     )
     parser.add_argument(
         "--vcam",
-        default=VIRTUAL_CAM_DEVICE,
+        default=None,
         help=f"Virtual camera device (default: {VIRTUAL_CAM_DEVICE})",
     )
     parser.add_argument(
@@ -180,12 +337,29 @@ def main():
         print(f"[NVIDIA Broadcast VCam] Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    vcam_device = args.vcam or vcam
     print(f"[NVIDIA Broadcast VCam] Source: {source_device} ({width}x{height}@{fps}fps)")
-    print(f"[NVIDIA Broadcast VCam] Output: {args.vcam} (format: {args.format.upper()})")
+    print(f"[NVIDIA Broadcast VCam] Output: {vcam_device} (format: {args.format.upper()})")
     print(f"[NVIDIA Broadcast VCam] Virtual camera will be visible to browsers and apps")
     print()
 
-    pipeline = build_pipeline(source_device, args.vcam, width, height, fps, args.format)
+    pipeline, active_mode = start_pipeline_with_fallback(
+        source_device, vcam_device, width, height, fps, args.format
+    )
+    if pipeline is None or active_mode is None:
+        print("[NVIDIA Broadcast VCam] Failed to start pipeline", file=sys.stderr)
+        sys.exit(1)
+
+    if (
+        active_mode["width"] != width
+        or active_mode["height"] != height
+        or active_mode["fps"] != fps
+    ):
+        print(
+            "[NVIDIA Broadcast VCam] Using compatible source mode: "
+            f"{active_mode['width']}x{active_mode['height']}@"
+            f"{active_mode['fps']}fps ({active_mode['format']})"
+        )
 
     loop = GLib.MainLoop()
 
@@ -201,12 +375,6 @@ def main():
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
-
-    # Start pipeline
-    ret = pipeline.set_state(Gst.State.PLAYING)
-    if ret == Gst.StateChangeReturn.FAILURE:
-        print("[NVIDIA Broadcast VCam] Failed to start pipeline", file=sys.stderr)
-        sys.exit(1)
 
     print("[NVIDIA Broadcast VCam] Streaming... (Ctrl+C to stop)")
     print(f"[NVIDIA Broadcast VCam] Open your browser or video app and select '{VIRTUAL_CAM_LABEL}'")
