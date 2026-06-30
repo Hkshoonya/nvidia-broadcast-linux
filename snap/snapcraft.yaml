@@ -8,60 +8,32 @@ description: |
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  Recommended stable update:
-  - v1.1.12 fixes an OBS startup race where the main app and the optional
-    headless virtual-camera service could both try to own the camera after
-    login.
-  - Phone and Android webcam sources now get safer mode retries, with clearer
-    busy-camera diagnostics when /dev/video10 is already in use.
-  - Audio filtering now installs the PyAV dependency with the core app, so
-    RNNoise mic and speaker cleanup can initialize without requiring meeting
-    transcription extras first.
-  - Meeting transcription and summaries keep the bundled faster-whisper,
+  What's new in v1.1.12:
+  - Fixes an OBS startup race where the main app and optional headless virtual
+    camera service could both try to own the camera after login.
+  - Improves phone and Android webcam fallback behavior, with clearer messages
+    when /dev/video10 is already busy.
+  - Installs the PyAV audio dependency with the core app so RNNoise mic and
+    speaker cleanup can initialize reliably.
+  - Keeps meeting transcription and summaries on the bundled faster-whisper,
     ctranslate2, soundfile, and support-package runtime path.
-  - Existing source installs no longer auto-start the headless passthrough
-    service beside the main app.
+  - Stops source installs from auto-starting the headless passthrough service
+    beside the main app.
+
+  Recent quality updates:
   - v1.1.11 fixes white preview and missing-effects cases in OBS and meeting
-    apps when a camera exposes raw video modes instead of MJPEG for the
-    selected resolution.
-  - Camera startup now avoids stale, metadata-only, and virtual-loopback source
+    apps when cameras expose raw video modes instead of MJPEG.
+  - Camera startup avoids stale, metadata-only, and virtual-loopback source
     nodes after reboot or device-order changes.
-  - The headless nvbroadcast-vcam command now uses the same camera compatibility
-    path as the main app.
-  - Source, Debian, RPM, and amd64 Snap installs now use the corrected CUDA
-    runtime package paths for NVIDIA systems.
-  - Source, Debian, RPM, and amd64 Snap installs now install the CUDA mode
-    runtime on NVIDIA systems, so CUDA modes get both GPU compositing and ONNX
-    GPU inference instead of falling back to CPU inference after a partial
-    install.
-  - The arm64 Snap build stays portable and CPU-safe because ONNX Runtime GPU
-    wheels are not published for Linux arm64 yet.
+  - Source, Debian, RPM, and amd64 Snap installs include the corrected CUDA
+    runtime path for NVIDIA systems.
   - v1.1.10 improves live background replacement edges around hair, shoulders,
-    raised hands, and finger gaps while reducing the extra CPU cost added by
-    edge cleanup.
-  - A new Compute selector lets users choose Auto, GPU Focused, or CPU Focused
-    behavior depending on whether they want quality, GPU preference, or lower
-    GPU load.
-  - GPU Focused now clearly selects the DocZeus/CUDA path when available, while
-    CPU Focused keeps users on CPU modes when they want to leave GPU resources
-    free.
-  - Meeting transcription packaging still uses the lighter faster-whisper
-    runtime, with openai-whisper kept optional and guarded for compatible Python
-    versions only.
-  - Project sponsor/backer links, public sponsor walls, and About-window backer
-    credits are easier to find.
-  - v1.1.9 fixes the local meeting transcription runtime installer so all
-    required faster-whisper support packages are installed correctly in the
-    app, Debian/RPM packages, and macOS package path.
-  - Missing-transcription messages now show the complete install command
-    instead of a partial one-package command.
-  - v1.1.8 prevents old background audio helpers from staying alive after the
-    app closes, which can avoid doubled or echo-like microphone audio in calls.
-  - The source installer no longer stops at the CuPy check step after the
-    optional GPU package is installed.
-  - Error messages during install now report the real exit code and show more
-    useful output when optional GPU verification fails.
-  - The app and project pages now make GitHub Sponsors support easier to find.
+    raised hands, and finger gaps.
+  - Compute selection lets users choose Auto, GPU Focused, or CPU Focused
+    behavior. GPU Focused selects the DocZeus/CUDA path when available, while
+    CPU Focused keeps users on CPU modes when preferred.
+  - The arm64 Snap build stays portable and CPU-safe until Linux arm64 GPU
+    wheels are available from upstream providers.
 
   Core features:
   - Blur your background

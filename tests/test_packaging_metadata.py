@@ -6,6 +6,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagingMetadataTests(unittest.TestCase):
+    def _snap_description(self, snapcraft: str) -> str:
+        marker = "description: |\n"
+        start = snapcraft.index(marker) + len(marker)
+        end = snapcraft.index("\ngrade:", start)
+        lines = snapcraft[start:end].splitlines()
+        return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
+
     def test_release_version_metadata_is_current(self):
         current = "1.1.12"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
@@ -27,6 +34,11 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"nvbroadcast-{current}-1.noarch.rpm", docs_index)
         self.assertIn(f"NVBroadcast-{current}-1.pkg", docs_index)
         self.assertIn(f"such as v{current}", snap_workflow)
+
+    def test_snap_description_stays_within_store_limit(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        description = self._snap_description(snapcraft)
+        self.assertLessEqual(len(description), 4096)
 
     def test_install_script_uses_supported_tensorrt_command(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
