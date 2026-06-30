@@ -153,7 +153,7 @@ jobs:
             --python-version 312 \
             --implementation cp \
             --abi cp312 \
-            numpy opencv-python-headless onnxruntime onnx scipy Pillow requests psutil pyrnnoise mediapipe
+            numpy opencv-python-headless onnxruntime==1.24.4 onnx scipy Pillow requests psutil pyrnnoise av mediapipe faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm
 
       - name: Test platform detection
         run: |

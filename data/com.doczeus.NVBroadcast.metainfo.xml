@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.12" date="2026-06-30">
+      <description>
+        <p>OBS startup, phone webcam, and audio filtering patch</p>
+        <ul>
+          <li>Stopped the optional headless virtual-camera service before the main app opens the camera, avoiding blank preview and busy-camera conflicts after login</li>
+          <li>Improved Android and phone-as-webcam fallback behavior with safer mode retries and clearer busy-camera diagnostics</li>
+          <li>Installed the PyAV dependency with the core app so RNNoise mic and speaker cleanup can initialize reliably</li>
+          <li>Kept meeting transcription and summaries on the bundled faster-whisper runtime path with the required support packages</li>
+          <li>Improved virtual-camera setup recovery for existing installs without reloading the camera while other apps are using it</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.11" date="2026-06-23">
       <description>
         <p>OBS camera compatibility and packaging reliability patch</p>
@@ -69,8 +81,6 @@
           <li>Fixed white preview and missing-effects cases on cameras that expose raw video modes instead of MJPEG for the selected resolution</li>
           <li>Avoided stale, metadata-only, and virtual-loopback camera nodes during startup after device order changes</li>
           <li>Updated the headless virtual camera command to use the same camera compatibility path as the main app</li>
-          <li>Prevented source installs from auto-starting the headless passthrough service beside the main app, avoiding blank preview and busy-camera conflicts after login</li>
-          <li>Installed the PyAV dependency with the core app so RNNoise mic and speaker cleanup can initialize reliably</li>
           <li>Fixed CUDA runtime package paths for source, Debian, RPM, and amd64 Snap installs</li>
           <li>Added regression tests for raw-camera fallback, camera-node filtering, headless virtual camera behavior, and package metadata consistency</li>
         </ul>

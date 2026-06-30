@@ -42,17 +42,26 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.12 — OBS Startup, Phone Webcam, and Audio Filtering Patch
+
+- **OBS Startup Race Fixed** — The main app now stops the optional headless virtual-camera service before opening the camera, preventing blank preview and busy-camera conflicts after login
+- **Phone Webcam Fallback Improved** — Android/phone-as-webcam sources now get safer mode retries, and busy `/dev/video10` is reported clearly before fallback attempts
+- **Audio Filtering Dependency Fixed** — RNNoise mic/speaker cleanup now installs its PyAV dependency with the core app, so audio routing does not silently run unfiltered
+- **Complete Runtime Bundle Preserved** — Meeting transcription and summaries keep the bundled `faster-whisper`, `ctranslate2`, `soundfile`, and support-package path; `openai-whisper` remains optional and guarded for compatible Python versions
+- **Virtual Camera Setup Recovery Improved** — Existing installs update the loopback configuration safely and avoid live reloads while OBS, browsers, or meeting apps are using the camera
+- **Regression Tests Expanded** — Release checks now cover GUI/headless ownership, phone webcam fallback, audio-filter dependency imports, Snap/package metadata, and hardware-independent vcam tests
+
+> If you are still on `v1.1.11` or older, update to `v1.1.12`. This is the recommended stable patch for OBS startup reliability, phone webcam compatibility, audio filtering, and package runtime completeness.
+
 ### v1.1.11 — OBS Camera Compatibility and Packaging Reliability Patch
 
 - **OBS White Preview Fixed** — The camera pipeline now handles cameras that expose raw video modes instead of MJPEG for the selected resolution
 - **Safer Camera Auto-Detection** — Startup now avoids stale, metadata-only, and virtual-loopback camera nodes after reboot, reducing blank preview and “no effects” cases
 - **Headless Virtual Camera Fixed Too** — `nvbroadcast-vcam` uses the same camera compatibility path as the main app, so OBS-only workflows get the same fix
-- **GUI/Headless Camera Race Fixed** — Source installs no longer auto-start the headless passthrough service beside the main app, preventing blank preview and busy-camera conflicts after login
-- **Audio Filtering Dependency Fixed** — RNNoise mic/speaker cleanup now installs its PyAV dependency with the core app, so audio routing does not silently run unfiltered
 - **CUDA Runtime Packaging Fixed** — Source, Debian, RPM, and amd64 Snap installs now use the correct package paths for the CUDA mode runtime
 - **Regression Tests Added** — Release checks now cover raw-camera fallback, camera-node filtering, headless virtual camera behavior, and package metadata consistency
 
-> If you are still on `v1.1.10` or older, update to `v1.1.11`. This is the recommended stable patch for OBS camera compatibility, audio filtering, and package install reliability.
+> If you are still on `v1.1.10` or older, update to `v1.1.11`. This is the recommended stable patch for OBS camera compatibility and package install reliability.
 
 ### v1.1.10 — Live Edge Quality and Compute Control Update
 
@@ -679,7 +688,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.11)
+│   ├── __init__.py              # Package version (1.1.12)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -712,7 +721,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.11)
+├── pyproject.toml               # Package config (v1.1.12)
 └── README.md
 ```
 

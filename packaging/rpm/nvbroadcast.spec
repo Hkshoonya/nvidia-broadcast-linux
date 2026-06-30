@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.11
+Version:        1.1.12
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -149,12 +149,17 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Tue Jun 30 2026 doczeus <harshit@kshoonya.com> - 1.1.12-1
+- Stop the optional headless virtual-camera service before the main app opens the camera
+- Improve phone and Android webcam fallback behavior with clearer busy-camera diagnostics
+- Install the PyAV audio dependency with the core app so RNNoise filtering initializes reliably
+- Keep meeting transcription and summaries on the bundled faster-whisper runtime path
+- Improve virtual-camera setup recovery for existing installs without live reloads while the camera is in use
+
 * Tue Jun 23 2026 doczeus <harshit@kshoonya.com> - 1.1.11-1
 - Fix OBS and meeting-app white preview cases on cameras that expose raw video modes instead of MJPEG
 - Avoid stale, metadata-only, and virtual-loopback camera nodes after reboot or device-order changes
 - Apply the same camera compatibility path to the headless virtual camera command
-- Prevent source installs from auto-starting the headless passthrough service beside the main app
-- Install the PyAV audio dependency with the core app so RNNoise filtering initializes reliably
 - Fix CUDA runtime package paths for source, Debian, RPM, and amd64 Snap installs
 - Add regression coverage for camera-mode fallback, camera-node filtering, headless virtual camera behavior, and package metadata
 

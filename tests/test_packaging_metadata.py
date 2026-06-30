@@ -7,7 +7,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 class PackagingMetadataTests(unittest.TestCase):
     def test_release_version_metadata_is_current(self):
-        current = "1.1.11"
+        current = "1.1.12"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -21,7 +21,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f'__version__ = "{current}"', package_init)
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-06-23">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-06-30">', metainfo)
         self.assertIn(f"### v{current}", readme)
         self.assertIn(f"nvbroadcast_{current}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{current}-1.noarch.rpm", docs_index)
@@ -208,15 +208,20 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
         self.assertIn("- faster-whisper", snapcraft)
         self.assertIn("- ctranslate2", snapcraft)
         self.assertIn("- httpx", snapcraft)
+        self.assertIn("- av", snapcraft)
         self.assertNotIn("- openai-whisper", snapcraft)
         self.assertIn("onnxruntime==1.24.4", snapcraft)
         self.assertIn("onnxruntime-gpu==1.24.4", snapcraft)
         self.assertIn("Installing amd64 CUDA mode runtime into Snap", snapcraft)
         self.assertIn("Skipping CUDA mode runtime", snapcraft)
         self.assertIn("arm64 Snap build stays portable and CPU-safe", snapcraft)
+        self.assertIn("onnxruntime==1.24.4", build_workflow)
+        self.assertIn("pyrnnoise av mediapipe faster-whisper ctranslate2", build_workflow)
+        self.assertIn("huggingface-hub httpx tokenizers soundfile tqdm", build_workflow)
 
     def test_packaged_backgrounds_include_bundled_default(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
