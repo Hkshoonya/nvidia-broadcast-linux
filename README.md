@@ -309,6 +309,49 @@ package-manager upgrade is not safe on those versions.
 
 Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
 
+### NixOS
+
+Enable the NixOS module from Nixpkgs:
+
+```nix
+{
+  programs.nvbroadcast.enable = true;
+}
+```
+
+The module installs `pkgs.nvbroadcast` and, by default, also configures the
+PipeWire and virtual-camera host pieces the app needs:
+
+- v4l2loopback virtual camera setup
+- PipeWire with PulseAudio compatibility
+
+If your system does not already configure the NVIDIA driver, opt into the
+module's basic NVIDIA defaults:
+
+```nix
+{
+  hardware.nvidia.open = true;
+
+  programs.nvbroadcast = {
+    enable = true;
+    nvidia.enable = true;
+  };
+}
+```
+
+See all installation options at https://search.nixos.org/options?query=nvbroadcast.
+
+Package-only installs are also available:
+
+```nix
+environment.systemPackages = [
+  pkgs.nvbroadcast
+];
+```
+
+When using the package without the NixOS module, configure the NVIDIA driver,
+PipeWire with PulseAudio compatibility, and v4l2loopback host settings yourself.
+
 ### Linux Installer Details
 
 The installer:
@@ -354,7 +397,8 @@ modes instead.
 | Fedora, RHEL, CentOS, Rocky | dnf/yum | Full auto-install |
 | Arch, Manjaro, EndeavourOS | pacman | Full auto-install |
 | openSUSE | zypper | Full auto-install |
-| Gentoo, Void, NixOS | portage/xbps/nix | Manual instructions shown |
+| NixOS | nix | NixOS module or Nixpkgs package |
+| Gentoo, Void | portage/xbps | Manual instructions shown |
 
 <details>
 <summary>Click to expand manual install steps</summary>

@@ -1375,6 +1375,7 @@ button:focus-visible, a:focus-visible {
       <button class="install-tab" data-tab="deb">Debian / Ubuntu</button>
       <button class="install-tab" data-tab="rpm">Fedora / RHEL</button>
       <button class="install-tab" data-tab="snap">Snap</button>
+      <button class="install-tab" data-tab="nixos">NixOS</button>
       <button class="install-tab" data-tab="arch">Arch</button>
       <button class="install-tab" data-tab="macos">macOS</button>
     </div>
@@ -1460,6 +1461,26 @@ button:focus-visible, a:focus-visible {
         <p class="install-note">For systems with Snap support. Snap Store updates are released separately after artifact inspection, Store policy approval, and strict-confinement testing. When `1.4.0` reaches the stable channel, `snap refresh nvbroadcast` upgrades in place with rebindable global effect hotkeys, optional Gaze Lock, live camera switching, low-latency virtual microphone startup, and reliable background processing during quality or mode changes.</p>
       </div>
 
+      <!-- NixOS -->
+      <div class="install-pane" id="pane-nixos">
+        <div class="terminal" role="region" aria-label="NixOS configuration">
+          <div class="terminal-bar">
+            <div class="terminal-dot r" aria-hidden="true"></div>
+            <div class="terminal-dot y" aria-hidden="true"></div>
+            <div class="terminal-dot g" aria-hidden="true"></div>
+            <span>nix</span>
+          </div>
+          <div class="terminal-body" role="code">
+            <button class="copy-btn" aria-label="Copy NixOS module configuration" onclick="copyCommand('nixos')">Copy</button>
+            <div class="terminal-line"><span class="comment"># configuration.nix</span></div>
+            <div class="terminal-line"><span class="cmd">{</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;programs.nvbroadcast.enable = true;</span></div>
+            <div class="terminal-line"><span class="cmd">}</span></div>
+          </div>
+        </div>
+        <p class="install-note">For NixOS with Nixpkgs. The module installs `pkgs.nvbroadcast` and defaults PipeWire with Pulse compatibility plus v4l2loopback on `/dev/video10`. NVIDIA driver defaults are opt-in with `programs.nvbroadcast.nvidia.enable = true`.</p>
+      </div>
+
       <!-- Arch -->
       <div class="install-pane" id="pane-arch">
         <div class="terminal" role="region" aria-label="Terminal command">
@@ -1510,7 +1531,7 @@ button:focus-visible, a:focus-visible {
       <div class="req-card">
         <h4>Linux</h4>
         <ul>
-          <li>Any distro (Ubuntu, Fedora, Arch, Pop!_OS...)</li>
+          <li>Any distro (Ubuntu, Fedora, Arch, NixOS, Pop!_OS...)</li>
           <li>NVIDIA GTX 1060+ for GPU modes</li>
           <li>Python 3.11+, GStreamer, GTK4</li>
           <li>PipeWire for virtual mic</li>
@@ -1699,6 +1720,7 @@ const commands = {
   deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.4.0-1_all.deb && sudo dpkg -i nvbroadcast_1.4.0-1_all.deb && sudo apt-get install -f',
   rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.4.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.4.0-1.noarch.rpm',
   snap: 'sudo snap install nvbroadcast || sudo snap refresh nvbroadcast',
+  nixos: '{ programs.nvbroadcast.enable = true; }',
   arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
   macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'
 };
