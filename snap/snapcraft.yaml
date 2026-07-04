@@ -1,26 +1,28 @@
 name: nvbroadcast
 base: core24
-version: '1.1.12'
-summary: Live background performance and stability patch
+version: '1.1.13'
+summary: Auto-frame tracking and framing patch
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.1.12:
-  - Fixes an OBS startup race where the main app and optional headless virtual
-    camera service could both try to own the camera after login.
-  - Improves phone and Android webcam fallback behavior, with clearer messages
-    when /dev/video10 is already busy.
-  - Installs the PyAV audio dependency with the core app so RNNoise mic and
-    speaker cleanup can initialize reliably.
-  - Keeps meeting transcription and summaries on the bundled faster-whisper,
-    ctranslate2, soundfile, and support-package runtime path.
-  - Stops source installs from auto-starting the headless passthrough service
-    beside the main app.
+  What's new in v1.1.13:
+  - Smooths Center Face lateral tracking so side-to-side movement no longer
+    waits for a large crop jump.
+  - Adds an Auto Frame Framing selector with Center Face and Stable Background
+    modes.
+  - Keeps Center Face framing active at minimum zoom by reserving a small
+    internal tracking crop margin.
+  - Makes switching from Stable Background back to Center Face take effect on
+    the next detected face.
+  - Adds regression tests for tracking, mode switching, config persistence, and
+    minimum-zoom behavior.
 
   Recent quality updates:
+  - v1.1.12 fixes OBS startup reliability, phone webcam fallback behavior,
+    audio filtering dependency installs, and packaged meeting runtime support.
   - v1.1.11 fixes white preview and missing-effects cases in OBS and meeting
     apps when cameras expose raw video modes instead of MJPEG.
   - Camera startup avoids stale, metadata-only, and virtual-loopback source

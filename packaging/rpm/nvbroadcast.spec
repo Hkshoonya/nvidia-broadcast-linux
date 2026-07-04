@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.12
+Version:        1.1.13
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -149,6 +149,13 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Sat Jul 04 2026 doczeus <harshit@kshoonya.com> - 1.1.13-1
+- Smooth Auto Frame lateral tracking so Center Face no longer waits for a large crop jump
+- Add Center Face and Stable Background framing modes for explicit auto-frame behavior
+- Keep Center Face framing active at minimum zoom with a small internal tracking crop margin
+- Make switching from Stable Background back to Center Face take effect on the next detected face
+- Add regression coverage for auto-frame tracking, mode switching, config persistence, and minimum zoom
+
 * Tue Jun 30 2026 doczeus <harshit@kshoonya.com> - 1.1.12-1
 - Stop the optional headless virtual-camera service before the main app opens the camera
 - Improve phone and Android webcam fallback behavior with clearer busy-camera diagnostics

@@ -66,7 +66,7 @@ jobs:
           case "$RELEASE_TAG" in
             v*) ;;
             *)
-              echo "::error::release_tag must be an existing version tag such as v1.1.12."
+              echo "::error::release_tag must be an existing version tag such as v1.1.13."
               exit 1
               ;;
           esac

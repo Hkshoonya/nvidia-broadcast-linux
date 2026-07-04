@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.13" date="2026-07-04">
+      <description>
+        <p>Auto Frame tracking and framing patch</p>
+        <ul>
+          <li>Smoothed Center Face lateral tracking so small side-to-side movement no longer waits for a large crop jump</li>
+          <li>Added an Auto Frame Framing selector with Center Face and Stable Background modes</li>
+          <li>Kept Center Face framing active at minimum zoom by reserving a small internal tracking crop margin</li>
+          <li>Made switching from Stable Background back to Center Face take effect on the next detected face</li>
+          <li>Added regression tests for tracking smoothness, mode switching, config persistence, and minimum-zoom behavior</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.12" date="2026-06-30">
       <description>
         <p>OBS startup, phone webcam, and audio filtering patch</p>
