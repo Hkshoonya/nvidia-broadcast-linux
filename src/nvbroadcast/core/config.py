@@ -48,6 +48,7 @@ class VideoConfig:
     blur_intensity: float = 0.7
     auto_frame: bool = False
     auto_frame_zoom: float = 1.5
+    auto_frame_mode: str = "center"
     mirror: bool = True
     eye_contact: bool = False
     eye_contact_intensity: float = 0.35
@@ -213,6 +214,8 @@ def _load_from_toml(filepath: Path) -> AppConfig:
                 continue
             if hasattr(config.video, k):
                 setattr(config.video, k, v)
+        if config.video.auto_frame_mode not in ("center", "stable"):
+            config.video.auto_frame_mode = "center"
         if "edge" in data["video"]:
             for k, v in data["video"]["edge"].items():
                 if hasattr(config.video.edge, k):
@@ -333,6 +336,7 @@ def _config_to_toml(config: AppConfig) -> str:
         f"blur_intensity = {v.blur_intensity}",
         f"auto_frame = {_bool(v.auto_frame)}",
         f"auto_frame_zoom = {v.auto_frame_zoom}",
+        f'auto_frame_mode = "{v.auto_frame_mode}"',
         f"mirror = {_bool(v.mirror)}",
         f"eye_contact = {_bool(v.eye_contact)}",
         f"eye_contact_intensity = {v.eye_contact_intensity}",

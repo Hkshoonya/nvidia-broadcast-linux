@@ -42,6 +42,16 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.13 — Auto Frame Tracking and Framing Patch
+
+- **Center Face Tracking Smoothed** — Auto Frame now follows side-to-side face movement continuously instead of waiting for a large lateral jump before the crop catches up
+- **Stable Background Mode Added** — The new Auto Frame `Framing` selector lets users choose `Center Face` tracking or `Stable Background` framing when they do not want the room to drift
+- **Minimum Zoom Framing Fixed** — Center Face now keeps a small internal crop margin at the minimum zoom setting, so face centering still works when users reduce zoom as far as the UI allows
+- **Mode Switching Fixed** — Switching from Stable Background back to Center Face snaps to the next detected face immediately, then resumes normal smoothing
+- **Regression Tests Added** — Release checks now cover lateral tracking smoothness, framing mode switching, config persistence, and minimum-zoom auto-frame behavior
+
+> If you are still on `v1.1.12` or older, update to `v1.1.13`. This is the recommended stable patch for smoother Auto Frame tracking and clearer framing behavior.
+
 ### v1.1.12 — OBS Startup, Phone Webcam, and Audio Filtering Patch
 
 - **OBS Startup Race Fixed** — The main app now stops the optional headless virtual-camera service before opening the camera, preventing blank preview and busy-camera conflicts after login
@@ -250,7 +260,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Background Blur** — AI-powered, person stays crystal sharp
 - **Background Replace** — Any image via native file picker
 - **Green Screen** — Solid green for OBS chroma key
-- **Auto Frame** — Face tracking with smooth zoom/pan
+- **Auto Frame** — Face tracking with Center Face and Stable Background modes
 - **Video Enhancement** — Skin smooth, enhance, sharpen, denoise, vignette
 - **Eye Contact Correction** — MediaPipe iris tracking redirects gaze to camera
 - **Face Relighting** — Fill light guided by the scene
@@ -688,7 +698,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.12)
+│   ├── __init__.py              # Package version (1.1.13)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -721,7 +731,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.12)
+├── pyproject.toml               # Package config (v1.1.13)
 └── README.md
 ```
 
