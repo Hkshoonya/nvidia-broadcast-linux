@@ -250,7 +250,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Background Blur** — AI-powered, person stays crystal sharp
 - **Background Replace** — Any image via native file picker
 - **Green Screen** — Solid green for OBS chroma key
-- **Auto Frame** — Face tracking with smooth zoom/pan
+- **Auto Frame** — Face tracking with Center Face and Stable Background modes
 - **Video Enhancement** — Skin smooth, enhance, sharpen, denoise, vignette
 - **Eye Contact Correction** — MediaPipe iris tracking redirects gaze to camera
 - **Face Relighting** — Fill light guided by the scene

@@ -643,6 +643,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._autoframe_toggle = EffectToggle("Auto Frame", "Track face and auto-zoom")
         self._autoframe_toggle.connect("toggled", self._on_autoframe_toggled)
         af_card.append(self._autoframe_toggle)
+        self._autoframe_mode_selector = DeviceSelector("Framing")
+        self._autoframe_mode_selector.set_devices([
+            {"name": "Center Face", "device": "center"},
+            {"name": "Stable Background", "device": "stable"},
+        ])
+        self._autoframe_mode_selector.set_sensitive(False)
+        self._autoframe_mode_selector.connect("device-changed", self._on_autoframe_mode_changed)
+        af_card.append(self._autoframe_mode_selector)
         self._zoom_slider = EffectSlider("Zoom", 1.5, 1.0, 3.0)
         self._zoom_slider.set_sensitive(False)
         self._zoom_slider.connect("value-changed", self._on_zoom_changed)
@@ -1284,10 +1292,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_autoframe_toggled(self, t, active):
         self._app.set_autoframe(active)
+        self._autoframe_mode_selector.set_sensitive(active)
         self._zoom_slider.set_sensitive(active)
 
     def _on_zoom_changed(self, s, v):
         self._app.set_autoframe_zoom(v)
+
+    def _on_autoframe_mode_changed(self, selector, mode):
+        self._app.set_autoframe_mode(mode)
 
     # --- Meeting ---
     def _on_meeting_toggle(self, btn):
@@ -1688,6 +1700,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Auto frame
         self._autoframe_toggle.active = v.auto_frame
         self._zoom_slider._scale.set_value(v.auto_frame_zoom)
+        mode_map = {"center": 0, "stable": 1}
+        self._autoframe_mode_selector.set_selected_index(mode_map.get(v.auto_frame_mode, 0))
+        self._autoframe_mode_selector.set_sensitive(v.auto_frame)
+        self._zoom_slider.set_sensitive(v.auto_frame)
         # Beauty
         self._beauty_toggle.active = v.beauty.enabled
         self._beauty_preset.set_sensitive(v.beauty.enabled)
@@ -1714,6 +1730,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app._beautifier.sharpen = v.beauty.sharpen
         self._app._beautifier.edge_darken = v.beauty.edge_darken
         self._app._autoframe.enabled = v.auto_frame
+        self._app._autoframe.mode = v.auto_frame_mode
         self._noise_toggle.active = a.noise_removal
         self._noise_slider.set_sensitive(a.noise_removal)
         self._noise_slider._scale.set_value(a.noise_intensity)
@@ -1828,6 +1845,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Sliders
         self._blur_slider._scale.set_value(v.blur_intensity)
         self._zoom_slider._scale.set_value(v.auto_frame_zoom)
+        mode_map = {"center": 0, "stable": 1}
+        self._autoframe_mode_selector.set_selected_index(mode_map.get(v.auto_frame_mode, 0))
+        self._autoframe_mode_selector.set_sensitive(v.auto_frame)
+        self._zoom_slider.set_sensitive(v.auto_frame)
 
         # Advanced edge tuning
         self._edge_dilate._scale.set_value(v.edge.dilate_size)
@@ -1852,6 +1873,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         if v.auto_frame:
             self._autoframe_toggle.active = True
+            self._autoframe_mode_selector.set_sensitive(True)
             self._zoom_slider.set_sensitive(True)
 
         if a.noise_removal:

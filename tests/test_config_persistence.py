@@ -26,6 +26,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         config.video.height = 600
         config.video.fps = 30
         config.video.output_format = "I420"
+        config.video.auto_frame_mode = "stable"
         config.audio.mic_device = "mic0"
         config.audio.speaker_device = "speaker0"
         config.audio.voice_fx_enabled = True
@@ -52,6 +53,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         })
         self.assertEqual((loaded.video.width, loaded.video.height, loaded.video.fps), (800, 600, 30))
         self.assertEqual(loaded.video.output_format, "I420")
+        self.assertEqual(loaded.video.auto_frame_mode, "stable")
         self.assertEqual(loaded.audio.mic_device, "mic0")
         self.assertEqual(loaded.audio.speaker_device, "speaker0")
         self.assertTrue(loaded.audio.voice_fx_enabled)
@@ -126,6 +128,19 @@ class ConfigPersistenceTests(unittest.TestCase):
             loaded = _load_from_toml(path)
 
         self.assertEqual(loaded.compute_focus, "auto")
+
+    def test_invalid_autoframe_mode_loads_as_center(self):
+        raw = '[video]\nauto_frame_mode = "broken"\n'
+
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(raw)
+            loaded = _load_from_toml(path)
+
+        self.assertEqual(loaded.video.auto_frame_mode, "center")
 
     def test_legacy_natural_voice_fx_defaults_migrate_to_audible_preset(self):
         legacy = """

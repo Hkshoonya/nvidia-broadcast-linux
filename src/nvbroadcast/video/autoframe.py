@@ -21,6 +21,7 @@ import cv2
 _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
 _MEDIAPIPE_IMPORT_ERROR: str | None = None
 _MEDIAPIPE_READY: bool | None = None
+_MIN_CENTER_TRACKING_ZOOM = 1.12
 
 
 def _probe_mediapipe_runtime() -> tuple[bool, str]:
@@ -79,9 +80,10 @@ class AutoFrame:
         self._enabled = False
 
         # Framing parameters
+        self._mode = "center"
         self._zoom_level = 1.5
         self._smoothing = 0.85
-        self._dead_zone = 0.15
+        self._dead_zone = 0.015
 
         # Smoothed state
         self._smooth_cx = 0.5
@@ -89,6 +91,7 @@ class AutoFrame:
         self._smooth_zoom = 1.0
         self._no_face_frames = 0
         self._timestamp_ms = 0
+        self._snap_to_face_on_next_frame = False
         self._mp = None
         self._mp_python = None
         self._mp_vision = None
@@ -114,6 +117,24 @@ class AutoFrame:
     @zoom_level.setter
     def zoom_level(self, value: float):
         self._zoom_level = max(1.0, min(3.0, value))
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    @mode.setter
+    def mode(self, value: str):
+        next_mode = value if value in ("center", "stable") else "center"
+        if next_mode == self._mode:
+            return
+        self._mode = next_mode
+        self._no_face_frames = 0
+        if next_mode == "stable":
+            self._snap_to_face_on_next_frame = False
+            self._smooth_cx = 0.5
+            self._smooth_cy = 0.5
+        else:
+            self._snap_to_face_on_next_frame = True
 
     @property
     def smoothing(self) -> float:
@@ -179,15 +200,19 @@ class AutoFrame:
             self._no_face_frames = 0
             cx, cy = face_box
 
-            dx = abs(cx - self._smooth_cx)
-            dy = abs(cy - self._smooth_cy)
+            if self._mode == "stable":
+                cx, cy = 0.5, 0.5
+            if self._snap_to_face_on_next_frame:
+                self._smooth_cx = cx
+                self._smooth_cy = cy
+                self._snap_to_face_on_next_frame = False
+            else:
+                self._smooth_cx = self._smooth_axis(self._smooth_cx, cx)
+                self._smooth_cy = self._smooth_axis(self._smooth_cy, cy)
 
-            if dx > self._dead_zone or dy > self._dead_zone:
-                self._smooth_cx = self._smoothing * self._smooth_cx + (1 - self._smoothing) * cx
-                self._smooth_cy = self._smoothing * self._smooth_cy + (1 - self._smoothing) * cy
-
+            target_zoom = self._target_zoom()
             self._smooth_zoom = (self._smoothing * self._smooth_zoom +
-                                 (1 - self._smoothing) * self._zoom_level)
+                                 (1 - self._smoothing) * target_zoom)
         else:
             self._no_face_frames += 1
             if self._no_face_frames > 30:
@@ -197,6 +222,17 @@ class AutoFrame:
                                      (1 - self._smoothing) * 1.0)
 
         return self._crop_and_zoom(frame, width, height)
+
+    def _smooth_axis(self, current: float, target: float) -> float:
+        """Smooth visible face motion while ignoring detector jitter."""
+        if abs(target - current) <= self._dead_zone:
+            return current
+        return self._smoothing * current + (1 - self._smoothing) * target
+
+    def _target_zoom(self) -> float:
+        if self._mode == "center":
+            return max(self._zoom_level, _MIN_CENTER_TRACKING_ZOOM)
+        return self._zoom_level
 
     def _detect_face(self, frame: np.ndarray) -> tuple[float, float] | None:
         """Detect the primary face. Returns (center_x, center_y) normalized [0,1]."""

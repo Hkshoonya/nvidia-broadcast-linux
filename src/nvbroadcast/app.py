@@ -638,6 +638,7 @@ class NVBroadcastApp(Adw.Application):
         self._mirror = c.video.mirror
         self._autoframe.enabled = c.video.auto_frame
         self._autoframe.zoom_level = c.video.auto_frame_zoom
+        self._autoframe.mode = c.video.auto_frame_mode
         self._refresh_inference_policy()
 
         if self._audio_pipeline_should_publish() or c.audio.noise_removal or c.audio.voice_fx_enabled:
@@ -1770,6 +1771,15 @@ class NVBroadcastApp(Adw.Application):
     def set_autoframe_zoom(self, value: float):
         self._autoframe.zoom_level = value
         self.config.video.auto_frame_zoom = value
+        save_config(self.config)
+
+    def set_autoframe_mode(self, mode: str):
+        if getattr(self, '_restoring', False):
+            return
+        if mode not in ("center", "stable"):
+            mode = "center"
+        self._autoframe.mode = mode
+        self.config.video.auto_frame_mode = mode
         save_config(self.config)
 
     # --- Beautification ---
