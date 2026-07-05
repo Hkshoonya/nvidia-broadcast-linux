@@ -500,26 +500,46 @@ nvidia-broadcast-linux/
 │   ├── __init__.py              # Package version (1.2.3)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
+│   ├── __main__.py              # CLI entry point
+│   ├── ai/
+│   │   ├── transcriber.py       # Local meeting transcription
+│   │   └── summarizer.py        # Local meeting notes and summary extraction
 │   ├── core/
 │   │   ├── config.py            # TOML config, performance profiles, compositing backends
 │   │   ├── constants.py         # App ID, paths, GPU config
-│   │   └── gpu.py               # GPU detection, CUDA device mapping
+│   │   ├── dependency_installer.py  # Optional runtime installer flow
+│   │   ├── gpu.py               # GPU detection, CUDA device mapping
+│   │   ├── meeting_store.py     # On-device meeting history and retention
+│   │   ├── platform.py          # OS/runtime feature detection
+│   │   ├── resources.py         # Packaged resource lookup
+│   │   └── updates.py           # GitHub release/update helpers
 │   ├── video/
 │   │   ├── effects.py           # Multi-model engine, fused CUDA kernel, edge refiner
 │   │   ├── pipeline.py          # GStreamer pipeline, async effects, frame throttling
 │   │   ├── beautify.py          # Video enhancement (5 effects + GPU batch)
 │   │   ├── autoframe.py         # MediaPipe face tracking with smooth zoom/pan
+│   │   ├── eye_contact.py       # Eye contact correction
+│   │   ├── face_landmarks.py    # Shared MediaPipe face landmark worker
+│   │   ├── perf_monitor.py      # FPS/GPU performance monitor
+│   │   ├── relighting.py        # Face relighting effect
 │   │   └── virtual_camera.py    # v4l2loopback + camera capability query
 │   ├── audio/
+│   │   ├── devices.py           # Mic/speaker enumeration and routing
 │   │   ├── effects.py           # RNNoise denoiser
+│   │   ├── level_monitor.py     # Audio level meter
+│   │   ├── meeting_capture.py   # Mixed mic + speaker meeting capture
+│   │   ├── mic_test.py          # Processed mic recording/playback test
 │   │   ├── pipeline.py          # GStreamer audio pipeline
 │   │   ├── monitor.py           # Speaker output denoise
-│   │   └── virtual_mic.py       # PipeWire virtual microphone
+│   │   ├── service.py           # Background audio helper service
+│   │   ├── virtual_mic.py       # PipeWire/Pulse virtual microphone
+│   │   └── voice_fx.py          # Voice EQ, gate, compression, presets
 │   └── ui/
 │       ├── window.py            # Main window: resizable paned layout, 9 modes
 │       ├── setup_wizard.py      # First-run wizard
 │       ├── controls.py          # Effect toggles, sliders, file picker
 │       ├── device_selector.py   # Dropdown selector (single-connect fix)
+│       ├── tray.py              # Optional legacy tray integration
 │       ├── video_preview.py     # Live video preview
 │       └── style.css            # App styling with Adwaita/system theme integration
 ├── models/                      # AI models (auto-downloaded)
@@ -528,8 +548,19 @@ nvidia-broadcast-linux/
 │   ├── rvm_mobilenetv3_fp16.onnx   # Lightweight refiner model
 │   ├── rvm_resnet50_fp32_trt.onnx  # TensorRT shape-inferred
 │   └── rvm_mobilenetv3_fp32_trt.onnx
+├── configs/                     # v4l2loopback and PipeWire templates
+├── data/                        # Desktop, metainfo, service, icons, backgrounds
+├── docs/                        # GitHub Pages site and release notes
+├── macos/                       # CoreMediaIO camera extension and helper bridge
+├── packaging/                   # Debian and RPM package metadata
+├── scripts/                     # Model/setup/release/quality tooling
+├── snap/                        # Snapcraft package metadata and store assets
+├── tests/                       # Unit and integration tests
 ├── install.sh                   # Multi-distro installer
+├── install_macos.sh             # macOS installer
 ├── uninstall.sh                 # Clean removal
+├── build-packages.sh            # Debian/RPM/macOS package builder
+├── requirements.txt             # Runtime dependency set
 ├── pyproject.toml               # Package config (v1.2.3)
 └── README.md
 ```
