@@ -123,68 +123,68 @@ See [CHANGELOG.md](./CHANGELOG.md) for latest updates!
 ## Architecture
 
 ```
-                         NV Broadcast v1.0.0
-                         ─────────────────────────────────
+                              NV Broadcast Pipeline
+                        ─────────────────────────────────
 
-  ┌───────────┐      ┌──────────────────────────────────────────┐      ┌──────────────┐
-  │  Webcam   │─────▶│           GStreamer Pipeline              │─────▶│ Virtual Cam  │
-  │(360p-4K)  │      │                                          │      │ /dev/video10 │
-  └───────────┘      │  JPEG Decode ─▶ Color Convert ─▶ appsink │      └──────┬───────┘
-                     └──────────────────────┬───────────────────┘             │
-                                            │                        ┌───────▼───────┐
-                            ┌───────────────▼──────────────┐         │ Chrome / Zoom │
-                            │    Async Effects Thread       │         │ Firefox / OBS │
-                            │   (never blocks capture)      │         │ Discord/Meet  │
-                            │                               │         └───────────────┘
-                            │  ┌─────────────────────────┐  │
-                            │  │   AI Segmentation        │  │
-                            │  │                          │  │
-                            │  │  Pre-downsample to 720p  │  │
-                            │  │  (or 480/360 for Zeus/   │  │
-                            │  │   Killer modes)          │  │
-                            │  │                          │  │
-                            │  │  ┌────┐ ┌─────┐ ┌────┐  │  │
-                            │  │  │RVM │ │ISNet│ │BiR │  │  │
-                            │  │  └──┬─┘ └──┬──┘ └─┬──┘  │  │
-                            │  │     └───┬──┘      │     │  │
-                            │  │         ▼         │     │  │
-                            │  │   Alpha Refine    │     │  │
-                            │  │  (sigmoid+dilate) │     │  │
-                            │  └────────┬──────────┘     │  │
-                            │           │                 │  │
-                            │  ┌────────▼───────────────┐ │  │
-                            │  │  Edge Refiner (opt.)   │ │  │
-                            │  │  720p 2nd pass RVM     │ │  │
-                            │  │  (Zeus/Killer only)    │ │  │
-                            │  └────────┬───────────────┘ │  │
-                            │           │                 │  │
-                            │  ┌────────▼───────────────┐ │  │
-                            │  │     Compositing        │ │  │
-                            │  │                        │ │  │
-                            │  │  ┌────────┐ ┌───────┐  │ │  │
-                            │  │  │ Fused  │ │ CuPy  │  │ │  │
-                            │  │  │ CUDA   │ │ CUDA  │  │ │  │
-                            │  │  │ 0.1ms  │ │ 15ms  │  │ │  │
-                            │  │  └────────┘ └───────┘  │ │  │
-                            │  └────────────────────────┘ │  │
-                            │           │                 │  │
-                            │  ┌────────▼───────────────┐ │  │
-                            │  │   Video Enhancement  │ │  │
-                            │  │  5 effects + presets   │ │  │
-                            │  │  GPU batch (CuPy)      │ │  │
-                            │  └────────────────────────┘ │  │
-                            │           │                 │  │
-                            │  Mirror flip (optional)     │  │
-                            └───────────┬─────────────────┘
-                                        │
-                            ┌───────────▼──────────────┐
-                            │ Preview (GTK4 Texture)    │
-                            │ Pause / Hide / Resize     │
-                            └──────────────────────────┘
+  ┌───────────┐     ┌─────────────────────────────────────────┐     ┌──────────────┐
+  │  Webcam   ├────▶│          GStreamer Pipeline             ├────▶│ Virtual Cam  │
+  │(360p-4K)  │     │                                         │     │ /dev/video10 │
+  └───────────┘     │ JPEG Decode ─▶ Color Convert ─▶ appsink │     └──────┬───────┘
+                    └────────────────────┬────────────────────┘            │
+                                         │                         ┌───────▼───────┐
+                         ┌───────────────▼────────────────┐        │ Chrome / Zoom │
+                         │      Async Effects Thread      │        │ Firefox / OBS │
+                         │     (never blocks capture)     │        │ Discord/Meet  │
+                         │                                │        └───────────────┘
+                         │  ┌──────────────────────────┐  │
+                         │  │     AI Segmentation      │  │
+                         │  │                          │  │
+                         │  │  Pre-downsample to 720p  │  │
+                         │  │  (or 480/360 for Zeus/   │  │
+                         │  │   Killer modes)          │  │
+                         │  │                          │  │
+                         │  │  ┌────┐ ┌─────┐ ┌────┐   │  │
+                         │  │  │RVM │ │ISNet│ │BiR │   │  │
+                         │  │  └──┬─┘ └──┬──┘ └─┬──┘   │  │
+                         │  │     └──────┼──────┘      │  │
+                         │  │            ▼             │  │
+                         │  │       Alpha Refine       │  │
+                         │  │     (sigmoid+dilate)     │  │
+                         │  └────────────┬─────────────┘  │
+                         │               │                │
+                         │  ┌────────────▼─────────────┐  │
+                         │  │   Edge Refiner (opt.)    │  │
+                         │  │   720p 2nd pass RVM      │  │
+                         │  │   (Zeus/Killer only)     │  │
+                         │  └────────────┬─────────────┘  │
+                         │               │                │
+                         │  ┌────────────▼─────────────┐  │
+                         │  │       Compositing        │  │
+                         │  │                          │  │
+                         │  │   ┌────────┐ ┌───────┐   │  │
+                         │  │   │ Fused  │ │ CuPy  │   │  │
+                         │  │   │ CUDA   │ │ CUDA  │   │  │
+                         │  │   │ 0.1ms  │ │ 15ms  │   │  │
+                         │  │   └────────┘ └───────┘   │  │
+                         │  └────────────┬─────────────┘  │
+                         │               │                │
+                         │  ┌────────────▼─────────────┐  │
+                         │  │    Video Enhancement     │  │
+                         │  │   5 effects + presets    │  │
+                         │  │    GPU batch (CuPy)      │  │
+                         │  └────────────┬─────────────┘  │
+                         │               ▼                │
+                         │     Mirror flip (optional)     │
+                         └───────────────┬────────────────┘
+                                         │
+                             ┌───────────▼────────────┐
+                             │ Preview (GTK4 Texture) │
+                             │ Pause / Hide / Resize  │
+                             └────────────────────────┘
 
   ┌───────────┐      ┌─────────────────────────────────┐      ┌──────────────┐
-  │    Mic    │─────▶│     RNNoise AI Denoise          │─────▶│ Virtual Mic  │
-  │           │      │     (48kHz, 10ms frames)        │      │  (PipeWire)  │
+  │    Mic    ├─────▶│       RNNoise AI Denoise        ├─────▶│ Virtual Mic  │
+  │           │      │       (48kHz, 10ms frames)      │      │  (PipeWire)  │
   └───────────┘      └─────────────────────────────────┘      └──────────────┘
 ```
 
