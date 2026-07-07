@@ -1303,6 +1303,11 @@ class VideoEffects:
         self._fused_green_bg_size = None
         # Whether the most recent composite already mirrored on-GPU
         self.last_output_mirrored = False
+        # GPU-resident matte pipeline state (blur mode + fused kernel only)
+        self._prev_alpha_gpu = None
+        self._latest_final_matte_u8_gpu = None
+        self._gpu_morph_footprints = {}
+        self._gpu_matte_warned = False
 
         # Alpha refinement
         self._apply_edge_config(edge_config)
@@ -1314,10 +1319,12 @@ class VideoEffects:
             self._matte_version += 1
             self._cached_alpha = None
             self._prev_alpha = None
+            self._prev_alpha_gpu = None
             self._stable_alpha = None
             self._cached_replace_matte = None
             self._cached_replace_matte_source_serial = None
             self._latest_final_matte_u8 = None
+            self._latest_final_matte_u8_gpu = None
             self._latest_final_matte_size = None
         self._reset_fused_gpu_caches(clear_bg=False)
 
@@ -1326,10 +1333,12 @@ class VideoEffects:
         with self._state_lock:
             self._matte_version += 1
             self._prev_alpha = None
+            self._prev_alpha_gpu = None
             self._stable_alpha = None
             self._cached_replace_matte = None
             self._cached_replace_matte_source_serial = None
             self._latest_final_matte_u8 = None
+            self._latest_final_matte_u8_gpu = None
             self._latest_final_matte_size = None
         self._reset_fused_gpu_caches(clear_bg=False)
 
@@ -1341,10 +1350,15 @@ class VideoEffects:
     def latest_final_matte_u8(self, width: int, height: int) -> np.ndarray | None:
         """Return the most recent per-frame final matte, if it matches this frame size."""
         with self._state_lock:
-            if self._latest_final_matte_u8 is None:
-                return None
             if self._latest_final_matte_size != (width, height):
                 return None
+            if self._latest_final_matte_u8 is None:
+                # GPU matte path stores the u8 matte on-device; download only
+                # when a CPU consumer (e.g. relighting) actually asks for it.
+                if self._latest_final_matte_u8_gpu is None:
+                    return None
+                self._latest_final_matte_u8 = self._cupy.asnumpy(
+                    self._latest_final_matte_u8_gpu)
             return self._latest_final_matte_u8.copy()
 
     def _remember_frame_size(self, width: int, height: int) -> None:
@@ -1689,6 +1703,9 @@ class VideoEffects:
         Moving: light smoothing so edges track movement.
         Hair/edges: always get extra smoothing since they jitter most.
         """
+        if self._cupy is not None and isinstance(alpha, self._cupy.ndarray):
+            return self._temporal_smooth_gpu(alpha, matte_version)
+
         with self._state_lock:
             if matte_version is not None and matte_version != self._matte_version:
                 return alpha
@@ -1779,6 +1796,54 @@ class VideoEffects:
         weight[dropping] *= drop_scale
 
         return weight * prev + (1.0 - weight) * alpha
+
+    def _temporal_smooth_gpu(self, alpha, matte_version: int | None = None):
+        """GPU port of _temporal_smooth for the blur-mode matte pipeline.
+
+        Mirrors the CPU math exactly but keeps everything device-resident
+        (including the motion gate — no per-frame D2H sync).
+        """
+        cp = self._cupy
+        with cp.cuda.Device(self._gpu_index):
+            with self._state_lock:
+                if matte_version is not None and matte_version != self._matte_version:
+                    return alpha
+                prev = self._prev_alpha_gpu
+            if prev is None or prev.shape != alpha.shape:
+                with self._state_lock:
+                    if matte_version is not None and matte_version != self._matte_version:
+                        return alpha
+                    self._prev_alpha_gpu = alpha.copy()
+                return alpha
+
+            # GPU matte path is blur-only, so use the blur-mode constants.
+            base_scale = 0.2
+            edge_scale = 2.5
+            fringe_scale = 3.5
+            max_weight = 0.7
+            fringe_min, fringe_max = 0.03, 0.30
+            drop_scale = 0.2
+
+            diff = cp.abs(alpha - prev)
+            motion_gate = cp.clip(1.0 - diff.mean() * 20.0, 0.15, 1.0)
+            base_w = self._temporal_strength * motion_gate
+
+            weight = cp.full(alpha.shape, base_scale, dtype=cp.float32) * base_w
+            edge_mask = (alpha > 0.03) & (alpha < 0.97)
+            weight[edge_mask] = base_w * edge_scale
+            thin_fringe = (alpha > fringe_min) & (alpha < fringe_max)
+            weight[thin_fringe] = base_w * fringe_scale
+            weight = cp.clip(weight, 0, max_weight)
+            dropping = alpha < prev - 0.05
+            weight[dropping] *= drop_scale
+
+            result = weight * prev + (1.0 - weight) * alpha
+
+            with self._state_lock:
+                if matte_version is not None and matte_version != self._matte_version:
+                    return alpha
+                self._prev_alpha_gpu = result.copy()
+            return result
 
     def _refresh_temporal_strength(self) -> None:
         """Tune temporal smoothing for the active model/engine/effect mode."""
@@ -2397,6 +2462,8 @@ class VideoEffects:
             return frame
 
         if alpha.shape[0] != height or alpha.shape[1] != width:
+            if self._cupy is not None and isinstance(alpha, self._cupy.ndarray):
+                alpha = self._cupy.asnumpy(alpha)
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
         if not frame.flags.writeable:
@@ -2411,6 +2478,18 @@ class VideoEffects:
                          mirror: bool = False) -> np.ndarray:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
         self.last_output_mirrored = False
+        cp = self._cupy
+        alpha_is_gpu = cp is not None and isinstance(alpha, cp.ndarray)
+        # The GPU matte only helps the blur-mode fused path; any other route
+        # (mode switched mid-flight, size mismatch) needs numpy semantics.
+        if alpha_is_gpu and (
+            self._bg_mode != "blur"
+            or not self._use_fused_kernel
+            or alpha.shape[0] != height
+            or alpha.shape[1] != width
+        ):
+            alpha = cp.asnumpy(alpha)
+            alpha_is_gpu = False
         # Ensure alpha matches frame dimensions
         if alpha.shape[0] != height or alpha.shape[1] != width:
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
@@ -2418,7 +2497,15 @@ class VideoEffects:
         alpha = self._final_matte(frame, alpha, matte_version)
         with self._state_lock:
             if matte_version is None or matte_version == self._matte_version:
-                self._latest_final_matte_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+                if alpha_is_gpu:
+                    # Keep the u8 matte on-device; latest_final_matte_u8()
+                    # downloads lazily if a CPU consumer asks.
+                    self._latest_final_matte_u8_gpu = cp.clip(
+                        alpha * 255.0, 0, 255).astype(cp.uint8)
+                    self._latest_final_matte_u8 = None
+                else:
+                    self._latest_final_matte_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+                    self._latest_final_matte_u8_gpu = None
                 self._latest_final_matte_size = (width, height)
 
         # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass
@@ -2427,6 +2514,10 @@ class VideoEffects:
             if result is not None:
                 self.last_output_mirrored = mirror
                 return result
+
+        if alpha_is_gpu:
+            # Fused path failed — the CPU compositors need a numpy matte.
+            alpha = cp.asnumpy(alpha)
 
         # Standard compositing path
         if self._bg_mode == "blur":
@@ -2554,8 +2645,163 @@ class VideoEffects:
         if sigmoid_midpoint is not None:
             self._sigmoid_midpoint = float(sigmoid_midpoint)
 
+    def _gpu_matte_eligible(self) -> bool:
+        """Whether the matte can stay device-resident through refinement.
+
+        Blur mode only: remove/replace run CPU-side matte helpers
+        (_final_matte, learned refiners) that would force downloads anyway.
+        Edge refine hands the matte to a CPU/ORT refiner mid-pipeline.
+        """
+        return (
+            self._cupy is not None
+            and self._use_fused_kernel
+            and self._bg_mode == "blur"
+            and not self._edge_refine_enabled
+        )
+
     def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
+        if self._gpu_matte_eligible():
+            try:
+                cp = self._cupy
+                with cp.cuda.Device(self._gpu_index):
+                    if not isinstance(alpha, cp.ndarray):
+                        alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
+                    else:
+                        alpha_gpu = alpha
+                    return self._refine_alpha_full_gpu(alpha_gpu)
+            except Exception as e:
+                if not self._gpu_matte_warned:
+                    self._gpu_matte_warned = True
+                    print(f"[NV Broadcast] GPU matte refine failed, "
+                          f"using CPU path: {e}", flush=True)
+        if self._cupy is not None and isinstance(alpha, self._cupy.ndarray):
+            alpha = self._cupy.asnumpy(alpha)
         return self._refine_alpha_full(alpha, reference_shape=alpha.shape[:2])
+
+    def _gpu_footprint(self, size: int):
+        """Cached device-resident elliptical footprint for GPU morphology."""
+        fp = self._gpu_morph_footprints.get(size)
+        if fp is None:
+            ell = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) > 0
+            fp = self._cupy.asarray(ell)
+            self._gpu_morph_footprints[size] = fp
+        return fp
+
+    def _gpu_gaussian2d(self, x_f32, ksize: int):
+        """cv2.GaussianBlur-parity Gaussian on a device float32 array."""
+        from cupyx.scipy import ndimage as cndi
+        sigma = 0.3 * ((ksize - 1) * 0.5 - 1) + 0.8
+        return cndi.gaussian_filter(
+            x_f32, sigma=sigma, truncate=(ksize // 2) / sigma, mode="mirror")
+
+    def _fill_small_internal_holes_gpu(self, a8, binary_threshold: int,
+                                       fill_cutoff: int, fill_value: int,
+                                       max_area_ratio: float,
+                                       max_span_ratio: float):
+        """GPU port of _fill_small_internal_holes.
+
+        Semantic delta vs the CPU version: binary_fill_holes fills interior
+        holes of every silhouette component, not just the largest external
+        contour. For webcam scenes (one subject) this is equivalent; the
+        area/span thresholds below are identical.
+        """
+        import cupyx
+        cp = self._cupy
+        from cupyx.scipy import ndimage as cndi
+
+        binary = a8 > binary_threshold
+        holes = cndi.binary_fill_holes(binary) & ~binary
+        if not bool(holes.any()):
+            return a8
+
+        labels, num = cndi.label(holes)
+        if int(num) == 0:
+            return a8
+
+        h, w = a8.shape[:2]
+        max_area = max(6, int(h * w * max_area_ratio))
+        max_w = max(2, int(w * max_span_ratio))
+        max_h = max(2, int(h * max_span_ratio))
+
+        areas = cp.bincount(labels.ravel(), minlength=int(num) + 1)
+        ys, xs = cp.nonzero(holes)
+        lbl = labels[ys, xs]
+        min_y = cp.full(int(num) + 1, h, dtype=ys.dtype)
+        max_y = cp.zeros(int(num) + 1, dtype=ys.dtype)
+        min_x = cp.full(int(num) + 1, w, dtype=xs.dtype)
+        max_x = cp.zeros(int(num) + 1, dtype=xs.dtype)
+        cupyx.scatter_min(min_y, lbl, ys)
+        cupyx.scatter_max(max_y, lbl, ys)
+        cupyx.scatter_min(min_x, lbl, xs)
+        cupyx.scatter_max(max_x, lbl, xs)
+
+        ok = (
+            (areas <= max_area)
+            & ((max_x - min_x + 1) <= max_w)
+            & ((max_y - min_y + 1) <= max_h)
+        )
+        ok[0] = False
+
+        fill_mask = ok[labels] & (a8 < fill_cutoff)
+        result = a8.copy()
+        result[fill_mask] = fill_value
+        return result
+
+    def _refine_alpha_full_gpu(self, alpha_gpu):
+        """GPU port of the blur-mode branch of _refine_alpha_full.
+
+        Op-for-op mirror of the CPU path using cupyx.scipy.ndimage; sigma and
+        border modes are matched to cv2 semantics (mirror = BORDER_REFLECT_101,
+        sigma derived from ksize the way cv2 does for sigma=0).
+        """
+        cp = self._cupy
+        from cupyx.scipy import ndimage as cndi
+
+        a8 = cp.clip(alpha_gpu * 255, 0, 255).astype(cp.uint8)
+
+        # 1. Small close: fill tiny holes in hair/fine detail
+        a8 = cndi.grey_closing(a8, footprint=self._gpu_footprint(5))
+
+        # 2. Half-resolution close (2x2 box mean = exact INTER_AREA at 0.5)
+        h, w = a8.shape[:2]
+        if h % 2 == 0 and w % 2 == 0:
+            small = (a8.reshape(h // 2, 2, w // 2, 2)
+                     .astype(cp.float32).mean(axis=(1, 3)).astype(cp.uint8))
+            small = cndi.grey_closing(small, footprint=self._gpu_footprint(25))
+            a8 = cndi.zoom(small, 2, order=1, mode="mirror",
+                           grid_mode=True).astype(cp.uint8)
+
+        # 3. Fill interior holes
+        a8 = self._fill_small_internal_holes_gpu(
+            a8, binary_threshold=30, fill_cutoff=100, fill_value=220,
+            max_area_ratio=0.0007, max_span_ratio=0.07)
+
+        # 4. Wide dilate: 2 passes with 7x7
+        fp7 = self._gpu_footprint(7)
+        a8 = cndi.grey_dilation(a8, footprint=fp7)
+        a8 = cndi.grey_dilation(a8, footprint=fp7)
+
+        # 5. Three-pass Gaussian: wide, smooth gradient
+        t = a8.astype(cp.float32)
+        for k in (17, 11, 7):
+            t = self._gpu_gaussian2d(t, k)
+
+        # 6. Moderate sigmoid
+        t = t * (1.0 / 255.0)
+        sig = self._sigmoid_strength * 0.45
+        mid = self._sigmoid_midpoint
+        if sig > 0:
+            t = 1.0 / (1.0 + cp.exp(-sig * (t - mid)))
+
+        # 7. Core solidification + noise suppression
+        core = t > 0.75
+        t[core] = 1.0 - (1.0 - t[core]) ** 2.0
+        t[t < 0.02] = 0.0
+
+        # 8. Final feathering (quantize to u8 first, matching the CPU path)
+        r = cp.clip(t * 255, 0, 255).astype(cp.uint8).astype(cp.float32)
+        r = self._gpu_gaussian2d(r, 11)
+        return (r * (1.0 / 255.0)).astype(cp.float32)
 
     def _refine_alpha_full(
         self,
