@@ -984,11 +984,21 @@ class NVBroadcastApp(Adw.Application):
 
         # Inline-inference profiles own the alpha path entirely. The pipeline
         # disables the background alpha worker in that mode to avoid cache races.
+        # Mirror on-GPU only when no CPU stage runs after compositing —
+        # later stages would otherwise operate on an already-flipped frame.
+        gpu_mirror = (
+            self._mirror
+            and not face_effects_active
+            and not self._autoframe.enabled
+            and self._video_effects.enabled
+        )
         if self._video_effects.enabled:
             if self._inline_inference:
-                result_frame = self._video_effects.process_frame_array(result_frame, width, height)
+                result_frame = self._video_effects.process_frame_array(
+                    result_frame, width, height, mirror=gpu_mirror)
             else:
-                result_frame = self._video_effects.composite_only_array(result_frame, width, height)
+                result_frame = self._video_effects.composite_only_array(
+                    result_frame, width, height, mirror=gpu_mirror)
 
         if face_effects_active:
             if self._beautifier.enabled:
@@ -1015,8 +1025,10 @@ class NVBroadcastApp(Adw.Application):
         if self._autoframe.enabled:
             result_frame = self._autoframe.process_frame_array(result_frame, width, height)
 
-        # Mirror flip
-        if self._mirror:
+        # Mirror flip (skipped when the fused GPU path already flipped)
+        if self._mirror and not (
+            gpu_mirror and self._video_effects.last_output_mirrored
+        ):
             result_frame = cv2.flip(result_frame, 1)
         return result_frame.tobytes()
 
