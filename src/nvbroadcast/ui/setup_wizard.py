@@ -39,8 +39,8 @@ SETUP_MODES = [
     },
     {
         "key": "gpu_quality",
-        "label": "GPU OpenGL - Best Quality",
-        "description": "GStreamer GL compositing. 30fps, every frame. Very low CPU.",
+        "label": "GPU - Best Quality",
+        "description": "GPU-assisted compositing. 30fps, every frame. Very low CPU.",
         "compositing": "gstreamer_gl",
         "profile": "max_quality",
         "needs_cupy": False,
@@ -49,8 +49,8 @@ SETUP_MODES = [
     },
     {
         "key": "gpu_balanced",
-        "label": "GPU OpenGL - Balanced",
-        "description": "GStreamer GL compositing. 20fps effects. Best balance.",
+        "label": "GPU - Balanced",
+        "description": "GPU-assisted compositing. 20fps effects. Best balance.",
         "compositing": "gstreamer_gl",
         "profile": "balanced",
         "needs_cupy": False,
