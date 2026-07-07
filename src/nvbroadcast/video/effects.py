@@ -494,6 +494,16 @@ class _RVMBackend:
         self._reset_retry_logged = False
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
+        # IOBinding state: device-resident recurrent tensors + alpha buffer.
+        # Invalidated on every reset/session swap; the numpy _r1.._r4 mirrors
+        # stay untouched so the fallback path re-seeds from zeros cleanly.
+        self._cupy = None
+        self._iob_active = False
+        self._iob_shape = None
+        self._r_gpu_in = None
+        self._r_gpu_out = None
+        self._fgr_gpu = None
+        self._pha_gpu = None
 
     def load(self, quality: str, use_tensorrt: bool = False) -> str:
         preset = QUALITY_PRESETS[quality]
@@ -506,6 +516,7 @@ class _RVMBackend:
         self._trt_cache_path = None
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
+        self._invalidate_iobinding()
 
         if use_tensorrt:
             trt_path = base_model_path.with_name(
@@ -552,6 +563,7 @@ class _RVMBackend:
         self._trt_disabled = False if enabled else True
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
+        self._invalidate_iobinding()
         if enabled:
             return
         self._active_trt = False
@@ -804,6 +816,141 @@ class _RVMBackend:
 
         return alpha
 
+    def _preprocess_gpu(self, frame_gpu, infer_w: int, infer_h: int):
+        """BGRA uint8 HxWx4 on device -> normalized RGB float32 1x3xh'xw'.
+
+        Bilinear resize (vs INTER_AREA on CPU) is slightly more aliased at
+        2/3 scale; RVM downsamples internally again and is robust to it.
+        """
+        cp = self._cupy
+        h, w = frame_gpu.shape[:2]
+        rgb = frame_gpu[..., 2::-1].astype(cp.float32)
+        if (h, w) != (infer_h, infer_w):
+            from cupyx.scipy import ndimage as cndi
+            rgb = cndi.zoom(
+                rgb, (infer_h / h, infer_w / w, 1), order=1,
+                mode="mirror", grid_mode=True)
+        src = cp.ascontiguousarray(rgb.transpose(2, 0, 1))[cp.newaxis]
+        return cp.ascontiguousarray(src * (1.0 / 255.0))
+
+    def _seed_iobinding(self, src_gpu, infer_w: int, infer_h: int):
+        """Warm-up run that seeds device-resident recurrent state.
+
+        Runs the plain numpy path once with zero (1,1,1,1) states (RVM
+        auto-shapes them), then copies the recurrent outputs into
+        cupy-owned ping-pong buffers. Owning the buffers ourselves (instead
+        of holding ORT-allocated OrtValues) keeps their lifetime out of
+        ORT's arena, which recycles output allocations across runs.
+        Returns the seed frame's alpha (numpy, at infer resolution).
+        """
+        cp = self._cupy
+        inputs = {
+            'src': cp.asnumpy(src_gpu),
+            'r1i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'r2i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'r3i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'r4i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'downsample_ratio': self._downsample_ratio,
+        }
+        outputs = self.session.run(None, inputs)
+        self._r_gpu_in = [cp.asarray(outputs[i]) for i in (2, 3, 4, 5)]
+        self._r_gpu_out = [cp.empty_like(x) for x in self._r_gpu_in]
+        self._fgr_gpu = cp.empty((1, 3, infer_h, infer_w), dtype=cp.float32)
+        self._pha_gpu = cp.empty((1, 1, infer_h, infer_w), dtype=cp.float32)
+        self._iob_shape = (infer_w, infer_h)
+        self._iob_active = True
+        self._state_input_shape = (infer_w, infer_h)
+        return outputs[1][0, 0]
+
+    def infer_gpu(self, frame_gpu, width: int, height: int):
+        """Device-resident inference via IOBinding; returns a cupy alpha.
+
+        Returns None when ineligible (TRT requested, non-CUDA session) so the
+        caller can use the numpy path. Recurrent state stays on the GPU
+        across frames — the numpy path round-trips it host<->device every
+        single frame.
+        """
+        cp = self._cupy
+        if cp is None or self.session is None:
+            return None
+        if self._trt_requested and not self._trt_disabled:
+            return None
+        providers = self.session.get_providers()
+        if not providers or "CUDAExecutionProvider" not in providers[0]:
+            return None
+
+        if height > self._MAX_INFER_HEIGHT:
+            scale = self._MAX_INFER_HEIGHT / height
+            infer_w = int(width * scale) & ~1
+            infer_h = self._MAX_INFER_HEIGHT & ~1
+        else:
+            infer_w, infer_h = width, height
+
+        src_gpu = self._preprocess_gpu(frame_gpu, infer_w, infer_h)
+        self._ensure_state_shape(infer_w, infer_h)
+
+        if not self._iob_active or self._iob_shape != (infer_w, infer_h):
+            alpha_small = cp.asarray(
+                self._seed_iobinding(src_gpu, infer_w, infer_h))
+        else:
+            io = self.session.io_binding()
+            io.bind_input(
+                'src', device_type='cuda', device_id=self._gpu_index,
+                element_type=np.float32, shape=tuple(src_gpu.shape),
+                buffer_ptr=src_gpu.data.ptr)
+            for name, buf in zip(('r1i', 'r2i', 'r3i', 'r4i'), self._r_gpu_in):
+                io.bind_input(
+                    name, device_type='cuda', device_id=self._gpu_index,
+                    element_type=np.float32, shape=tuple(buf.shape),
+                    buffer_ptr=buf.data.ptr)
+            io.bind_cpu_input('downsample_ratio', self._downsample_ratio)
+            io.bind_output(
+                'fgr', device_type='cuda', device_id=self._gpu_index,
+                element_type=np.float32, shape=tuple(self._fgr_gpu.shape),
+                buffer_ptr=self._fgr_gpu.data.ptr)
+            io.bind_output(
+                'pha', device_type='cuda', device_id=self._gpu_index,
+                element_type=np.float32, shape=(1, 1, infer_h, infer_w),
+                buffer_ptr=self._pha_gpu.data.ptr)
+            for name, buf in zip(('r1o', 'r2o', 'r3o', 'r4o'), self._r_gpu_out):
+                io.bind_output(
+                    name, device_type='cuda', device_id=self._gpu_index,
+                    element_type=np.float32, shape=tuple(buf.shape),
+                    buffer_ptr=buf.data.ptr)
+            self.session.run_with_iobinding(io)
+            # ORT runs on its EP-level stream; fence before cupy (null
+            # stream) reads the bound buffers.
+            io.synchronize_outputs()
+            # Frame N's recurrent outputs become frame N+1's inputs — no
+            # D2H, no ORT-owned allocations: swap the cupy ping-pong pair.
+            self._r_gpu_in, self._r_gpu_out = self._r_gpu_out, self._r_gpu_in
+            alpha_small = self._pha_gpu[0, 0]
+
+        if alpha_small.shape[0] != height or alpha_small.shape[1] != width:
+            from cupyx.scipy import ndimage as cndi
+            alpha_small = cp.clip(alpha_small, 0, 1)
+            # order=1 (not cubic): the matte is refined and triple-blurred
+            # immediately after, so linear upscale is indistinguishable.
+            alpha = cndi.zoom(
+                alpha_small, (height / alpha_small.shape[0],
+                              width / alpha_small.shape[1]),
+                order=1, mode="mirror", grid_mode=True)
+            alpha = cp.clip(alpha, 0, 1).astype(cp.float32)
+        else:
+            alpha = alpha_small.astype(cp.float32, copy=True)
+
+        self._lowres_refined = False
+        return alpha
+
+    def _invalidate_iobinding(self):
+        """Drop device-resident IOBinding state; next GPU frame re-seeds."""
+        self._iob_active = False
+        self._iob_shape = None
+        self._r_gpu_in = None
+        self._r_gpu_out = None
+        self._fgr_gpu = None
+        self._pha_gpu = None
+
     def reset_state(self, log: bool = True):
         """Reset recurrent states for resolution change.
         Zero (1,1,1,1) tensors trigger RVM's built-in shape auto-detection.
@@ -815,6 +962,7 @@ class _RVMBackend:
         self._state_input_shape = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
+        self._invalidate_iobinding()
         if log:
             print("[NV Broadcast] RVM recurrent states reset", flush=True)
 
@@ -825,6 +973,7 @@ class _RVMBackend:
         self._state_input_shape = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
+        self._invalidate_iobinding()
 
 
 class _SingleFrameBackend:
@@ -1308,6 +1457,9 @@ class VideoEffects:
         self._latest_final_matte_u8_gpu = None
         self._gpu_morph_footprints = {}
         self._gpu_matte_warned = False
+        self._gpu_infer_warned = False
+        # (frame, frame_gpu) from GPU inference, reused by _composite_fused
+        self._pending_frame_gpu = None
 
         # Alpha refinement
         self._apply_edge_config(edge_config)
@@ -2593,7 +2745,27 @@ class VideoEffects:
                 backend = self._backend
                 if backend is None:
                     return None
-                alpha = backend.infer(frame, width, height)
+                alpha = None
+                if self._gpu_matte_eligible() and hasattr(backend, "infer_gpu"):
+                    try:
+                        cp = self._cupy
+                        with cp.cuda.Device(self._gpu_index):
+                            backend._cupy = cp
+                            frame_gpu = cp.asarray(frame)
+                            alpha = backend.infer_gpu(frame_gpu, width, height)
+                            if alpha is not None:
+                                # Let the fused compositor reuse this upload.
+                                self._pending_frame_gpu = (frame, frame_gpu)
+                    except Exception as e:
+                        if hasattr(backend, "_invalidate_iobinding"):
+                            backend._invalidate_iobinding()
+                        if not self._gpu_infer_warned:
+                            self._gpu_infer_warned = True
+                            print(f"[NV Broadcast] GPU-resident inference failed, "
+                                  f"using standard path: {e}", flush=True)
+                        alpha = None
+                if alpha is None:
+                    alpha = backend.infer(frame, width, height)
             if alpha is not None:
                 # Refine first, then temporal smooth on the FINAL output.
                 # RVM's raw edges jitter 6-8% — smoothing the final result
@@ -2954,7 +3126,13 @@ class VideoEffects:
             # DocZeus/Killer fused compositing.
             if self._bg_mode == "replace" and self._bg_image is not None:
                 frame = self._prepare_replace_foreground(frame, alpha)
-            fg_gpu = cp.asarray(frame)
+            pending = self._pending_frame_gpu
+            self._pending_frame_gpu = None
+            if pending is not None and pending[0] is frame:
+                # Reuse the upload GPU inference already paid for this frame.
+                fg_gpu = pending[1]
+            else:
+                fg_gpu = cp.asarray(frame)
 
             # Build background on-device from the already-uploaded frame so
             # blur/remove modes never touch the CPU or pay a second upload.
