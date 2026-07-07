@@ -77,6 +77,7 @@ class VoiceFX:
         self.settings = VoiceFXSettings()
         self._enabled = False
         self._use_gpu = use_gpu and _HAS_CUPY
+        self._gpu_demoted = False  # One-shot demotion after a CUDA failure
         # Filter state (for IIR continuity across chunks)
         self._bass_state = np.zeros(2)
         self._treble_state = np.zeros(2)
@@ -151,10 +152,16 @@ class VoiceFX:
 
         # Warmth — subtle harmonic saturation (tape emulation)
         if s.warmth > 0.01:
-            if self._use_gpu and _HAS_CUPY and len(result) > 512:
+            if (self._use_gpu and _HAS_CUPY and not self._gpu_demoted
+                    and len(result) > 512):
                 try:
                     result = self._warmth_gpu(result, s.warmth)
-                except Exception:
+                except Exception as e:
+                    # Never retry a failing GPU per-block; audio must not
+                    # stutter. CPU output is identical (same formula).
+                    self._gpu_demoted = True
+                    print(f"[NVIDIA Broadcast] Voice FX GPU demoted to CPU: {e}",
+                          flush=True)
                     result = self._warmth(result, s.warmth)
             else:
                 result = self._warmth(result, s.warmth)
