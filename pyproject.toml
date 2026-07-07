@@ -33,7 +33,10 @@ dependencies = [
     "mediapipe>=0.10",
     "onnxruntime>=1.24.4,<1.25",
     "pyrnnoise>=0.4",
-    "av>=12",
+    # pyrnnoise -> audiolab needs av.option (removed in av 17) AND
+    # Codec.canonical_name (added in av 14); av 18 breaks the denoiser at
+    # import time and noise removal silently becomes a no-op.
+    "av>=16,<17",
     "onnx>=1.14",
     "psutil>=5.9",
     "scipy>=1.11",
