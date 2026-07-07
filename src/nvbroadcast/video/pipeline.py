@@ -31,7 +31,14 @@ from nvbroadcast.core.constants import (
 )
 
 
+# Formats cudaconvert handles reliably for the up/convert/download segment.
+_CUDA_SAFE_FORMATS = {"YUY2", "UYVY", "NV12", "I420", "BGRA", "RGBA"}
+
+
 class VideoPipeline:
+    # One-time probe result shared across instances (None = not yet probed)
+    _cuda_convert_probe_result: bool | None = None
+
     def __init__(self):
         Gst.init(None)
         self._pipeline: Gst.Pipeline | None = None
@@ -79,6 +86,8 @@ class VideoPipeline:
         self._rebuild_pending = False
         self._callbacks_in_flight = 0
         self._callback_lock = threading.Lock()
+        self._cuda_convert_demoted = False
+        self._vcam_used_cuda = False
 
     def _v4l2sink_segment(self) -> str:
         """Build a loopback sink path that avoids buggy allocation queries.
@@ -179,17 +188,30 @@ class VideoPipeline:
 
             last_state = self._describe_vcam_state()
 
-        print(
-            "[NV Broadcast] VCam pipeline failed to start — disabling vcam "
-            f"({last_state})",
-            flush=True,
-        )
         try:
             self._vcam_pipeline.set_state(Gst.State.NULL)
         except Exception:
             pass
         self._vcam_pipeline = None
         self._vcam_appsrc = None
+
+        # Before giving up, retry once on the CPU convert path in case the
+        # CUDA segment is what failed to start.
+        if self._vcam_used_cuda and not self._cuda_convert_demoted:
+            self._cuda_convert_demoted = True
+            print("[NV Broadcast] VCam start failed on CUDA path — retrying "
+                  "with CPU videoconvert", flush=True)
+            try:
+                self._build_vcam_pipeline()
+                return self._start_vcam_with_retry(attempts=attempts)
+            except Exception as e:
+                print(f"[NV Broadcast] VCam CPU rebuild failed: {e}", flush=True)
+
+        print(
+            "[NV Broadcast] VCam pipeline failed to start — disabling vcam "
+            f"({last_state})",
+            flush=True,
+        )
         self._vcam_enabled = False
         self._vcam_failed = True
         return False
@@ -227,16 +249,20 @@ class VideoPipeline:
         if IS_MACOS:
             return "videoconvert"
 
+        # jpegdec has no GPU replacement in stock GStreamer, but the
+        # post-decode conversion to BGRA can run on CUDA.
+        convert = self._convert_segment("BGRA")
+
         if self._capture_format == "raw":
-            return "videoconvert" if effects_mode else "identity"
+            return convert if effects_mode else "identity"
 
         if self._prefer_hw_decode and self._has_gst_element("nvjpegdec"):
             if effects_mode:
-                return "nvjpegdec ! cudadownload ! videoconvert"
+                return "nvjpegdec ! cudadownload ! videoconvert n-threads=2 qos=false"
             return "nvjpegdec ! cudadownload"
 
         if effects_mode:
-            return "jpegdec ! videoconvert"
+            return f"jpegdec ! {convert}"
         return "jpegdec"
 
     def set_effect_callback(self, callback):
@@ -386,17 +412,17 @@ class VideoPipeline:
             tee_branch = (
                 f"tee name=t "
                 f"t. ! queue max-size-buffers=2 leaky=downstream ! "
-                f"videoconvert ! "
+                f"{self._convert_segment(self._output_format)} ! "
                 f"video/x-raw,format={self._output_format},width={self._width},"
                 f"height={self._height},framerate={self._fps}/1 ! "
                 f"{self._v4l2sink_segment()} "
                 f"t. ! queue max-size-buffers=1 leaky=downstream ! "
-                f"videoconvert ! video/x-raw,format=BGRA ! "
+                f"videoconvert n-threads=2 qos=false ! video/x-raw,format=BGRA ! "
                 f"appsink name=preview emit-signals=true max-buffers=1 drop=true sync=false"
             )
         else:
             tee_branch = (
-                f"videoconvert ! video/x-raw,format=BGRA ! "
+                f"videoconvert n-threads=2 qos=false ! video/x-raw,format=BGRA ! "
                 f"appsink name=preview emit-signals=true max-buffers=1 drop=true sync=false"
             )
 
@@ -497,27 +523,33 @@ class VideoPipeline:
                         )
             else:
                 self._pyvirtualcam = None
-                self._vcam_pipeline = Gst.parse_launch(
-                    f"appsrc name=src is-live=true format=time "
-                    f"caps=video/x-raw,format=BGRA,width={self._width},"
-                    f"height={self._height},framerate={self._fps}/1 ! "
-                    f"queue max-size-buffers=1 max-size-bytes=0 "
-                    f"max-size-time=0 leaky=downstream ! "
-                    f"videoconvert ! "
-                    f"video/x-raw,format={self._output_format},width={self._width},"
-                    f"height={self._height},framerate={self._fps}/1 ! "
-                    f"{self._v4l2sink_segment()}"
-                )
-                self._vcam_appsrc = self._vcam_pipeline.get_by_name("src")
-                if self._vcam_appsrc:
-                    self._vcam_appsrc.set_property("max-buffers", 1)
-                    self._vcam_appsrc.set_property("max-bytes", self._width * self._height * 4)
-                    self._vcam_appsrc.set_property("leaky-type", 2)
-                    self._vcam_appsrc.set_property("block", False)
+                self._build_vcam_pipeline()
 
-                vbus = self._vcam_pipeline.get_bus()
-                vbus.add_signal_watch()
-                vbus.connect("message::error", self._on_vcam_error)
+    def _build_vcam_pipeline(self) -> None:
+        """Build the appsrc → v4l2sink virtual-camera pipeline."""
+        convert = self._convert_segment(self._output_format)
+        self._vcam_used_cuda = "cudaconvert" in convert
+        self._vcam_pipeline = Gst.parse_launch(
+            f"appsrc name=src is-live=true format=time "
+            f"caps=video/x-raw,format=BGRA,width={self._width},"
+            f"height={self._height},framerate={self._fps}/1 ! "
+            f"queue max-size-buffers=1 max-size-bytes=0 "
+            f"max-size-time=0 leaky=downstream ! "
+            f"{convert} ! "
+            f"video/x-raw,format={self._output_format},width={self._width},"
+            f"height={self._height},framerate={self._fps}/1 ! "
+            f"{self._v4l2sink_segment()}"
+        )
+        self._vcam_appsrc = self._vcam_pipeline.get_by_name("src")
+        if self._vcam_appsrc:
+            self._vcam_appsrc.set_property("max-buffers", 1)
+            self._vcam_appsrc.set_property("max-bytes", self._width * self._height * 4)
+            self._vcam_appsrc.set_property("leaky-type", 2)
+            self._vcam_appsrc.set_property("block", False)
+
+        vbus = self._vcam_pipeline.get_bus()
+        vbus.add_signal_watch()
+        vbus.connect("message::error", self._on_vcam_error)
 
     def _on_preview_sample(self, appsink):
         """Lightweight preview-only callback (passthrough mode)."""
@@ -680,9 +712,17 @@ class VideoPipeline:
         # Use NVENC if available, else x264
         from nvbroadcast.core.platform import IS_MACOS
         if not IS_MACOS and self._has_gst_element("nvh264enc"):
-            encoder = "nvh264enc preset=low-latency-hq bitrate=8000"
+            if self._cuda_convert_available() and not self._cuda_convert_demoted:
+                # Convert on-GPU and hand NVENC CUDA memory directly —
+                # no download on the recording leg at all.
+                convert = ("cudaupload ! cudaconvert ! "
+                           "video/x-raw(memory:CUDAMemory),format=NV12")
+            else:
+                convert = "videoconvert n-threads=2 qos=false"
+            encoder = f"{convert} ! nvh264enc preset=low-latency-hq bitrate=8000"
         else:
-            encoder = "x264enc tune=zerolatency speed-preset=ultrafast bitrate=8000"
+            encoder = ("videoconvert n-threads=2 qos=false ! "
+                       "x264enc tune=zerolatency speed-preset=ultrafast bitrate=8000")
 
         try:
             # Video + Audio recording pipeline
@@ -692,7 +732,6 @@ class VideoPipeline:
                 f"caps=video/x-raw,format=BGRA,width={self._width},"
                 f"height={self._height},framerate={self._fps}/1 ! "
                 f"queue max-size-buffers=3 leaky=downstream ! "
-                f"videoconvert ! "
                 f"{encoder} ! "
                 f"h264parse ! mux.video_0 "
                 f"pipewiresrc ! audioconvert ! audioresample ! "
@@ -707,7 +746,6 @@ class VideoPipeline:
                 f"caps=video/x-raw,format=BGRA,width={self._width},"
                 f"height={self._height},framerate={self._fps}/1 ! "
                 f"queue max-size-buffers=3 leaky=downstream ! "
-                f"videoconvert ! "
                 f"{encoder} ! "
                 f"h264parse ! "
                 f"mp4mux fragment-duration=1000 ! "
@@ -922,6 +960,59 @@ class VideoPipeline:
         factory = Gst.ElementFactory.find(name)
         return factory is not None
 
+    @classmethod
+    def _cuda_convert_available(cls) -> bool:
+        """One-time probe: does cudaupload!cudaconvert!cudadownload work?
+
+        Element registration alone is not enough — CUDA context creation or
+        caps negotiation can still fail at runtime, so push real buffers once.
+        """
+        if cls._cuda_convert_probe_result is not None:
+            return cls._cuda_convert_probe_result
+        if os.getenv("NVBROADCAST_NO_CUDA_CONVERT") == "1":
+            cls._cuda_convert_probe_result = False
+            return False
+        if not all(cls._has_gst_element(e)
+                   for e in ("cudaupload", "cudaconvert", "cudadownload")):
+            cls._cuda_convert_probe_result = False
+            return False
+        ok = False
+        pipe = None
+        try:
+            pipe = Gst.parse_launch(
+                "videotestsrc num-buffers=2 ! "
+                "video/x-raw,format=BGRA,width=320,height=240 ! "
+                "cudaupload ! cudaconvert ! cudadownload ! "
+                "video/x-raw,format=YUY2 ! fakesink"
+            )
+            if pipe.set_state(Gst.State.PLAYING) != Gst.StateChangeReturn.FAILURE:
+                msg = pipe.get_bus().timed_pop_filtered(
+                    2 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
+                ok = bool(msg) and msg.type == Gst.MessageType.EOS
+        except Exception:
+            ok = False
+        finally:
+            if pipe is not None:
+                try:
+                    pipe.set_state(Gst.State.NULL)
+                except Exception:
+                    pass
+        cls._cuda_convert_probe_result = ok
+        print(
+            "[NV Broadcast] CUDA convert offload: "
+            f"{'enabled' if ok else 'unavailable, using CPU videoconvert'}",
+            flush=True,
+        )
+        return ok
+
+    def _convert_segment(self, out_format: str) -> str:
+        """Colorspace-conversion segment — GPU when the CUDA probe passed."""
+        if (not self._cuda_convert_demoted
+                and out_format in _CUDA_SAFE_FORMATS
+                and self._cuda_convert_available()):
+            return "cudaupload ! cudaconvert ! cudadownload"
+        return "videoconvert n-threads=2 qos=false"
+
     def _on_error(self, bus, msg):
         err, debug = msg.parse_error()
         print(f"[NV Broadcast] Capture error: {err.message}")
@@ -930,7 +1021,6 @@ class VideoPipeline:
 
     def _on_vcam_error(self, bus, msg):
         err, debug = msg.parse_error()
-        self._vcam_failed = True
         self._vcam_appsrc = None
         if self._vcam_pipeline is not None:
             try:
@@ -942,3 +1032,23 @@ class VideoPipeline:
         print(f"[NV Broadcast] VCam state: {self._describe_vcam_state()}")
         if debug:
             print(f"[NV Broadcast] Debug: {debug}")
+        # A CUDA hiccup must not cost the virtual camera: demote to the CPU
+        # convert path once and rebuild instead of declaring failure.
+        if self._vcam_used_cuda and not self._cuda_convert_demoted:
+            self._cuda_convert_demoted = True
+            print("[NV Broadcast] Demoting vcam to CPU videoconvert after "
+                  "CUDA pipeline error", flush=True)
+            GLib.idle_add(self._rebuild_vcam_after_demotion)
+            return
+        self._vcam_failed = True
+
+    def _rebuild_vcam_after_demotion(self) -> bool:
+        """Rebuild the vcam pipeline on the CPU path after a CUDA demotion."""
+        try:
+            self._build_vcam_pipeline()
+            if not self._start_vcam_with_retry():
+                self._vcam_failed = True
+        except Exception as e:
+            print(f"[NV Broadcast] VCam CPU rebuild failed: {e}", flush=True)
+            self._vcam_failed = True
+        return False
