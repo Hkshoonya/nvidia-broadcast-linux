@@ -66,6 +66,73 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertIn("image/jpeg,width=1280,height=720,framerate=30/1", pipeline_str)
         self.assertIn("jpegdec", pipeline_str)
 
+    def _gpu_pipeline(self, output_format="YUY2", capture="mjpeg"):
+        pipeline = VideoPipeline()
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.select_camera_capture_format",
+            return_value=capture,
+        ):
+            pipeline.configure(
+                "/dev/video1", "/dev/video10",
+                width=1280, height=720, fps=30,
+                output_format=output_format,
+            )
+        pipeline._effects_active = True
+        processor = mock.Mock()
+        processor.configure.return_value = True
+        pipeline.set_frame_processor(processor, lambda: (True, False, True))
+        return pipeline
+
+    def test_gpu_capture_leg_has_no_convert_element(self):
+        pipeline = self._gpu_pipeline()
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("jpegdec", pipeline_str)
+        self.assertNotIn("videoconvert", pipeline_str)
+        self.assertNotIn("cudaconvert", pipeline_str)
+        self.assertNotIn("BGRA", pipeline_str)
+        # the appsink caps restrict to formats the GPU kernels support
+        sink = fake_pipeline.get_by_name.return_value
+        caps_calls = [c for c in sink.set_property.call_args_list
+                      if c.args and c.args[0] == "caps"]
+        self.assertEqual(len(caps_calls), 1)
+        self.assertIn("I420", caps_calls[0].args[1].to_string())
+
+    def test_gpu_vcam_leg_is_convert_free_yuy2(self):
+        pipeline = self._gpu_pipeline()
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=True)
+        vcam_str = parse_launch.call_args_list[-1].args[0]
+        self.assertIn("format=YUY2", vcam_str)
+        self.assertIn("v4l2sink", vcam_str)
+        self.assertNotIn("videoconvert", vcam_str)
+        self.assertNotIn("cudaconvert", vcam_str)
+
+    def test_demoted_gpu_path_rebuilds_legacy_strings(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._gpu_path_demoted = True
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("format=BGRA", pipeline_str)
+
+    def test_non_yuy2_output_format_uses_legacy_path(self):
+        pipeline = self._gpu_pipeline(output_format="NV12")
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("format=BGRA", pipeline_str)
+        self.assertFalse(pipeline._gpu_capture_active)
+
     def test_set_effects_active_queues_only_one_rebuild(self):
         pipeline = VideoPipeline()
         pipeline._running = True
