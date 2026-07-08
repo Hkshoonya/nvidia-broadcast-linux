@@ -551,12 +551,17 @@ class NVBroadcastApp(Adw.Application):
         return True
 
     def set_auto_idle(self, enabled: bool):
-        """Toggle camera power save from the UI."""
+        """Toggle camera + mic power save from the UI."""
         self.config.auto_idle = bool(enabled)
         save_config(self.config)
         if not enabled and self._idle_active:
             self._exit_idle("power save disabled")
         self._idle_strikes = 0
+        # The audio helper reads auto_idle from its spawn state — restart
+        # it so the mic-side monitor follows the new setting.
+        if self._audio_pipeline is not None:
+            self._audio_pipeline.auto_idle = bool(enabled)
+            self._restart_audio_pipeline_for_live_settings()
 
     def _preload_effects(self):
         """Pre-initialize AI models in background to eliminate first-use delay."""
@@ -737,6 +742,8 @@ class NVBroadcastApp(Adw.Application):
 
         if self._audio_pipeline_should_publish() or c.audio.noise_removal or c.audio.voice_fx_enabled:
             audio_pipeline = self._ensure_audio_pipeline()
+            audio_pipeline.auto_idle = getattr(c, "auto_idle", True)
+            audio_pipeline.effects.engine = c.audio.noise_engine
             audio_pipeline.effects.enabled = c.audio.noise_removal
             audio_pipeline.effects.intensity = c.audio.noise_intensity
             audio_pipeline.voice_fx.enabled = c.audio.voice_fx_enabled
@@ -2350,8 +2357,18 @@ class NVBroadcastApp(Adw.Application):
     def set_noise_removal(self, enabled: bool):
         self.config.audio.noise_removal = enabled
         pipeline = self._ensure_audio_pipeline()
+        pipeline.effects.engine = self.config.audio.noise_engine
         pipeline.effects.enabled = enabled
         self._refresh_audio_pipeline()
+        save_config(self.config)
+
+    def set_noise_engine(self, engine: str):
+        """Switch the denoiser engine ("auto" = DeepFilterNet, "rnnoise")."""
+        engine = engine if engine in ("auto", "rnnoise") else "auto"
+        self.config.audio.noise_engine = engine
+        pipeline = self._ensure_audio_pipeline()
+        pipeline.effects.engine = engine
+        self._restart_audio_pipeline_for_live_settings()
         save_config(self.config)
 
     def set_noise_intensity(self, value: float):

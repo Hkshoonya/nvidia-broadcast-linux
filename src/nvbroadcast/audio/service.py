@@ -28,6 +28,10 @@ def _build_pipeline(state: dict) -> AudioPipeline:
         mic_device=state.get("mic_device", ""),
         sample_rate=int(state.get("sample_rate", 48000)),
     )
+    pipeline.auto_idle = bool(state.get("auto_idle", True))
+    # Engine preference must be set before `enabled` — enabling triggers
+    # initialization, which chooses the engine.
+    pipeline.effects.engine = str(state.get("noise_engine", "auto"))
     pipeline.effects.enabled = bool(state.get("noise_removal", False))
     pipeline.effects.intensity = float(state.get("noise_intensity", 1.0))
     pipeline.voice_fx.enabled = bool(state.get("voice_fx_enabled", False))
