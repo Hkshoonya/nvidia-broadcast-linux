@@ -275,9 +275,20 @@ class NVBroadcastApp(Adw.Application):
                 except Exception as e:
                     print(f"[NV Broadcast] Tray icon not available: {e}")
 
-            # Showing the window must instantly wake camera power save.
-            self._window.connect("map", lambda *a: (
-                self._exit_idle("window shown") if self._idle_active else None))
+            # Showing the window must instantly wake camera power save, and
+            # preview textures are only worth building while it is visible.
+            def _on_window_mapped(*_a):
+                if self._idle_active:
+                    self._exit_idle("window shown")
+                if self._video_pipeline is not None:
+                    self._video_pipeline.set_preview_enabled(True)
+
+            def _on_window_unmapped(*_a):
+                if self._video_pipeline is not None:
+                    self._video_pipeline.set_preview_enabled(False)
+
+            self._window.connect("map", _on_window_mapped)
+            self._window.connect("unmap", _on_window_unmapped)
 
             # Camera power save: poll for vcam consumers
             GLib.timeout_add(5000, self._check_vcam_consumers)
@@ -713,6 +724,8 @@ class NVBroadcastApp(Adw.Application):
             self._video_effects.set_background_image(c.video.background_image)
         self._video_effects.mode = c.video.background_mode
         self._video_effects.intensity = c.video.blur_intensity
+        self._video_effects.blur_dim = getattr(c.video, "blur_dim", 0.0)
+        self._video_effects.blur_desaturate = getattr(c.video, "blur_desaturate", 0.0)
 
         # Tell window to restore UI controls FIRST (may fire toggle callbacks)
         self._window.restore_settings(c)
@@ -722,6 +735,8 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects.enabled = c.video.background_removal
         self._video_effects.mode = c.video.background_mode
         self._video_effects.intensity = c.video.blur_intensity
+        self._video_effects.blur_dim = getattr(c.video, "blur_dim", 0.0)
+        self._video_effects.blur_desaturate = getattr(c.video, "blur_desaturate", 0.0)
         if c.video.background_image:
             self._video_effects.set_background_image(c.video.background_image)
         self._eye_contact.enabled = c.video.eye_contact
@@ -1043,17 +1058,22 @@ class NVBroadcastApp(Adw.Application):
 
         self._perf_monitor.tick()
         frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
-        if not frame.flags.writeable:
-            frame = frame.copy()
-        result_frame = frame
-        landmarks = None
-        fused_beautify_overlay = False
 
         face_effects_active = (
             self._beautifier.enabled
             or self._eye_contact.enabled
             or self._relighter.enabled
         )
+        # Only pay the ~8MB writeable copy when a CPU stage might mutate
+        # the raw frame; the GPU blur path reads it exactly once, and the
+        # effects processor makes its own copy for remove/replace modes.
+        if not frame.flags.writeable and (
+            face_effects_active or self._autoframe.enabled
+        ):
+            frame = frame.copy()
+        result_frame = frame
+        landmarks = None
+        fused_beautify_overlay = False
         if face_effects_active:
             landmarker = get_shared_landmarker()
             raw_frame = result_frame
@@ -1224,6 +1244,16 @@ class NVBroadcastApp(Adw.Application):
     def set_blur_intensity(self, value: float):
         self._video_effects.intensity = value
         self.config.video.blur_intensity = value
+        save_config(self.config)
+
+    def set_blur_dim(self, value: float):
+        self._video_effects.blur_dim = value
+        self.config.video.blur_dim = value
+        save_config(self.config)
+
+    def set_blur_desaturate(self, value: float):
+        self._video_effects.blur_desaturate = value
+        self.config.video.blur_desaturate = value
         save_config(self.config)
 
     def set_performance_profile(self, profile_name: str, compositing: str | None = None,

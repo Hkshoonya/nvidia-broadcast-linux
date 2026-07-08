@@ -89,6 +89,7 @@ class VideoPipeline:
         self._cuda_convert_demoted = False
         self._vcam_used_cuda = False
         self._capture_idle = False
+        self._preview_enabled = True
 
     def _v4l2sink_segment(self) -> str:
         """Build a loopback sink path that avoids buggy allocation queries.
@@ -348,6 +349,14 @@ class VideoPipeline:
 
     def set_preview_callback(self, callback):
         self._preview_callback = callback
+
+    def set_preview_enabled(self, enabled: bool):
+        """Gate preview texture creation on window visibility.
+
+        Building a Gdk texture is a full-frame copy plus a GPU upload per
+        tick; skipping it while the window is hidden costs nothing visible.
+        """
+        self._preview_enabled = bool(enabled)
 
     def set_capture_idle(self, idle: bool) -> bool:
         """Idle the capture pipeline while keeping the vcam device open.
@@ -815,6 +824,9 @@ class VideoPipeline:
             self._latest_frame = None
 
         if frame is None or self._preview_callback is None:
+            return True
+        if not self._preview_enabled:
+            # Window hidden: skip the full-frame copy + texture upload.
             return True
 
         expected = self._width * self._height * 4

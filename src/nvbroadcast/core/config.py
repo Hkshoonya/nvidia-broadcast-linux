@@ -46,6 +46,8 @@ class VideoConfig:
     background_mode: str = "blur"
     background_image: str = ""
     blur_intensity: float = 0.7
+    blur_dim: float = 0.0          # Darken the blurred background (0..1)
+    blur_desaturate: float = 0.0   # Desaturate the blurred background (0..1)
     auto_frame: bool = False
     auto_frame_zoom: float = 1.5
     auto_frame_mode: str = "center"
@@ -339,6 +341,8 @@ def _config_to_toml(config: AppConfig) -> str:
         f'background_mode = "{v.background_mode}"',
         f'background_image = "{v.background_image}"',
         f"blur_intensity = {v.blur_intensity}",
+        f"blur_dim = {v.blur_dim}",
+        f"blur_desaturate = {v.blur_desaturate}",
         f"auto_frame = {_bool(v.auto_frame)}",
         f"auto_frame_zoom = {v.auto_frame_zoom}",
         f'auto_frame_mode = "{v.auto_frame_mode}"',
