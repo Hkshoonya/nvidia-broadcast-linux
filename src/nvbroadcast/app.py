@@ -132,6 +132,8 @@ class NVBroadcastApp(Adw.Application):
         self._window = None
         self._video_pipeline = None
         self._audio_pipeline = None
+        self._gpu_frame_path = None
+        self._gpu_frame_path_failed = False
         self._speaker_monitor = None
         self._video_effects = VideoEffects(
             gpu_index=self.config.compute_gpu,
@@ -991,6 +993,17 @@ class NVBroadcastApp(Adw.Application):
         self._video_pipeline.set_effect_callback(self._process_frame)
         self._video_pipeline.set_alpha_callback(self._update_alpha)
         self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
+        if (self._gpu_frame_path is None and not self._gpu_frame_path_failed
+                and not IS_MACOS
+                and os.getenv("NVBROADCAST_NO_GPU_FRAME_PATH") != "1"):
+            from nvbroadcast.video.gpu_frame_path import GpuFramePath
+            self._gpu_frame_path = GpuFramePath.create(
+                self._video_effects, gpu_index=self.config.compute_gpu)
+            if self._gpu_frame_path is None:
+                self._gpu_frame_path_failed = True
+        if self._gpu_frame_path is not None:
+            self._video_pipeline.set_frame_processor(
+                self._gpu_frame_path, self._gpu_frame_plan)
         self._video_pipeline.set_preview_callback(
             lambda texture: self._window.update_preview(texture)
         )
@@ -1057,6 +1070,26 @@ class NVBroadcastApp(Adw.Application):
     def _update_alpha(self, frame_data: bytes, width: int, height: int) -> None:
         """Background thread — only updates the alpha mask."""
         self._video_effects.update_alpha(frame_data, width, height)
+
+    def _gpu_frame_plan(self):
+        """Per-frame routing for the device-resident path.
+
+        Returns (gpu_pure, mirror, inline_inference). gpu_pure means every
+        active stage runs on the GPU; any CPU face stage routes the frame
+        through the legacy bytes callback instead (still convert-free).
+        """
+        face_fx = (
+            self._beautifier.enabled
+            or self._eye_contact.enabled
+            or self._relighter.enabled
+        )
+        gpu_pure = (
+            not face_fx
+            and not self._autoframe.enabled
+            and self._video_effects.enabled
+            and self._video_effects.gpu_output_eligible()
+        )
+        return gpu_pure, self._mirror, self._inline_inference
 
     def _process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
         """Inline callback — processes EVERY frame with ALL effects.
