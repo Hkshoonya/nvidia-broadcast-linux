@@ -390,10 +390,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         main_box.append(footer_box)
 
         def _update_perf():
-            pm = self._app.perf_monitor
-            self._perf_label.set_text(pm.format_status())
+            if self.get_mapped():
+                pm = self._app.perf_monitor
+                self._perf_label.set_text(pm.format_status())
             return True
-        GLib.timeout_add(1000, _update_perf)
+        GLib.timeout_add_seconds(1, _update_perf)
 
         self.set_content(main_box)
 
