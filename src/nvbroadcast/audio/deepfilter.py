@@ -143,7 +143,9 @@ class DeepFilterDenoiser:
             opts = ort.SessionOptions()
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             opts.log_severity_level = 3
-            opts.intra_op_num_threads = 2
+            # Single thread: the model runs ~0.6ms/hop; a second intra-op
+            # worker costs a cross-thread wake 100x/sec for no latency win.
+            opts.intra_op_num_threads = 1
             opts.inter_op_num_threads = 1
             try:
                 opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
@@ -175,12 +177,29 @@ class DeepFilterDenoiser:
     def reset(self):
         """Reset streaming state (call on stream start/discontinuity)."""
         self._state = np.zeros(STATE_SIZE, dtype=np.float32)
-        self._in_buf = np.zeros(0, dtype=np.float32)
+        # Flat pre-sized buffers instead of per-hop np.concatenate churn.
+        # 32 hops (320ms) comfortably covers any real capture block size;
+        # process_chunk grows them if a larger block ever arrives.
+        cap = HOP_SIZE * 32
+        self._in_buf = np.empty(cap, dtype=np.float32)
+        self._in_len = 0
+        self._out_buf = np.empty(cap, dtype=np.float32)
         # Prime one hop of silence: with this fixed 10ms of extra latency
         # the output buffer can never run dry mid-stream, because the
         # deficit is bounded by (samples_in mod HOP_SIZE) < HOP_SIZE.
-        self._out_buf = np.zeros(HOP_SIZE, dtype=np.float32)
+        self._out_buf[:HOP_SIZE] = 0.0
+        self._out_len = HOP_SIZE
         self._prev_dry = np.zeros(HOP_SIZE, dtype=np.float32)
+        self._frame_scratch = np.empty(HOP_SIZE, dtype=np.float32)
+
+    @staticmethod
+    def _ensure_capacity(buf: np.ndarray, used: int, extra: int) -> np.ndarray:
+        needed = used + extra
+        if needed <= len(buf):
+            return buf
+        grown = np.empty(max(needed, len(buf) * 2), dtype=np.float32)
+        grown[:used] = buf[:used]
+        return grown
 
     def process_chunk(self, audio_data: np.ndarray, sample_rate: int = 48000,
                       intensity: float = 1.0) -> np.ndarray:
@@ -188,32 +207,53 @@ class DeepFilterDenoiser:
 
         The enhanced signal lags the dry signal by one hop, so the
         intensity blend uses a matching one-hop-delayed dry frame.
+        Returns an array owned by the caller (never a view of state).
         """
         if not self._initialized or sample_rate != SAMPLE_RATE:
             return audio_data
 
-        self._in_buf = np.concatenate((self._in_buf, audio_data.astype(np.float32)))
+        n = len(audio_data)
+        self._in_buf = self._ensure_capacity(self._in_buf, self._in_len, n)
+        self._in_buf[self._in_len:self._in_len + n] = audio_data
+        self._in_len += n
 
-        while len(self._in_buf) >= HOP_SIZE:
-            frame = self._in_buf[:HOP_SIZE]
-            self._in_buf = self._in_buf[HOP_SIZE:]
+        pos = 0
+        while self._in_len - pos >= HOP_SIZE:
+            frame = self._frame_scratch
+            np.copyto(frame, self._in_buf[pos:pos + HOP_SIZE])
+            pos += HOP_SIZE
             enhanced, self._state, _lsnr = self.session.run(
                 None, {"input_frame": frame, "states": self._state,
                        "atten_lim_db": self._atten})
             if intensity < 1.0:
-                enhanced = (intensity * enhanced
-                            + (1.0 - intensity) * self._prev_dry)
-            self._prev_dry = frame
-            self._out_buf = np.concatenate((self._out_buf, enhanced))
+                np.multiply(enhanced, intensity, out=enhanced)
+                enhanced += (1.0 - intensity) * self._prev_dry
+            np.copyto(self._prev_dry, frame)
+            self._out_buf = self._ensure_capacity(
+                self._out_buf, self._out_len, HOP_SIZE)
+            self._out_buf[self._out_len:self._out_len + HOP_SIZE] = enhanced
+            self._out_len += HOP_SIZE
+        if pos:
+            remaining = self._in_len - pos
+            if remaining:
+                self._in_buf[:remaining] = self._in_buf[pos:self._in_len]
+            self._in_len = remaining
 
-        n = len(audio_data)
-        if len(self._out_buf) < n:
+        if self._out_len < n:
             # Startup only: pad the first block with leading silence while
             # the first hops are still buffering.
-            pad = np.zeros(n - len(self._out_buf), dtype=np.float32)
-            self._out_buf = np.concatenate((pad, self._out_buf))
-        out = self._out_buf[:n]
-        self._out_buf = self._out_buf[n:]
+            deficit = n - self._out_len
+            self._out_buf = self._ensure_capacity(
+                self._out_buf, self._out_len, deficit)
+            self._out_buf[deficit:deficit + self._out_len] = \
+                self._out_buf[:self._out_len]
+            self._out_buf[:deficit] = 0.0
+            self._out_len = n
+        out = self._out_buf[:n].copy()
+        remaining = self._out_len - n
+        if remaining:
+            self._out_buf[:remaining] = self._out_buf[n:self._out_len]
+        self._out_len = remaining
         return out
 
     def cleanup(self):
