@@ -8,6 +8,7 @@
 import base64
 import json
 import os
+from pathlib import Path
 import queue
 import signal
 import subprocess
@@ -550,7 +551,18 @@ class AudioPipeline:
         self._stop_stale_helper_processes()
         state_json = json.dumps(self._helper_state(), separators=(",", ":")).encode("utf-8")
         state_b64 = base64.urlsafe_b64encode(state_json).decode("ascii")
-        stdio = None if self._debug_audio else subprocess.DEVNULL
+        if self._debug_audio:
+            stdio = None
+        else:
+            # Keep the helper's diagnostics inspectable — DEVNULL hid
+            # "denoiser failed to initialize" style messages entirely.
+            try:
+                log_dir = Path(os.environ.get("XDG_CACHE_HOME",
+                                              Path.home() / ".cache")) / "nvbroadcast"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                stdio = open(log_dir / "audio-helper.log", "w")
+            except Exception:
+                stdio = subprocess.DEVNULL
         cmd = [
             sys.executable,
             "-m",
@@ -572,6 +584,10 @@ class AudioPipeline:
         except Exception:
             self._helper_process = None
             return False
+        finally:
+            # Popen duplicated the fd; close ours so restarts don't leak.
+            if hasattr(stdio, "close"):
+                stdio.close()
 
         time.sleep(0.2)
         if self._helper_process.poll() is not None:
