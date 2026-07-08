@@ -9,9 +9,14 @@ import sys
 
 
 def main():
+    from nvbroadcast.core.startup_trace import mark
+
+    mark("python entry")
     from nvbroadcast.app import NVBroadcastApp
 
+    mark("modules imported")
     app = NVBroadcastApp()
+    mark("app constructed")
     return app.run(sys.argv)
 
 

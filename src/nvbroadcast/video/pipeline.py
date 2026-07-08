@@ -99,6 +99,8 @@ class VideoPipeline:
         self._gpu_path_demoted = False
         self._gpu_path_errors = 0
         self._gpu_capture_active = False
+        self._gpu_jpeg_active = False
+        self._gpu_jpeg_demoted = False
         self._gpu_frame_size = (0, 0)
         self._frozen_yuy2 = None
 
@@ -556,7 +558,25 @@ class VideoPipeline:
         )
 
         self._gpu_capture_active = self._gpu_path_enabled() and not IS_MACOS
-        if self._gpu_capture_active:
+        self._gpu_jpeg_active = (
+            self._gpu_capture_active
+            and self._capture_format != "raw"
+            and not self._gpu_jpeg_demoted
+            and getattr(self._frame_processor, "supports_jpeg", False)
+        )
+        if self._gpu_jpeg_active:
+            # nvImageCodec decodes the MJPEG frames on the GPU: only the
+            # compressed bytes (~100-300KB) ever cross into Python.
+            self._pipeline = Gst.parse_launch(
+                f"{camera_src} ! "
+                f"{fresh_queue} ! "
+                f"appsink name=sink"
+            )
+            sink = self._pipeline.get_by_name("sink")
+            sink.set_property("caps", Gst.Caps.from_string(
+                f"image/jpeg,width={self._width},height={self._height}"
+            ))
+        elif self._gpu_capture_active:
             # Device-resident path: hand the appsink the decoder's NATIVE
             # format (jpegdec emits I420 — 1.4MB vs 3.7MB BGRA) and do all
             # colorspace conversion on the GPU. No convert element at all.
@@ -855,7 +875,8 @@ class VideoPipeline:
             try:
                 proc = self._frame_processor
                 s = sample.get_caps().get_structure(0)
-                fmt = s.get_string("format")
+                is_jpeg = s.get_name() == "image/jpeg"
+                fmt = "JPEG" if is_jpeg else s.get_string("format")
                 width = s.get_value("width")
                 height = s.get_value("height")
                 if not proc.configure(width, height, fmt):
@@ -867,7 +888,10 @@ class VideoPipeline:
                 if not ok:
                     return Gst.FlowReturn.OK
                 try:
-                    proc.ingest(info.data)
+                    if is_jpeg:
+                        proc.ingest_jpeg(info.data)
+                    else:
+                        proc.ingest(info.data)
                 finally:
                     buf.unmap(info)
 
@@ -945,13 +969,22 @@ class VideoPipeline:
                 self._gpu_path_errors += 1
                 print(f"[NV Broadcast] GPU frame path error "
                       f"({self._gpu_path_errors}/3): {e}", flush=True)
-                if self._gpu_path_errors >= 3 and not self._gpu_path_demoted:
-                    # One-shot demotion, mirroring _cuda_convert_demoted:
-                    # rebuild on the legacy BGRA path and stay there.
-                    self._gpu_path_demoted = True
-                    print("[NV Broadcast] Demoting to CPU frame path",
-                          flush=True)
-                    GLib.idle_add(self._queue_rebuild)
+                if self._gpu_path_errors >= 3:
+                    self._gpu_path_errors = 0
+                    if self._gpu_jpeg_active and not self._gpu_jpeg_demoted:
+                        # Stage 1: give up only on GPU JPEG decode and
+                        # rebuild with jpegdec feeding the same GPU path.
+                        self._gpu_jpeg_demoted = True
+                        print("[NV Broadcast] Demoting GPU JPEG decode to "
+                              "jpegdec", flush=True)
+                        GLib.idle_add(self._queue_rebuild)
+                    elif not self._gpu_path_demoted:
+                        # Stage 2: one-shot demotion, mirroring
+                        # _cuda_convert_demoted — legacy BGRA path for good.
+                        self._gpu_path_demoted = True
+                        print("[NV Broadcast] Demoting to CPU frame path",
+                              flush=True)
+                        GLib.idle_add(self._queue_rebuild)
                 return Gst.FlowReturn.OK
         finally:
             with self._callback_lock:

@@ -141,6 +141,23 @@ class ColorKernelParityTests(unittest.TestCase):
         # Two fixed-point conversions + 4:2:0->4:2:2 resampling stack up.
         self.assertLess(diff.mean(), 3.0)
 
+    def test_jpeg_gpu_decode_roundtrip(self):
+        if not self.path.supports_jpeg:
+            self.skipTest("nvidia-nvimgcodec not installed")
+        xx, yy = np.meshgrid(np.linspace(0, 255, self.W),
+                             np.linspace(0, 255, self.H))
+        bgr = np.stack([xx, yy, (xx + yy) / 2], axis=-1).astype(np.uint8)
+        ok, jpeg = cv2.imencode(".jpg", bgr,
+                                [cv2.IMWRITE_JPEG_QUALITY, 95])
+        self.assertTrue(ok)
+        self.path.configure(self.W, self.H, "JPEG")
+        self.path.ingest_jpeg(memoryview(jpeg.tobytes()))
+        got = self.path.download_bgra(source=True)
+        diff = np.abs(got[:, :, :3].astype(np.int16) - bgr.astype(np.int16))
+        # JPEG is lossy; a q95 smooth gradient should stay very close.
+        self.assertLess(diff.mean(), 3.0)
+        self.assertEqual(int(got[0, 0, 3]), 255)
+
     def test_mixed_mode_output_upload(self):
         rng = np.random.default_rng(23)
         bgra = rng.integers(0, 256, (self.H, self.W, 4), dtype=np.uint8)

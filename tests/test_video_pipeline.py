@@ -80,8 +80,37 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         pipeline._effects_active = True
         processor = mock.Mock()
         processor.configure.return_value = True
+        processor.supports_jpeg = False
         pipeline.set_frame_processor(processor, lambda: (True, False, True))
         return pipeline
+
+    def test_gpu_jpeg_capture_leg_skips_jpegdec(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._frame_processor.supports_jpeg = True
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertNotIn("jpegdec", pipeline_str)
+        sink = fake_pipeline.get_by_name.return_value
+        caps_calls = [c for c in sink.set_property.call_args_list
+                      if c.args and c.args[0] == "caps"]
+        self.assertIn("image/jpeg", caps_calls[0].args[1].to_string())
+        self.assertTrue(pipeline._gpu_jpeg_active)
+
+    def test_gpu_jpeg_demotion_falls_back_to_jpegdec_leg(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._frame_processor.supports_jpeg = True
+        pipeline._gpu_jpeg_demoted = True
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("jpegdec", pipeline_str)
+        self.assertFalse(pipeline._gpu_jpeg_active)
+        self.assertTrue(pipeline._gpu_capture_active)
 
     def test_gpu_capture_leg_has_no_convert_element(self):
         pipeline = self._gpu_pipeline()

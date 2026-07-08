@@ -101,6 +101,20 @@ extern "C" __global__ void yuy2_to_bgra(
     }
 }
 
+extern "C" __global__ void rgb_to_bgra(
+        const unsigned char* __restrict__ src,
+        unsigned char* __restrict__ dst,
+        const int total) {
+    const int i = blockDim.x * blockIdx.x + threadIdx.x;
+    if (i >= total) return;
+    const unsigned char* s = src + (size_t)i * 3;
+    unsigned char* o = dst + (size_t)i * 4;
+    o[0] = s[2];
+    o[1] = s[1];
+    o[2] = s[0];
+    o[3] = 255;
+}
+
 extern "C" __global__ void bgra_to_yuy2(
         const unsigned char* __restrict__ src,
         unsigned char* __restrict__ dst,
@@ -127,12 +141,14 @@ extern "C" __global__ void bgra_to_yuy2(
 }
 """
 
-# Bytes per pixel of each supported appsink input format.
+# Bytes per pixel of each supported appsink input format. JPEG frames are
+# variable-size and go straight to the GPU decoder without pinned staging.
 _INPUT_FORMATS = {
     "I420": 1.5,
     "NV12": 1.5,
     "YUY2": 2.0,
     "BGRA": 4.0,
+    "JPEG": 0.0,
 }
 
 
@@ -154,7 +170,17 @@ class GpuFramePath:
             "NV12": self._module.get_function("nv12_to_bgra"),
             "YUY2": self._module.get_function("yuy2_to_bgra"),
             "to_yuy2": self._module.get_function("bgra_to_yuy2"),
+            "rgb": self._module.get_function("rgb_to_bgra"),
         }
+        # Optional GPU JPEG decode (nvidia-nvimgcodec-cu12). When present
+        # the capture leg skips jpegdec entirely: only the ~100-300KB
+        # compressed frame crosses into Python.
+        self._jpeg_decoder = None
+        try:
+            from nvidia import nvimgcodec
+            self._jpeg_decoder = nvimgcodec.Decoder()
+        except Exception:
+            self._jpeg_decoder = None
         self._width = 0
         self._height = 0
         self._in_format = ""
@@ -173,6 +199,7 @@ class GpuFramePath:
         # aliases the landing buffer the next frame overwrites.
         self._host_pool = [None, None]
         self._host_pool_idx = 0
+        self._jpeg_image = None
 
     @classmethod
     def create(cls, effects, gpu_index: int = 0):
@@ -210,10 +237,15 @@ class GpuFramePath:
         cp = self._cp
         with cp.cuda.Device(self._gpu_index):
             self._in_nbytes = int(width * height * _INPUT_FORMATS[in_format])
-            self._pinned_in = cp.cuda.alloc_pinned_memory(self._in_nbytes)
-            self._pinned_in_np = np.frombuffer(
-                self._pinned_in, dtype=np.uint8, count=self._in_nbytes)
-            self._in_gpu = cp.empty(self._in_nbytes, dtype=cp.uint8)
+            if self._in_nbytes:
+                self._pinned_in = cp.cuda.alloc_pinned_memory(self._in_nbytes)
+                self._pinned_in_np = np.frombuffer(
+                    self._pinned_in, dtype=np.uint8, count=self._in_nbytes)
+                self._in_gpu = cp.empty(self._in_nbytes, dtype=cp.uint8)
+            else:
+                self._pinned_in = None
+                self._pinned_in_np = None
+                self._in_gpu = None
             self._src_bgra_gpu = cp.empty((height, width, 4), dtype=cp.uint8)
             self._out_bgra_gpu = self._src_bgra_gpu
             self._yuy2_gpu = cp.empty(width * height * 2, dtype=cp.uint8)
@@ -261,6 +293,36 @@ class GpuFramePath:
                     np.int32(self._width), np.int32(self._height)))
         self._out_bgra_gpu = self._src_bgra_gpu
 
+    @property
+    def supports_jpeg(self) -> bool:
+        return self._jpeg_decoder is not None
+
+    def ingest_jpeg(self, data) -> None:
+        """Decode one MJPEG frame on the GPU and convert to BGRA.
+
+        Raises on decode failure or size mismatch; the pipeline's error
+        counter demotes the path after repeated failures.
+        """
+        cp = self._cp
+        with cp.cuda.Device(self._gpu_index):
+            image = self._jpeg_decoder.decode(bytes(data))
+            if image is None:
+                raise RuntimeError("nvimgcodec returned no image")
+            rgb = cp.asarray(image)
+            if rgb.shape != (self._height, self._width, 3):
+                raise RuntimeError(f"decoded JPEG is {rgb.shape}, expected "
+                                   f"{(self._height, self._width, 3)}")
+            # Keep the decoder image alive until this frame's synchronous
+            # download completes — cp.asarray is a zero-copy view of it.
+            self._jpeg_image = image
+            total = self._width * self._height
+            threads = 256
+            blocks = (total + threads - 1) // threads
+            self._kernels["rgb"]((blocks,), (threads,), (
+                cp.ascontiguousarray(rgb), self._src_bgra_gpu,
+                np.int32(total)))
+        self._out_bgra_gpu = self._src_bgra_gpu
+
     def composite(self, mirror: bool, inline_inference: bool) -> bool:
         """Run device-resident effects on the ingested frame.
 
@@ -275,7 +337,15 @@ class GpuFramePath:
             out = self._effects.composite_only_gpu(
                 self._src_bgra_gpu, self._width, self._height, mirror=mirror)
         if out is None:
-            self._out_bgra_gpu = self._src_bgra_gpu
+            # Pass through — but keep the mirror contract the legacy CPU
+            # callback honored even while the matte wasn't ready yet.
+            if mirror:
+                cp = self._cp
+                with cp.cuda.Device(self._gpu_index):
+                    self._out_bgra_gpu = cp.ascontiguousarray(
+                        self._src_bgra_gpu[:, ::-1, :])
+            else:
+                self._out_bgra_gpu = self._src_bgra_gpu
             return False
         self._out_bgra_gpu = out
         return True
