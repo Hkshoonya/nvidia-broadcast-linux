@@ -84,6 +84,7 @@ where = ["src"]
 "share/applications" = ["data/com.doczeus.NVBroadcast.desktop"]
 "share/metainfo" = ["data/com.doczeus.NVBroadcast.metainfo.xml"]
 "share/icons/hicolor/scalable/apps" = ["data/icons/com.doczeus.NVBroadcast.svg"]
+"share/icons/hicolor/128x128/apps" = ["data/icons/com.doczeus.NVBroadcast.png"]
 "share/nvbroadcast/backgrounds" = [
     "data/backgrounds/gradient_bg.png",
     "data/backgrounds/studio_bg.png",

@@ -170,10 +170,15 @@ class SniTray:
     # ─── Setup ───────────────────────────────────────────────────────────
 
     def _setup(self):
-        from nvbroadcast.core.resources import find_app_icon
-        icon_path = find_app_icon()
-        if icon_path is not None:
-            self._pixmaps = _load_icon_pixmaps(icon_path)
+        from nvbroadcast.core.resources import find_app_icon, find_app_icon_png
+        # PNG first: GdkPixbuf's PNG loader is always built in, while the
+        # SVG loader is often absent in sandboxed runtimes, which would
+        # leave the pixmap list empty and the tray icon blank.
+        for icon_path in (find_app_icon_png(), find_app_icon()):
+            if icon_path is not None:
+                self._pixmaps = _load_icon_pixmaps(icon_path)
+                if self._pixmaps:
+                    break
 
         self._conn = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         item_node = Gio.DBusNodeInfo.new_for_xml(_SNI_XML)
@@ -245,7 +250,12 @@ class SniTray:
         if method == "Activate":
             self._toggle_window()
             invocation.return_value(None)
-        elif method in ("SecondaryActivate", "ContextMenu", "Scroll"):
+        elif method == "SecondaryActivate":
+            # Middle click: quick broadcast toggle without opening the menu.
+            GLib.idle_add(self._on_menu_clicked, _ID_BROADCAST)
+            invocation.return_value(None)
+        elif method in ("ContextMenu", "Scroll"):
+            # Right click is rendered by the host from the Menu property.
             invocation.return_value(None)
         else:
             invocation.return_dbus_error(
@@ -266,15 +276,21 @@ class SniTray:
             (_ID_QUIT, {"label": GLib.Variant("s", "Quit")}),
         ]
 
-    def _layout_variant(self):
-        children = []
-        for item_id, props in self._menu_items():
-            children.append(GLib.Variant(
-                "v", GLib.Variant("(ia{sv}av)", (item_id, props, []))))
-        root = GLib.Variant("(ia{sv}av)",
-                            (0, {"children-display": GLib.Variant("s", "submenu")},
-                             children))
-        return root
+    def _layout_reply(self):
+        """Full (u(ia{sv}av)) GetLayout reply.
+
+        Built in one GLib.Variant call from plain Python structures. The
+        'av' children slot takes a list of GLib.Variant objects directly;
+        wrapping them in an extra "v" variant makes construction throw,
+        the handler dies, and the host's GetLayout call times out with no
+        menu ever shown.
+        """
+        children = [
+            GLib.Variant("(ia{sv}av)", (item_id, props, []))
+            for item_id, props in self._menu_items()
+        ]
+        root = (0, {"children-display": GLib.Variant("s", "submenu")}, children)
+        return GLib.Variant("(u(ia{sv}av))", (self._revision, root))
 
     def _on_menu_get(self, conn, sender, path, iface, prop):
         if prop == "Version":
@@ -289,8 +305,7 @@ class SniTray:
 
     def _on_menu_call(self, conn, sender, path, iface, method, params, invocation):
         if method == "GetLayout":
-            invocation.return_value(GLib.Variant(
-                "(u(ia{sv}av))", (self._revision, self._layout_variant())))
+            invocation.return_value(self._layout_reply())
         elif method == "GetGroupProperties":
             ids = set(params.unpack()[0])
             props = [(i, p) for i, p in self._menu_items() if not ids or i in ids]
