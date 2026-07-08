@@ -5,9 +5,45 @@
 #
 """GPU detection and selection utilities."""
 
+import os
 import subprocess
 import re
 from dataclasses import dataclass
+
+# cuCtxCreate flag: park CPU threads on a synchronization primitive while
+# waiting for the GPU instead of the default heuristic, which busy-spins
+# whenever the machine has at least as many cores as CUDA contexts.
+_CU_CTX_SCHED_BLOCKING_SYNC = 0x04
+
+
+def apply_cuda_blocking_sync() -> bool:
+    """Make CUDA synchronization block instead of spin (opt-out via env).
+
+    Every cupy ``synchronize()`` and ONNX Runtime IOBinding sync otherwise
+    burns a CPU core for the full duration of in-flight GPU work. The flag
+    only takes effect if it is set before the primary context is created,
+    so this must run before the first cupy/ORT CUDA call in the process.
+    Uses the driver API because cupy does not expose cudaSetDeviceFlags.
+    """
+    if os.getenv("NVBROADCAST_CUDA_SYNC", "blocking").strip().lower() == "spin":
+        return False
+    try:
+        import ctypes
+
+        cuda = ctypes.CDLL("libcuda.so.1")
+        if cuda.cuInit(0) != 0:
+            return False
+        count = ctypes.c_int(0)
+        if cuda.cuDeviceGetCount(ctypes.byref(count)) != 0:
+            return False
+        ok = False
+        for device in range(count.value):
+            if cuda.cuDevicePrimaryCtxSetFlags(
+                    device, _CU_CTX_SCHED_BLOCKING_SYNC) == 0:
+                ok = True
+        return ok
+    except Exception:
+        return False
 
 
 @dataclass

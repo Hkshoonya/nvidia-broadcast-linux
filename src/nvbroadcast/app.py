@@ -24,6 +24,7 @@ gi.require_version("Gst", "1.0")
 from gi.repository import Gtk, Adw, Gst, Gio, Gdk, GLib
 
 from nvbroadcast.core.constants import APP_ID, COMPUTE_GPU_INDEX, VIRTUAL_CAM_LABEL
+from nvbroadcast.core.gpu import apply_cuda_blocking_sync
 from nvbroadcast.core.config import load_config, save_config
 from nvbroadcast.core.updates import (
     fetch_latest_release,
@@ -112,6 +113,11 @@ class NVBroadcastApp(Adw.Application):
             application_id=APP_ID,
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
+        # Must precede the first cupy/ORT CUDA call (primary-context creation)
+        # or GPU waits keep busy-spinning a core.
+        if apply_cuda_blocking_sync():
+            print("[NV Broadcast] CUDA blocking-sync enabled "
+                  "(NVBROADCAST_CUDA_SYNC=spin restores spin-wait)")
         self.config = load_config()
         if IS_LINUX and IS_ARM64 and self.config.mode_key in {
             "doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer",
@@ -290,8 +296,10 @@ class NVBroadcastApp(Adw.Application):
             self._window.connect("map", _on_window_mapped)
             self._window.connect("unmap", _on_window_unmapped)
 
-            # Camera power save: poll for vcam consumers
-            GLib.timeout_add(5000, self._check_vcam_consumers)
+            # Camera power save: poll for vcam consumers. Seconds-granularity
+            # so GLib can coalesce the wakeup; the 1s _idle_wake_tick handles
+            # fast wake-from-idle, this poll only latches idle entry.
+            GLib.timeout_add_seconds(10, self._check_vcam_consumers)
 
             # Start performance monitor
             self._perf_monitor.start()
