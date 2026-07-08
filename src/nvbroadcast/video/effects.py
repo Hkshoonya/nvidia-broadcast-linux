@@ -2759,9 +2759,113 @@ class VideoEffects:
         return self._composite_array(frame, alpha, width, height, matte_version,
                                      mirror=mirror)
 
-    def _run_inference(self, frame: np.ndarray, width: int, height: int,
-                       matte_version: int | None = None) -> np.ndarray | None:
-        """Run the active backend's inference and refine the alpha."""
+    # ─── Device-resident frame path ──────────────────────────────────────
+    #
+    # cupy BGRA in -> cupy BGRA out, no CPU frame ever materialized. Only
+    # blur mode qualifies: remove/replace run CPU matte helpers
+    # (_final_matte, learned refiners) that need the numpy frame anyway.
+    # Every entry point returns None when the frame can't stay on-device;
+    # the caller then falls back to the CPU path for that frame.
+
+    def gpu_output_eligible(self) -> bool:
+        """Whether the device-resident composite path can currently run."""
+        return (
+            self._bg_removal_enabled
+            and self._initialized
+            and self._gpu_matte_eligible()
+            and _get_fused_kernel() is not None
+        )
+
+    def _store_final_matte_gpu(self, alpha, width: int, height: int,
+                               matte_version: int | None):
+        """Blur-mode matte bookkeeping (CPU consumers download lazily)."""
+        cp = self._cupy
+        with self._state_lock:
+            if matte_version is None or matte_version == self._matte_version:
+                if isinstance(alpha, cp.ndarray):
+                    self._latest_final_matte_u8_gpu = cp.clip(
+                        alpha * 255.0, 0, 255).astype(cp.uint8)
+                    self._latest_final_matte_u8 = None
+                else:
+                    self._latest_final_matte_u8 = np.clip(
+                        alpha * 255.0, 0, 255).astype(np.uint8)
+                    self._latest_final_matte_u8_gpu = None
+                self._latest_final_matte_size = (width, height)
+
+    def composite_only_gpu(self, fg_gpu, width: int, height: int,
+                           mirror: bool = False):
+        """Device-resident composite with the cached alpha (no inference)."""
+        self.last_output_mirrored = False
+        if not self.gpu_output_eligible():
+            return None
+        self._remember_frame_size(width, height)
+        alpha, matte_version = self._matte_snapshot()
+        if alpha is None or alpha.shape[0] != height or alpha.shape[1] != width:
+            return None
+        cp = self._cupy
+        try:
+            with cp.cuda.Device(self._gpu_index):
+                # blur mode: _final_matte is the identity, so the snapshot
+                # is already final — store it for CPU consumers and blend.
+                self._store_final_matte_gpu(alpha, width, height, matte_version)
+                output_gpu = self._composite_fused_gpu(
+                    fg_gpu, alpha, width, height, mirror=mirror)
+                if output_gpu is not None:
+                    self.last_output_mirrored = mirror
+                return output_gpu
+        except Exception as e:
+            print(f"[NV Broadcast] GPU composite failed: {e}", flush=True)
+            return None
+
+    def process_frame_gpu(self, fg_gpu, width: int, height: int,
+                          mirror: bool = False):
+        """Device-resident inline inference + composite (blur mode)."""
+        self.last_output_mirrored = False
+        if not self.gpu_output_eligible():
+            return None
+        self._remember_frame_size(width, height)
+        self._frame_counter += 1
+        alpha, matte_version = self._matte_snapshot()
+
+        run_inference = (
+            self._skip_interval <= 1
+            or self._frame_counter % self._skip_interval == 0
+            or alpha is None
+        )
+        if run_inference:
+            fresh = self._run_inference(None, width, height, matte_version,
+                                        frame_gpu=fg_gpu)
+            if fresh is not None:
+                if self._commit_alpha(fresh, matte_version):
+                    alpha = fresh
+                else:
+                    alpha, matte_version = self._matte_snapshot()
+            else:
+                alpha, matte_version = self._matte_snapshot()
+        if alpha is None or alpha.shape[0] != height or alpha.shape[1] != width:
+            return None
+        cp = self._cupy
+        try:
+            with cp.cuda.Device(self._gpu_index):
+                self._store_final_matte_gpu(alpha, width, height, matte_version)
+                output_gpu = self._composite_fused_gpu(
+                    fg_gpu, alpha, width, height, mirror=mirror)
+                if output_gpu is not None:
+                    self.last_output_mirrored = mirror
+                return output_gpu
+        except Exception as e:
+            print(f"[NV Broadcast] GPU composite failed: {e}", flush=True)
+            return None
+
+    def _run_inference(self, frame: np.ndarray | None, width: int, height: int,
+                       matte_version: int | None = None,
+                       frame_gpu=None) -> np.ndarray | None:
+        """Run the active backend's inference and refine the alpha.
+
+        ``frame_gpu`` lets device-resident callers hand over an already
+        uploaded BGRA frame; ``frame`` may then be None, which disables
+        the CPU fallbacks (the caller handles fallback itself).
+        """
         with self._lock:
             if self._engine_reload_in_progress:
                 return None
@@ -2782,11 +2886,13 @@ class VideoEffects:
                         cp = self._cupy
                         with cp.cuda.Device(self._gpu_index):
                             backend._cupy = cp
-                            frame_gpu = cp.asarray(frame)
-                            alpha = backend.infer_gpu(frame_gpu, width, height)
-                            if alpha is not None:
+                            fg_gpu = (frame_gpu if frame_gpu is not None
+                                      else cp.asarray(frame))
+                            alpha = backend.infer_gpu(fg_gpu, width, height)
+                            if alpha is not None and frame is not None \
+                                    and frame_gpu is None:
                                 # Let the fused compositor reuse this upload.
-                                self._pending_frame_gpu = (frame, frame_gpu)
+                                self._pending_frame_gpu = (frame, fg_gpu)
                     except Exception as e:
                         if hasattr(backend, "_invalidate_iobinding"):
                             backend._invalidate_iobinding()
@@ -2796,6 +2902,8 @@ class VideoEffects:
                                   f"using standard path: {e}", flush=True)
                         alpha = None
                 if alpha is None:
+                    if frame is None:
+                        return None
                     alpha = backend.infer(frame, width, height)
             if alpha is not None:
                 # Refine first, then temporal smooth on the FINAL output.
@@ -2805,6 +2913,8 @@ class VideoEffects:
                     alpha = self._refine_alpha(alpha)
                 # Edge refine: second pass at 720p for Zeus/Killer modes
                 if self._edge_refine_enabled:
+                    if frame is None:
+                        return None
                     if not self._edge_refiner._initialized:
                         self._edge_refiner.initialize(self._quality)
                     raw_refined = self._edge_refiner.refine(frame, alpha, width, height)
@@ -3144,13 +3254,12 @@ class VideoEffects:
     def _composite_fused(self, frame: np.ndarray, alpha: np.ndarray,
                          width: int, height: int,
                          mirror: bool = False) -> np.ndarray | None:
-        """Single-pass GPU composite: blend + enhance + vignette in one kernel."""
+        """Single-pass GPU composite: CPU frame in, CPU frame out."""
         kernel = _get_fused_kernel()
         if kernel is None:
             return None
         try:
             cp = self._cupy
-            total = width * height
 
             # Keep replace-mode foreground cleanup identical to the CPU/CuPy
             # blend path so hair/edge fringe does not reappear only in
@@ -3165,68 +3274,91 @@ class VideoEffects:
             else:
                 fg_gpu = cp.asarray(frame)
 
-            # Build background on-device from the already-uploaded frame so
-            # blur/remove modes never touch the CPU or pay a second upload.
-            if self._bg_mode == "blur":
-                bg_gpu = self._gpu_blur_bgra(fg_gpu, self._blur_sigma)
-            elif self._bg_mode == "remove":
-                bg_gpu = self._gpu_green_bg(height, width)
-            else:
-                bg = self._get_bg_image(frame, width, height)
-                bg_source_id = id(bg)
-                if (
-                    self._fused_bg_gpu is None
-                    or self._fused_bg_source_id != bg_source_id
-                    or self._fused_bg_size != (width, height)
-                ):
-                    self._fused_bg_gpu = cp.asarray(bg)
-                    self._fused_bg_source_id = bg_source_id
-                    self._fused_bg_size = (width, height)
-                bg_gpu = self._fused_bg_gpu
-
-            alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
-            output_gpu = cp.empty_like(fg_gpu)
-
-            face_mask = self._fused_face_mask
-            vignette = self._fused_vignette
-            if face_mask is not None and face_mask.shape[:2] == (height, width):
-                face_mask_source_id = id(face_mask)
-                if self._fused_face_mask_gpu is None or self._fused_face_mask_source_id != face_mask_source_id:
-                    self._fused_face_mask_gpu = cp.asarray(face_mask, dtype=cp.uint8)
-                    self._fused_face_mask_source_id = face_mask_source_id
-                face_mask_gpu = self._fused_face_mask_gpu
-            else:
-                face_mask_gpu = cp.zeros((height, width), dtype=cp.uint8)
-            if vignette is not None and vignette.shape[:2] == (height, width):
-                vignette_source_id = id(vignette)
-                if self._fused_vignette_gpu is None or self._fused_vignette_source_id != vignette_source_id:
-                    self._fused_vignette_gpu = cp.asarray(vignette, dtype=cp.float32)
-                    self._fused_vignette_source_id = vignette_source_id
-                vignette_gpu = self._fused_vignette_gpu
-            else:
-                vignette_gpu = cp.ones((height, width), dtype=cp.float32)
-
-            threads = 256
-            blocks = (total + threads - 1) // threads
-            kernel((blocks,), (threads,), (
-                fg_gpu, bg_gpu, alpha_gpu,
-                face_mask_gpu, vignette_gpu, output_gpu,
-                cp.int32(total),
-                cp.float32(self._fused_enhance_intensity),
-                cp.float32(self._fused_vignette_intensity),
-                cp.float32(self._fused_brightness),
-                cp.float32(self._fused_contrast),
-                cp.float32(self._fused_warmth),
-            ))
-            if mirror:
-                # Horizontal flip on-device so the caller can skip cv2.flip.
-                output_gpu = cp.ascontiguousarray(output_gpu[:, ::-1, :])
+            output_gpu = self._composite_fused_gpu(
+                fg_gpu, alpha, width, height, mirror=mirror, bg_frame=frame)
+            if output_gpu is None:
+                return None
             cp.cuda.Stream.null.synchronize()
 
             return cp.asnumpy(output_gpu)
         except Exception as e:
             print(f"[NV Broadcast] Fused kernel error: {e}")
             return None
+
+    def _composite_fused_gpu(self, fg_gpu, alpha, width: int, height: int,
+                             mirror: bool = False, bg_frame=None):
+        """Device-resident core of the fused composite.
+
+        Takes an already-uploaded BGRA foreground and returns the composited
+        cupy array without any sync or download — callers that need a numpy
+        frame go through _composite_fused. ``bg_frame`` is the CPU frame,
+        needed only by replace mode's background builder.
+        """
+        kernel = _get_fused_kernel()
+        if kernel is None:
+            return None
+        cp = self._cupy
+        total = width * height
+
+        # Build background on-device from the already-uploaded frame so
+        # blur/remove modes never touch the CPU or pay a second upload.
+        if self._bg_mode == "blur":
+            bg_gpu = self._gpu_blur_bgra(fg_gpu, self._blur_sigma)
+        elif self._bg_mode == "remove":
+            bg_gpu = self._gpu_green_bg(height, width)
+        else:
+            if bg_frame is None:
+                return None
+            bg = self._get_bg_image(bg_frame, width, height)
+            bg_source_id = id(bg)
+            if (
+                self._fused_bg_gpu is None
+                or self._fused_bg_source_id != bg_source_id
+                or self._fused_bg_size != (width, height)
+            ):
+                self._fused_bg_gpu = cp.asarray(bg)
+                self._fused_bg_source_id = bg_source_id
+                self._fused_bg_size = (width, height)
+            bg_gpu = self._fused_bg_gpu
+
+        alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
+        output_gpu = cp.empty_like(fg_gpu)
+
+        face_mask = self._fused_face_mask
+        vignette = self._fused_vignette
+        if face_mask is not None and face_mask.shape[:2] == (height, width):
+            face_mask_source_id = id(face_mask)
+            if self._fused_face_mask_gpu is None or self._fused_face_mask_source_id != face_mask_source_id:
+                self._fused_face_mask_gpu = cp.asarray(face_mask, dtype=cp.uint8)
+                self._fused_face_mask_source_id = face_mask_source_id
+            face_mask_gpu = self._fused_face_mask_gpu
+        else:
+            face_mask_gpu = cp.zeros((height, width), dtype=cp.uint8)
+        if vignette is not None and vignette.shape[:2] == (height, width):
+            vignette_source_id = id(vignette)
+            if self._fused_vignette_gpu is None or self._fused_vignette_source_id != vignette_source_id:
+                self._fused_vignette_gpu = cp.asarray(vignette, dtype=cp.float32)
+                self._fused_vignette_source_id = vignette_source_id
+            vignette_gpu = self._fused_vignette_gpu
+        else:
+            vignette_gpu = cp.ones((height, width), dtype=cp.float32)
+
+        threads = 256
+        blocks = (total + threads - 1) // threads
+        kernel((blocks,), (threads,), (
+            fg_gpu, bg_gpu, alpha_gpu,
+            face_mask_gpu, vignette_gpu, output_gpu,
+            cp.int32(total),
+            cp.float32(self._fused_enhance_intensity),
+            cp.float32(self._fused_vignette_intensity),
+            cp.float32(self._fused_brightness),
+            cp.float32(self._fused_contrast),
+            cp.float32(self._fused_warmth),
+        ))
+        if mirror:
+            # Horizontal flip on-device so the caller can skip cv2.flip.
+            output_gpu = cp.ascontiguousarray(output_gpu[:, ::-1, :])
+        return output_gpu
 
     def _gpu_blur_bgra(self, frame_gpu, sigma: float):
         """Background blur for a uint8 BGRA frame on GPU.
