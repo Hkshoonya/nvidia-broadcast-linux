@@ -528,6 +528,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._mirror_toggle.connect("toggled", self._on_mirror_toggled)
         proc_card.append(self._mirror_toggle)
 
+        # Camera power save toggle
+        self._power_save_toggle = EffectToggle(
+            "Power Save",
+            "Pause camera while hidden and no app is using it"
+        )
+        self._power_save_toggle.active = True
+        self._power_save_toggle.connect("toggled", self._on_power_save_toggled)
+        proc_card.append(self._power_save_toggle)
+
         # Edge Refine toggle (visible only for Zeus/Killer)
         self._edge_refine_toggle = EffectToggle(
             "Edge Refine", "Neural edge refinement (Zeus/Killer)"
@@ -1239,6 +1248,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _on_mirror_toggled(self, t, active):
         self._app.set_mirror(active)
 
+    def _on_power_save_toggled(self, t, active):
+        if getattr(self._app, "_restoring", False):
+            return
+        self._app.set_auto_idle(active)
+
     def _on_edge_refine_toggled(self, t, active):
         self._app.set_edge_refine(active)
 
@@ -1697,6 +1711,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._bg_toggle.active = v.background_removal
         # Mirror
         self._mirror_toggle.active = v.mirror
+        self._power_save_toggle.active = getattr(config, "auto_idle", True)
         # Auto frame
         self._autoframe_toggle.active = v.auto_frame
         self._zoom_slider._scale.set_value(v.auto_frame_zoom)
@@ -1922,6 +1937,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Mirror
         self._mirror_toggle.active = v.mirror
+        self._power_save_toggle.active = getattr(config, "auto_idle", True)
         self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
 
     def sync_video_input_controls(self, config):
