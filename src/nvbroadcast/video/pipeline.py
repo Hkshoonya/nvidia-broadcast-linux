@@ -618,11 +618,17 @@ class VideoPipeline:
         if self._gpu_capture_active:
             # The frame processor already delivers output-format YUY2 —
             # feed the sink directly, no convert element, half the bytes.
+            # PAR and colorimetry must be explicit: v4l2sink accept-caps is a
+            # SUBSET check against device caps that pin both fields (a convert
+            # element used to fixate them; without one, omitting a field means
+            # "any" and negotiation fails). 2:4:7:1 is the BT.601 colorimetry
+            # the conversion kernel produces and the legacy leg negotiated.
             self._vcam_used_cuda = False
             self._vcam_pipeline = Gst.parse_launch(
                 f"appsrc name=src is-live=true format=time "
                 f"caps=video/x-raw,format=YUY2,width={self._width},"
-                f"height={self._height},framerate={self._fps}/1 ! "
+                f"height={self._height},framerate={self._fps}/1,"
+                f"pixel-aspect-ratio=1/1,colorimetry=2:4:7:1 ! "
                 f"queue max-size-buffers=1 max-size-bytes=0 "
                 f"max-size-time=0 leaky=downstream ! "
                 f"{self._v4l2sink_segment()}"
@@ -896,22 +902,17 @@ class VideoPipeline:
 
                 appsrc = self._vcam_appsrc
                 if self._vcam_enabled and self._running and appsrc:
-                    out_size = width * height * 2
-                    vcam_buf = Gst.Buffer.new_allocate(None, out_size, None)
-                    okw, winfo = vcam_buf.map(Gst.MapFlags.WRITE)
-                    if okw:
-                        try:
-                            proc.download_yuy2_into(winfo.data)
-                        finally:
-                            vcam_buf.unmap(winfo)
-                        if self._paused and self._frozen_yuy2 is None:
-                            okr, rinfo = vcam_buf.map(Gst.MapFlags.READ)
-                            if okr:
-                                self._frozen_yuy2 = bytes(rinfo.data)
-                                vcam_buf.unmap(rinfo)
-                        vcam_buf.pts = buf_pts
-                        vcam_buf.duration = buf_duration
-                        appsrc.emit("push-buffer", vcam_buf)
+                    # PyGObject maps buffers as a bytes COPY, so the pinned
+                    # download + C-side fill() is the only correct way to
+                    # get the frame into the outgoing buffer.
+                    payload = proc.download_yuy2().tobytes()
+                    if self._paused and self._frozen_yuy2 is None:
+                        self._frozen_yuy2 = payload
+                    vcam_buf = Gst.Buffer.new_allocate(None, len(payload), None)
+                    vcam_buf.fill(0, payload)
+                    vcam_buf.pts = buf_pts
+                    vcam_buf.duration = buf_duration
+                    appsrc.emit("push-buffer", vcam_buf)
 
                 self._gpu_path_errors = 0
                 return Gst.FlowReturn.OK

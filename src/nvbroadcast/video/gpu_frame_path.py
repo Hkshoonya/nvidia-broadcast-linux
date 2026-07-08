@@ -172,13 +172,20 @@ class GpuFramePath:
             "to_yuy2": self._module.get_function("bgra_to_yuy2"),
             "rgb": self._module.get_function("rgb_to_bgra"),
         }
-        # Optional GPU JPEG decode (nvidia-nvimgcodec-cu12). When present
-        # the capture leg skips jpegdec entirely: only the ~100-300KB
-        # compressed frame crosses into Python.
+        # Optional GPU JPEG decode (nvidia-nvimgcodec-cu12 + nvjpeg wheel).
+        # When present the capture leg skips jpegdec entirely: only the
+        # ~100-300KB compressed frame crosses into Python. The Decoder
+        # constructs even without libnvjpeg, so probe an actual decode.
         self._jpeg_decoder = None
         try:
+            import cv2
             from nvidia import nvimgcodec
-            self._jpeg_decoder = nvimgcodec.Decoder()
+            decoder = nvimgcodec.Decoder()
+            probe = np.zeros((16, 16, 3), dtype=np.uint8)
+            ok, jpeg = cv2.imencode(".jpg", probe)
+            image = decoder.decode(jpeg.tobytes()) if ok else None
+            if image is not None and cp.asarray(image).shape == (16, 16, 3):
+                self._jpeg_decoder = decoder
         except Exception:
             self._jpeg_decoder = None
         self._width = 0
@@ -249,6 +256,9 @@ class GpuFramePath:
             self._src_bgra_gpu = cp.empty((height, width, 4), dtype=cp.uint8)
             self._out_bgra_gpu = self._src_bgra_gpu
             self._yuy2_gpu = cp.empty(width * height * 2, dtype=cp.uint8)
+            self._pinned_yuy2 = cp.cuda.alloc_pinned_memory(width * height * 2)
+            self._pinned_yuy2_np = np.frombuffer(
+                self._pinned_yuy2, dtype=np.uint8, count=width * height * 2)
             bgra_nbytes = width * height * 4
             self._pinned_bgra = cp.cuda.alloc_pinned_memory(bgra_nbytes)
             self._pinned_bgra_np = np.frombuffer(
@@ -362,12 +372,15 @@ class GpuFramePath:
             self._out_bgra_gpu.data.copy_from_host(
                 self._pinned_up_np.ctypes.data, nbytes)
 
-    def download_yuy2_into(self, dst) -> None:
-        """Convert the output to YUY2 and download it into ``dst``.
+    def download_yuy2(self) -> np.ndarray:
+        """Convert the output to YUY2 and download it to pinned host memory.
 
-        ``dst`` must be a writable buffer of width*height*2 bytes (the
-        mapped outgoing Gst buffer). Synchronous: on return the GPU work
-        for this frame is complete and every staging buffer is reusable.
+        Returns a view of the pinned staging buffer, valid until the next
+        call. Synchronous: on return the GPU work for this frame is
+        complete and every staging buffer is reusable. (PyGObject exposes
+        WRITE-mapped Gst buffers as a bytes COPY, so downloading directly
+        into a mapped buffer silently produces black frames — the caller
+        must copy this result in via Gst.Buffer.fill instead.)
         """
         cp = self._cp
         nbytes = self._width * self._height * 2
@@ -378,8 +391,15 @@ class GpuFramePath:
             self._kernels["to_yuy2"]((blocks,), (threads,), (
                 cp.ascontiguousarray(self._out_bgra_gpu), self._yuy2_gpu,
                 np.int32(self._width), np.int32(self._height)))
-            dst_np = np.frombuffer(dst, dtype=np.uint8, count=nbytes)
-            self._yuy2_gpu.data.copy_to_host(dst_np.ctypes.data, nbytes)
+            self._yuy2_gpu.data.copy_to_host(
+                self._pinned_yuy2_np.ctypes.data, nbytes)
+        return self._pinned_yuy2_np
+
+    def download_yuy2_into(self, dst) -> None:
+        """Test helper: download YUY2 into a writable numpy-backed buffer."""
+        np.copyto(np.frombuffer(dst, dtype=np.uint8,
+                                count=self._width * self._height * 2),
+                  self.download_yuy2())
 
     def download_bgra(self, source: bool = False) -> np.ndarray:
         """Download output (or source) BGRA into a pooled host array.
