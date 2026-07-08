@@ -24,6 +24,7 @@ gi.require_version("Gst", "1.0")
 from gi.repository import Gtk, Adw, Gst, Gio, Gdk, GLib
 
 from nvbroadcast.core.constants import APP_ID, COMPUTE_GPU_INDEX, VIRTUAL_CAM_LABEL
+from nvbroadcast.core import startup_trace
 from nvbroadcast.core.config import load_config, save_config
 from nvbroadcast.core.updates import (
     fetch_latest_release,
@@ -183,8 +184,10 @@ class NVBroadcastApp(Adw.Application):
         self._transcriber.set_segment_callback(self._on_transcript_segment)
 
     def do_startup(self):
+        startup_trace.mark("do_startup begin")
         Adw.Application.do_startup(self)
         Gst.init(None)
+        startup_trace.mark("Gst.init done")
         cleanup_old_sessions()
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.DEFAULT)
 
@@ -206,6 +209,7 @@ class NVBroadcastApp(Adw.Application):
             self._vcam_available = True
         except RuntimeError as e:
             print(f"[NV Broadcast] Virtual camera unavailable: {e}")
+        startup_trace.mark("do_startup end (virtual camera ready)")
 
     def _stop_headless_vcam_service(self) -> bool:
         """Stop the optional headless passthrough service before GUI capture.
@@ -248,8 +252,10 @@ class NVBroadcastApp(Adw.Application):
             return False
 
     def do_activate(self):
+        startup_trace.mark("do_activate begin")
         if self._window is None:
             self._window = NVBroadcastWindow(self)
+            startup_trace.mark("window constructed")
             self._window.bind_dependency_installer(self._dependency_installer)
             self._window.load_meeting_sessions(self.list_meeting_sessions())
 
@@ -284,6 +290,7 @@ class NVBroadcastApp(Adw.Application):
             # from resetting effect states during restore)
             self._restoring = True
             self._restore_settings()
+            startup_trace.mark("settings restored")
             if self.config.auto_mode:
                 self.set_auto_mode_enabled(True)
             else:
@@ -309,6 +316,9 @@ class NVBroadcastApp(Adw.Application):
 
         self._window.set_visible(True)
         self._window.present()
+        startup_trace.mark("window presented")
+        print(f"[NV Broadcast] Window up in {startup_trace.elapsed():.1f}s",
+              flush=True)
         self._maybe_show_python_runtime_notice()
 
     def _on_setup_complete(self, wizard, profile_name, gpu_index, compositing):
@@ -560,6 +570,7 @@ class NVBroadcastApp(Adw.Application):
 
     def _auto_start(self):
         """Auto-start broadcast with saved settings."""
+        startup_trace.mark("auto-start begin")
         print(f"[NV Broadcast] Auto-start: streaming={self._streaming} vcam={self._vcam_available}", flush=True)
         if not self._streaming:
             camera = self.config.video.camera_device
@@ -806,6 +817,7 @@ class NVBroadcastApp(Adw.Application):
             self._queue_pipeline_restart()
             return False
 
+        startup_trace.mark("start_pipeline begin")
         from nvbroadcast.core.config import PERFORMANCE_PROFILES
         from nvbroadcast.video.virtual_camera import resolve_camera_device, select_camera_mode
 
@@ -854,6 +866,7 @@ class NVBroadcastApp(Adw.Application):
             save_config(self.config)
         effects_fps = max(5, int(profile.get("effects_ratio", 1.0) * camera_fps))
 
+        startup_trace.mark("camera modes probed")
         self._video_pipeline = VideoPipeline()
         self._video_pipeline.configure(
             source_device=camera_device,
@@ -880,6 +893,7 @@ class NVBroadcastApp(Adw.Application):
         if self._gpu_frame_path is not None:
             self._video_pipeline.set_frame_processor(
                 self._gpu_frame_path, self._gpu_frame_plan)
+        startup_trace.mark("gpu frame path ready")
         self._video_pipeline.set_preview_callback(
             lambda texture: self._window.update_preview(texture)
         )
@@ -901,7 +915,9 @@ class NVBroadcastApp(Adw.Application):
 
         try:
             self._video_pipeline.build(vcam_enabled=self._vcam_available)
+            startup_trace.mark("pipeline built")
             self._video_pipeline.start()
+            startup_trace.mark("pipeline started")
             self._streaming = True
 
             w, h = self.config.video.width, self.config.video.height
