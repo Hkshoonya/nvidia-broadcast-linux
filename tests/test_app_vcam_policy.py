@@ -82,7 +82,8 @@ class WakeFromMonitorTests(unittest.TestCase):
     def test_wake_exits_idle_when_idle(self):
         fake = SimpleNamespace(_idle_active=True, _exit_idle=mock.Mock())
         self.assertFalse(NVBroadcastApp._wake_from_vcam_monitor(fake))
-        fake._exit_idle.assert_called_once_with("consumer detected (inotify)")
+        fake._exit_idle.assert_called_once_with(
+            "consumer detected (v4l2 event)")
 
 
 if __name__ == "__main__":

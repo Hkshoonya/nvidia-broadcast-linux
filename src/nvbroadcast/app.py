@@ -162,7 +162,7 @@ class NVBroadcastApp(Adw.Application):
         self._transcriber_preload_started = False
         self._vcam_device = None
         self._vcam_available = False
-        self._vcam_monitor = None  # inotify consumer watcher (Linux)
+        self._vcam_monitor = None  # v4l2 client-usage watcher (Linux)
         self._mirror = True  # Default: mirror (like looking in a mirror)
         self._tray = None
         self._legacy_tray_enabled = legacy_tray_enabled()
@@ -217,11 +217,11 @@ class NVBroadcastApp(Adw.Application):
                 self._vcam_device, wake_callback=self._on_vcam_consumer_wake)
             if monitor.start():
                 self._vcam_monitor = monitor
-                print("[NV Broadcast] Camera power save: inotify consumer "
+                print("[NV Broadcast] Camera power save: v4l2 client-usage "
                       "monitor active", flush=True)
             else:
-                print("[NV Broadcast] Camera power save: inotify unavailable, "
-                      "falling back to fuser", flush=True)
+                print("[NV Broadcast] Camera power save: v4l2 events "
+                      "unavailable, falling back to fuser", flush=True)
 
     def _stop_headless_vcam_service(self) -> bool:
         """Stop the optional headless passthrough service before GUI capture.
@@ -454,11 +454,12 @@ class NVBroadcastApp(Adw.Application):
     def _probe_vcam_consumers(self) -> int | None:
         """Count external processes holding the vcam device.
 
-        Primary source is the inotify monitor: inside the bubblewrap user
-        namespace, fuser cannot stat other processes' /proc/PID/fd links
-        and silently reports zero consumers, which used to freeze live
-        calls. fuser remains only as a fallback when inotify failed, with
-        a liveness guard against exactly that blindness.
+        Primary source is the v4l2loopback client-usage monitor: inside
+        the bubblewrap user namespace, fuser cannot stat other processes'
+        /proc/PID/fd links and silently reports zero consumers, which
+        used to freeze live calls. fuser remains only as a fallback when
+        the v4l2 event is unavailable, with a liveness guard against
+        exactly that blindness.
 
         Returns None when the answer is not trustworthy — callers MUST
         treat None as "camera in use" so a detection failure can never
@@ -581,7 +582,7 @@ class NVBroadcastApp(Adw.Application):
 
     def _wake_from_vcam_monitor(self):
         if self._idle_active:
-            self._exit_idle("consumer detected (inotify)")
+            self._exit_idle("consumer detected (v4l2 event)")
         return False  # One-shot idle source
 
     def _idle_wake_tick(self):
