@@ -42,6 +42,7 @@ from nvbroadcast.video.eye_contact import EyeContactCorrector
 from nvbroadcast.video.relighting import FaceRelighter
 from nvbroadcast.video.face_landmarks import get_shared_landmarker
 from nvbroadcast.video.perf_monitor import PerfMonitor
+from nvbroadcast.video.vcam_monitor import VcamConsumerMonitor
 from nvbroadcast.ai.transcriber import MeetingTranscriber, save_transcript
 from nvbroadcast.ai.summarizer import MeetingSummarizer
 from nvbroadcast.core.platform import (
@@ -170,6 +171,7 @@ class NVBroadcastApp(Adw.Application):
         self._transcriber_preload_started = False
         self._vcam_device = None
         self._vcam_available = False
+        self._vcam_monitor = None  # inotify consumer watcher (Linux)
         self._mirror = True  # Default: mirror (like looking in a mirror)
         self._tray = None
         self._legacy_tray_enabled = legacy_tray_enabled()
@@ -217,6 +219,20 @@ class NVBroadcastApp(Adw.Application):
             self._vcam_available = True
         except RuntimeError as e:
             print(f"[NV Broadcast] Virtual camera unavailable: {e}")
+        if self._vcam_available and not IS_MACOS:
+            # Started here — before any pipeline can open the device — so
+            # the monitor's own-fd baseline cannot race our own opens, and
+            # kept for the whole session so consumers stay visible across
+            # pipeline restarts.
+            monitor = VcamConsumerMonitor(
+                self._vcam_device, wake_callback=self._on_vcam_consumer_wake)
+            if monitor.start():
+                self._vcam_monitor = monitor
+                print("[NV Broadcast] Camera power save: inotify consumer "
+                      "monitor active", flush=True)
+            else:
+                print("[NV Broadcast] Camera power save: inotify unavailable, "
+                      "falling back to fuser", flush=True)
         startup_trace.mark("do_startup end (virtual camera ready)")
 
     def _stop_headless_vcam_service(self) -> bool:
@@ -472,12 +488,20 @@ class NVBroadcastApp(Adw.Application):
     def _probe_vcam_consumers(self) -> int | None:
         """Count external processes holding the vcam device.
 
-        Returns None when the answer is not trustworthy (fuser missing,
-        error, timeout) — callers MUST treat None as "camera in use" so a
-        detection failure can never freeze someone's camera.
+        Primary source is the inotify monitor: inside the bubblewrap user
+        namespace, fuser cannot stat other processes' /proc/PID/fd links
+        and silently reports zero consumers, which used to freeze live
+        calls. fuser remains only as a fallback when inotify failed, with
+        a liveness guard against exactly that blindness.
+
+        Returns None when the answer is not trustworthy — callers MUST
+        treat None as "camera in use" so a detection failure can never
+        freeze someone's camera.
         """
         if IS_MACOS:
             return None
+        if self._vcam_monitor is not None and self._vcam_monitor.running:
+            return self._vcam_monitor.consumers()
         import os
         import subprocess
         try:
@@ -493,10 +517,24 @@ class NVBroadcastApp(Adw.Application):
             return None
         own_pid = str(os.getpid())
         count = 0
+        own_seen = False
         for token in result.stdout.split():
             pid = "".join(ch for ch in token if ch.isdigit())
-            if pid and pid != own_pid:
+            if not pid:
+                continue
+            if pid == own_pid:
+                own_seen = True
+            else:
                 count += 1
+        pipeline_holds_device = (
+            self._video_pipeline is not None
+            and self._vcam_available
+            and not getattr(self._video_pipeline, "_vcam_failed", False)
+        )
+        if pipeline_holds_device and not own_seen:
+            # fuser cannot even see our own fd on the device: it is blind
+            # (user namespace), so its count of others is worthless.
+            return None
         return count
 
     def _check_vcam_consumers(self):
@@ -556,7 +594,9 @@ class NVBroadcastApp(Adw.Application):
         self._idle_strikes = 0
         if self._tray and self._tray.available:
             self._tray.update_status(self._streaming, "power save (camera unused)")
-        # Fast wake poll: a consumer must never wait on the 5s status poll.
+        # Fast wake poll: a consumer must never wait on the 10s status
+        # poll. The inotify monitor also wakes us event-driven; this tick
+        # is belt-and-braces (and covers window-shown).
         GLib.timeout_add(1000, self._idle_wake_tick)
 
     def _exit_idle(self, reason: str):
@@ -568,6 +608,15 @@ class NVBroadcastApp(Adw.Application):
         print(f"[NV Broadcast] Power save resumed: {reason}", flush=True)
         if self._tray and self._tray.available:
             self._tray.update_status(self._streaming, "streaming")
+
+    def _on_vcam_consumer_wake(self):
+        """Called from the monitor thread on a sustained device open."""
+        GLib.idle_add(self._wake_from_vcam_monitor)
+
+    def _wake_from_vcam_monitor(self):
+        if self._idle_active:
+            self._exit_idle("consumer detected (inotify)")
+        return False  # One-shot idle source
 
     def _idle_wake_tick(self):
         """1s wake poll while idle. Any doubt resumes the camera."""
@@ -2547,6 +2596,9 @@ class NVBroadcastApp(Adw.Application):
 
     def do_shutdown(self):
         save_config(self.config)
+        if self._vcam_monitor:
+            self._vcam_monitor.stop()
+            self._vcam_monitor = None
         if self._meeting_capture:
             self._meeting_capture.stop()
             self._meeting_capture = None
