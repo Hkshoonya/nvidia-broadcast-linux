@@ -5,10 +5,58 @@
 #
 """Entry point for NVIDIA Broadcast."""
 
+import os
 import sys
 
 
+def _redirect_output_to_log():
+    """Send stdout/stderr to a log file when not attached to a terminal.
+
+    Desktop launchers point stdout at /dev/null, which made every
+    `[NV Broadcast]` print (and GStreamer's native stderr) unrecoverable.
+    Redirecting at the fd level with dup2 captures native output too,
+    which a Python-level tee would miss. Terminal runs are left alone.
+    """
+    try:
+        if os.environ.get("NVBROADCAST_NO_LOG_FILE") == "1":
+            return
+        if sys.stdout is not None and sys.stdout.isatty():
+            return
+
+        from nvbroadcast.core.constants import LOG_FILE, LOG_MAX_BYTES, STATE_DIR
+
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            if LOG_FILE.stat().st_size > LOG_MAX_BYTES:
+                os.replace(LOG_FILE, LOG_FILE.with_suffix(".log.old"))
+        except OSError:
+            pass
+
+        fd = os.open(LOG_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        os.dup2(fd, 1)
+        os.dup2(fd, 2)
+        os.close(fd)
+        # The fds now point at a regular file, so Python's stdio would
+        # block-buffer and a crash could lose the most recent lines.
+        for stream in (sys.stdout, sys.stderr):
+            if stream is not None:
+                stream.reconfigure(line_buffering=True)
+
+        from datetime import datetime
+
+        from nvbroadcast import __version__
+
+        print(
+            f"[NV Broadcast] --- started {datetime.now().isoformat(timespec='seconds')} "
+            f"v{__version__} pid={os.getpid()} ---",
+            flush=True,
+        )
+    except Exception:
+        pass  # Logging must never prevent startup.
+
+
 def main():
+    _redirect_output_to_log()
     from nvbroadcast.app import NVBroadcastApp
 
     app = NVBroadcastApp()
