@@ -17,6 +17,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 
 # Force CUDA device ordering to match nvidia-smi (PCI bus ID order) — Linux only
 if _platform.system() != "Darwin":
@@ -917,8 +918,14 @@ class _RVMBackend:
                     name, device_type='cuda', device_id=self._gpu_index,
                     element_type=np.float32, shape=tuple(buf.shape),
                     buffer_ptr=buf.data.ptr)
+            # ORT executes on its EP-level stream, which does not wait for
+            # cupy's null stream: without this fence it can read src_gpu
+            # before _preprocess_gpu's kernels have written it, and RVM on
+            # a blank frame emits a flat ~0.96 alpha — a one-frame "blur
+            # off" flash on the vcam.
+            cp.cuda.get_current_stream().synchronize()
             self.session.run_with_iobinding(io)
-            # ORT runs on its EP-level stream; fence before cupy (null
+            # Same stream mismatch on the way out; fence before cupy (null
             # stream) reads the bound buffers.
             io.synchronize_outputs()
             # Frame N's recurrent outputs become frame N+1's inputs — no
@@ -1560,12 +1567,38 @@ class VideoEffects:
 
     def _commit_alpha(self, alpha: np.ndarray, matte_version: int) -> bool:
         """Store an alpha mask only if matte state has not been invalidated."""
+        if self._alpha_is_degenerate(alpha):
+            return False
         with self._state_lock:
             if matte_version != self._matte_version:
                 return False
             self._cached_alpha = alpha
             self._cached_alpha_serial += 1
             return True
+
+    def _alpha_is_degenerate(self, alpha) -> bool:
+        """Reject a flat all-foreground matte (inference saw a blank frame).
+
+        A constant high-alpha plane disables the background effect for one
+        frame — a visible flash. A constant LOW plane is a legitimate empty
+        scene and passes through. Keeping the previous matte for one
+        inference is invisible; committing the degenerate one is not.
+        """
+        try:
+            lo = float(alpha.min())
+            if lo < 0.5:
+                return False
+            spread = float(alpha.max()) - lo
+            if spread > 0.005:
+                return False
+        except Exception:
+            return False
+        now = time.monotonic()
+        if now - getattr(self, "_degenerate_matte_logged", 0.0) > 30.0:
+            self._degenerate_matte_logged = now
+            print(f"[NV Broadcast] Rejected degenerate matte "
+                  f"(flat alpha {lo:.3f})", flush=True)
+        return True
 
     @property
     def available(self) -> bool:
