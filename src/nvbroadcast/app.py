@@ -643,6 +643,7 @@ class NVBroadcastApp(Adw.Application):
 
         if self._audio_pipeline_should_publish() or c.audio.noise_removal or c.audio.voice_fx_enabled:
             audio_pipeline = self._ensure_audio_pipeline()
+            audio_pipeline.effects.engine = c.audio.noise_engine
             audio_pipeline.effects.enabled = c.audio.noise_removal
             audio_pipeline.effects.intensity = c.audio.noise_intensity
             audio_pipeline.voice_fx.enabled = c.audio.voice_fx_enabled
@@ -2240,8 +2241,18 @@ class NVBroadcastApp(Adw.Application):
     def set_noise_removal(self, enabled: bool):
         self.config.audio.noise_removal = enabled
         pipeline = self._ensure_audio_pipeline()
+        pipeline.effects.engine = self.config.audio.noise_engine
         pipeline.effects.enabled = enabled
         self._refresh_audio_pipeline()
+        save_config(self.config)
+
+    def set_noise_engine(self, engine: str):
+        """Switch the denoiser engine ("auto" = DeepFilterNet, "rnnoise")."""
+        engine = engine if engine in ("auto", "rnnoise") else "auto"
+        self.config.audio.noise_engine = engine
+        pipeline = self._ensure_audio_pipeline()
+        pipeline.effects.engine = engine
+        self._restart_audio_pipeline_for_live_settings()
         save_config(self.config)
 
     def set_noise_intensity(self, value: float):

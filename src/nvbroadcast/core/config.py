@@ -64,6 +64,8 @@ class AudioConfig:
     speaker_device: str = ""
     noise_removal: bool = False
     noise_intensity: float = 1.0
+    # "auto" = DeepFilterNet3 neural denoiser when available, else RNNoise
+    noise_engine: str = "auto"
     speaker_denoise: bool = False
     voice_fx_enabled: bool = False
     voice_fx_use_gpu: bool = True
@@ -363,6 +365,7 @@ def _config_to_toml(config: AppConfig) -> str:
         f'speaker_device = "{a.speaker_device}"',
         f"noise_removal = {_bool(a.noise_removal)}",
         f"noise_intensity = {a.noise_intensity}",
+        f'noise_engine = "{a.noise_engine}"',
         f"speaker_denoise = {_bool(a.speaker_denoise)}",
         f"voice_fx_enabled = {_bool(a.voice_fx_enabled)}",
         f"voice_fx_use_gpu = {_bool(a.voice_fx_use_gpu)}",

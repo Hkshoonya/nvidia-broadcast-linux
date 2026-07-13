@@ -530,6 +530,7 @@ class AudioPipeline:
             "sample_rate": self._sample_rate,
             "noise_removal": self._effects.enabled,
             "noise_intensity": self._effects.intensity,
+            "noise_engine": self._effects.engine,
             "voice_fx_enabled": self.voice_fx.enabled,
             "voice_fx_use_gpu": self.voice_fx.use_gpu,
             "voice_fx_settings": {

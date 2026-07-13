@@ -3,10 +3,15 @@
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
-"""Audio noise removal using RNNoise.
+"""Audio noise removal.
 
-Real-time AI-powered noise suppression for microphone input.
-Uses Mozilla's RNNoise via pyrnnoise (low-level C API).
+Two engines, best-available by default:
+- DeepFilterNet3 (streaming ONNX): modern full-band neural denoiser, the
+  same class of model as NVIDIA Broadcast's noise removal. ~0.6ms per
+  10ms hop on CPU. Selected when engine is "auto" and the model
+  initializes; see audio/deepfilter.py.
+- RNNoise via pyrnnoise: lightweight fallback, always initialized so a
+  DeepFilterNet failure can never leave noise removal silently dead.
 """
 
 import numpy as np
@@ -17,8 +22,8 @@ from nvbroadcast.core.constants import MAXINE_AFX_PATH
 class AudioEffects:
     """Real-time audio noise removal.
 
-    Uses RNNoise algorithm: processes 480-sample frames (10ms at 48kHz)
-    of int16 PCM audio.
+    RNNoise path processes 480-sample frames (10ms at 48kHz) of int16 PCM;
+    the DeepFilterNet path re-frames arbitrary blocks internally.
     """
 
     def __init__(self, gpu_index: int = 1):
@@ -27,6 +32,12 @@ class AudioEffects:
         self._state = None  # ctypes pointer to RNNoise state
         self._enabled = False
         self._intensity = 1.0
+        # "auto" prefers DeepFilterNet with RNNoise fallback; "rnnoise"
+        # pins the classic engine. Default rnnoise so bare construction
+        # never touches the network; the app passes the configured engine.
+        self._engine_pref = "rnnoise"
+        self._dfn = None
+        self._dfn_demoted = False
 
     @property
     def available(self) -> bool:
@@ -50,10 +61,48 @@ class AudioEffects:
     def intensity(self, value: float):
         self._intensity = max(0.0, min(1.0, value))
 
+    @property
+    def engine(self) -> str:
+        return self._engine_pref
+
+    @engine.setter
+    def engine(self, value: str):
+        value = value if value in ("auto", "deepfilter", "rnnoise") else "auto"
+        if value == self._engine_pref:
+            return
+        self._engine_pref = value
+        self._dfn_demoted = False
+        if self._initialized and value != "rnnoise" and self._dfn is None:
+            self._init_deepfilter()
+
+    @property
+    def active_engine(self) -> str:
+        """The engine that will actually process the next chunk."""
+        if (self._engine_pref != "rnnoise" and not self._dfn_demoted
+                and self._dfn is not None and self._dfn.available):
+            return "deepfilter"
+        return "rnnoise"
+
+    def _init_deepfilter(self) -> None:
+        try:
+            from nvbroadcast.audio.deepfilter import DeepFilterDenoiser
+            dfn = DeepFilterDenoiser()
+            if dfn.initialize():
+                self._dfn = dfn
+        except Exception as e:
+            print(f"[NVIDIA Broadcast] DeepFilterNet unavailable: {e}", flush=True)
+
     def initialize(self) -> bool:
-        """Initialize the noise removal engine."""
+        """Initialize the noise removal engine(s).
+
+        RNNoise is always initialized (it is the fallback); DeepFilterNet
+        is attempted on top when the configured engine allows it.
+        """
         if self._initialized:
             return True
+
+        if self._engine_pref != "rnnoise" and self._dfn is None:
+            self._init_deepfilter()
 
         try:
             from pyrnnoise import rnnoise
@@ -61,10 +110,15 @@ class AudioEffects:
             self._state = rnnoise.create()
             self._frame_size = rnnoise.FRAME_SIZE  # 480 samples
             self._initialized = True
-            print("[NVIDIA Broadcast] Audio denoiser initialized (RNNoise)")
+            if self.active_engine == "rnnoise":
+                print("[NVIDIA Broadcast] Audio denoiser initialized (RNNoise)")
             return True
         except Exception as e:
             print(f"[NVIDIA Broadcast] Failed to initialize audio denoiser: {e}")
+            # DeepFilterNet alone still counts as an initialized denoiser.
+            if self._dfn is not None and self._dfn.available:
+                self._initialized = True
+                return True
             return False
 
     def process_chunk(self, audio_data: np.ndarray, sample_rate: int = 48000) -> np.ndarray:
@@ -78,6 +132,20 @@ class AudioEffects:
             Denoised float32 audio samples
         """
         if not self._enabled or not self._initialized:
+            return audio_data
+
+        # DeepFilterNet engine — demote to RNNoise once on any failure so
+        # a broken model can never mute or stutter the mic.
+        if self.active_engine == "deepfilter":
+            try:
+                return self._dfn.process_chunk(audio_data, sample_rate,
+                                               intensity=self._intensity)
+            except Exception as e:
+                self._dfn_demoted = True
+                print(f"[NVIDIA Broadcast] DeepFilterNet demoted to RNNoise: {e}",
+                      flush=True)
+
+        if self._state is None:
             return audio_data
 
         try:
@@ -124,4 +192,10 @@ class AudioEffects:
             except Exception:
                 pass
             self._state = None
+        if self._dfn is not None:
+            try:
+                self._dfn.cleanup()
+            except Exception:
+                pass
+            self._dfn = None
         self._initialized = False
