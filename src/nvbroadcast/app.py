@@ -940,17 +940,22 @@ class NVBroadcastApp(Adw.Application):
 
         self._perf_monitor.tick()
         frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
-        if not frame.flags.writeable:
-            frame = frame.copy()
-        result_frame = frame
-        landmarks = None
-        fused_beautify_overlay = False
 
         face_effects_active = (
             self._beautifier.enabled
             or self._eye_contact.enabled
             or self._relighter.enabled
         )
+        # Only pay the ~8MB writeable copy when a CPU stage might mutate
+        # the raw frame; the GPU blur path reads it exactly once, and the
+        # effects processor makes its own copy for remove/replace modes.
+        if not frame.flags.writeable and (
+            face_effects_active or self._autoframe.enabled
+        ):
+            frame = frame.copy()
+        result_frame = frame
+        landmarks = None
+        fused_beautify_overlay = False
         if face_effects_active:
             landmarker = get_shared_landmarker()
             raw_frame = result_frame

@@ -2601,7 +2601,7 @@ class VideoEffects:
                 alpha = self._cupy.asnumpy(alpha)
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
-        if not frame.flags.writeable:
+        if not frame.flags.writeable and self._bg_mode != "blur":
             frame = frame.copy()
 
         return self._composite_array(frame, alpha, width, height, matte_version,
@@ -2683,7 +2683,10 @@ class VideoEffects:
             return frame
 
         self._remember_frame_size(width, height)
-        if not frame.flags.writeable:
+        # Blur mode never writes into the source frame (GPU path uploads
+        # it, CPU path allocates its outputs), so skip the ~8MB copy.
+        # Remove/replace run in-place fringe cleanup and need their own copy.
+        if not frame.flags.writeable and self._bg_mode != "blur":
             frame = frame.copy()
 
         self._frame_counter += 1
