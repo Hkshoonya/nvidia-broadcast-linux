@@ -274,8 +274,10 @@ class NVBroadcastApp(Adw.Application):
             self._window.connect("map", lambda *a: (
                 self._exit_idle("window shown") if self._idle_active else None))
 
-            # Camera power save: poll for vcam consumers
-            GLib.timeout_add(5000, self._check_vcam_consumers)
+            # Camera power save: poll for vcam consumers. Seconds-granularity
+            # so GLib can coalesce the wakeup; the 1s _idle_wake_tick handles
+            # fast wake-from-idle, this poll only latches idle entry.
+            GLib.timeout_add_seconds(10, self._check_vcam_consumers)
 
             # Start performance monitor
             self._perf_monitor.start()
