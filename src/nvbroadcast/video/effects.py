@@ -152,6 +152,23 @@ def _create_session(model_path: str, gpu_index: int,
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     opts.log_severity_level = 3
+    gpu_ep = any(
+        (p[0] if isinstance(p, tuple) else p) in
+        ("TensorrtExecutionProvider", "CUDAExecutionProvider", "CoreMLExecutionProvider")
+        for p in providers
+    )
+    try:
+        if gpu_ep:
+            # Inference runs on the GPU EP; only trivial CPU nodes remain, so
+            # a full-core intra-op pool is pure spin-wait waste at video rates.
+            opts.intra_op_num_threads = 2
+            opts.inter_op_num_threads = 1
+        # Live pipelines idle most of each frame budget; spinning workers
+        # burn a core each while waiting for the next frame.
+        opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        opts.add_session_config_entry("session.inter_op.allow_spinning", "0")
+    except Exception as exc:
+        print(f"[NV Broadcast] ORT thread-pool tuning unavailable: {exc}", flush=True)
     return ort.InferenceSession(str(model_path), opts, providers=providers)
 
 
