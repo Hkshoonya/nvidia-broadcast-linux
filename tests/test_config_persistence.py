@@ -1,9 +1,12 @@
 import unittest
+from unittest import mock
 
 from nvbroadcast.core.config import (
     AppConfig,
     apply_builtin_profile,
     build_default_config,
+    load_config,
+    save_config,
     _config_to_toml,
     _load_from_toml,
 )
@@ -196,6 +199,62 @@ voice_fx_gain = 0.05
         self.assertIsNotNone(expected)
         self.assertEqual(loaded.audio.voice_fx_preset, "Studio")
         self.assertEqual(loaded.audio.voice_fx_gate_threshold, expected.gate_threshold)
+
+
+class ConfigCorruptionRecoveryTests(unittest.TestCase):
+    """save_config must never leave a state that load_config cannot recover.
+
+    A truncated write used to leave invalid TOML, and load_config silently
+    returned defaults, so the next save persisted a wiped config."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.config_dir = Path(self._tmp.name)
+        self.config_file = self.config_dir / "config.toml"
+        patches = {
+            "CONFIG_DIR": self.config_dir,
+            "CONFIG_FILE": self.config_file,
+        }
+        for name, value in patches.items():
+            patcher = mock.patch(f"nvbroadcast.core.config.{name}", value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _save(self, profile: str):
+        config = AppConfig()
+        config.current_profile = profile
+        save_config(config)
+
+    def test_save_then_load_roundtrip(self):
+        self._save("Meeting")
+        self.assertEqual(load_config().current_profile, "Meeting")
+
+    def test_corrupt_config_falls_back_to_backup(self):
+        self._save("Meeting")
+        self._save("Streaming")  # Previous save becomes config.toml.bak
+        self.config_file.write_text("current_profile = \"trunc")  # Crash mid-write
+        self.assertEqual(load_config().current_profile, "Meeting")
+
+    def test_corrupt_config_without_backup_returns_defaults(self):
+        self.config_file.write_text("not toml [[[")
+        loaded = load_config()
+        self.assertEqual(loaded.current_profile, AppConfig().current_profile)
+
+    def test_save_leaves_no_temp_file(self):
+        self._save("Meeting")
+        self.assertEqual(
+            sorted(p.name for p in self.config_dir.iterdir()),
+            ["config.toml"],
+        )
+        self._save("Streaming")
+        self.assertEqual(
+            sorted(p.name for p in self.config_dir.iterdir()),
+            ["config.toml", "config.toml.bak"],
+        )
 
 
 if __name__ == "__main__":
