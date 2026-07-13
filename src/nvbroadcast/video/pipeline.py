@@ -79,6 +79,7 @@ class VideoPipeline:
         self._rebuild_pending = False
         self._callbacks_in_flight = 0
         self._callback_lock = threading.Lock()
+        self._capture_idle = False
 
     def _v4l2sink_segment(self) -> str:
         """Build a loopback sink path that avoids buggy allocation queries.
@@ -321,6 +322,33 @@ class VideoPipeline:
 
     def set_preview_callback(self, callback):
         self._preview_callback = callback
+
+    def set_capture_idle(self, idle: bool) -> bool:
+        """Idle the capture pipeline while keeping the vcam device open.
+
+        PAUSED stops the camera stream at the source (webcam LED off, no
+        JPEG decode, no conversion, no callbacks) but keeps every element
+        alive. In effects mode the separate vcam appsrc pipeline stays
+        PLAYING, so v4l2loopback keeps its writer and meeting apps still
+        see the device; resume is one state change back to PLAYING.
+        """
+        if self._pipeline is None or self._capture_idle == idle:
+            return self._capture_idle
+        try:
+            target = Gst.State.PAUSED if idle else Gst.State.PLAYING
+            if self._pipeline.set_state(target) == Gst.StateChangeReturn.FAILURE:
+                print("[NV Broadcast] Capture idle state change failed", flush=True)
+                return self._capture_idle
+            self._capture_idle = idle
+            print(f"[NV Broadcast] Capture {'idled (power save)' if idle else 'resumed'}",
+                  flush=True)
+        except Exception as e:
+            print(f"[NV Broadcast] Capture idle toggle failed: {e}", flush=True)
+        return self._capture_idle
+
+    @property
+    def capture_idle(self) -> bool:
+        return self._capture_idle
 
     def set_paused(self, paused: bool):
         """Freeze/unfreeze video output. Camera stays on but output freezes."""
@@ -802,6 +830,7 @@ class VideoPipeline:
     def stop(self, clear_rebuild_request: bool = True):
         if clear_rebuild_request:
             self._cancel_rebuild()
+        self._capture_idle = False
         with self._teardown_lock:
             if not self._teardown_done:
                 return

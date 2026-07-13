@@ -165,6 +165,8 @@ class NVBroadcastApp(Adw.Application):
         self._tray = None
         self._legacy_tray_enabled = legacy_tray_enabled()
         self._vcam_consumers = 0  # Track virtual camera consumers
+        self._idle_active = False   # Camera power save engaged
+        self._idle_strikes = 0      # Consecutive no-consumer polls
         self._streaming = False
         self._use_nvdec = self.config.use_nvdec
         self._inline_inference = self.config.performance_profile in ("max_quality", "balanced")
@@ -267,6 +269,10 @@ class NVBroadcastApp(Adw.Application):
                     "[NV Broadcast] Legacy tray integration disabled. "
                     "Set NVBROADCAST_ENABLE_LEGACY_TRAY=1 to force-enable it."
                 )
+
+            # Showing the window must instantly wake camera power save.
+            self._window.connect("map", lambda *a: (
+                self._exit_idle("window shown") if self._idle_active else None))
 
             # Camera power save: poll for vcam consumers
             GLib.timeout_add(5000, self._check_vcam_consumers)
@@ -427,42 +433,125 @@ class NVBroadcastApp(Adw.Application):
             print("[NV Broadcast] No tray available; closing window will quit the app")
         return False  # Allow normal close
 
-    def _check_vcam_consumers(self):
-        """Poll virtual camera device for active consumers.
+    def _probe_vcam_consumers(self) -> int | None:
+        """Count external processes holding the vcam device.
 
-        Tracks consumer count for status display. Pipeline stays running
-        to avoid device conflicts with exclusive_caps=1 — stopping and
-        restarting the pipeline while a consumer holds the device causes
-        v4l2sink to fail ("not a output device").
+        Returns None when the answer is not trustworthy (fuser missing,
+        error, timeout) — callers MUST treat None as "camera in use" so a
+        detection failure can never freeze someone's camera.
         """
-        if not self._vcam_available:
-            return True  # Keep polling
-
         if IS_MACOS:
-            return True
-
+            return None
+        import os
         import subprocess
         try:
             result = subprocess.run(
                 ["fuser", self._vcam_device or "/dev/video10"],
                 capture_output=True, text=True, timeout=2,
             )
-            pids = result.stdout.strip().split()
-            import os
-            own_pid = str(os.getpid())
-            consumers = [p for p in pids if p.strip() and p.strip() != own_pid]
-            new_count = len(consumers)
         except Exception:
-            new_count = self._vcam_consumers
+            return None
+        # fuser: 0 = at least one accessor, 1 = none (or failure — but then
+        # stdout is empty either way, which is the safe reading).
+        if result.returncode not in (0, 1):
+            return None
+        own_pid = str(os.getpid())
+        count = 0
+        for token in result.stdout.split():
+            pid = "".join(ch for ch in token if ch.isdigit())
+            if pid and pid != own_pid:
+                count += 1
+        return count
 
-        if new_count != self._vcam_consumers:
-            self._vcam_consumers = new_count
+    def _check_vcam_consumers(self):
+        """Poll vcam consumers for status display and camera power save.
 
+        The pipeline is never stopped for power save — stopping it while a
+        consumer holds the device breaks v4l2sink with exclusive_caps=1.
+        Idle only pauses the capture leg (camera off, vcam device stays
+        open), and it errs hard toward "in use": unknown counts as in use,
+        and three consecutive idle verdicts are required before pausing.
+        """
+        if not self._vcam_available or not self._streaming:
+            self._idle_strikes = 0
+            return True  # Keep polling
+
+        consumers = self._probe_vcam_consumers()
+
+        if consumers is not None and consumers != self._vcam_consumers:
+            self._vcam_consumers = consumers
             if self._tray and self._tray.available:
-                status = f"streaming ({new_count} consumer{'s' if new_count != 1 else ''})" if self._streaming else "idle"
+                status = (f"streaming ({consumers} consumer"
+                          f"{'s' if consumers != 1 else ''})"
+                          if self._streaming else "idle")
                 self._tray.update_status(self._streaming, status)
 
+        window_hidden = not (self._window and self._window.get_visible())
+        pipeline = self._video_pipeline
+        can_idle = (
+            getattr(self.config, "auto_idle", True)
+            and pipeline is not None
+            and not pipeline.is_recording
+            and consumers == 0          # None (unknown) never idles
+            and window_hidden
+        )
+
+        if self._idle_active:
+            if not can_idle:
+                self._exit_idle("activity detected")
+            return True
+
+        if can_idle:
+            self._idle_strikes += 1
+            if self._idle_strikes >= 3:
+                self._enter_idle()
+        else:
+            self._idle_strikes = 0
         return True  # Keep polling
+
+    def _enter_idle(self):
+        pipeline = self._video_pipeline
+        if pipeline is None:
+            return
+        if not pipeline.set_capture_idle(True):
+            self._idle_strikes = 0
+            return
+        self._idle_active = True
+        self._idle_strikes = 0
+        if self._tray and self._tray.available:
+            self._tray.update_status(self._streaming, "power save (camera unused)")
+        # Fast wake poll: a consumer must never wait on the 5s status poll.
+        GLib.timeout_add(1000, self._idle_wake_tick)
+
+    def _exit_idle(self, reason: str):
+        self._idle_active = False
+        self._idle_strikes = 0
+        pipeline = self._video_pipeline
+        if pipeline is not None:
+            pipeline.set_capture_idle(False)
+        print(f"[NV Broadcast] Power save resumed: {reason}", flush=True)
+        if self._tray and self._tray.available:
+            self._tray.update_status(self._streaming, "streaming")
+
+    def _idle_wake_tick(self):
+        """1s wake poll while idle. Any doubt resumes the camera."""
+        if not self._idle_active:
+            return False  # Stop this timer
+        consumers = self._probe_vcam_consumers()
+        window_visible = bool(self._window and self._window.get_visible())
+        if consumers != 0 or window_visible:
+            self._exit_idle("consumer detected" if not window_visible
+                            else "window shown")
+            return False
+        return True
+
+    def set_auto_idle(self, enabled: bool):
+        """Toggle camera power save from the UI."""
+        self.config.auto_idle = bool(enabled)
+        save_config(self.config)
+        if not enabled and self._idle_active:
+            self._exit_idle("power save disabled")
+        self._idle_strikes = 0
 
     def _preload_effects(self):
         """Pre-initialize AI models in background to eliminate first-use delay."""
@@ -915,6 +1004,8 @@ class NVBroadcastApp(Adw.Application):
     def stop_pipeline(self, clear_pending_start: bool = True):
         if clear_pending_start:
             self._pending_start = None
+        self._idle_active = False
+        self._idle_strikes = 0
         if self._restart_source_id:
             GLib.source_remove(self._restart_source_id)
             self._restart_source_id = 0
@@ -1839,6 +1930,8 @@ class NVBroadcastApp(Adw.Application):
         videos_dir.mkdir(exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filepath = str(videos_dir / f"NVBroadcast_{timestamp}.mp4")
+        if self._idle_active:
+            self._exit_idle("recording started")
         if self._video_pipeline:
             self._video_pipeline.start_recording(filepath)
         self._last_recording_path = filepath
