@@ -817,6 +817,8 @@ class NVBroadcastApp(Adw.Application):
             self._video_effects.set_background_image(c.video.background_image)
         self._video_effects.mode = c.video.background_mode
         self._video_effects.intensity = c.video.blur_intensity
+        self._video_effects.blur_dim = getattr(c.video, "blur_dim", 0.0)
+        self._video_effects.blur_desaturate = getattr(c.video, "blur_desaturate", 0.0)
 
         # Tell window to restore UI controls FIRST (may fire toggle callbacks)
         self._window.restore_settings(c)
@@ -826,6 +828,8 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects.enabled = c.video.background_removal
         self._video_effects.mode = c.video.background_mode
         self._video_effects.intensity = c.video.blur_intensity
+        self._video_effects.blur_dim = getattr(c.video, "blur_dim", 0.0)
+        self._video_effects.blur_desaturate = getattr(c.video, "blur_desaturate", 0.0)
         if c.video.background_image:
             self._video_effects.set_background_image(c.video.background_image)
         self._eye_contact.enabled = c.video.eye_contact
@@ -1405,6 +1409,16 @@ class NVBroadcastApp(Adw.Application):
     def set_blur_intensity(self, value: float):
         self._video_effects.intensity = value
         self.config.video.blur_intensity = value
+        save_config(self.config)
+
+    def set_blur_dim(self, value: float):
+        self._video_effects.blur_dim = value
+        self.config.video.blur_dim = value
+        save_config(self.config)
+
+    def set_blur_desaturate(self, value: float):
+        self._video_effects.blur_desaturate = value
+        self.config.video.blur_desaturate = value
         save_config(self.config)
 
     def set_performance_profile(self, profile_name: str, compositing: str | None = None,

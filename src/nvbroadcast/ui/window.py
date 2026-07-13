@@ -620,6 +620,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._blur_slider.set_sensitive(False)
         self._blur_slider.connect("value-changed", self._on_blur_changed)
         bg_card.append(self._blur_slider)
+        self._blur_dim_slider = EffectSlider("Dim", 0.0)
+        self._blur_dim_slider.set_sensitive(False)
+        self._blur_dim_slider.connect("value-changed", self._on_blur_dim_changed)
+        bg_card.append(self._blur_dim_slider)
+        self._blur_desat_slider = EffectSlider("Desaturate", 0.0)
+        self._blur_desat_slider.set_sensitive(False)
+        self._blur_desat_slider.connect("value-changed", self._on_blur_desat_changed)
+        bg_card.append(self._blur_desat_slider)
 
         # Advanced Edge Tuning (collapsible)
         adv_expander = Gtk.Expander(label="Advanced Edge Tuning")
@@ -1017,6 +1025,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.set_bg_removal(active)
         self._bg_mode.set_sensitive(active)
         self._blur_slider.set_sensitive(active)
+        self._blur_dim_slider.set_sensitive(active)
+        self._blur_desat_slider.set_sensitive(active)
         self._quality_selector.set_sensitive(active)
         self._model_selector.set_sensitive(active)
         self._edge_dilate.set_sensitive(active)
@@ -1261,6 +1271,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_blur_changed(self, s, v):
         self._app.set_blur_intensity(v)
+
+    def _on_blur_dim_changed(self, s, v):
+        self._app.set_blur_dim(v)
+
+    def _on_blur_desat_changed(self, s, v):
+        self._app.set_blur_desaturate(v)
 
     def _on_edge_dilate(self, s, v):
         self._app.set_edge_param("dilate_size", int(v))
@@ -1917,6 +1933,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Sliders
         self._blur_slider._scale.set_value(v.blur_intensity)
+        self._blur_dim_slider._scale.set_value(getattr(v, "blur_dim", 0.0))
+        self._blur_desat_slider._scale.set_value(getattr(v, "blur_desaturate", 0.0))
         self._zoom_slider._scale.set_value(v.auto_frame_zoom)
         mode_map = {"center": 0, "stable": 1}
         self._autoframe_mode_selector.set_selected_index(mode_map.get(v.auto_frame_mode, 0))
@@ -1934,6 +1952,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._bg_toggle.active = True
             self._bg_mode.set_sensitive(True)
             self._blur_slider.set_sensitive(True)
+            self._blur_dim_slider.set_sensitive(True)
+            self._blur_desat_slider.set_sensitive(True)
             self._quality_selector.set_sensitive(True)
             self._model_selector.set_sensitive(True)
             self._edge_dilate.set_sensitive(True)
