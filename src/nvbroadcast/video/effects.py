@@ -1282,6 +1282,10 @@ class VideoEffects:
         self._fused_face_mask_source_id = None
         self._fused_vignette_gpu = None
         self._fused_vignette_source_id = None
+        self._fused_green_bg_gpu = None
+        self._fused_green_bg_size = None
+        # Whether the most recent composite already mirrored on-GPU
+        self.last_output_mirrored = False
 
         # Alpha refinement
         self._apply_edge_config(edge_config)
@@ -1365,6 +1369,8 @@ class VideoEffects:
             self._fused_bg_gpu = None
             self._fused_bg_source_id = None
             self._fused_bg_size = None
+            self._fused_green_bg_gpu = None
+            self._fused_green_bg_size = None
 
     def _commit_alpha(self, alpha: np.ndarray, matte_version: int) -> bool:
         """Store an alpha mask only if matte state has not been invalidated."""
@@ -2362,8 +2368,10 @@ class VideoEffects:
             return frame_data
         return result.tobytes()
 
-    def composite_only_array(self, frame: np.ndarray, width: int, height: int) -> np.ndarray:
+    def composite_only_array(self, frame: np.ndarray, width: int, height: int,
+                             mirror: bool = False) -> np.ndarray:
         """Composite current frame with cached alpha and return an ndarray."""
+        self.last_output_mirrored = False
         if not self._bg_removal_enabled or not self._initialized:
             return frame
         self._remember_frame_size(width, height)
@@ -2377,12 +2385,15 @@ class VideoEffects:
         if not frame.flags.writeable:
             frame = frame.copy()
 
-        return self._composite_array(frame, alpha, width, height, matte_version)
+        return self._composite_array(frame, alpha, width, height, matte_version,
+                                     mirror=mirror)
 
     def _composite_array(self, frame: np.ndarray, alpha: np.ndarray,
                          width: int, height: int,
-                         matte_version: int | None = None) -> np.ndarray:
+                         matte_version: int | None = None,
+                         mirror: bool = False) -> np.ndarray:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
+        self.last_output_mirrored = False
         # Ensure alpha matches frame dimensions
         if alpha.shape[0] != height or alpha.shape[1] != width:
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
@@ -2395,8 +2406,9 @@ class VideoEffects:
 
         # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass
         if self._use_fused_kernel and self._cupy is not None:
-            result = self._composite_fused(frame, alpha, width, height)
+            result = self._composite_fused(frame, alpha, width, height, mirror=mirror)
             if result is not None:
+                self.last_output_mirrored = mirror
                 return result
 
         # Standard compositing path
@@ -2421,7 +2433,9 @@ class VideoEffects:
             return frame_data
         return result.tobytes()
 
-    def process_frame_array(self, frame: np.ndarray, width: int, height: int) -> np.ndarray:
+    def process_frame_array(self, frame: np.ndarray, width: int, height: int,
+                            mirror: bool = False) -> np.ndarray:
+        self.last_output_mirrored = False
         if not self._bg_removal_enabled or not self._initialized:
             return frame
 
@@ -2451,7 +2465,8 @@ class VideoEffects:
             if alpha is None:
                 return frame
 
-        return self._composite_array(frame, alpha, width, height, matte_version)
+        return self._composite_array(frame, alpha, width, height, matte_version,
+                                     mirror=mirror)
 
     def _run_inference(self, frame: np.ndarray, width: int, height: int,
                        matte_version: int | None = None) -> np.ndarray | None:
@@ -2661,7 +2676,8 @@ class VideoEffects:
     # ─── Fused CUDA Kernel (DocZeus/Killer) ─────────────────────────────
 
     def _composite_fused(self, frame: np.ndarray, alpha: np.ndarray,
-                         width: int, height: int) -> np.ndarray | None:
+                         width: int, height: int,
+                         mirror: bool = False) -> np.ndarray | None:
         """Single-pass GPU composite: blend + enhance + vignette in one kernel."""
         kernel = _get_fused_kernel()
         if kernel is None:
@@ -2670,15 +2686,19 @@ class VideoEffects:
             cp = self._cupy
             total = width * height
 
-            # Build background
+            # Keep replace-mode foreground cleanup identical to the CPU/CuPy
+            # blend path so hair/edge fringe does not reappear only in
+            # DocZeus/Killer fused compositing.
+            if self._bg_mode == "replace" and self._bg_image is not None:
+                frame = self._prepare_replace_foreground(frame, alpha)
+            fg_gpu = cp.asarray(frame)
+
+            # Build background on-device from the already-uploaded frame so
+            # blur/remove modes never touch the CPU or pay a second upload.
             if self._bg_mode == "blur":
-                bg = cv2.GaussianBlur(frame, (self._blur_strength, self._blur_strength), 0)
-                bg_gpu = cp.asarray(bg)
+                bg_gpu = self._gpu_blur_bgra(fg_gpu, self._blur_strength)
             elif self._bg_mode == "remove":
-                bg = np.zeros_like(frame)
-                bg[:, :, 1] = 255
-                bg[:, :, 3] = 255
-                bg_gpu = cp.asarray(bg)
+                bg_gpu = self._gpu_green_bg(height, width)
             else:
                 bg = self._get_bg_image(frame, width, height)
                 bg_source_id = id(bg)
@@ -2692,12 +2712,6 @@ class VideoEffects:
                     self._fused_bg_size = (width, height)
                 bg_gpu = self._fused_bg_gpu
 
-            # Upload all to GPU in one batch. Keep replace-mode foreground
-            # cleanup identical to the CPU/CuPy blend path so hair/edge fringe
-            # does not reappear only in DocZeus/Killer fused compositing.
-            if self._bg_mode == "replace" and self._bg_image is not None:
-                frame = self._prepare_replace_foreground(frame, alpha)
-            fg_gpu = cp.asarray(frame)
             alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
             output_gpu = cp.empty_like(fg_gpu)
 
@@ -2732,12 +2746,45 @@ class VideoEffects:
                 cp.float32(self._fused_contrast),
                 cp.float32(self._fused_warmth),
             ))
+            if mirror:
+                # Horizontal flip on-device so the caller can skip cv2.flip.
+                output_gpu = cp.ascontiguousarray(output_gpu[:, ::-1, :])
             cp.cuda.Stream.null.synchronize()
 
             return cp.asnumpy(output_gpu)
         except Exception as e:
             print(f"[NV Broadcast] Fused kernel error: {e}")
             return None
+
+    def _gpu_blur_bgra(self, frame_gpu, ksize: int):
+        """Gaussian-blur a uint8 BGRA frame on GPU, matching cv2.GaussianBlur.
+
+        cv2 derives sigma from the kernel size when sigma=0; mode='mirror'
+        matches BORDER_REFLECT_101. Filter in float32 — filtering uint8
+        directly rounds per separable pass and causes visible banding.
+        """
+        cp = self._cupy
+        from cupyx.scipy import ndimage as cndi
+        sigma = 0.3 * ((ksize - 1) * 0.5 - 1) + 0.8
+        truncate = (ksize // 2) / sigma
+        blurred = cndi.gaussian_filter(
+            frame_gpu.astype(cp.float32), sigma=(sigma, sigma, 0),
+            truncate=truncate, mode="mirror")
+        bg = cp.clip(blurred, 0, 255).astype(cp.uint8)
+        bg[:, :, 3] = 255
+        return bg
+
+    def _gpu_green_bg(self, height: int, width: int):
+        """Cached device-resident green-screen background for remove mode."""
+        cp = self._cupy
+        if (self._fused_green_bg_gpu is None
+                or self._fused_green_bg_size != (width, height)):
+            bg = cp.zeros((height, width, 4), dtype=cp.uint8)
+            bg[:, :, 1] = 255
+            bg[:, :, 3] = 255
+            self._fused_green_bg_gpu = bg
+            self._fused_green_bg_size = (width, height)
+        return self._fused_green_bg_gpu
 
     def _get_bg_image(self, frame: np.ndarray, width: int, height: int) -> np.ndarray:
         """Get background image resized to match frame."""
