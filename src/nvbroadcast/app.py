@@ -268,6 +268,20 @@ class NVBroadcastApp(Adw.Application):
                     "Set NVBROADCAST_ENABLE_LEGACY_TRAY=1 to force-enable it."
                 )
 
+            # Preview textures are only worth building while the window is
+            # visible; each tick otherwise costs a full-frame copy plus a
+            # GTK GPU upload.
+            def _on_window_mapped(*_a):
+                if self._video_pipeline is not None:
+                    self._video_pipeline.set_preview_enabled(True)
+
+            def _on_window_unmapped(*_a):
+                if self._video_pipeline is not None:
+                    self._video_pipeline.set_preview_enabled(False)
+
+            self._window.connect("map", _on_window_mapped)
+            self._window.connect("unmap", _on_window_unmapped)
+
             # Camera power save: poll for vcam consumers
             GLib.timeout_add(5000, self._check_vcam_consumers)
 
