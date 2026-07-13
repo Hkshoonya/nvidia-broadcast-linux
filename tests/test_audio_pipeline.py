@@ -199,5 +199,56 @@ class AudioPipelineLifecycleTests(unittest.TestCase):
         terminate.assert_called_once_with(stale_pid)
 
 
+def _pactl_result(payload):
+    result = mock.Mock()
+    result.returncode = 0
+    result.stdout = payload
+    return result
+
+
+class VirtualMicConsumerCountTests(unittest.TestCase):
+    """The counter must see only real recorders on nvbroadcast_mic — the
+    remap module holds nvbroadcast_sink.monitor open forever, and counting
+    that stream kept mic power save from ever engaging."""
+
+    SOURCES = (
+        '[{"index": 40, "name": "nvbroadcast_sink.monitor"},'
+        ' {"index": 41, "name": "nvbroadcast_mic"},'
+        ' {"index": 42, "name": "alsa_input.usb-mic"}]'
+    )
+
+    def _count(self, sources_json, outputs_json):
+        pipeline = AudioPipeline(use_helper_process=False)
+
+        def fake_run(cmd, **kwargs):
+            return _pactl_result(
+                sources_json if "sources" in cmd else outputs_json)
+
+        with mock.patch("nvbroadcast.audio.pipeline.subprocess.run",
+                        side_effect=fake_run):
+            return pipeline._count_virtual_mic_consumers()
+
+    def test_monitor_held_by_remap_module_counts_zero(self):
+        outputs = '[{"index": 7, "source": 40}]'  # remap loop on the monitor
+        self.assertEqual(self._count(self.SOURCES, outputs), 0)
+
+    def test_real_recorder_on_virtual_mic_counts(self):
+        outputs = '[{"index": 7, "source": 40}, {"index": 8, "source": 41}]'
+        self.assertEqual(self._count(self.SOURCES, outputs), 1)
+
+    def test_missing_virtual_mic_source_returns_none(self):
+        sources = '[{"index": 40, "name": "nvbroadcast_sink.monitor"}]'
+        self.assertIsNone(self._count(sources, "[]"))
+
+    def test_pactl_failure_returns_none(self):
+        pipeline = AudioPipeline(use_helper_process=False)
+        failed = mock.Mock()
+        failed.returncode = 1
+        failed.stdout = ""
+        with mock.patch("nvbroadcast.audio.pipeline.subprocess.run",
+                        return_value=failed):
+            self.assertIsNone(pipeline._count_virtual_mic_consumers())
+
+
 if __name__ == "__main__":
     unittest.main()

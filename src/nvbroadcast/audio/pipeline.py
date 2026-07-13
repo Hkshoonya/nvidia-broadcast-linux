@@ -24,6 +24,7 @@ import numpy as np
 
 from nvbroadcast.audio.effects import AudioEffects
 from nvbroadcast.audio.virtual_mic import (
+    VIRTUAL_MIC_SOURCE_NAME,
     create_virtual_mic,
     destroy_virtual_mic,
     has_virtual_mic_backend,
@@ -636,8 +637,12 @@ class AudioPipeline:
                                   capture_output=True, text=True, timeout=2)
             if srcs.returncode != 0 or outs.returncode != 0:
                 return None
+            # Count only the remap source apps record from. Substring
+            # matching would also catch nvbroadcast_sink.monitor, which the
+            # remap module itself holds open forever — that made the count
+            # permanently >=1 and power save could never engage.
             vm_ids = {s.get("index") for s in json.loads(srcs.stdout)
-                      if "nvbroadcast" in str(s.get("name", ""))}
+                      if s.get("name") == VIRTUAL_MIC_SOURCE_NAME}
             if not vm_ids:
                 return None
             return sum(1 for o in json.loads(outs.stdout)
