@@ -28,6 +28,7 @@ def _build_pipeline(state: dict) -> AudioPipeline:
         mic_device=state.get("mic_device", ""),
         sample_rate=int(state.get("sample_rate", 48000)),
     )
+    pipeline.auto_idle = bool(state.get("auto_idle", True))
     pipeline.effects.enabled = bool(state.get("noise_removal", False))
     pipeline.effects.intensity = float(state.get("noise_intensity", 1.0))
     pipeline.voice_fx.enabled = bool(state.get("voice_fx_enabled", False))

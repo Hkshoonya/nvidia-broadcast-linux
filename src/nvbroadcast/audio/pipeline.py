@@ -79,6 +79,12 @@ class AudioPipeline:
         self._output_buffer_queue: queue.Queue[np.ndarray | None] = queue.Queue(maxsize=64)
         self._output_worker: threading.Thread | None = None
         self._stop_output_worker = threading.Event()
+        # Mic power save: pause capture while nothing records from the
+        # virtual mic. Mirrors the video camera power save.
+        self.auto_idle = True
+        self._audio_idle = False
+        self._idle_monitor: threading.Thread | None = None
+        self._idle_monitor_stop = threading.Event()
         self._debug_audio = os.getenv("NVBROADCAST_AUDIO_DEBUG", "").strip().lower() in {
             "1",
             "true",
@@ -530,6 +536,7 @@ class AudioPipeline:
             "sample_rate": self._sample_rate,
             "noise_removal": self._effects.enabled,
             "noise_intensity": self._effects.intensity,
+            "auto_idle": self.auto_idle,
             "voice_fx_enabled": self.voice_fx.enabled,
             "voice_fx_use_gpu": self.voice_fx.use_gpu,
             "voice_fx_settings": {
@@ -612,6 +619,85 @@ class AudioPipeline:
                 pass
         self._output_process = None
 
+    # ─── Mic power save ─────────────────────────────────────────────────
+
+    def _count_virtual_mic_consumers(self) -> int | None:
+        """Count recording streams on the virtual mic source.
+
+        Returns None when the answer is not trustworthy (pactl missing,
+        error, no virtual mic found) — callers MUST treat None as "in use"
+        so a detection failure can never silence someone's microphone.
+        """
+        import json
+        try:
+            srcs = subprocess.run(["pactl", "-f", "json", "list", "sources"],
+                                  capture_output=True, text=True, timeout=2)
+            outs = subprocess.run(["pactl", "-f", "json", "list", "source-outputs"],
+                                  capture_output=True, text=True, timeout=2)
+            if srcs.returncode != 0 or outs.returncode != 0:
+                return None
+            vm_ids = {s.get("index") for s in json.loads(srcs.stdout)
+                      if "nvbroadcast" in str(s.get("name", ""))}
+            if not vm_ids:
+                return None
+            return sum(1 for o in json.loads(outs.stdout)
+                       if o.get("source") in vm_ids)
+        except Exception:
+            return None
+
+    def _start_idle_monitor(self):
+        if not self.auto_idle or self.uses_helper_process:
+            return
+        if not self._uses_loopback_virtual_mic:
+            return
+        self._audio_idle = False
+        self._idle_monitor_stop.clear()
+        self._idle_monitor = threading.Thread(
+            target=self._idle_monitor_main, daemon=True,
+            name="nvbroadcast-audio-idle")
+        self._idle_monitor.start()
+
+    def _stop_idle_monitor(self):
+        self._idle_monitor_stop.set()
+        self._idle_monitor = None
+        self._audio_idle = False
+
+    def _idle_monitor_main(self):
+        """Idle after 3 consecutive no-consumer checks; wake within 0.5s."""
+        strikes = 0
+        while not self._idle_monitor_stop.wait(0.5 if self._audio_idle else 5.0):
+            if not self._running:
+                strikes = 0
+                continue
+            consumers = self._count_virtual_mic_consumers()
+            if self._audio_idle:
+                if consumers != 0:  # any consumer, or unknown -> resume
+                    self._set_audio_idle(False)
+                    strikes = 0
+            elif consumers == 0:
+                strikes += 1
+                if strikes >= 3:
+                    self._set_audio_idle(True)
+                    strikes = 0
+            else:
+                strikes = 0
+
+    def _set_audio_idle(self, idle: bool):
+        """Pause/resume the mic capture pipeline; the virtual mic device
+        and output transport stay alive so apps keep listing it."""
+        pipeline = self._capture_pipeline or self._pipeline
+        if pipeline is None:
+            return
+        try:
+            target = Gst.State.PAUSED if idle else Gst.State.PLAYING
+            if pipeline.set_state(target) == Gst.StateChangeReturn.FAILURE:
+                return
+            self._audio_idle = idle
+            print(f"[NV Broadcast] Mic capture "
+                  f"{'idled (power save)' if idle else 'resumed'}", flush=True)
+        except Exception as e:
+            print(f"[NV Broadcast] Mic power save toggle failed: {e}", flush=True)
+
     def start(self):
         if self.uses_helper_process:
             if self._manage_virtual_mic and not create_virtual_mic():
@@ -642,6 +728,7 @@ class AudioPipeline:
             self._effects.initialize()
             self._capture_pipeline.set_state(Gst.State.PLAYING)
             self._running = True
+            self._start_idle_monitor()
             return
 
         if self._pipeline:
@@ -653,8 +740,10 @@ class AudioPipeline:
             self._effects.initialize()
             self._pipeline.set_state(Gst.State.PLAYING)
             self._running = True
+            self._start_idle_monitor()
 
     def stop(self):
+        self._stop_idle_monitor()
         capture_pipeline = self._capture_pipeline
         output_pipeline = self._output_pipeline
         legacy_pipeline = self._pipeline
