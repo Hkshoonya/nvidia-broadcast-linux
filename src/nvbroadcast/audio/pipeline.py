@@ -556,11 +556,20 @@ class AudioPipeline:
         else:
             # Keep the helper's diagnostics inspectable — DEVNULL hid
             # "denoiser failed to initialize" style messages entirely.
+            # Private permissions: the log names audio devices and settings.
             try:
                 log_dir = Path(os.environ.get("XDG_CACHE_HOME",
                                               Path.home() / ".cache")) / "nvbroadcast"
                 log_dir.mkdir(parents=True, exist_ok=True)
-                stdio = open(log_dir / "audio-helper.log", "w")
+                fd = os.open(log_dir / "audio-helper.log",
+                             os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                try:
+                    # O_CREAT mode only applies to new files; fix up files
+                    # created by earlier builds with wider permissions.
+                    os.fchmod(fd, 0o600)
+                except OSError:
+                    pass
+                stdio = os.fdopen(fd, "w")
             except Exception:
                 stdio = subprocess.DEVNULL
         cmd = [

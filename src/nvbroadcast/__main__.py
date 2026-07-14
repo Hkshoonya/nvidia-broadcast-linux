@@ -25,14 +25,26 @@ def _redirect_output_to_log():
 
         from nvbroadcast.core.constants import LOG_FILE, LOG_MAX_BYTES, STATE_DIR
 
+        # Logs capture window titles, device names and library errors —
+        # keep the directory and files private to the user.
         STATE_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(STATE_DIR, 0o700)
+        except OSError:
+            pass
         try:
             if LOG_FILE.stat().st_size > LOG_MAX_BYTES:
                 os.replace(LOG_FILE, LOG_FILE.with_suffix(".log.old"))
         except OSError:
             pass
 
-        fd = os.open(LOG_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        fd = os.open(LOG_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            # O_CREAT mode only applies to new files; fix up files created
+            # by earlier builds with wider permissions.
+            os.fchmod(fd, 0o600)
+        except OSError:
+            pass
         os.dup2(fd, 1)
         os.dup2(fd, 2)
         os.close(fd)
