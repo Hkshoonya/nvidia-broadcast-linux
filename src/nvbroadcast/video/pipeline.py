@@ -35,6 +35,12 @@ from nvbroadcast.core.constants import (
 _CUDA_SAFE_FORMATS = {"YUY2", "UYVY", "NV12", "I420", "BGRA", "RGBA"}
 
 
+class _GpuPathFatal(RuntimeError):
+    """A GPU frame path failure that cannot succeed on retry (for example a
+    caps negotiation the processor does not support). Demotes immediately
+    instead of burning the 3-strike transient budget on frozen frames."""
+
+
 class VideoPipeline:
     # One-time probe result shared across instances (None = not yet probed)
     _cuda_convert_probe_result: bool | None = None
@@ -103,6 +109,9 @@ class VideoPipeline:
         self._gpu_jpeg_demoted = False
         self._gpu_frame_size = (0, 0)
         self._frozen_yuy2 = None
+        # Last successfully pushed vcam payload (payload, (w, h)) — replayed
+        # on GPU path errors so consumers never see the stream stall.
+        self._last_good_yuy2 = None
 
     def _v4l2sink_segment(self) -> str:
         """Build a loopback sink path that avoids buggy allocation queries.
@@ -836,7 +845,7 @@ class VideoPipeline:
                 width = s.get_value("width")
                 height = s.get_value("height")
                 if not proc.configure(width, height, fmt):
-                    raise RuntimeError(
+                    raise _GpuPathFatal(
                         f"appsink negotiated unsupported {fmt} {width}x{height}")
                 self._gpu_frame_size = (width, height)
 
@@ -908,6 +917,7 @@ class VideoPipeline:
                     payload = proc.download_yuy2().tobytes()
                     if self._paused and self._frozen_yuy2 is None:
                         self._frozen_yuy2 = payload
+                    self._last_good_yuy2 = (payload, (width, height))
                     vcam_buf = Gst.Buffer.new_allocate(None, len(payload), None)
                     vcam_buf.fill(0, payload)
                     vcam_buf.pts = buf_pts
@@ -917,9 +927,21 @@ class VideoPipeline:
                 self._gpu_path_errors = 0
                 return Gst.FlowReturn.OK
             except Exception as e:
-                self._gpu_path_errors += 1
+                if isinstance(e, _GpuPathFatal):
+                    self._gpu_path_errors = 3
+                else:
+                    self._gpu_path_errors += 1
                 print(f"[NV Broadcast] GPU frame path error "
                       f"({self._gpu_path_errors}/3): {e}", flush=True)
+                # Bridge the gap with the last good frame so the virtual
+                # camera never stalls while transient failures accumulate
+                # or the demotion rebuild is in flight.
+                last = self._last_good_yuy2
+                if last is not None and last[1] == self._gpu_frame_size:
+                    try:
+                        self._push_yuy2_bytes(last[0], buf_pts, buf_duration)
+                    except Exception:
+                        pass
                 if self._gpu_path_errors >= 3:
                     self._gpu_path_errors = 0
                     if self._gpu_jpeg_active and not self._gpu_jpeg_demoted:
@@ -1114,6 +1136,7 @@ class VideoPipeline:
             self._latest_frame = None
             self._pending_frame = None
             self._frozen_frame = None
+            self._last_good_yuy2 = None
             self._teardown_capture = cap
             self._teardown_vcam = vcam
 
@@ -1147,6 +1170,7 @@ class VideoPipeline:
             self._latest_frame = None
             self._pending_frame = None
             self._frozen_frame = None
+            self._last_good_yuy2 = None
             self._teardown_capture = None
             self._teardown_vcam = None
             self._teardown_done = False

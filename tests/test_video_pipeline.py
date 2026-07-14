@@ -297,5 +297,82 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertEqual(len(set(seen_threads)), 1)
 
 
+class GpuPathFailureBridgingTests(unittest.TestCase):
+    """A GPU frame path error must never leave the virtual camera without a
+    frame: the last good payload is replayed while errors accumulate or the
+    demotion rebuild is in flight."""
+
+    def _make_pipeline(self, processor):
+        pipeline = VideoPipeline()
+        pipeline._running = True
+        pipeline._vcam_enabled = True
+        pipeline._vcam_appsrc = mock.Mock()
+        pipeline._frame_processor = processor
+        pipeline._frame_plan = None
+        return pipeline
+
+    @staticmethod
+    def _make_appsink(fmt="I420", width=4, height=2):
+        buf = mock.Mock()
+        buf.pts = 0
+        buf.duration = 0
+        structure = mock.Mock()
+        structure.get_name.return_value = "video/x-raw"
+        structure.get_string.return_value = fmt
+        structure.get_value.side_effect = lambda key: {
+            "width": width, "height": height}[key]
+        caps = mock.Mock()
+        caps.get_structure.return_value = structure
+        sample = mock.Mock()
+        sample.get_buffer.return_value = buf
+        sample.get_caps.return_value = caps
+        appsink = mock.Mock()
+        appsink.emit.return_value = sample
+        return appsink
+
+    def test_transient_error_replays_last_good_frame(self):
+        processor = mock.Mock()
+        processor.configure.return_value = True
+        processor.ingest.side_effect = RuntimeError("transient CUDA hiccup")
+        pipeline = self._make_pipeline(processor)
+        payload = b"\x80" * (4 * 2 * 2)
+        pipeline._last_good_yuy2 = (payload, (4, 2))
+        pipeline._gpu_frame_size = (4, 2)
+
+        result = pipeline._on_effects_sample_gpu(self._make_appsink())
+
+        self.assertEqual(result, Gst.FlowReturn.OK)
+        self.assertEqual(pipeline._gpu_path_errors, 1)
+        self.assertFalse(pipeline._gpu_path_demoted)
+        pushes = [c for c in pipeline._vcam_appsrc.emit.call_args_list
+                  if c.args[0] == "push-buffer"]
+        self.assertEqual(len(pushes), 1, "vcam must still receive a frame")
+        self.assertEqual(pushes[0].args[1].get_size(), len(payload))
+
+    def test_stale_sized_frame_is_not_replayed(self):
+        processor = mock.Mock()
+        processor.configure.return_value = True
+        processor.ingest.side_effect = RuntimeError("transient CUDA hiccup")
+        pipeline = self._make_pipeline(processor)
+        pipeline._last_good_yuy2 = (b"\x80" * 16, (2, 2))  # pre-rebuild size
+
+        pipeline._on_effects_sample_gpu(self._make_appsink(width=4, height=2))
+
+        pushes = [c for c in pipeline._vcam_appsrc.emit.call_args_list
+                  if c.args[0] == "push-buffer"]
+        self.assertEqual(pushes, [], "wrong-sized payload must not be pushed")
+
+    def test_unsupported_negotiation_demotes_immediately(self):
+        processor = mock.Mock()
+        processor.configure.return_value = False  # can never succeed on retry
+        pipeline = self._make_pipeline(processor)
+
+        result = pipeline._on_effects_sample_gpu(self._make_appsink())
+
+        self.assertEqual(result, Gst.FlowReturn.OK)
+        self.assertTrue(pipeline._gpu_path_demoted,
+                        "persistent failure should not burn the 3-strike budget")
+
+
 if __name__ == "__main__":
     unittest.main()
