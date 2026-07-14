@@ -2338,6 +2338,15 @@ class NVBroadcastApp(Adw.Application):
 
     def do_shutdown(self):
         save_config(self.config)
+        # Unregister the SNI item and its dbusmenu explicitly; otherwise the
+        # tray host only notices when the bus connection dies and a stale
+        # icon can linger. The legacy tray has no shutdown, hence the guard.
+        if self._tray is not None and hasattr(self._tray, "shutdown"):
+            try:
+                self._tray.shutdown()
+            except Exception:
+                pass
+            self._tray = None
         if self._meeting_capture:
             self._meeting_capture.stop()
             self._meeting_capture = None
