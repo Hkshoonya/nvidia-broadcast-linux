@@ -49,16 +49,41 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+DOWNLOAD_TIMEOUT_S = 30       # Per connect/read; a dead server must not hang init
+DOWNLOAD_DEADLINE_S = 600     # Whole transfer; a trickling server must not either
+
+
 def _download_model() -> Path:
-    """Download and verify the streaming model if not already present."""
+    """Download and verify the streaming model if not already present.
+
+    Every failure mode raises (and the caller falls back to RNNoise):
+    timeouts are bounded both per read and for the whole transfer, and a
+    checksum mismatch deletes the partial file.
+    """
     model_path = _MODELS_DIR / MODEL_FILENAME
     if model_path.exists() and _sha256(model_path) == MODEL_SHA256:
         return model_path
+    import time
     import urllib.request
     _MODELS_DIR.mkdir(parents=True, exist_ok=True)
     tmp_path = model_path.with_suffix(".part")
     print(f"[NV Broadcast] Downloading {MODEL_FILENAME}...", flush=True)
-    urllib.request.urlretrieve(MODEL_URL, str(tmp_path))
+    deadline = time.monotonic() + DOWNLOAD_DEADLINE_S
+    try:
+        with urllib.request.urlopen(MODEL_URL,
+                                    timeout=DOWNLOAD_TIMEOUT_S) as response, \
+                open(tmp_path, "wb") as out:
+            while True:
+                if time.monotonic() > deadline:
+                    raise TimeoutError(
+                        f"model download exceeded {DOWNLOAD_DEADLINE_S}s")
+                chunk = response.read(1 << 20)
+                if not chunk:
+                    break
+                out.write(chunk)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
     if _sha256(tmp_path) != MODEL_SHA256:
         tmp_path.unlink(missing_ok=True)
         raise RuntimeError("DeepFilterNet model checksum mismatch")
@@ -75,10 +100,24 @@ def _prepare_cuda_compatible(model_path: Path) -> Path:
     session creation fail on CUDA. Splitting it into Conv + Sigmoid is
     bit-exact (verified) and also loads fine on CPU, so the patched file is
     used everywhere.
+
+    The patched file is never trusted just because it exists: a sidecar
+    records the source model hash it was generated from and its own hash,
+    and any mismatch (corruption, tampering, or a new source model)
+    regenerates it from the already checksum-verified source.
     """
     patched_path = model_path.with_name(model_path.stem + "_unfused.onnx")
+    stamp_path = patched_path.with_name(patched_path.name + ".sha256")
     if patched_path.exists():
-        return patched_path
+        try:
+            recorded_source, recorded_patched = stamp_path.read_text().split()
+            if (recorded_source == MODEL_SHA256
+                    and _sha256(patched_path) == recorded_patched):
+                return patched_path
+        except (OSError, ValueError):
+            pass
+        print("[NV Broadcast] Cached DeepFilterNet graph failed verification; "
+              "regenerating", flush=True)
     import onnx
     from onnx import helper
 
@@ -107,7 +146,13 @@ def _prepare_cuda_compatible(model_path: Path) -> Path:
         return model_path
     del model.graph.node[:]
     model.graph.node.extend(new_nodes)
-    onnx.save(model, str(patched_path))
+    # Write-then-rename so a crash mid-save cannot leave a truncated graph;
+    # the stamp is written last, so a stale stamp only ever causes a
+    # harmless regeneration, never acceptance of a bad file.
+    tmp_path = patched_path.with_suffix(".part")
+    onnx.save(model, str(tmp_path))
+    tmp_path.replace(patched_path)
+    stamp_path.write_text(f"{MODEL_SHA256} {_sha256(patched_path)}\n")
     return patched_path
 
 
