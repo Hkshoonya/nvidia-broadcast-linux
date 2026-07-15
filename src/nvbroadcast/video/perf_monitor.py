@@ -1,8 +1,57 @@
 """Performance monitoring — FPS, GPU usage, VRAM."""
 
+import ctypes
 import subprocess
 import threading
 import time
+
+
+class _Nvml:
+    """Minimal ctypes NVML wrapper — one in-process query instead of an
+    nvidia-smi fork every poll. pynvml is not a dependency; libnvidia-ml
+    ships with the driver."""
+
+    class _Utilization(ctypes.Structure):
+        _fields_ = [("gpu", ctypes.c_uint), ("memory", ctypes.c_uint)]
+
+    class _Memory(ctypes.Structure):
+        _fields_ = [("total", ctypes.c_ulonglong),
+                    ("free", ctypes.c_ulonglong),
+                    ("used", ctypes.c_ulonglong)]
+
+    def __init__(self, gpu_index: int):
+        self._lib = ctypes.CDLL("libnvidia-ml.so.1")
+        if self._lib.nvmlInit_v2() != 0:
+            raise OSError("nvmlInit failed")
+        self._handle = ctypes.c_void_p()
+        if self._lib.nvmlDeviceGetHandleByIndex_v2(
+                gpu_index, ctypes.byref(self._handle)) != 0:
+            self._lib.nvmlShutdown()
+            raise OSError(f"no NVML handle for GPU {gpu_index}")
+
+    def query(self) -> tuple[int, int, int, int]:
+        """Return (gpu_util_pct, vram_used_mb, vram_total_mb, temp_c)."""
+        util = self._Utilization()
+        mem = self._Memory()
+        temp = ctypes.c_uint()
+        if self._lib.nvmlDeviceGetUtilizationRates(
+                self._handle, ctypes.byref(util)) != 0:
+            raise OSError("utilization query failed")
+        if self._lib.nvmlDeviceGetMemoryInfo(
+                self._handle, ctypes.byref(mem)) != 0:
+            raise OSError("memory query failed")
+        # 0 = NVML_TEMPERATURE_GPU
+        if self._lib.nvmlDeviceGetTemperature(
+                self._handle, 0, ctypes.byref(temp)) != 0:
+            raise OSError("temperature query failed")
+        return (int(util.gpu), int(mem.used >> 20), int(mem.total >> 20),
+                int(temp.value))
+
+    def close(self):
+        try:
+            self._lib.nvmlShutdown()
+        except Exception:
+            pass
 
 
 class PerfMonitor:
@@ -71,26 +120,49 @@ class PerfMonitor:
         if self._vram_total > 0:
             parts.append(f"GPU {self._gpu_index} {self._gpu_util}%")
             parts.append(f"VRAM {self._vram_used}MB/{self._vram_total}MB")
-            parts.append(f"{self._gpu_temp}\u00b0C")
+            parts.append(f"{self._gpu_temp}°C")
         return "  |  ".join(parts)
 
     def _poll_gpu(self):
-        """Poll nvidia-smi every 2 seconds."""
+        """Poll GPU stats every 2 seconds — NVML in-process, nvidia-smi
+        subprocess only as fallback."""
+        nvml = None
+        nvml_index = None
         while self._running:
+            if nvml is not None and nvml_index != self._gpu_index:
+                nvml.close()
+                nvml = None
+            if nvml is None:
+                try:
+                    nvml = _Nvml(self._gpu_index)
+                    nvml_index = self._gpu_index
+                except Exception:
+                    nvml = None
             try:
-                result = subprocess.run(
-                    ["nvidia-smi",
-                     f"--id={self._gpu_index}",
-                     "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
-                     "--format=csv,noheader,nounits"],
-                    capture_output=True, text=True, timeout=3,
-                )
-                parts = [p.strip() for p in result.stdout.strip().split(",")]
-                if len(parts) >= 4:
-                    self._gpu_util = int(parts[0])
-                    self._vram_used = int(parts[1])
-                    self._vram_total = int(parts[2])
-                    self._gpu_temp = int(parts[3])
+                if nvml is not None:
+                    (self._gpu_util, self._vram_used,
+                     self._vram_total, self._gpu_temp) = nvml.query()
+                else:
+                    self._poll_gpu_smi()
             except Exception:
-                pass
+                if nvml is not None:
+                    nvml.close()
+                    nvml = None
             time.sleep(2)
+        if nvml is not None:
+            nvml.close()
+
+    def _poll_gpu_smi(self):
+        result = subprocess.run(
+            ["nvidia-smi",
+             f"--id={self._gpu_index}",
+             "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+        )
+        parts = [p.strip() for p in result.stdout.strip().split(",")]
+        if len(parts) >= 4:
+            self._gpu_util = int(parts[0])
+            self._vram_used = int(parts[1])
+            self._vram_total = int(parts[2])
+            self._gpu_temp = int(parts[3])

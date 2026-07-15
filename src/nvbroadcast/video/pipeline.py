@@ -48,6 +48,8 @@ class VideoPipeline:
         self._effect_callback = None
         self._alpha_callback = None
         self._preview_callback = None
+        self._preview_enabled = True
+        self._preview_timer_id = 0
         self._vcam_appsrc = None
         self._vcam_enabled = True
         self._effects_active = False
@@ -322,6 +324,31 @@ class VideoPipeline:
     def set_preview_callback(self, callback):
         self._preview_callback = callback
 
+    def set_preview_enabled(self, enabled: bool):
+        """Gate the preview timer on window visibility.
+
+        Building a Gdk texture is a full-frame copy plus a GPU upload per
+        tick; while the window is hidden the timer itself is removed so the
+        main loop stops waking at frame rate entirely.
+        """
+        self._preview_enabled = bool(enabled)
+        if self._preview_enabled:
+            self._start_preview_timer()
+        else:
+            self._stop_preview_timer()
+
+    def _start_preview_timer(self):
+        if (self._preview_timer_id or not self._preview_enabled
+                or not self._preview_callback or self._pipeline is None):
+            return
+        preview_ms = max(16, 1000 // self._fps)  # Match camera fps (16ms = 60fps)
+        self._preview_timer_id = GLib.timeout_add(preview_ms, self._tick_preview)
+
+    def _stop_preview_timer(self):
+        if self._preview_timer_id:
+            GLib.source_remove(self._preview_timer_id)
+            self._preview_timer_id = 0
+
     def set_paused(self, paused: bool):
         """Freeze/unfreeze video output. Camera stays on but output freezes."""
         self._paused = paused
@@ -367,9 +394,7 @@ class VideoPipeline:
         else:
             self._build_passthrough_pipeline(vcam_enabled)
 
-        if self._preview_callback:
-            preview_ms = max(16, 1000 // self._fps)  # Match camera fps (16ms = 60fps)
-            GLib.timeout_add(preview_ms, self._tick_preview)
+        self._start_preview_timer()
 
     def _build_passthrough_pipeline(self, vcam_enabled: bool):
         """Direct GStreamer pipeline - ZERO Python processing.
@@ -742,6 +767,7 @@ class VideoPipeline:
 
     def _tick_preview(self) -> bool:
         if self._pipeline is None:
+            self._preview_timer_id = 0
             return False
 
         with self._lock:
@@ -749,6 +775,9 @@ class VideoPipeline:
             self._latest_frame = None
 
         if frame is None or self._preview_callback is None:
+            return True
+        if not self._preview_enabled:
+            # Window hidden: skip the full-frame copy + texture upload.
             return True
 
         expected = self._width * self._height * 4
@@ -802,6 +831,7 @@ class VideoPipeline:
     def stop(self, clear_rebuild_request: bool = True):
         if clear_rebuild_request:
             self._cancel_rebuild()
+        self._stop_preview_timer()
         with self._teardown_lock:
             if not self._teardown_done:
                 return
@@ -836,6 +866,7 @@ class VideoPipeline:
         and release native resources before Python/GTK starts finalizing.
         """
         self._cancel_rebuild()
+        self._stop_preview_timer()
         with self._teardown_lock:
             self._running = False
             if self._teardown_source_id:
