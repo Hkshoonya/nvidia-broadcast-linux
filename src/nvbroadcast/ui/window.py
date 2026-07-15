@@ -27,6 +27,16 @@ from nvbroadcast.core.platform import has_tensorrt_runtime, supports_tensorrt_py
 from nvbroadcast.core.resources import find_app_icon
 
 
+# Keep project authorship, financial sponsorship, and accepted contributions
+# separate. Add contributors here only after their pull request has been merged.
+_APP_SPONSORS = [
+    "Mattsky — GitHub Sponsor https://github.com/Mattsky",
+]
+_APP_CONTRIBUTORS = [
+    "Jon Fuller (@perfectra1n) https://github.com/perfectra1n",
+]
+
+
 def _collapsible_card(
     title: str,
     content: Gtk.Widget,
@@ -2017,7 +2027,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             issue_url="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues",
             license_type=Gtk.License.GPL_3_0,
             copyright="Copyright (c) 2026 doczeus",
-            developers=["doczeus https://github.com/Hkshoonya"],
+            developers=["Code by doczeus https://github.com/Hkshoonya"],
             comments=(
                 "Unofficial NVIDIA Broadcast for Linux and other OS.\n\n"
                 "AI-powered virtual camera with background removal, blur, "
@@ -2025,11 +2035,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 "cancellation using GPU-accelerated deep learning.\n\n"
                 "9 processing modes including Killer, Zeus, and DocZeus "
                 "with fused CUDA kernels and edge refinement.\n\n"
-                "Created by doczeus | AI Powered"
+                "Code and original app by doczeus | AI Powered"
             ),
         )
         if hasattr(about, "add_credit_section"):
-            about.add_credit_section("Backers & Supporters", ["Mattsky https://github.com/Mattsky"])
+            about.add_credit_section("Project Sponsors", _APP_SPONSORS)
+            about.add_credit_section("Contributions to App", _APP_CONTRIBUTORS)
         about.add_link("Sponsor on GitHub", "https://github.com/sponsors/Hkshoonya")
         about.present()
 

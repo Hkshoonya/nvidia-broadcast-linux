@@ -288,11 +288,14 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("release_tag is required when publishing from workflow_dispatch", workflow)
         self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
 
-    def test_about_window_lists_public_backers_by_tier(self):
+    def test_about_window_separates_authorship_sponsors_and_contributors(self):
         window = (REPO_ROOT / "src" / "nvbroadcast" / "ui" / "window.py").read_text()
-        self.assertIn('add_credit_section("Backers & Supporters"', window)
-        self.assertIn("Mattsky https://github.com/Mattsky", window)
-        self.assertNotIn('add_credit_section("Featured Sponsors"', window)
+        self.assertIn('developers=["Code by doczeus https://github.com/Hkshoonya"]', window)
+        self.assertIn('add_credit_section("Project Sponsors", _APP_SPONSORS)', window)
+        self.assertIn("Mattsky — GitHub Sponsor https://github.com/Mattsky", window)
+        self.assertIn('add_credit_section("Contributions to App", _APP_CONTRIBUTORS)', window)
+        self.assertIn("Jon Fuller (@perfectra1n) https://github.com/perfectra1n", window)
+        self.assertNotIn('add_credit_section("Backers & Supporters"', window)
 
 
 if __name__ == "__main__":
