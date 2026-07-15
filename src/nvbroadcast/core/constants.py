@@ -27,6 +27,15 @@ else:
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 PROFILES_DIR = CONFIG_DIR / "profiles"
 
+if _pf.system() == "Darwin":
+    STATE_DIR = Path.home() / "Library" / "Logs" / "nvbroadcast"
+else:
+    STATE_DIR = Path(
+        os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")
+    ) / "nvbroadcast"
+LOG_FILE = STATE_DIR / "nvbroadcast.log"
+LOG_MAX_BYTES = 2 * 1024 * 1024
+
 MAXINE_VFX_PATH = Path("/usr/local/VideoFX")
 MAXINE_AFX_PATH = Path("/usr/local/AudioFX")
 MAXINE_AR_PATH = Path("/usr/local/ARFX")

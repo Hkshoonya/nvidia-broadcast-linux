@@ -102,7 +102,7 @@ parts:
       - httpx
       - tokenizers
       - soundfile
-      - av
+      - av>=16,<17
       - scipy
       - pyrnnoise
       - psutil

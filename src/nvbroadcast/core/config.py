@@ -5,6 +5,7 @@
 #
 """User configuration management - persists all settings across sessions."""
 
+import os
 import tomllib
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -284,12 +285,28 @@ def _load_from_toml(filepath: Path) -> AppConfig:
 
 
 def load_config() -> AppConfig:
+    """Load the config, falling back to the last-good backup on corruption.
+
+    Silently defaulting on a parse error loses every user setting the
+    moment anything re-saves — a truncated write (crash mid-save) used to
+    wipe the config invisibly.
+    """
     if not CONFIG_FILE.exists():
         return AppConfig()
     try:
         return _load_from_toml(CONFIG_FILE)
-    except Exception:
-        return AppConfig()
+    except Exception as e:
+        print(f"[NV Broadcast] Config file unreadable ({e}); "
+              f"trying backup", flush=True)
+    backup = CONFIG_FILE.with_suffix(".toml.bak")
+    try:
+        if backup.exists():
+            config = _load_from_toml(backup)
+            print("[NV Broadcast] Restored settings from config backup", flush=True)
+            return config
+    except Exception as e:
+        print(f"[NV Broadcast] Config backup also unreadable ({e})", flush=True)
+    return AppConfig()
 
 
 def _bool(val: bool) -> str:
@@ -382,8 +399,21 @@ def _config_to_toml(config: AppConfig) -> str:
 
 
 def save_config(config: AppConfig) -> None:
+    """Atomically persist the config and keep the previous file as backup.
+
+    write_text truncates in place, so a crash mid-save left a corrupt file
+    and the next start silently reset every setting. Write to a temp file
+    and rename over the target instead; rename is atomic on POSIX.
+    """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(_config_to_toml(config))
+    if CONFIG_FILE.exists():
+        try:
+            os.replace(CONFIG_FILE, CONFIG_FILE.with_suffix(".toml.bak"))
+        except OSError:
+            pass
+    tmp = CONFIG_FILE.with_suffix(".toml.tmp")
+    tmp.write_text(_config_to_toml(config))
+    os.replace(tmp, CONFIG_FILE)
 
 
 # ─── User Profiles ───────────────────────────────────────────────────────────

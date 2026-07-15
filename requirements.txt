@@ -30,7 +30,10 @@ scipy>=1.11
 pyvirtualcam>=0.4; sys_platform == "darwin"
 
 # Audio
-av>=12
+# pyrnnoise -> audiolab needs av.option (removed in av 17) and
+# Codec.canonical_name (added in av 14) — av 18 breaks the denoiser import
+# and noise removal silently becomes a no-op.
+av>=16,<17
 pyrnnoise>=0.4
 
 # GPU Compositing (recommended — 150x faster blend, Linux/NVIDIA only)

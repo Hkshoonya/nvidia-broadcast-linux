@@ -89,11 +89,13 @@ class PackagingMetadataTests(unittest.TestCase):
         requirements = (REPO_ROOT / "requirements.txt").read_text()
         install_script = (REPO_ROOT / "install.sh").read_text()
         self.assertIn('"pyrnnoise>=0.4"', pyproject)
-        self.assertIn('"av>=12"', pyproject)
+        # av 17 removed av.option (needed by pyrnnoise->audiolab); av 14
+        # added Codec.canonical_name. Only 16.x satisfies both.
+        self.assertIn('"av>=16,<17"', pyproject)
         self.assertIn("pyrnnoise>=0.4", requirements)
-        self.assertIn("av>=12", requirements)
+        self.assertIn("av>=16,<17", requirements)
         self.assertIn("- pyrnnoise", snapcraft)
-        self.assertIn("- av", snapcraft)
+        self.assertIn("- av>=16,<17", snapcraft)
         self.assertIn("import av; import av.option", install_script)
         self.assertIn("av ... OK", install_script)
 
