@@ -257,22 +257,27 @@ class NVBroadcastApp(Adw.Application):
             self._window.bind_dependency_installer(self._dependency_installer)
             self._window.load_meeting_sessions(self.list_meeting_sessions())
 
-            # Legacy GTK3 AppIndicator tray is opt-in only. Mixing GTK3 tray
+            # Native SNI (StatusNotifierItem) tray — pure D-Bus, safe in a
+            # GTK4 process, works on KDE/Hyprland/waybar/quickshell.
+            try:
+                from nvbroadcast.ui.sni_tray import SniTray
+                self._tray = SniTray(self)
+            except Exception as e:
+                print(f"[NV Broadcast] SNI tray failed: {e}")
+                self._tray = None
+
+            # Legacy GTK3 AppIndicator tray as fallback. Mixing GTK3 tray
             # code into this GTK4 app can terminate startup natively on some
-            # Linux desktops without a Python traceback.
-            if self._legacy_tray_enabled:
+            # Linux desktops without a Python traceback, so it stays gated.
+            if (self._tray is None or not getattr(self._tray, "bus_ready", False)) \
+                    and self._legacy_tray_enabled:
                 try:
                     from nvbroadcast.ui.tray import TrayIcon
                     self._tray = TrayIcon(self)
                     if self._tray.available:
-                        print("[NV Broadcast] System tray icon active")
+                        print("[NV Broadcast] System tray icon active (legacy)")
                 except Exception as e:
                     print(f"[NV Broadcast] Tray icon not available: {e}")
-            else:
-                print(
-                    "[NV Broadcast] Legacy tray integration disabled. "
-                    "Set NVBROADCAST_ENABLE_LEGACY_TRAY=1 to force-enable it."
-                )
 
             # Preview textures are only worth building while the window is
             # visible; each tick otherwise costs a full-frame copy plus a
@@ -2353,6 +2358,15 @@ class NVBroadcastApp(Adw.Application):
 
     def do_shutdown(self):
         save_config(self.config)
+        # Unregister the SNI item and its dbusmenu explicitly; otherwise the
+        # tray host only notices when the bus connection dies and a stale
+        # icon can linger. The legacy tray has no shutdown, hence the guard.
+        if self._tray is not None and hasattr(self._tray, "shutdown"):
+            try:
+                self._tray.shutdown()
+            except Exception:
+                pass
+            self._tray = None
         if self._meeting_capture:
             self._meeting_capture.stop()
             self._meeting_capture = None

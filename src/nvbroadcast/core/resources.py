@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 APP_ICON = "com.doczeus.NVBroadcast.svg"
+APP_ICON_PNG = "com.doczeus.NVBroadcast.png"
 DEFAULT_BACKGROUND = "studio_bg.png"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -38,6 +39,23 @@ def find_app_icon() -> Path | None:
         Path("/usr/local/share/icons/hicolor/scalable/apps") / APP_ICON,
         Path("/usr/share/icons/hicolor/scalable/apps") / APP_ICON,
         PROJECT_ROOT / "data" / "icons" / APP_ICON,
+    ]
+    return _existing(share_candidates)
+
+
+def find_app_icon_png() -> Path | None:
+    """PNG rendition of the app icon.
+
+    The tray icon needs a raster image: GdkPixbuf's PNG loader is always
+    built in, while the SVG loader (librsvg) is often missing from
+    sandboxed runtimes, which left the tray pixmap empty.
+    """
+    share_candidates = [
+        Path(sys.prefix) / "share" / "icons" / "hicolor" / "128x128" / "apps" / APP_ICON_PNG,
+        Path.home() / ".local" / "share" / "icons" / "hicolor" / "128x128" / "apps" / APP_ICON_PNG,
+        Path("/usr/local/share/icons/hicolor/128x128/apps") / APP_ICON_PNG,
+        Path("/usr/share/icons/hicolor/128x128/apps") / APP_ICON_PNG,
+        PROJECT_ROOT / "data" / "icons" / APP_ICON_PNG,
     ]
     return _existing(share_candidates)
 
