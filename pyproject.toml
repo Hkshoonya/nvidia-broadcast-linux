@@ -30,8 +30,14 @@ dependencies = [
     "numpy>=1.26",
     "Pillow>=10.0",
     "opencv-python-headless>=4.8",
-    "mediapipe>=0.10",
-    "onnxruntime>=1.24.4,<1.25",
+    # Current secure macOS wheels are Apple Silicon-only. Requiring 0.10.35
+    # prevents Intel Macs from silently resolving the vulnerable 0.10.21
+    # fallback; install_macos.sh reports the architecture requirement first.
+    "mediapipe>=0.10.35; sys_platform == 'darwin'",
+    "mediapipe>=0.10; sys_platform != 'darwin'",
+    # Version 1.23.2 keeps the supported Apple Silicon runtime on macOS 13+.
+    "onnxruntime>=1.23.2,<1.24; sys_platform == 'darwin'",
+    "onnxruntime>=1.24.4,<1.25; sys_platform != 'darwin'",
     # pyrnnoise publishes Linux wheels only. DeepFilterNet remains available
     # on macOS through ONNX Runtime without this fallback.
     "pyrnnoise>=0.4; sys_platform == 'linux'",

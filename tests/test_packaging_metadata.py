@@ -124,6 +124,20 @@ class PackagingMetadataTests(unittest.TestCase):
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn("pyvirtualcam>=0.14", requirements)
+        self.assertIn(
+            '"mediapipe>=0.10.35; sys_platform == \'darwin\'"', pyproject
+        )
+        self.assertIn(
+            'mediapipe>=0.10.35; sys_platform == "darwin"', requirements
+        )
+        self.assertIn(
+            '"onnxruntime>=1.23.2,<1.24; sys_platform == \'darwin\'"',
+            pyproject,
+        )
+        self.assertIn(
+            'onnxruntime>=1.23.2,<1.24; sys_platform == "darwin"',
+            requirements,
+        )
 
         installers = (
             REPO_ROOT / "install.sh",
@@ -231,14 +245,18 @@ class PackagingMetadataTests(unittest.TestCase):
 
         self.assertIn('python3 -m pip install ".[dev]"', macos_job)
         self.assertIn("python3 -m pip check", macos_job)
+        self.assertIn("python3 -m pip_audit --skip-editable", macos_job)
         self.assertNotIn("--dry-run", macos_job)
         self.assertIn("macos-15", macos_job)
-        self.assertIn("macos-15-intel", macos_job)
+        self.assertNotIn("macos-15-intel", macos_job)
+        for version in ("'3.11'", "'3.12'", "'3.13'"):
+            self.assertIn(version, macos_job)
 
         build_job = workflow.split("  build-macos:", 1)[1].split(
             "  test-macos:", 1
         )[0]
         self.assertNotIn("NVBroadcastExtension.systemextension/**", build_job)
+        self.assertIn('hostArchitectures="arm64"', build_job)
 
     def test_readme_documents_cuda_extra_for_source_gpu_installs(self):
         readme = (REPO_ROOT / "README.md").read_text()
@@ -250,7 +268,10 @@ class PackagingMetadataTests(unittest.TestCase):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         self.assertIn("cuda = [", pyproject)
         self.assertIn('"onnxruntime-gpu==1.24.4"', pyproject)
-        self.assertIn('"onnxruntime>=1.24.4,<1.25"', pyproject)
+        self.assertIn(
+            '"onnxruntime>=1.24.4,<1.25; sys_platform != \'darwin\'"',
+            pyproject,
+        )
         self.assertNotIn('"pycuda>=2024.1"', pyproject)
         self.assertNotIn('"nvidia-cusparse-cu12"', pyproject)
         self.assertNotIn('"nvidia-cusolver-cu12"', pyproject)
@@ -413,9 +434,35 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("httpx", requirements)
         self.assertIn('openai-whisper>=20231117; python_version < "3.14"', requirements)
         self.assertIn("onnxruntime-gpu==1.24.4", requirements)
-        self.assertIn("onnxruntime>=1.24.4,<1.25", requirements)
+        self.assertIn("onnxruntime>=1.23.2,<1.24", requirements)
         self.assertNotIn("onnxruntime-gpu>=1.16", requirements)
         self.assertNotIn("\nopenai-whisper>=20231117\n", requirements)
+
+    def test_macos_packages_require_the_runtime_wheel_baseline(self):
+        installer = (REPO_ROOT / "install_macos.sh").read_text()
+        build_script = (REPO_ROOT / "build-packages.sh").read_text()
+        readme = (REPO_ROOT / "README.md").read_text()
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+
+        self.assertIn('[[ "$MACOS_VER" -lt 13 ]]', installer)
+        self.assertIn("macOS 13 (Ventura) or newer", installer)
+        self.assertIn('[[ "$MACOS_ARCH" != "arm64" ]]', installer)
+        self.assertIn("supports Apple Silicon Macs only", installer)
+        self.assertIn(
+            "for p in python3.13 python3.12 python3.11 python3; do", installer
+        )
+        self.assertIn('"$minor" -le 13', installer)
+        self.assertIn(
+            "for p in python3.13 python3.12 python3.11 python3; do",
+            build_script,
+        )
+        self.assertIn('[ "$minor" -le 13 ]', build_script)
+        self.assertIn('hostArchitectures="arm64"', build_script)
+        self.assertIn('<os-version min="13.0"/>', build_script)
+        self.assertIn("Apple Silicon Mac with macOS 13+", readme)
+        self.assertIn("Python 3.11-3.13", readme)
+        self.assertIn("macOS 13 Ventura or newer", website)
+        self.assertIn("Apple Silicon (M1+) required", website)
 
     def test_sponsor_walls_keep_action_markers_balanced(self):
         for relative in ("README.md", "SPONSORS.md"):

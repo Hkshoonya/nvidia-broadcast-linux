@@ -29,10 +29,17 @@ if [[ "$(uname)" != "Darwin" ]]; then
     exit 1
 fi
 
-# Check macOS version (need 12+ for modern GStreamer/GTK4)
+MACOS_ARCH=$(uname -m)
+if [[ "$MACOS_ARCH" != "arm64" ]]; then
+    echo -e "${RED}Error: v1.2.0 supports Apple Silicon Macs only.${NC}"
+    echo "A secure current MediaPipe wheel is not available for Intel macOS."
+    exit 1
+fi
+
+# Check macOS version (the selected ONNX Runtime wheel requires 13+)
 MACOS_VER=$(sw_vers -productVersion | cut -d. -f1)
-if [[ "$MACOS_VER" -lt 12 ]]; then
-    echo -e "${RED}Error: macOS 12 (Monterey) or newer required.${NC}"
+if [[ "$MACOS_VER" -lt 13 ]]; then
+    echo -e "${RED}Error: macOS 13 (Ventura) or newer required.${NC}"
     exit 1
 fi
 
@@ -44,14 +51,14 @@ if ! command -v brew &>/dev/null; then
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
-# Check Python 3.11+
+# Check Python versions covered by the Apple Silicon release matrix
 PYTHON=""
 for p in python3.13 python3.12 python3.11 python3; do
     if command -v "$p" &>/dev/null; then
         ver=$("$p" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
         major=$(echo "$ver" | cut -d. -f1)
         minor=$(echo "$ver" | cut -d. -f2)
-        if [[ "$major" -ge 3 && "$minor" -ge 11 ]]; then
+        if [[ "$major" -eq 3 && "$minor" -ge 11 && "$minor" -le 13 ]]; then
             PYTHON="$p"
             break
         fi
@@ -59,25 +66,14 @@ for p in python3.13 python3.12 python3.11 python3; do
 done
 
 if [[ -z "$PYTHON" ]]; then
-    echo -e "${YELLOW}Python 3.11+ not found. Installing via Homebrew...${NC}"
+    echo -e "${YELLOW}Python 3.11-3.13 not found. Installing Python 3.12 via Homebrew...${NC}"
     brew install python@3.12
     PYTHON="python3.12"
 fi
 
 echo -e "  Python: $($PYTHON --version)"
 echo -e "  macOS: $(sw_vers -productVersion)"
-echo -e "  Arch: $(uname -m)"
-
-PYTHON_MINOR=$($PYTHON - <<'PY'
-import sys
-print(sys.version_info.minor)
-PY
-)
-if [[ "$PYTHON_MINOR" -ge 14 ]]; then
-    echo -e "${YELLOW}  Python runtime notice: Python 3.14+ detected.${NC}"
-    echo -e "${YELLOW}  openai-whisper is skipped until its dependency stack supports this Python version.${NC}"
-    echo -e "${YELLOW}  Local meeting transcription still uses faster-whisper.${NC}"
-fi
+echo -e "  Arch: $MACOS_ARCH"
 
 # ── Step 2: Install system dependencies ──────────────────────────────────────
 
@@ -137,7 +133,7 @@ else
 fi
 
 # Try CoreML support for Apple Silicon
-if [[ "$(uname -m)" == "arm64" ]]; then
+if [[ "$MACOS_ARCH" == "arm64" ]]; then
     echo -e "  Apple Silicon detected — installing CoreML provider..."
     pip install -q coremltools 2>/dev/null || true
 fi
@@ -254,11 +250,7 @@ echo ""
 echo "  Make sure ~/.local/bin is in your PATH:"
 echo '  export PATH="$HOME/.local/bin:$PATH"'
 echo ""
-if [[ "$(uname -m)" == "arm64" ]]; then
-    echo -e "  ${GREEN}Apple Silicon detected${NC} — CPU modes with CoreML acceleration"
-else
-    echo -e "  Intel Mac — CPU modes only"
-fi
+echo -e "  ${GREEN}Apple Silicon detected${NC} — CPU modes with CoreML acceleration"
 echo ""
 echo -e "  ${YELLOW}Note:${NC} GPU modes (Killer/Zeus/DocZeus/CUDA) require"
 echo "  an NVIDIA GPU and are Linux-only."

@@ -67,11 +67,17 @@ NVBROADCAST_VCAM_DEVICE_NUM=11 ./install.sh
 Then select `/dev/video11` as the Camera output in the app. Close OBS, browsers,
 and meeting applications before changing or reloading a v4l2loopback device.
 
-macOS virtual-camera output requires OBS Studio. Open OBS once after installing
-or upgrading it, start and stop **Virtual Camera**, close OBS, and then select
+macOS requires Apple Silicon, Ventura 13 or newer, Python 3.11-3.13, and OBS
+Studio for virtual-camera output. Open OBS once after installing or upgrading
+it, start and stop **Virtual Camera**, close OBS, and then select
 **OBS Virtual Camera** in the meeting application. The Swift CoreMediaIO
 extension in the source tree remains a compile-tested prototype and is not
 installed or published as a release asset.
+
+Intel macOS is not included in v1.2.0. The newest upstream Intel MediaPipe wheel
+forces a Protobuf release affected by CVE-2026-0994, and no fixed compatible
+Intel wheel is currently published. The installer and package fail closed on
+Intel instead of silently installing that dependency.
 
 ## Contributor credit
 

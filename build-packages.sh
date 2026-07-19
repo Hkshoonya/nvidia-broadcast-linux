@@ -270,13 +270,21 @@ INSTALL_DIR="/opt/nvbroadcast"
 
 echo "[NV Broadcast] Setting up Python environment..."
 
-# Find Python 3.11+
+if [ "$(uname -m)" != "arm64" ]; then
+    echo "[NV Broadcast] ERROR: v1.2.0 supports Apple Silicon Macs only."
+    exit 1
+fi
+
+# Find a Python version covered by the Apple Silicon release matrix
 PYTHON=""
 for p in python3.13 python3.12 python3.11 python3; do
     if command -v "$p" &>/dev/null; then
         ver=$("$p" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        major=$(echo "$ver" | cut -d. -f1)
         minor=$(echo "$ver" | cut -d. -f2)
-        if [ "$minor" -ge 11 ] 2>/dev/null; then
+        if [ "$major" -eq 3 ] 2>/dev/null && \
+           [ "$minor" -ge 11 ] 2>/dev/null && \
+           [ "$minor" -le 13 ] 2>/dev/null; then
             PYTHON="$p"
             break
         fi
@@ -284,7 +292,7 @@ for p in python3.13 python3.12 python3.11 python3; do
 done
 
 if [ -z "$PYTHON" ]; then
-    echo "[NV Broadcast] WARNING: Python 3.11+ not found. Run: brew install python@3.12"
+    echo "[NV Broadcast] WARNING: Python 3.11-3.13 not found. Run: brew install python@3.12"
     exit 0
 fi
 
@@ -328,10 +336,10 @@ POSTINST
     <title>NV Broadcast ${VERSION}</title>
     <organization>com.doczeus</organization>
     <domains enable_localSystem="true"/>
-    <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
+    <options customize="never" require-scripts="true" rootVolumeOnly="true" hostArchitectures="arm64"/>
     <volume-check>
         <allowed-os-versions>
-            <os-version min="12.3"/>
+            <os-version min="13.0"/>
         </allowed-os-versions>
     </volume-check>
     <choices-outline>

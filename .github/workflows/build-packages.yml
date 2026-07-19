@@ -65,6 +65,10 @@ jobs:
           pkgutil --expand-full "$package" /tmp/nvbroadcast-pkg-expanded
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/src/nvbroadcast/__init__.py' -print -quit)"
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/usr/local/bin/nvbroadcast' -print -quit)"
+          distribution="$(find /tmp/nvbroadcast-pkg-expanded -name Distribution -type f -print -quit)"
+          test -n "$distribution"
+          grep -q 'hostArchitectures="arm64"' "$distribution"
+          grep -q '<os-version min="13.0"' "$distribution"
           find /tmp/nvbroadcast-pkg-expanded -name postinstall -type f -exec bash -n {} \;
 
       - name: Upload macOS artifacts
@@ -75,16 +79,12 @@ jobs:
 
   # ─── Test: macOS platform + prototype extension compilation ────────────────
   test-macos:
-    name: Test macOS (${{ matrix.name }})
-    runs-on: ${{ matrix.runner }}
+    name: Test macOS (Apple Silicon, Python ${{ matrix.python-version }})
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Apple Silicon
-            runner: macos-15
-          - name: Intel
-            runner: macos-15-intel
+        python-version: ['3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -93,13 +93,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install project and test dependencies
         run: |
           python3 -m pip install --upgrade "pip>=26.1.2"
           python3 -m pip install ".[dev]"
+          python3 -m pip install "pip-audit>=2.9"
           python3 -m pip check
+          python3 -m pip_audit --skip-editable
 
       - name: Run macOS-safe unit tests
         run: |
@@ -135,13 +137,21 @@ jobs:
         run: |
           python3 -c "
           import inspect
+          import mediapipe
+          import onnxruntime
           import pyvirtualcam
+          from packaging.version import Version
+          assert Version(mediapipe.__version__) >= Version('0.10.35')
+          ort_version = Version(onnxruntime.__version__)
+          assert Version('1.23.2') <= ort_version < Version('1.24')
           assert pyvirtualcam.PixelFormat.BGR.value == '24BG'
           assert 'backend' in inspect.signature(pyvirtualcam.Camera).parameters
+          print(f'ONNX Runtime {onnxruntime.__version__}: macOS universal baseline available')
           print(f'pyvirtualcam {pyvirtualcam.__version__}: OBS API available')
           "
 
       - name: Test prototype Swift extension compilation
+        if: matrix.python-version == '3.12'
         run: |
           bash macos/build.sh
           test -f macos/.build/NVBroadcastExtension.systemextension/Contents/MacOS/NVBroadcastExtension

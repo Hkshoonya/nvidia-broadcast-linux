@@ -1490,7 +1490,7 @@ button:focus-visible, a:focus-visible {
           </div>
           <div class="terminal-body" role="code">
             <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('macos')">Copy</button>
-            <div class="terminal-line"><span class="comment"># macOS (Apple Silicon + Intel)</span></div>
+            <div class="terminal-line"><span class="comment"># macOS (Apple Silicon)</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd nvidia-broadcast-linux</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">./install_macos.sh</span></div>
@@ -1499,7 +1499,7 @@ button:focus-visible, a:focus-visible {
         </div>
         <p class="install-note">
           Existing configured installs can download the update package: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/NVBroadcast-1.2.0-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.2.0.pkg</a><br>
-          Requires macOS 12+, Homebrew, Python 3.11+, and OBS Studio. After installing OBS, open it once, start and stop Virtual Camera, then close OBS. CPU modes use CoreML acceleration on Apple Silicon.
+          Requires Apple Silicon, macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio. After installing OBS, open it once, start and stop Virtual Camera, then close OBS. Intel macOS is not included in v1.2.0 because a secure current MediaPipe wheel is unavailable.
         </p>
       </div>
 
@@ -1519,9 +1519,9 @@ button:focus-visible, a:focus-visible {
       <div class="req-card">
         <h4>macOS</h4>
         <ul>
-          <li>macOS 12 Monterey or newer</li>
-          <li>Apple Silicon (M1+) or Intel</li>
-          <li>Homebrew, Python 3.11+</li>
+          <li>macOS 13 Ventura or newer</li>
+          <li>Apple Silicon (M1+) required</li>
+          <li>Homebrew, Python 3.11-3.13</li>
           <li>OBS Studio for virtual-camera output</li>
           <li>CPU modes (no NVIDIA needed)</li>
         </ul>
