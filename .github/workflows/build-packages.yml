@@ -292,4 +292,5 @@ jobs:
           files: |
             artifacts/linux-packages/deb/*.deb
             artifacts/linux-packages/rpm/*.rpm
-            artifacts/macos-packages/pkg/*.pkg
+            artifacts/macos-packages/*.pkg
+          fail_on_unmatched_files: true

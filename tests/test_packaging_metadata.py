@@ -244,6 +244,16 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('python -m pip install ".[dev]"', workflow)
         self.assertIn("python -m pip check", workflow)
 
+    def test_release_workflow_requires_every_built_package(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
+        release_job = workflow.split("  release:", 1)[1]
+
+        self.assertIn("artifacts/linux-packages/deb/*.deb", release_job)
+        self.assertIn("artifacts/linux-packages/rpm/*.rpm", release_job)
+        self.assertIn("artifacts/macos-packages/*.pkg", release_job)
+        self.assertNotIn("artifacts/macos-packages/pkg/*.pkg", release_job)
+        self.assertIn("fail_on_unmatched_files: true", release_job)
+
     def test_macos_ci_installs_the_actual_project_dependency_set(self):
         workflow = (
             REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
