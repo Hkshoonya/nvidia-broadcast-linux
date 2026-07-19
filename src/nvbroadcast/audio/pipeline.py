@@ -513,17 +513,31 @@ class AudioPipeline:
             if not line:
                 continue
             try:
-                pids.append(int(line))
+                pid = int(line)
             except ValueError:
                 continue
+            argv = self._read_process_argv(pid)
+            if any(
+                argv[index] == "-m"
+                and argv[index + 1] == "nvbroadcast.audio.service"
+                for index in range(len(argv) - 1)
+            ):
+                pids.append(pid)
         return pids
 
-    def _read_process_cmdline(self, pid: int) -> str:
+    def _read_process_argv(self, pid: int) -> list[str]:
         try:
             with open(f"/proc/{pid}/cmdline", "rb") as fh:
-                return fh.read().replace(b"\0", b" ").decode("utf-8", errors="ignore").strip()
+                return [
+                    arg.decode("utf-8", errors="ignore")
+                    for arg in fh.read().split(b"\0")
+                    if arg
+                ]
         except Exception:
-            return ""
+            return []
+
+    def _read_process_cmdline(self, pid: int) -> str:
+        return " ".join(self._read_process_argv(pid))
 
     def _read_process_ppid(self, pid: int) -> int:
         try:

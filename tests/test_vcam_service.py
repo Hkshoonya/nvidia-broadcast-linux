@@ -5,10 +5,22 @@ import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
-from nvbroadcast.vcam_service import build_pipeline, start_pipeline_with_fallback
+from nvbroadcast.vcam_service import (
+    _strict_vcam_preference,
+    build_pipeline,
+    start_pipeline_with_fallback,
+)
 
 
 class VCamServicePipelineTests(unittest.TestCase):
+    def test_strict_vcam_preference_only_for_explicit_or_non_default_device(self):
+        self.assertIsNone(_strict_vcam_preference("/dev/video10"))
+        self.assertEqual(_strict_vcam_preference("/dev/video11"), "/dev/video11")
+        self.assertEqual(
+            _strict_vcam_preference("/dev/video10", explicit=True),
+            "/dev/video10",
+        )
+
     def test_build_pipeline_uses_raw_source_without_jpeg_decode(self):
         with mock.patch(
             "nvbroadcast.vcam_service.select_camera_mode",

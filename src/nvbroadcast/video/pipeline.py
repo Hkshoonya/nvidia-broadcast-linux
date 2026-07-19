@@ -14,7 +14,6 @@ Switches between modes when effects are toggled.
 import threading
 import time
 import subprocess
-import os
 
 import gi
 
@@ -27,7 +26,7 @@ from nvbroadcast.core.constants import (
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
     DEFAULT_FPS,
-    VIRTUAL_CAM_LABEL,
+    VIRTUAL_CAM_DEVICE,
 )
 
 
@@ -37,7 +36,7 @@ class VideoPipeline:
         self._pipeline: Gst.Pipeline | None = None
         self._vcam_pipeline: Gst.Pipeline | None = None
         self._source_device: str = "/dev/video0"
-        self._vcam_device: str = "/dev/video10"
+        self._vcam_device: str = VIRTUAL_CAM_DEVICE
         self._width: int = DEFAULT_WIDTH
         self._height: int = DEFAULT_HEIGHT
         self._fps: int = DEFAULT_FPS
@@ -51,6 +50,7 @@ class VideoPipeline:
         self._preview_enabled = True
         self._preview_timer_id = 0
         self._vcam_appsrc = None
+        self._pyvirtualcam = None
         self._vcam_enabled = True
         self._effects_active = False
         self._frame_count = 0
@@ -386,8 +386,65 @@ class VideoPipeline:
             self._rebuild_source_id = 0
         self._rebuild_pending = False
 
+    def _setup_macos_virtual_camera(self) -> None:
+        """Open the supported OBS virtual-camera backend on macOS."""
+        self._vcam_pipeline = None
+        self._vcam_appsrc = None
+        self._close_macos_virtual_camera()
+
+        try:
+            import pyvirtualcam
+
+            self._pyvirtualcam = pyvirtualcam.Camera(
+                width=self._width,
+                height=self._height,
+                fps=self._fps,
+                fmt=pyvirtualcam.PixelFormat.BGR,
+                backend="obs",
+            )
+            print(
+                "[NV Broadcast] macOS virtual camera: "
+                f"{self._pyvirtualcam.device}"
+            )
+        except Exception as exc:
+            self._vcam_enabled = False
+            self._vcam_failed = True
+            print(f"[NV Broadcast] macOS virtual camera not available: {exc}")
+
+    def _send_macos_virtual_camera_frame(self, frame_bgra: bytes) -> None:
+        """Send one BGRA frame to pyvirtualcam as contiguous BGR pixels."""
+        camera = self._pyvirtualcam
+        if camera is None:
+            return
+
+        try:
+            import numpy as np
+
+            expected = self._width * self._height * 4
+            if len(frame_bgra) != expected:
+                return
+            bgra = np.frombuffer(frame_bgra, dtype=np.uint8).reshape(
+                self._height, self._width, 4
+            )
+            camera.send(np.ascontiguousarray(bgra[:, :, :3]))
+        except Exception as exc:
+            print(f"[NV Broadcast] macOS virtual camera stopped: {exc}")
+            self._close_macos_virtual_camera()
+            self._vcam_enabled = False
+            self._vcam_failed = True
+
+    def _close_macos_virtual_camera(self) -> None:
+        camera = self._pyvirtualcam
+        self._pyvirtualcam = None
+        if camera is not None:
+            try:
+                camera.close()
+            except Exception:
+                pass
+
     def build(self, vcam_enabled: bool = True) -> None:
         self._vcam_enabled = vcam_enabled
+        self._vcam_failed = False
 
         if self._effects_active:
             self._build_effects_pipeline(vcam_enabled)
@@ -447,6 +504,9 @@ class VideoPipeline:
         bus.add_signal_watch()
         bus.connect("message::error", self._on_error)
 
+        if vcam_enabled and IS_MACOS:
+            self._setup_macos_virtual_camera()
+
     def _build_effects_pipeline(self, vcam_enabled: bool):
         """appsink/appsrc pipeline for Python effect processing."""
         from nvbroadcast.core.platform import IS_MACOS, get_gst_camera_caps
@@ -491,35 +551,7 @@ class VideoPipeline:
 
         if vcam_enabled:
             if IS_MACOS:
-                # macOS: CoreMediaIO frame bridge publishes the branded device.
-                # OBS fallback is opt-in only because it exposes a different
-                # camera name in meeting apps.
-                self._vcam_pipeline = None
-                self._vcam_appsrc = None
-                self._frame_bridge = None
-                self._pyvirtualcam = None
-                try:
-                    from macos.NVBroadcastHelper.frame_bridge import FrameBridge
-                    self._frame_bridge = FrameBridge(
-                        width=self._width, height=self._height
-                    )
-                    print(f"[NV Broadcast] macOS virtual camera: {VIRTUAL_CAM_LABEL}")
-                except Exception:
-                    if os.getenv("NVBROADCAST_ALLOW_OBS_VCAM_FALLBACK") == "1":
-                        try:
-                            import pyvirtualcam
-                            self._pyvirtualcam = pyvirtualcam.Camera(
-                                width=self._width, height=self._height,
-                                fps=self._fps, backend="obs",
-                            )
-                            print(f"[NV Broadcast] macOS fallback virtual camera: {self._pyvirtualcam.device}")
-                        except Exception as e:
-                            print(f"[NV Broadcast] macOS virtual camera not available: {e}")
-                    else:
-                        print(
-                            "[NV Broadcast] macOS NVbroadcast virtual camera extension "
-                            "not available; OBS fallback disabled"
-                        )
+                self._setup_macos_virtual_camera()
             else:
                 self._pyvirtualcam = None
                 self._vcam_pipeline = Gst.parse_launch(
@@ -566,9 +598,14 @@ class VideoPipeline:
             if not ok:
                 return Gst.FlowReturn.OK
 
-            with self._lock:
-                self._latest_frame = bytes(info.data)
+            frame_data = bytes(info.data)
             buf.unmap(info)
+
+            with self._lock:
+                self._latest_frame = frame_data
+
+            if self._vcam_enabled and self._running:
+                self._send_macos_virtual_camera_frame(frame_data)
 
             self._frame_count += 1
             return Gst.FlowReturn.OK
@@ -623,12 +660,15 @@ class VideoPipeline:
             if self._paused and self._frozen_frame:
                 output = self._frozen_frame
                 appsrc = self._vcam_appsrc
-                if self._vcam_enabled and self._running and appsrc:
-                    vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
-                    vcam_buf.fill(0, output)
-                    vcam_buf.pts = buf_pts
-                    vcam_buf.duration = buf_duration
-                    appsrc.emit("push-buffer", vcam_buf)
+                if self._vcam_enabled and self._running:
+                    if appsrc:
+                        vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
+                        vcam_buf.fill(0, output)
+                        vcam_buf.pts = buf_pts
+                        vcam_buf.duration = buf_duration
+                        appsrc.emit("push-buffer", vcam_buf)
+                    else:
+                        self._send_macos_virtual_camera_frame(output)
                 return Gst.FlowReturn.OK
 
             # Background: kick off alpha inference (heavy, non-blocking)
@@ -661,8 +701,6 @@ class VideoPipeline:
 
             # Push to vcam at full fps
             appsrc = self._vcam_appsrc
-            frame_bridge = getattr(self, '_frame_bridge', None)
-            pyvirtualcam = getattr(self, '_pyvirtualcam', None)
             if self._vcam_enabled and self._running:
                 if appsrc:
                     vcam_buf = Gst.Buffer.new_allocate(None, len(output), None)
@@ -670,14 +708,8 @@ class VideoPipeline:
                     vcam_buf.pts = buf_pts
                     vcam_buf.duration = buf_duration
                     appsrc.emit("push-buffer", vcam_buf)
-                elif frame_bridge:
-                    frame_bridge.write_frame(output)
-                elif pyvirtualcam:
-                    import numpy as np
-                    frame = np.frombuffer(output, dtype=np.uint8).reshape(
-                        self._height, self._width, 4
-                    )
-                    pyvirtualcam.send(frame[:, :, :3])
+                else:
+                    self._send_macos_virtual_camera_frame(output)
 
             # Push to recording if active
             rec_appsrc = self._rec_appsrc
@@ -765,6 +797,11 @@ class VideoPipeline:
     def is_recording(self) -> bool:
         return self._recording
 
+    @property
+    def virtual_camera_active(self) -> bool:
+        """Return whether the requested virtual-camera output initialized."""
+        return self._vcam_enabled and not self._vcam_failed
+
     def _tick_preview(self) -> bool:
         if self._pipeline is None:
             self._preview_timer_id = 0
@@ -821,8 +858,8 @@ class VideoPipeline:
 
     def start(self):
         # Start vcam first — if it fails, disable it but keep streaming
-        self._vcam_failed = False
         if self._vcam_pipeline:
+            self._vcam_failed = False
             self._start_vcam_with_retry()
         if self._pipeline:
             self._pipeline.set_state(Gst.State.PLAYING)
@@ -898,12 +935,7 @@ class VideoPipeline:
             if self._recording:
                 self.stop_recording()
 
-            if getattr(self, '_frame_bridge', None):
-                self._frame_bridge.close()
-                self._frame_bridge = None
-            if getattr(self, '_pyvirtualcam', None):
-                self._pyvirtualcam.close()
-                self._pyvirtualcam = None
+            self._close_macos_virtual_camera()
 
             if vcam and not self._vcam_failed:
                 vcam.set_state(Gst.State.NULL)
@@ -929,14 +961,9 @@ class VideoPipeline:
             if self._recording:
                 self.stop_recording()
 
-            # Clean up macOS vcam backends first so they stop holding output
+            # Clean up the macOS vcam backend first so it stops holding output
             # resources before the GStreamer side is released.
-            if getattr(self, '_frame_bridge', None):
-                self._frame_bridge.close()
-                self._frame_bridge = None
-            if getattr(self, '_pyvirtualcam', None):
-                self._pyvirtualcam.close()
-                self._pyvirtualcam = None
+            self._close_macos_virtual_camera()
 
             if cap:
                 cap.set_state(Gst.State.NULL)

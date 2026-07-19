@@ -10,7 +10,7 @@ import tomllib
 from pathlib import Path
 from dataclasses import dataclass, field
 
-from nvbroadcast.core.constants import CONFIG_DIR, CONFIG_FILE
+from nvbroadcast.core.constants import CONFIG_DIR, CONFIG_FILE, VIRTUAL_CAM_DEVICE
 
 
 @dataclass
@@ -37,6 +37,7 @@ class BeautyConfig:
 @dataclass
 class VideoConfig:
     camera_device: str = "/dev/video0"
+    vcam_device: str = VIRTUAL_CAM_DEVICE
     width: int = 1280
     height: int = 720
     fps: int = 30
@@ -190,6 +191,7 @@ def build_default_config(existing: AppConfig | None = None) -> AppConfig:
     default.compute_focus = existing.compute_focus
     default.auto_mode = existing.auto_mode
     default.ui_card_expanded = dict(existing.ui_card_expanded)
+    default.video.vcam_device = existing.video.vcam_device
     return default
 
 
@@ -343,6 +345,7 @@ def _config_to_toml(config: AppConfig) -> str:
         "",
         "[video]",
         f'camera_device = "{v.camera_device}"',
+        f'vcam_device = "{v.vcam_device}"',
         f"width = {v.width}",
         f"height = {v.height}",
         f"fps = {v.fps}",

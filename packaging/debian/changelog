@@ -1,0 +1,10 @@
+nvbroadcast (1.2.0-1) unstable; urgency=medium
+
+  * Add DeepFilterNet3 neural noise removal with RNNoise fallback.
+  * Reduce idle CPU use and improve ONNX Runtime and CUDA synchronization.
+  * Add native StatusNotifierItem tray integration and cleanup.
+  * Make the Linux virtual-camera output device configurable.
+  * Store verified AI models in a writable per-user cache.
+  * Use atomic config saves and private persistent logs.
+
+ -- doczeus <harshit@kshoonya.com>  Sun, 19 Jul 2026 13:00:00 -0400

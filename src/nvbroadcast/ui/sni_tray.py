@@ -17,6 +17,9 @@ Show/Hide, Start/Stop Broadcast, a status line, and Quit.
 
 import struct
 
+import gi
+
+gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gio, GLib
 
 _SNI_XML = """

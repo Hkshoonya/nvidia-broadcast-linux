@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=83.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "nvbroadcast"
-version = "1.1.13"
+version = "1.2.0"
 description = "NV Broadcast - Unofficial NVIDIA Broadcast for Linux and other OS by doczeus - AI-powered virtual camera, background removal, and noise cancellation"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11"
@@ -30,17 +30,26 @@ dependencies = [
     "numpy>=1.26",
     "Pillow>=10.0",
     "opencv-python-headless>=4.8",
-    "mediapipe>=0.10",
-    "onnxruntime>=1.24.4,<1.25",
-    "pyrnnoise>=0.4",
-    # pyrnnoise -> audiolab needs av.option (removed in av 17) AND
-    # Codec.canonical_name (added in av 14); av 18 breaks the denoiser at
+    # Current secure macOS wheels are Apple Silicon-only. Requiring 0.10.35
+    # prevents Intel Macs from silently resolving the vulnerable 0.10.21
+    # fallback; install_macos.sh reports the architecture requirement first.
+    "mediapipe>=0.10.35; sys_platform == 'darwin'",
+    "mediapipe>=0.10; sys_platform != 'darwin'",
+    # Version 1.23.2 keeps the supported Apple Silicon runtime on macOS 13+.
+    "onnxruntime>=1.23.2,<1.24; sys_platform == 'darwin'",
+    "onnxruntime>=1.24.4,<1.25; sys_platform != 'darwin'",
+    # pyrnnoise publishes Linux wheels only. DeepFilterNet remains available
+    # on macOS through ONNX Runtime without this fallback.
+    "pyrnnoise>=0.4; sys_platform == 'linux'",
+    # On Linux, pyrnnoise -> audiolab needs av.option (removed in av 17) AND
+    # Codec.canonical_name (added in av 14); av 17+ breaks the denoiser at
     # import time and noise removal silently becomes a no-op.
     "av>=16,<17",
-    "onnx>=1.14",
+    "onnx>=1.22.0",
+    "click>=8.3.3",
     "psutil>=5.9",
     "scipy>=1.11",
-    "pyvirtualcam>=0.4; sys_platform == 'darwin'",
+    "pyvirtualcam>=0.14; sys_platform == 'darwin'",
 ]
 
 [project.urls]
@@ -51,7 +60,7 @@ Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 cuda = [
-    "cupy-cuda12x",
+    "cupy-cuda12x>=14.1.1,<15",
     "nvidia-cublas-cu12",
     "nvidia-cuda-runtime-cu12",
     "nvidia-cudnn-cu12",

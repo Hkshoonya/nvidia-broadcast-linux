@@ -1,4 +1,7 @@
+import re
+import stat
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 
@@ -14,7 +17,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.1.13"
+        current = "1.2.0"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -23,17 +26,20 @@ class PackagingMetadataTests(unittest.TestCase):
         rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         docs_index = (REPO_ROOT / "docs" / "index.html").read_text()
         snap_workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        release_notes = (REPO_ROOT / "docs" / f"RELEASE_NOTES_{current}.md").read_text()
 
         self.assertIn(f'version = "{current}"', pyproject)
         self.assertIn(f'__version__ = "{current}"', package_init)
         self.assertIn(f"version: '{current}'", snapcraft)
+        self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-07-04">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-07-19">', metainfo)
         self.assertIn(f"### v{current}", readme)
         self.assertIn(f"nvbroadcast_{current}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{current}-1.noarch.rpm", docs_index)
         self.assertIn(f"NVBroadcast-{current}-1.pkg", docs_index)
         self.assertIn(f"such as v{current}", snap_workflow)
+        self.assertIn(f"# NV Broadcast v{current}", release_notes)
 
     def test_snap_description_stays_within_store_limit(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
@@ -49,14 +55,15 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Python runtime notice", install_script)
         self.assertIn("some premium paths use safer defaults", install_script)
         self.assertIn('rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $rc)"', install_script)
-        self.assertIn('if CUPY_TEST=$("$VENV_DIR/bin/python" -c "import cupy; a=cupy.ones(10); print(\'OK\')" 2>&1); then', install_script)
+        self.assertIn("cupy-cuda12x>=14.1.1,<15", install_script)
+        self.assertIn("preload_nvidia_runtime_libs; preload_nvidia_runtime_libs(); import cupy", install_script)
         self.assertIn("CuPy installed but verification failed.", install_script)
 
     def test_source_installer_installs_cuda_extra_before_gpu_verification(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertIn('"$VENV_DIR/bin/pip" install --upgrade "$SCRIPT_DIR[cuda]"', install_script)
+        self.assertIn('"$VENV_DIR/bin/pip" install --upgrade "${SCRIPT_DIR}[cuda]"', install_script)
         self.assertLess(
-            install_script.index('"$VENV_DIR/bin/pip" install --upgrade "$SCRIPT_DIR[cuda]"'),
+            install_script.index('"$VENV_DIR/bin/pip" install --upgrade "${SCRIPT_DIR}[cuda]"'),
             install_script.index("Verifying GPU acceleration"),
         )
         self.assertIn("CUDA_ACCEL_AVAILABLE=true", install_script)
@@ -81,6 +88,10 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn("fuser -s", script)
             self.assertIn("modprobe -r v4l2loopback", script)
             self.assertIn("Skipping live", script)
+            self.assertIn("NVBROADCAST_VCAM_DEVICE_NUM", script)
+            self.assertIn("NVBROADCAST_VCAM_DEVICE", script)
+            self.assertIn("is not a v4l2loopback virtual camera", script)
+            self.assertIn("NV Broadcast|NVbroadcast", script)
             self.assertIn('card_label="${', script)
 
     def test_core_runtime_includes_audio_denoiser_import_dependencies(self):
@@ -88,28 +99,199 @@ class PackagingMetadataTests(unittest.TestCase):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         requirements = (REPO_ROOT / "requirements.txt").read_text()
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertIn('"pyrnnoise>=0.4"', pyproject)
+        self.assertIn(
+            '"pyrnnoise>=0.4; sys_platform == \'linux\'"', pyproject
+        )
         # av 17 removed av.option (needed by pyrnnoise->audiolab); av 14
         # added Codec.canonical_name. Only 16.x satisfies both.
         self.assertIn('"av>=16,<17"', pyproject)
-        self.assertIn("pyrnnoise>=0.4", requirements)
+        self.assertIn(
+            'pyrnnoise>=0.4; sys_platform == "linux"', requirements
+        )
         self.assertIn("av>=16,<17", requirements)
         self.assertIn("- pyrnnoise", snapcraft)
         self.assertIn("- av>=16,<17", snapcraft)
         self.assertIn("import av; import av.option", install_script)
         self.assertIn("av ... OK", install_script)
 
+    def test_runtime_dependency_floors_include_security_fixes(self):
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        requirements = (REPO_ROOT / "requirements.txt").read_text()
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
+
+        for content in (pyproject, requirements, snapcraft, build_workflow):
+            self.assertIn("onnx>=1.22.0", content)
+            self.assertIn("click>=8.3.3", content)
+
+        self.assertIn("pyvirtualcam>=0.14", pyproject)
+        self.assertIn("pyvirtualcam>=0.14", requirements)
+        self.assertIn(
+            '"mediapipe>=0.10.35; sys_platform == \'darwin\'"', pyproject
+        )
+        self.assertIn(
+            'mediapipe>=0.10.35; sys_platform == "darwin"', requirements
+        )
+        self.assertIn(
+            '"onnxruntime>=1.23.2,<1.24; sys_platform == \'darwin\'"',
+            pyproject,
+        )
+        self.assertIn(
+            'onnxruntime>=1.23.2,<1.24; sys_platform == "darwin"',
+            requirements,
+        )
+
+        installers = (
+            REPO_ROOT / "install.sh",
+            REPO_ROOT / "install_macos.sh",
+            REPO_ROOT / "setup_deps.sh",
+            REPO_ROOT / "packaging" / "debian" / "postinst",
+            REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec",
+            REPO_ROOT / "build-packages.sh",
+        )
+        for installer in installers:
+            self.assertIn("pip>=26.1.2", installer.read_text(), str(installer))
+            self.assertIn(
+                "setuptools>=83.0.0", installer.read_text(), str(installer)
+            )
+
+        self.assertIn('requires = ["setuptools>=83.0.0", "wheel"]', pyproject)
+        self.assertIn("setuptools>=83.0.0", build_workflow)
+
+    def test_native_package_payloads_use_safe_ownership_and_permissions(self):
+        build_script = (REPO_ROOT / "build-packages.sh").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+
+        self.assertIn("mktemp -d", build_script)
+        self.assertIn("dpkg-deb -Zxz --root-owner-group --build", build_script)
+        self.assertIn("--ownership recommended", build_script)
+        self.assertGreaterEqual(build_script.count('-type f -exec chmod 644 {} +'), 2)
+        self.assertEqual(build_script.count('-o -name "*.egg-info"'), 3)
+        self.assertIn("packaging/debian/copyright", build_script)
+        self.assertIn("packaging/debian/changelog", build_script)
+        self.assertIn("/^#DEBHELPER#$/d", build_script)
+        self.assertIn("%{buildroot}/opt/nvbroadcast -type f -exec chmod 644 {} +", rpm_spec)
+        self.assertIn("chmod 644 LICENSE README.md", rpm_spec)
+
+        for relative in ("LICENSE", "README.md"):
+            self.assertEqual((REPO_ROOT / relative).stat().st_mode & stat.S_IXUSR, 0, relative)
+
+    def test_rpm_changelog_weekdays_match_dates(self):
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        for line in rpm_spec.splitlines():
+            match = re.match(r"\* (\w{3}) (\w{3} \d{2} \d{4})", line)
+            if not match:
+                continue
+            stated_weekday, date_text = match.groups()
+            actual_weekday = datetime.strptime(date_text, "%b %d %Y").strftime("%a")
+            self.assertEqual(stated_weekday, actual_weekday, line)
+
+    def test_runtime_model_downloads_are_verified_and_user_writable(self):
+        helper = (REPO_ROOT / "src" / "nvbroadcast" / "core" / "model_download.py").read_text()
+        self.assertIn("SNAP_USER_COMMON", helper)
+        self.assertIn("XDG_CACHE_HOME", helper)
+        self.assertIn("Library\" / \"Caches", helper)
+        self.assertIn("NamedTemporaryFile", helper)
+        self.assertIn("SHA-256 mismatch", helper)
+
+        for relative in (
+            "src/nvbroadcast/audio/deepfilter.py",
+            "src/nvbroadcast/video/autoframe.py",
+            "src/nvbroadcast/video/effects.py",
+            "src/nvbroadcast/video/face_landmarks.py",
+        ):
+            module = (REPO_ROOT / relative).read_text()
+            self.assertIn("download_verified_model", module, relative)
+            self.assertNotIn("urlretrieve", module, relative)
+
+    def test_release_workflow_actions_are_commit_pinned(self):
+        for relative in (
+            ".github/workflows/build-packages.yml",
+            ".github/workflows/snap.yml",
+        ):
+            workflow = (REPO_ROOT / relative).read_text()
+            refs = re.findall(r"uses:\s+[^@\s]+@([^\s]+)", workflow)
+            self.assertTrue(refs, relative)
+            for ref in refs:
+                self.assertRegex(ref, r"^[0-9a-f]{40}$", f"{relative}: {ref}")
+
+    def test_snap_build_does_not_receive_release_write_permission(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        build_job = workflow.split("  build-snap:", 1)[1].split(
+            "  attach-release:", 1
+        )[0]
+        attach_job = workflow.split("  attach-release:", 1)[1]
+
+        self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertNotIn("action-gh-release", build_job)
+        self.assertIn("permissions:\n      contents: write", attach_job)
+        self.assertIn("action-gh-release", attach_job)
+
+    def test_release_workflows_reject_version_mismatched_tags(self):
+        build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
+        snap_workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+
+        self.assertIn("Tag $GITHUB_REF_NAME does not match package version", build_workflow)
+        self.assertIn("Release tag $RELEASE_TAG does not match Snap version", snap_workflow)
+
+    def test_release_workflow_requires_rpm_and_installs_linux_dependencies(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
+        rpm_step = workflow.split("- name: Build .rpm package", 1)[1].split(
+            "- name: Upload Linux artifacts", 1
+        )[0]
+
+        self.assertNotIn("continue-on-error", rpm_step)
+        self.assertIn('python -m pip install ".[dev]"', workflow)
+        self.assertIn("python -m pip check", workflow)
+
+    def test_macos_ci_installs_the_actual_project_dependency_set(self):
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+        macos_job = workflow.split("  test-macos:", 1)[1].split(
+            "  test-linux:", 1
+        )[0]
+
+        self.assertIn('python3 -m pip install ".[dev]"', macos_job)
+        self.assertIn("python3 -m pip check", macos_job)
+        self.assertIn("python3 -m pip_audit --skip-editable", macos_job)
+        self.assertNotIn("--dry-run", macos_job)
+        self.assertIn("macos-15", macos_job)
+        self.assertNotIn("macos-15-intel", macos_job)
+        for version in ("'3.11'", "'3.12'", "'3.13'"):
+            self.assertIn(version, macos_job)
+
+        build_job = workflow.split("  build-macos:", 1)[1].split(
+            "  test-macos:", 1
+        )[0]
+        self.assertNotIn("NVBroadcastExtension.systemextension/**", build_job)
+        self.assertIn('hostArchitectures="arm64"', build_job)
+
     def test_readme_documents_cuda_extra_for_source_gpu_installs(self):
         readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn('pip install -e ".[cuda]"', readme)
         self.assertIn('.venv/bin/pip install --upgrade ".[cuda]"', readme)
+        self.assertIn(
+            'pip install "cupy-cuda12x>=14.1.1,<15" '
+            "nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12",
+            readme,
+        )
         self.assertIn("CUDAExecutionProvider", readme)
 
     def test_cuda_extra_contains_onnxruntime_gpu_provider(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        requirements = (REPO_ROOT / "requirements.txt").read_text()
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         self.assertIn("cuda = [", pyproject)
+        self.assertIn('"cupy-cuda12x>=14.1.1,<15"', pyproject)
+        self.assertIn('cupy-cuda12x>=14.1.1,<15; sys_platform == "linux"', requirements)
+        self.assertIn('"cupy-cuda12x>=14.1.1,<15"', snapcraft)
+        self.assertIn('export CUDA_PATH="$CUDA_RUNTIME"', snapcraft)
         self.assertIn('"onnxruntime-gpu==1.24.4"', pyproject)
-        self.assertIn('"onnxruntime>=1.24.4,<1.25"', pyproject)
+        self.assertIn(
+            '"onnxruntime>=1.24.4,<1.25; sys_platform != \'darwin\'"',
+            pyproject,
+        )
         self.assertNotIn('"pycuda>=2024.1"', pyproject)
         self.assertNotIn('"nvidia-cusparse-cu12"', pyproject)
         self.assertNotIn('"nvidia-cusolver-cu12"', pyproject)
@@ -118,7 +300,7 @@ class PackagingMetadataTests(unittest.TestCase):
         deb_postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
         rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         rpm_postinst = rpm_spec.split("%post", 1)[1].split("%preun", 1)[0]
-        self.assertIn('pip" install --upgrade "$INSTALL_DIR[cuda]"', deb_postinst)
+        self.assertIn('pip" install --upgrade "${INSTALL_DIR}[cuda]"', deb_postinst)
         self.assertIn('pip install --upgrade "/opt/nvbroadcast[cuda]"', rpm_postinst)
         self.assertNotIn("pip\" install cupy-cuda12x nvidia-cuda-nvrtc-cu12", deb_postinst)
 
@@ -135,9 +317,13 @@ class PackagingMetadataTests(unittest.TestCase):
         macos_constants = (REPO_ROOT / "macos" / "Shared" / "Constants.swift").read_text()
 
         self.assertIn('VIRTUAL_CAM_LABEL = "NVbroadcast"', constants)
-        self.assertIn('else VIRTUAL_CAM_LABEL', constants)
+        self.assertIn('MACOS_VIRTUAL_CAM_LABEL = "OBS Virtual Camera"', constants)
+        self.assertIn('else MACOS_VIRTUAL_CAM_LABEL', constants)
         self.assertIn('card_label="NVbroadcast"', readme)
-        self.assertIn('select **"NVbroadcast"** as your camera', readme)
+        self.assertIn(
+            'select **"NVbroadcast"** on Linux or **"OBS Virtual Camera"** on macOS',
+            readme,
+        )
         self.assertIn('V4L2_LABEL="NVbroadcast"', install_script)
         self.assertIn('card_label=\\"${V4L2_LABEL}\\"', install_script)
         self.assertIn('card_label="${V4L2_LABEL}"', install_script)
@@ -151,7 +337,9 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Description=NVbroadcast Virtual Camera Service", rpm_spec)
         self.assertIn('static let deviceName = "NVbroadcast"', macos_constants)
         self.assertIn('static let deviceModel = "NVbroadcast"', macos_constants)
-        self.assertIn("NVBROADCAST_ALLOW_OBS_VCAM_FALLBACK", (REPO_ROOT / "src" / "nvbroadcast" / "video" / "pipeline.py").read_text())
+        pipeline = (REPO_ROOT / "src" / "nvbroadcast" / "video" / "pipeline.py").read_text()
+        self.assertIn("pyvirtualcam.PixelFormat.BGR", pipeline)
+        self.assertNotIn("NVBROADCAST_ALLOW_OBS_VCAM_FALLBACK", pipeline)
 
         generated_content = "\n".join(
             line
@@ -234,8 +422,19 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Skipping CUDA mode runtime", snapcraft)
         self.assertIn("arm64 Snap build stays portable and CPU-safe", snapcraft)
         self.assertIn("onnxruntime==1.24.4", build_workflow)
-        self.assertIn("pyrnnoise av mediapipe faster-whisper ctranslate2", build_workflow)
-        self.assertIn("huggingface-hub httpx tokenizers soundfile tqdm", build_workflow)
+        for package in (
+            "pyrnnoise",
+            "av>=16,<17",
+            "mediapipe",
+            "faster-whisper",
+            "ctranslate2",
+            "huggingface-hub",
+            "httpx",
+            "tokenizers",
+            "soundfile",
+            "tqdm",
+        ):
+            self.assertIn(package, build_workflow)
 
     def test_packaged_backgrounds_include_bundled_default(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
@@ -255,9 +454,35 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("httpx", requirements)
         self.assertIn('openai-whisper>=20231117; python_version < "3.14"', requirements)
         self.assertIn("onnxruntime-gpu==1.24.4", requirements)
-        self.assertIn("onnxruntime>=1.24.4,<1.25", requirements)
+        self.assertIn("onnxruntime>=1.23.2,<1.24", requirements)
         self.assertNotIn("onnxruntime-gpu>=1.16", requirements)
         self.assertNotIn("\nopenai-whisper>=20231117\n", requirements)
+
+    def test_macos_packages_require_the_runtime_wheel_baseline(self):
+        installer = (REPO_ROOT / "install_macos.sh").read_text()
+        build_script = (REPO_ROOT / "build-packages.sh").read_text()
+        readme = (REPO_ROOT / "README.md").read_text()
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+
+        self.assertIn('[[ "$MACOS_VER" -lt 13 ]]', installer)
+        self.assertIn("macOS 13 (Ventura) or newer", installer)
+        self.assertIn('[[ "$MACOS_ARCH" != "arm64" ]]', installer)
+        self.assertIn("supports Apple Silicon Macs only", installer)
+        self.assertIn(
+            "for p in python3.13 python3.12 python3.11 python3; do", installer
+        )
+        self.assertIn('"$minor" -le 13', installer)
+        self.assertIn(
+            "for p in python3.13 python3.12 python3.11 python3; do",
+            build_script,
+        )
+        self.assertIn('[ "$minor" -le 13 ]', build_script)
+        self.assertIn('hostArchitectures="arm64"', build_script)
+        self.assertIn('<os-version min="13.0"/>', build_script)
+        self.assertIn("Apple Silicon Mac with macOS 13+", readme)
+        self.assertIn("Python 3.11-3.13", readme)
+        self.assertIn("macOS 13 Ventura or newer", website)
+        self.assertIn("Apple Silicon (M1+) required", website)
 
     def test_sponsor_walls_keep_action_markers_balanced(self):
         for relative in ("README.md", "SPONSORS.md"):

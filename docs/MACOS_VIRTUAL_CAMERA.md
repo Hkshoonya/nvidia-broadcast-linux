@@ -1,11 +1,15 @@
-# Phase 2: Proprietary macOS Virtual Camera (CoreMediaIO Extension)
+# Prototype: Proprietary macOS Virtual Camera (CoreMediaIO Extension)
 
 ## Overview
 
-Use the proprietary CoreMediaIO Camera Extension as the default macOS virtual
-camera path so the app appears consistently as "NVbroadcast" in macOS video
-apps (Zoom, FaceTime, Chrome, etc.). The old pyvirtualcam/OBS bridge is a
-developer-only fallback, not the shipped default.
+This directory contains a prototype CoreMediaIO Camera Extension. It is
+compile-checked in CI, but it is not distribution-signed, notarized, activated
+by the `.pkg`, or published as a release asset. NV Broadcast v1.2.0 uses
+pyvirtualcam with OBS Virtual Camera as its supported macOS output path.
+
+A production extension can replace that backend after frame delivery, dynamic
+formats, app activation, universal architecture output, signing, notarization,
+and real-device testing are complete.
 
 ## Architecture
 
@@ -108,5 +112,5 @@ macos/
 
 ## Status
 
-- [x] Phase 1: pyvirtualcam bridge (legacy developer fallback)
-- [x] Phase 2: Proprietary CoreMediaIO extension (current default)
+- [x] Phase 1: pyvirtualcam with OBS Virtual Camera (current supported path)
+- [ ] Phase 2: Proprietary CoreMediaIO extension (compile-tested prototype)

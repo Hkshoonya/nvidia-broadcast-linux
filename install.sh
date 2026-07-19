@@ -370,18 +370,40 @@ fi
 echo ""
 echo "[2/7] Configuring virtual camera (v4l2loopback)..."
 
-V4L2_DEVICE_NUM=10
+V4L2_DEVICE_NUM="${NVBROADCAST_VCAM_DEVICE_NUM:-10}"
+if [ -n "${NVBROADCAST_VCAM_DEVICE:-}" ]; then
+    case "$NVBROADCAST_VCAM_DEVICE" in
+        /dev/video*) V4L2_DEVICE_NUM="${NVBROADCAST_VCAM_DEVICE#/dev/video}" ;;
+        *) echo "WARNING: Ignoring invalid NVBROADCAST_VCAM_DEVICE=${NVBROADCAST_VCAM_DEVICE}; expected /dev/videoN." ;;
+    esac
+fi
+case "$V4L2_DEVICE_NUM" in
+    ''|*[!0-9]*)
+        echo "WARNING: Invalid virtual camera number '${V4L2_DEVICE_NUM}', using 10."
+        V4L2_DEVICE_NUM=10
+        ;;
+esac
 V4L2_DEVICE="/dev/video${V4L2_DEVICE_NUM}"
 V4L2_LABEL="NVbroadcast"
 V4L2_CONF="/etc/modprobe.d/nvbroadcast-v4l2loopback.conf"
 V4L2_LOAD="/etc/modules-load.d/nvbroadcast-v4l2loopback.conf"
 V4L2_OPTIONS="options v4l2loopback devices=1 video_nr=${V4L2_DEVICE_NUM} card_label=\"${V4L2_LABEL}\" exclusive_caps=1 max_buffers=4"
 
+if [ -e "$V4L2_DEVICE" ]; then
+    if ! command -v v4l2-ctl &>/dev/null || \
+       ! v4l2-ctl -D -d "$V4L2_DEVICE" 2>/dev/null | \
+           grep -Eiq 'Driver name[[:space:]]*:[[:space:]]*v4l2[[:space:]_-]*loopback'; then
+        echo "ERROR: ${V4L2_DEVICE} already exists and is not a v4l2loopback virtual camera."
+        echo "Choose an unused video number with NVBROADCAST_VCAM_DEVICE_NUM."
+        exit 1
+    fi
+fi
+
 # Remove old BluCast configs if present
 sudo rm -f /etc/modprobe.d/blucast-v4l2loopback.conf 2>/dev/null || true
 sudo rm -f /etc/modules-load.d/blucast-v4l2loopback.conf 2>/dev/null || true
 
-if [ ! -f "$V4L2_CONF" ] || grep -Eq 'card_label="(NVIDIA Broadcast|NVIDIA Broadcast Virtual Camera|NV Broadcast)"' "$V4L2_CONF"; then
+if [ ! -f "$V4L2_CONF" ] || grep -Eq 'card_label="(NVIDIA Broadcast|NVIDIA Broadcast Virtual Camera|NV Broadcast|NVbroadcast)"' "$V4L2_CONF"; then
     if echo "$V4L2_OPTIONS" | sudo tee "$V4L2_CONF" > /dev/null; then
         echo "Created $V4L2_CONF"
     else
@@ -450,7 +472,8 @@ if [ ! -d "$VENV_DIR" ]; then
     python3 -m venv "$VENV_DIR" --system-site-packages
     echo "Created virtual environment"
 fi
-"$VENV_DIR/bin/pip" install --upgrade pip -q
+"$VENV_DIR/bin/pip" install --upgrade \
+    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
 "$VENV_DIR/bin/pip" install "$SCRIPT_DIR" -q
 echo "Core packages installed."
 
@@ -458,12 +481,12 @@ CUDA_EXTRA_INSTALLED=false
 CUDA_ACCEL_AVAILABLE=false
 if [ "$HAS_NVIDIA" = true ]; then
     echo "Installing NVIDIA CUDA inference/runtime packages..."
-    if "$VENV_DIR/bin/pip" install --upgrade "$SCRIPT_DIR[cuda]" -q 2>&1; then
+    if "$VENV_DIR/bin/pip" install --upgrade "${SCRIPT_DIR}[cuda]" -q 2>&1; then
         CUDA_EXTRA_INSTALLED=true
         echo "CUDA runtime packages installed."
     else
         echo "WARNING: CUDA runtime package installation failed. Continuing with CPU fallback."
-        echo "  Retry later: $VENV_DIR/bin/pip install --upgrade \"$SCRIPT_DIR[cuda]\""
+        echo "  Retry later: $VENV_DIR/bin/pip install --upgrade \"${SCRIPT_DIR}[cuda]\""
     fi
 fi
 
@@ -550,29 +573,29 @@ else
         install_cupy="${install_cupy:-Y}"
         if [[ "$install_cupy" =~ ^[Yy]$ ]]; then
             echo "  Installing CuPy (this may take a few minutes)..."
-            if "$VENV_DIR/bin/pip" install cupy-cuda12x nvidia-cuda-nvrtc-cu12 -q 2>&1; then
-                if CUPY_TEST=$("$VENV_DIR/bin/python" -c "import cupy; a=cupy.ones(10); print('OK')" 2>&1); then
+            if "$VENV_DIR/bin/pip" install "cupy-cuda12x>=14.1.1,<15" nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12 -q 2>&1; then
+                if CUPY_TEST=$("$VENV_DIR/bin/python" -c "from nvbroadcast.core.platform import preload_nvidia_runtime_libs; preload_nvidia_runtime_libs(); import cupy; a=cupy.ones(10); print('OK')" 2>&1); then
                     if [ "$CUPY_TEST" = "OK" ]; then
                         echo "  CuPy installed and verified!"
                         CUPY_INSTALLED=true
                     else
                         echo "  WARNING: CuPy installed but verification returned unexpected output."
                         echo "  Output: $CUPY_TEST"
-                        echo "  You can retry later: $VENV_DIR/bin/pip install cupy-cuda12x"
+                        echo "  You can retry later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12"
                     fi
                 else
                     echo "  WARNING: CuPy installed but verification failed."
                     if [ -n "${CUPY_TEST:-}" ]; then
                         echo "  Output: $CUPY_TEST"
                     fi
-                    echo "  You can retry later: $VENV_DIR/bin/pip install cupy-cuda12x"
+                    echo "  You can retry later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12"
                 fi
             else
                 echo "  WARNING: CuPy installation failed. Skipping."
-                echo "  Retry later: $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+                echo "  Retry later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
             fi
         else
-            echo "  Skipped. Install later: $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+            echo "  Skipped. Install later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
         fi
     else
         echo "  [skipped] No NVIDIA GPU detected."
@@ -913,8 +936,8 @@ echo "    Meeting Transcription    — faster startup and cleaner saved audio"
 echo "    Resolution Safety        — save changes without hanging the stream"
 echo ""
 echo "  To install optional packages later:"
-echo "    CUDA runtime: $VENV_DIR/bin/pip install --upgrade \"$SCRIPT_DIR[cuda]\""
-echo "    CuPy:     $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+echo "    CUDA runtime: $VENV_DIR/bin/pip install --upgrade \"${SCRIPT_DIR}[cuda]\""
+echo "    CuPy:     $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
 echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt-cu12"
 echo ""
 echo "  First run:"

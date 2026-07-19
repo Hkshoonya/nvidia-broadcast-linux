@@ -164,6 +164,28 @@ class AudioPipelineLifecycleTests(unittest.TestCase):
         self.assertIn("--parent-pid", cmd)
         self.assertIn(str(os.getpid()), cmd)
 
+    def test_iter_helper_pids_ignores_commands_that_only_mention_module(self):
+        pipeline = AudioPipeline(use_helper_process=False)
+        result = mock.Mock(returncode=0, stdout="50001\n50002\n50003\n")
+        argv = {
+            50001: ["bash", "-lc", "pgrep -f nvbroadcast.audio.service"],
+            50002: [
+                "python",
+                "-m",
+                "nvbroadcast.audio.service",
+                "--parent-pid",
+                "123",
+            ],
+            50003: ["python", "-c", "print('nvbroadcast.audio.service')"],
+        }
+
+        with mock.patch(
+            "nvbroadcast.audio.pipeline.subprocess.run", return_value=result
+        ), mock.patch.object(
+            pipeline, "_read_process_argv", side_effect=lambda pid: argv[pid]
+        ):
+            self.assertEqual(pipeline._iter_helper_pids(), [50002])
+
     def test_stop_stale_helper_processes_terminates_orphaned_helpers(self):
         pipeline = AudioPipeline(use_helper_process=False)
         current_pid = os.getpid()
