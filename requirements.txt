@@ -41,7 +41,7 @@ av>=16,<17
 pyrnnoise>=0.4; sys_platform == "linux"
 
 # GPU Compositing (recommended — 150x faster blend, Linux/NVIDIA only)
-cupy-cuda12x; sys_platform == "linux"
+cupy-cuda12x>=14.1.1,<15; sys_platform == "linux"
 
 # CUDA 12 Runtime Libraries (required for GPU acceleration)
 # These provide the .so files that ONNX Runtime needs at runtime.

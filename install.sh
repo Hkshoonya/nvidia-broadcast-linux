@@ -573,29 +573,29 @@ else
         install_cupy="${install_cupy:-Y}"
         if [[ "$install_cupy" =~ ^[Yy]$ ]]; then
             echo "  Installing CuPy (this may take a few minutes)..."
-            if "$VENV_DIR/bin/pip" install cupy-cuda12x nvidia-cuda-nvrtc-cu12 -q 2>&1; then
-                if CUPY_TEST=$("$VENV_DIR/bin/python" -c "import cupy; a=cupy.ones(10); print('OK')" 2>&1); then
+            if "$VENV_DIR/bin/pip" install "cupy-cuda12x>=14.1.1,<15" nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12 -q 2>&1; then
+                if CUPY_TEST=$("$VENV_DIR/bin/python" -c "from nvbroadcast.core.platform import preload_nvidia_runtime_libs; preload_nvidia_runtime_libs(); import cupy; a=cupy.ones(10); print('OK')" 2>&1); then
                     if [ "$CUPY_TEST" = "OK" ]; then
                         echo "  CuPy installed and verified!"
                         CUPY_INSTALLED=true
                     else
                         echo "  WARNING: CuPy installed but verification returned unexpected output."
                         echo "  Output: $CUPY_TEST"
-                        echo "  You can retry later: $VENV_DIR/bin/pip install cupy-cuda12x"
+                        echo "  You can retry later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12"
                     fi
                 else
                     echo "  WARNING: CuPy installed but verification failed."
                     if [ -n "${CUPY_TEST:-}" ]; then
                         echo "  Output: $CUPY_TEST"
                     fi
-                    echo "  You can retry later: $VENV_DIR/bin/pip install cupy-cuda12x"
+                    echo "  You can retry later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12"
                 fi
             else
                 echo "  WARNING: CuPy installation failed. Skipping."
-                echo "  Retry later: $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+                echo "  Retry later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
             fi
         else
-            echo "  Skipped. Install later: $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+            echo "  Skipped. Install later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
         fi
     else
         echo "  [skipped] No NVIDIA GPU detected."
@@ -937,7 +937,7 @@ echo "    Resolution Safety        — save changes without hanging the stream"
 echo ""
 echo "  To install optional packages later:"
 echo "    CUDA runtime: $VENV_DIR/bin/pip install --upgrade \"${SCRIPT_DIR}[cuda]\""
-echo "    CuPy:     $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
+echo "    CuPy:     $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
 echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt-cu12"
 echo ""
 echo "  First run:"

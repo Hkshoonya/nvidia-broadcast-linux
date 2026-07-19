@@ -49,13 +49,29 @@ class DependencyInstallerTests(unittest.TestCase):
         spec = dependency_installer.PACKAGE_SPECS["cupy"]
         install_args = spec["install_args"]
         self.assertIn("--upgrade", install_args)
-        self.assertIn("cupy-cuda12x", install_args)
+        self.assertIn("cupy-cuda12x>=14.1.1,<15", install_args)
         self.assertIn("onnxruntime-gpu==1.24.4", install_args)
         self.assertIn("nvidia-cudnn-cu12", install_args)
         self.assertIn("nvidia-cuda-nvrtc-cu12", install_args)
         self.assertIn("ONNX Runtime GPU", spec["summary"])
         self.assertIn("onnxruntime-gpu==1.24.4", spec["help"])
         self.assertNotIn("onnxruntime-gpu>=", spec["help"])
+
+    def test_cupy_verification_preloads_component_wheel_runtime(self):
+        fake_array = mock.MagicMock()
+        fake_array.__mul__.return_value.astype.return_value = object()
+        fake_cupy = types.SimpleNamespace(
+            asarray=mock.Mock(return_value=fake_array),
+            float32=object(),
+        )
+
+        with mock.patch.dict(sys.modules, {"cupy": fake_cupy}), \
+             mock.patch.object(
+                 dependency_installer, "preload_nvidia_runtime_libs"
+             ) as preload:
+            self.assertTrue(dependency_installer._verify_cupy())
+
+        preload.assert_called_once_with()
 
     def test_snap_cuda_modes_report_package_limitation_when_runtime_missing(self):
         installer = dependency_installer.DependencyInstaller()

@@ -138,7 +138,7 @@ parts:
           python3 -m pip install --no-cache-dir --upgrade \
             --target "$SNAP_PYTHON_SITE" \
             onnxruntime-gpu==1.24.4 \
-            cupy-cuda12x \
+            "cupy-cuda12x>=14.1.1,<15" \
             nvidia-cublas-cu12 \
             nvidia-cuda-runtime-cu12 \
             nvidia-cudnn-cu12 \
@@ -162,6 +162,10 @@ parts:
       esac
       export GST_PLUGIN_PATH="$SNAP/usr/lib/$TRIPLET/gstreamer-1.0${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}"
       export GI_TYPELIB_PATH="$SNAP/usr/lib/$TRIPLET/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+      CUDA_RUNTIME="$SNAP/lib/python3/dist-packages/nvidia/cuda_runtime"
+      if [ -z "${CUDA_PATH:-}" ] && [ -f "$CUDA_RUNTIME/include/cuda_runtime.h" ]; then
+        export CUDA_PATH="$CUDA_RUNTIME"
+      fi
       cd $SNAP
       exec python3 -m nvbroadcast "$@"
       EOF

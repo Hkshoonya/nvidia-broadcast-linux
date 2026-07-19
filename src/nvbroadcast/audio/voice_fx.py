@@ -17,8 +17,11 @@ well under a millisecond per ~21ms block at 48kHz mono.
 import numpy as np
 from dataclasses import dataclass
 
+from nvbroadcast.core.platform import preload_nvidia_runtime_libs
+
 # Try CuPy for GPU audio processing
 try:
+    preload_nvidia_runtime_libs()
     import cupy as cp
     _HAS_CUPY = True
 except ImportError:

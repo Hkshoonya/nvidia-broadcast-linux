@@ -55,7 +55,8 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Python runtime notice", install_script)
         self.assertIn("some premium paths use safer defaults", install_script)
         self.assertIn('rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $rc)"', install_script)
-        self.assertIn('if CUPY_TEST=$("$VENV_DIR/bin/python" -c "import cupy; a=cupy.ones(10); print(\'OK\')" 2>&1); then', install_script)
+        self.assertIn("cupy-cuda12x>=14.1.1,<15", install_script)
+        self.assertIn("preload_nvidia_runtime_libs; preload_nvidia_runtime_libs(); import cupy", install_script)
         self.assertIn("CuPy installed but verification failed.", install_script)
 
     def test_source_installer_installs_cuda_extra_before_gpu_verification(self):
@@ -270,11 +271,22 @@ class PackagingMetadataTests(unittest.TestCase):
         readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn('pip install -e ".[cuda]"', readme)
         self.assertIn('.venv/bin/pip install --upgrade ".[cuda]"', readme)
+        self.assertIn(
+            'pip install "cupy-cuda12x>=14.1.1,<15" '
+            "nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12",
+            readme,
+        )
         self.assertIn("CUDAExecutionProvider", readme)
 
     def test_cuda_extra_contains_onnxruntime_gpu_provider(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        requirements = (REPO_ROOT / "requirements.txt").read_text()
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         self.assertIn("cuda = [", pyproject)
+        self.assertIn('"cupy-cuda12x>=14.1.1,<15"', pyproject)
+        self.assertIn('cupy-cuda12x>=14.1.1,<15; sys_platform == "linux"', requirements)
+        self.assertIn('"cupy-cuda12x>=14.1.1,<15"', snapcraft)
+        self.assertIn('export CUDA_PATH="$CUDA_RUNTIME"', snapcraft)
         self.assertIn('"onnxruntime-gpu==1.24.4"', pyproject)
         self.assertIn(
             '"onnxruntime>=1.24.4,<1.25; sys_platform != \'darwin\'"',

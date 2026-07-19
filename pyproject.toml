@@ -60,7 +60,7 @@ Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 cuda = [
-    "cupy-cuda12x",
+    "cupy-cuda12x>=14.1.1,<15",
     "nvidia-cublas-cu12",
     "nvidia-cuda-runtime-cu12",
     "nvidia-cudnn-cu12",

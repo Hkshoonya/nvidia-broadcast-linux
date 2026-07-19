@@ -31,6 +31,7 @@ from nvbroadcast.core.platform import (
     IS_LINUX,
     has_cuda_inference_runtime,
     has_tensorrt_runtime,
+    preload_nvidia_runtime_libs,
     supports_openai_whisper_python,
     supports_linux_gpu_stack,
     supports_tensorrt_python,
@@ -39,7 +40,7 @@ from nvbroadcast.core.platform import (
 
 
 CUDA_RUNTIME_PACKAGES = [
-    "cupy-cuda12x",
+    "cupy-cuda12x>=14.1.1,<15",
     "onnxruntime-gpu==1.24.4",
     "nvidia-cublas-cu12",
     "nvidia-cuda-runtime-cu12",
@@ -104,6 +105,7 @@ def _supports_tensorrt_runtime() -> bool:
 
 def _verify_cupy() -> bool:
     try:
+        preload_nvidia_runtime_libs()
         import cupy
         import numpy as np
         arr = cupy.asarray(np.ones((8, 8), dtype=np.float32))

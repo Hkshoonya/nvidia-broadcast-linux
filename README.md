@@ -565,7 +565,7 @@ pip install -e .
 pip install -e ".[cuda]"
 
 # 4. Optional: CuPy-only retry for GPU compositing
-pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12
+pip install "cupy-cuda12x>=14.1.1,<15" nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12
 
 # 5. Virtual camera
 sudo modprobe v4l2loopback devices=1 video_nr=10 \
