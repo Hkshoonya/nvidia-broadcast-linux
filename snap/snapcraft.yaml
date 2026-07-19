@@ -1,26 +1,29 @@
 name: nvbroadcast
 base: core24
-version: '1.1.13'
-summary: Auto-frame tracking and framing patch
+version: '1.2.0'
+summary: Community audio, performance, and camera update
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.1.13:
-  - Smooths Center Face lateral tracking so side-to-side movement no longer
-    waits for a large crop jump.
-  - Adds an Auto Frame Framing selector with Center Face and Stable Background
-    modes.
-  - Keeps Center Face framing active at minimum zoom by reserving a small
-    internal tracking crop margin.
-  - Makes switching from Stable Background back to Center Face take effect on
-    the next detected face.
-  - Adds regression tests for tracking, mode switching, config persistence, and
-    minimum-zoom behavior.
+  What's new in v1.2.0:
+  - Adds DeepFilterNet3 neural noise removal with verified model downloads and
+    automatic RNNoise fallback.
+  - Reduces idle CPU use by capping ONNX Runtime threads and using blocking CUDA
+    synchronization by default.
+  - Adds a native StatusNotifierItem tray with clean shutdown behavior.
+  - Makes Linux virtual-camera output configurable so /dev/video10 conflicts
+    can be moved to another loopback device.
+  - Uses atomic config saves, private persistent logs, and consistent voice
+    effects across the app and audio helper.
+  - Stores first-run AI models in a writable per-user cache and verifies every
+    downloaded artifact against its pinned SHA-256 digest.
 
   Recent quality updates:
+  - v1.1.13 adds Center Face and Stable Background Auto Frame modes and fixes
+    minimum-zoom tracking.
   - v1.1.12 fixes OBS startup reliability, phone webcam fallback behavior,
     audio filtering dependency installs, and packaged meeting runtime support.
   - v1.1.11 fixes white preview and missing-effects cases in OBS and meeting
@@ -95,7 +98,8 @@ parts:
       - opencv-python-headless
       - mediapipe
       - onnxruntime==1.24.4
-      - onnx
+      - onnx>=1.22.0
+      - click>=8.3.3
       - faster-whisper
       - ctranslate2
       - huggingface-hub

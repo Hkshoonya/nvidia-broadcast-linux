@@ -18,7 +18,15 @@ from pathlib import Path
 import numpy as np
 import cv2
 
+from nvbroadcast.core.model_download import download_verified_model
+
 _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
+_FACE_DETECTOR_MODEL = "blaze_face_short_range.tflite"
+_FACE_DETECTOR_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_detector/"
+    "blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
+)
+_FACE_DETECTOR_SHA256 = "b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f"
 _MEDIAPIPE_IMPORT_ERROR: str | None = None
 _MEDIAPIPE_READY: bool | None = None
 _MIN_CENTER_TRACKING_ZOOM = 1.12
@@ -149,17 +157,16 @@ class AutoFrame:
         if self._initialized:
             return True
 
-        model_path = _MODELS_DIR / "blaze_face_short_range.tflite"
-        if not model_path.exists():
-            # Try to download
-            try:
-                import urllib.request
-                model_path.parent.mkdir(parents=True, exist_ok=True)
-                url = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
-                urllib.request.urlretrieve(url, str(model_path))
-            except Exception as e:
-                print(f"[NVIDIA Broadcast] Failed to download face detection model: {e}")
-                return False
+        try:
+            model_path = download_verified_model(
+                _FACE_DETECTOR_MODEL,
+                _FACE_DETECTOR_URL,
+                _FACE_DETECTOR_SHA256,
+                bundled_dir=_MODELS_DIR,
+            )
+        except Exception as e:
+            print(f"[NVIDIA Broadcast] Failed to download face detection model: {e}")
+            return False
 
         try:
             self._mp, self._mp_python, self._mp_vision = _load_mediapipe()

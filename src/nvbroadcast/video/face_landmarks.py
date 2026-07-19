@@ -15,12 +15,13 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import cv2
+
+from nvbroadcast.core.model_download import download_verified_model
 
 _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
 _FACE_MODEL = "face_landmarker.task"
@@ -28,6 +29,7 @@ _FACE_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
     "face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
 )
+_FACE_MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
 _MEDIAPIPE_IMPORT_ERROR: str | None = None
 _MEDIAPIPE_READY: bool | None = None
 
@@ -117,15 +119,16 @@ class SharedFaceLandmarker:
         self._init()
 
     def _init(self):
-        model_path = _MODELS_DIR / _FACE_MODEL
-        if not model_path.exists():
-            try:
-                _MODELS_DIR.mkdir(parents=True, exist_ok=True)
-                print(f"[FaceLandmarks] Downloading {_FACE_MODEL}...")
-                urllib.request.urlretrieve(_FACE_MODEL_URL, str(model_path))
-            except Exception as e:
-                print(f"[FaceLandmarks] Download failed: {e}")
-                return
+        try:
+            model_path = download_verified_model(
+                _FACE_MODEL,
+                _FACE_MODEL_URL,
+                _FACE_MODEL_SHA256,
+                bundled_dir=_MODELS_DIR,
+            )
+        except Exception as e:
+            print(f"[FaceLandmarks] Download failed: {e}")
+            return
         try:
             (
                 self._mp,

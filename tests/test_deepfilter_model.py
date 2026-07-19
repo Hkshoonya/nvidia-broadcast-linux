@@ -72,7 +72,8 @@ class PatchedGraphCacheTests(unittest.TestCase):
         source = tmp / "model.onnx"
         if not source.exists():
             _write_fused_model(source)
-        with mock.patch.object(deepfilter, "MODEL_SHA256",
+        with mock.patch.object(deepfilter, "_MODELS_DIR", tmp), \
+             mock.patch.object(deepfilter, "MODEL_SHA256",
                                deepfilter._sha256(source)):
             return deepfilter._prepare_cuda_compatible(source)
 
@@ -113,6 +114,29 @@ class PatchedGraphCacheTests(unittest.TestCase):
             regenerated = self._prepare(Path(tmp))
             self.assertTrue(stamp.exists())
             self.assertNotEqual(regenerated.read_bytes(), b"unknown provenance")
+
+    def test_bundled_source_writes_generated_graph_to_user_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundled_dir = root / "read-only-install" / "models"
+            cache_dir = root / "user-cache"
+            bundled_dir.mkdir(parents=True)
+            source = bundled_dir / "model.onnx"
+            _write_fused_model(source)
+            bundled_dir.chmod(0o555)
+            try:
+                with mock.patch.object(deepfilter, "_MODELS_DIR", cache_dir), \
+                     mock.patch.object(deepfilter, "MODEL_SHA256",
+                                       deepfilter._sha256(source)):
+                    patched = deepfilter._prepare_cuda_compatible(source)
+            finally:
+                bundled_dir.chmod(0o755)
+
+            self.assertEqual(patched.parent, cache_dir)
+            self.assertTrue(patched.is_file())
+            self.assertTrue(
+                patched.with_name(patched.name + ".sha256").is_file()
+            )
 
 
 if __name__ == "__main__":

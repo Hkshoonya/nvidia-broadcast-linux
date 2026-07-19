@@ -62,6 +62,19 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.2.0" date="2026-07-19">
+      <description>
+        <p>Community audio, performance, and camera update</p>
+        <ul>
+          <li>Added DeepFilterNet3 neural noise removal with checksum-verified model downloads and automatic RNNoise fallback</li>
+          <li>Reduced idle CPU use by capping ONNX Runtime thread pools and enabling blocking CUDA synchronization by default</li>
+          <li>Added a native StatusNotifierItem tray with explicit shutdown cleanup and a legacy fallback</li>
+          <li>Made the Linux virtual-camera output device configurable across the app, headless service, and installer</li>
+          <li>Made config saves atomic, kept persistent logs private, and aligned voice effects across app and helper paths</li>
+          <li>Stored first-run AI models in a writable per-user cache and verified downloads against pinned SHA-256 digests</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.13" date="2026-07-04">
       <description>
         <p>Auto Frame tracking and framing patch</p>

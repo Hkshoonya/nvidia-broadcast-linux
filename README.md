@@ -42,6 +42,17 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.2.0 — Community Audio, Performance, and Camera Update
+
+- **Configurable Virtual Camera Output** — Linux users can choose and persist the `/dev/videoN` output used by the app, headless service, installer, and recovery commands, avoiding conflicts with OBS and other loopback cameras
+- **DeepFilterNet3 Noise Removal** — The new neural denoiser improves difficult microphone cleanup, verifies its pinned model before loading, and falls back to RNNoise when it is unavailable
+- **Lower Runtime CPU Use** — ONNX Runtime thread pools are capped and CUDA waits use blocking synchronization by default, reducing idle CPU load without changing processing modes
+- **Native Desktop Tray** — A StatusNotifierItem tray works natively on modern Linux desktops, with explicit shutdown cleanup and the existing legacy fallback where needed
+- **Safer Settings, Logs, and Models** — Config saves are atomic, persistent logs use private permissions, first-run AI models use a writable per-user cache with pinned SHA-256 verification, voice effects behave consistently across app and helper paths, and PyAV is pinned to the compatible 16.x line
+- **Contributor Release** — These audio, performance, tray, and correctness improvements were contributed by Jon Fuller ([`@perfectra1n`](https://github.com/perfectra1n)); the configurable output-device work completes [Issue #22](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/22)
+
+> If you are on `v1.1.13` or older, update to `v1.2.0`. This is the recommended stable release for stronger noise removal, lower background CPU use, native tray support, and conflict-free virtual-camera output selection.
+
 ### v1.1.13 — Auto Frame Tracking and Framing Patch
 
 - **Center Face Tracking Smoothed** — Auto Frame now follows side-to-side face movement continuously instead of waiting for a large lateral jump before the crop catches up
@@ -701,7 +712,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.13)
+│   ├── __init__.py              # Package version (1.2.0)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -734,7 +745,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.13)
+├── pyproject.toml               # Package config (v1.2.0)
 └── README.md
 ```
 

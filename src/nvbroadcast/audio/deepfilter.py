@@ -20,13 +20,23 @@ overhead plus a dedicated context in the audio helper process. CPU is the
 default; set NVBROADCAST_DFN_PROVIDER=cuda to force the GPU.
 """
 
-import hashlib
 import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
 
-_MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
+from nvbroadcast.core.model_download import (
+    DOWNLOAD_DEADLINE_S,
+    DOWNLOAD_TIMEOUT_S,
+    download_verified_model,
+    model_cache_dir,
+    sha256_file,
+)
+from nvbroadcast.core.resources import PROJECT_ROOT
+
+_MODELS_DIR = model_cache_dir()
+_BUNDLED_MODELS_DIR = PROJECT_ROOT / "models"
 
 MODEL_FILENAME = "deepfilternet3_streaming.onnx"
 # Pinned to a commit so the artifact is immutable.
@@ -42,15 +52,7 @@ SAMPLE_RATE = 48000
 
 
 def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-DOWNLOAD_TIMEOUT_S = 30       # Per connect/read; a dead server must not hang init
-DOWNLOAD_DEADLINE_S = 600     # Whole transfer; a trickling server must not either
+    return sha256_file(path)
 
 
 def _download_model() -> Path:
@@ -60,36 +62,13 @@ def _download_model() -> Path:
     timeouts are bounded both per read and for the whole transfer, and a
     checksum mismatch deletes the partial file.
     """
-    model_path = _MODELS_DIR / MODEL_FILENAME
-    if model_path.exists() and _sha256(model_path) == MODEL_SHA256:
-        return model_path
-    import time
-    import urllib.request
-    _MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_path = model_path.with_suffix(".part")
-    print(f"[NV Broadcast] Downloading {MODEL_FILENAME}...", flush=True)
-    deadline = time.monotonic() + DOWNLOAD_DEADLINE_S
-    try:
-        with urllib.request.urlopen(MODEL_URL,
-                                    timeout=DOWNLOAD_TIMEOUT_S) as response, \
-                open(tmp_path, "wb") as out:
-            while True:
-                if time.monotonic() > deadline:
-                    raise TimeoutError(
-                        f"model download exceeded {DOWNLOAD_DEADLINE_S}s")
-                chunk = response.read(1 << 20)
-                if not chunk:
-                    break
-                out.write(chunk)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
-    if _sha256(tmp_path) != MODEL_SHA256:
-        tmp_path.unlink(missing_ok=True)
-        raise RuntimeError("DeepFilterNet model checksum mismatch")
-    tmp_path.replace(model_path)
-    print(f"[NV Broadcast] Downloaded {MODEL_FILENAME}", flush=True)
-    return model_path
+    return download_verified_model(
+        MODEL_FILENAME,
+        MODEL_URL,
+        MODEL_SHA256,
+        bundled_dir=_BUNDLED_MODELS_DIR,
+        cache_dir=_MODELS_DIR,
+    )
 
 
 def _prepare_cuda_compatible(model_path: Path) -> Path:
@@ -106,7 +85,8 @@ def _prepare_cuda_compatible(model_path: Path) -> Path:
     and any mismatch (corruption, tampering, or a new source model)
     regenerates it from the already checksum-verified source.
     """
-    patched_path = model_path.with_name(model_path.stem + "_unfused.onnx")
+    _MODELS_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    patched_path = _MODELS_DIR / (model_path.stem + "_unfused.onnx")
     stamp_path = patched_path.with_name(patched_path.name + ".sha256")
     if patched_path.exists():
         try:
@@ -149,10 +129,27 @@ def _prepare_cuda_compatible(model_path: Path) -> Path:
     # Write-then-rename so a crash mid-save cannot leave a truncated graph;
     # the stamp is written last, so a stale stamp only ever causes a
     # harmless regeneration, never acceptance of a bad file.
-    tmp_path = patched_path.with_suffix(".part")
-    onnx.save(model, str(tmp_path))
-    tmp_path.replace(patched_path)
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{patched_path.name}.",
+        suffix=".part",
+        dir=_MODELS_DIR,
+        delete=False,
+    ) as temp_file:
+        tmp_path = Path(temp_file.name)
+    try:
+        onnx.save(model, str(tmp_path))
+        tmp_path.replace(patched_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    try:
+        patched_path.chmod(0o600)
+    except OSError:
+        pass
     stamp_path.write_text(f"{MODEL_SHA256} {_sha256(patched_path)}\n")
+    try:
+        stamp_path.chmod(0o600)
+    except OSError:
+        pass
     return patched_path
 
 

@@ -60,8 +60,11 @@ _preload_cuda_libs()
 import onnxruntime as ort
 
 from nvbroadcast.core.constants import COMPUTE_GPU_INDEX
+from nvbroadcast.core.model_download import download_verified_model
 
 _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
+_RVM_MOBILE_SHA256 = "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"
+_RVM_RESNET_SHA256 = "25db300fcb6ee27f941a1b52c97856e8d1f13c7f35817f81a612f89af0e8a85c"
 _LEARNED_REFINER_MODELS = {
     "replace": _MODELS_DIR / "edge_refiner_replace.onnx",
     "remove": _MODELS_DIR / "edge_refiner_remove.onnx",
@@ -84,6 +87,7 @@ MODELS = {
         "type": "single_frame",
         "model": "isnet-general-use.onnx",
         "url": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+        "sha256": "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
         "input_size": 1024,
         "mean": [0.5, 0.5, 0.5],
         "std": [1.0, 1.0, 1.0],
@@ -96,6 +100,7 @@ MODELS = {
         "type": "single_frame",
         "model": "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
         "url": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
+        "sha256": "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
         "input_size": 1024,
         "mean": [0.485, 0.456, 0.406],
         "std": [0.229, 0.224, 0.225],
@@ -107,24 +112,28 @@ QUALITY_PRESETS = {
     "performance": {
         "model": "rvm_mobilenetv3_fp32.onnx",
         "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
+        "sha256": _RVM_MOBILE_SHA256,
         "downsample": 0.25,
         "label": "Performance (fastest, good edges)",
     },
     "balanced": {
         "model": "rvm_mobilenetv3_fp32.onnx",
         "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
+        "sha256": _RVM_MOBILE_SHA256,
         "downsample": 0.5,
         "label": "Balanced (fast, better edges)",
     },
     "quality": {
         "model": "rvm_resnet50_fp32.onnx",
         "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_resnet50_fp32.onnx",
+        "sha256": _RVM_RESNET_SHA256,
         "downsample": 0.375,
         "label": "Quality (detailed edges)",
     },
     "ultra": {
         "model": "rvm_resnet50_fp32.onnx",
         "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_resnet50_fp32.onnx",
+        "sha256": _RVM_RESNET_SHA256,
         "downsample": 0.5,
         "label": "Ultra (best quality, sharpest edges)",
     },
@@ -437,17 +446,14 @@ def _get_fused_kernel():
     return _fused_kernel
 
 
-def _download_model(filename: str, url: str) -> Path:
-    """Download a model file if not present."""
-    model_path = _MODELS_DIR / filename
-    if model_path.exists():
-        return model_path
-    import urllib.request
-    _MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"[NV Broadcast] Downloading {filename}...")
-    urllib.request.urlretrieve(url, str(model_path))
-    print(f"[NV Broadcast] Downloaded {filename}")
-    return model_path
+def _download_model(filename: str, url: str, sha256: str) -> Path:
+    """Return a checksum-verified bundled or per-user cached model."""
+    return download_verified_model(
+        filename,
+        url,
+        sha256,
+        bundled_dir=_MODELS_DIR,
+    )
 
 
 def _get_device_name(session: ort.InferenceSession, gpu_index: int) -> str:
@@ -497,7 +503,9 @@ class _RVMBackend:
 
     def load(self, quality: str, use_tensorrt: bool = False) -> str:
         preset = QUALITY_PRESETS[quality]
-        base_model_path = _download_model(preset["model"], preset["url"])
+        base_model_path = _download_model(
+            preset["model"], preset["url"], preset["sha256"]
+        )
         self._base_model_path = base_model_path
         self._trt_requested = bool(use_tensorrt)
         self._trt_disabled = False
@@ -851,7 +859,9 @@ class _SingleFrameBackend:
         self._cpu_fallback_active = False
 
     def load(self, quality: str = "") -> str:
-        self._model_path = _download_model(self._info["model"], self._info["url"])
+        self._model_path = _download_model(
+            self._info["model"], self._info["url"], self._info["sha256"]
+        )
         try:
             self.session = _create_session(self._model_path, self._gpu_index)
             self._cpu_fallback_active = False

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nvbroadcast"
-version = "1.1.13"
+version = "1.2.0"
 description = "NV Broadcast - Unofficial NVIDIA Broadcast for Linux and other OS by doczeus - AI-powered virtual camera, background removal, and noise cancellation"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11"
@@ -34,10 +34,11 @@ dependencies = [
     "onnxruntime>=1.24.4,<1.25",
     "pyrnnoise>=0.4",
     # pyrnnoise -> audiolab needs av.option (removed in av 17) AND
-    # Codec.canonical_name (added in av 14); av 18 breaks the denoiser at
+    # Codec.canonical_name (added in av 14); av 17+ breaks the denoiser at
     # import time and noise removal silently becomes a no-op.
     "av>=16,<17",
-    "onnx>=1.14",
+    "onnx>=1.22.0",
+    "click>=8.3.3",
     "psutil>=5.9",
     "scipy>=1.11",
     "pyvirtualcam>=0.4; sys_platform == 'darwin'",

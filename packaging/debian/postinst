@@ -13,7 +13,7 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 # Install Python dependencies
-"$VENV_DIR/bin/pip" install --upgrade pip -q
+"$VENV_DIR/bin/pip" install --upgrade "pip>=26.1.2" -q
 "$VENV_DIR/bin/pip" install "$INSTALL_DIR" -q
 "$VENV_DIR/bin/pip" install --no-deps faster-whisper -q 2>/dev/null && \
     "$VENV_DIR/bin/pip" install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm -q 2>/dev/null || \
@@ -22,7 +22,7 @@ fi
 # Install CuPy if NVIDIA GPU detected
 if command -v nvidia-smi &>/dev/null; then
     echo "NV Broadcast: NVIDIA GPU detected, installing CUDA mode runtime..."
-    "$VENV_DIR/bin/pip" install --upgrade "$INSTALL_DIR[cuda]" -q 2>/dev/null || \
+    "$VENV_DIR/bin/pip" install --upgrade "${INSTALL_DIR}[cuda]" -q 2>/dev/null || \
         echo "NV Broadcast: CUDA runtime install failed (optional - CPU modes still work)"
 fi
 

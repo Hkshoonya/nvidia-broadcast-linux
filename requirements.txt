@@ -12,7 +12,8 @@ psutil>=5.9
 mediapipe>=0.10
 onnxruntime-gpu==1.24.4; sys_platform == "linux"
 onnxruntime>=1.24.4,<1.25; sys_platform == "darwin"
-onnx>=1.14
+onnx>=1.22.0
+click>=8.3.3
 
 # AI Meeting Transcription (local Whisper, no cloud)
 # faster-whisper is the packaged default path; openai-whisper remains optional
@@ -31,7 +32,7 @@ pyvirtualcam>=0.4; sys_platform == "darwin"
 
 # Audio
 # pyrnnoise -> audiolab needs av.option (removed in av 17) and
-# Codec.canonical_name (added in av 14) — av 18 breaks the denoiser import
+# Codec.canonical_name (added in av 14) — av 17+ breaks the denoiser import
 # and noise removal silently becomes a no-op.
 av>=16,<17
 pyrnnoise>=0.4

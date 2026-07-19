@@ -42,6 +42,7 @@ from nvbroadcast.video.autoframe import AutoFrame
 from nvbroadcast.video.beautify import FaceBeautifier
 from nvbroadcast.video.virtual_camera import (
     ensure_virtual_camera,
+    is_v4l2loopback_device,
     v4l2loopback_modprobe_command,
 )
 from nvbroadcast.video.eye_contact import EyeContactCorrector
@@ -219,6 +220,8 @@ class NVBroadcastApp(Adw.Application):
             print(f"[NV Broadcast] Virtual camera unavailable: {e}")
 
     def _preferred_vcam_device(self) -> str | None:
+        if not IS_LINUX:
+            return None
         configured = (self.config.video.vcam_device or "").strip()
         if not configured or configured == VIRTUAL_CAM_DEVICE:
             return None
@@ -1706,15 +1709,22 @@ class NVBroadcastApp(Adw.Application):
                 self._window.set_status(f"Format: {output_format}")
 
     def set_vcam_device(self, device: str) -> bool:
+        if not IS_LINUX:
+            return False
         device = (device or "").strip() or VIRTUAL_CAM_DEVICE
-        if IS_LINUX:
-            suffix = device.removeprefix("/dev/video")
-            if not device.startswith("/dev/video") or not suffix.isdigit():
-                if self._window:
-                    self._window.set_status(
-                        "Virtual camera device must look like /dev/video10."
-                    )
-                return False
+        suffix = device.removeprefix("/dev/video")
+        if not device.startswith("/dev/video") or not suffix.isdigit():
+            if self._window:
+                self._window.set_status(
+                    "Virtual camera device must look like /dev/video10."
+                )
+            return False
+        if os.path.exists(device) and not is_v4l2loopback_device(device):
+            if self._window:
+                self._window.set_status(
+                    f"{device} is not a v4l2loopback virtual camera."
+                )
+            return False
 
         if device == self.config.video.vcam_device:
             return True

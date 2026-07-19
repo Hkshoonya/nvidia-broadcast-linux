@@ -159,12 +159,16 @@ def _video_nr_from_device(device: str | None) -> int | None:
     return int(match.group(1))
 
 
+def _video_nr_for_device(device: str | None) -> int:
+    selected = _video_nr_from_device(device)
+    if selected is not None:
+        return selected
+    default = _video_nr_from_device(VIRTUAL_CAM_DEVICE)
+    return default if default is not None else 10
+
+
 def _v4l2loopback_modprobe_command(device: str | None = None) -> str:
-    video_nr = (
-        _video_nr_from_device(device)
-        or _video_nr_from_device(VIRTUAL_CAM_DEVICE)
-        or 10
-    )
+    video_nr = _video_nr_for_device(device)
     return (
         "sudo modprobe v4l2loopback "
         f'devices=1 video_nr={video_nr} card_label="{VIRTUAL_CAM_LABEL}" '
@@ -177,13 +181,30 @@ def v4l2loopback_modprobe_command(device: str | None = None) -> str:
     return _v4l2loopback_modprobe_command(device)
 
 
+def is_v4l2loopback_device(device: str) -> bool:
+    """Return whether an existing V4L2 node is backed by v4l2loopback."""
+    info = _get_v4l2_device_info(device)
+    return bool(
+        re.search(
+            r"^\s*Driver name\s*:\s*v4l2[\s_-]*loopback\s*$",
+            info,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+    )
+
+
 def get_virtual_camera_device(preferred_device: str | None = None) -> str | None:
     """Find existing v4l2loopback device, or return None."""
     preferred = (preferred_device or "").strip()
     if preferred:
-        return preferred if os.path.exists(preferred) else None
+        if os.path.exists(preferred) and is_v4l2loopback_device(preferred):
+            return preferred
+        return None
 
-    if os.path.exists(VIRTUAL_CAM_DEVICE):
+    if (
+        os.path.exists(VIRTUAL_CAM_DEVICE)
+        and is_v4l2loopback_device(VIRTUAL_CAM_DEVICE)
+    ):
         return VIRTUAL_CAM_DEVICE
 
     # Search for any v4l2loopback device
@@ -199,7 +220,10 @@ def get_virtual_camera_device(preferred_device: str | None = None) -> str | None
                 # Next line contains the device path
                 if i + 1 < len(lines):
                     dev = lines[i + 1].strip()
-                    if dev.startswith("/dev/video"):
+                    if (
+                        dev.startswith("/dev/video")
+                        and is_v4l2loopback_device(dev)
+                    ):
                         return dev
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
@@ -220,6 +244,14 @@ def ensure_virtual_camera(preferred_device: str | None = None) -> str:
     if preferred and _video_nr_from_device(preferred) is None:
         raise RuntimeError(
             "Virtual camera device must be a Linux video device path like /dev/video10."
+        )
+    if (
+        preferred
+        and os.path.exists(preferred)
+        and not is_v4l2loopback_device(preferred)
+    ):
+        raise RuntimeError(
+            f"{preferred} exists but is not a v4l2loopback virtual camera."
         )
 
     device = get_virtual_camera_device(preferred)
@@ -326,11 +358,14 @@ def reset_virtual_camera(device: str | None = None) -> bool:
     the first producer writes. Close all consumers (browsers) first.
     """
     target_device = (device or VIRTUAL_CAM_DEVICE).strip()
-    video_nr = (
-        _video_nr_from_device(target_device)
-        or _video_nr_from_device(VIRTUAL_CAM_DEVICE)
-        or 10
-    )
+    if _video_nr_from_device(target_device) is None:
+        return False
+    if (
+        os.path.exists(target_device)
+        and not is_v4l2loopback_device(target_device)
+    ):
+        return False
+    video_nr = _video_nr_for_device(target_device)
     try:
         subprocess.run(
             ["sudo", "modprobe", "-r", "v4l2loopback"],

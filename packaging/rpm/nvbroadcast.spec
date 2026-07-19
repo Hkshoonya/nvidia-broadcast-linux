@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.13
+Version:        1.2.0
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -50,6 +50,7 @@ Requires NVIDIA GPU with driver 525+ for GPU acceleration.
 
 %prep
 %autosetup -n %{name}-%{version}
+chmod 644 LICENSE README.md
 
 %install
 # Application
@@ -58,6 +59,8 @@ cp -r src pyproject.toml requirements.txt LICENSE README.md %{buildroot}/opt/nvb
 install -d %{buildroot}/opt/nvbroadcast/models
 cp -r data %{buildroot}/opt/nvbroadcast/
 cp -r configs %{buildroot}/opt/nvbroadcast/ 2>/dev/null || true
+find %{buildroot}/opt/nvbroadcast -type d -exec chmod 755 {} +
+find %{buildroot}/opt/nvbroadcast -type f -exec chmod 644 {} +
 
 # Desktop entry
 install -Dm 644 data/com.doczeus.NVBroadcast.desktop \
@@ -114,7 +117,7 @@ echo 'v4l2loopback' > %{buildroot}/etc/modules-load.d/nvbroadcast-v4l2loopback.c
 if [ ! -d /opt/nvbroadcast/.venv ]; then
     python3 -m venv /opt/nvbroadcast/.venv --system-site-packages
 fi
-/opt/nvbroadcast/.venv/bin/pip install --upgrade pip -q
+/opt/nvbroadcast/.venv/bin/pip install --upgrade "pip>=26.1.2" -q
 /opt/nvbroadcast/.venv/bin/pip install /opt/nvbroadcast -q
 /opt/nvbroadcast/.venv/bin/pip install --no-deps faster-whisper -q 2>/dev/null && \
     /opt/nvbroadcast/.venv/bin/pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm -q 2>/dev/null || true
@@ -149,6 +152,14 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Sun Jul 19 2026 doczeus <harshit@kshoonya.com> - 1.2.0-1
+- Add DeepFilterNet3 neural noise removal with verified downloads and RNNoise fallback
+- Reduce idle CPU use through bounded ONNX Runtime threads and blocking CUDA synchronization
+- Add native StatusNotifierItem tray integration with explicit shutdown cleanup
+- Make the Linux virtual-camera output device configurable across app and installer paths
+- Use atomic config saves, private persistent logs, and consistent voice effects
+- Store first-run AI models in a writable per-user cache with pinned SHA-256 verification
+
 * Sat Jul 04 2026 doczeus <harshit@kshoonya.com> - 1.1.13-1
 - Smooth Auto Frame lateral tracking so Center Face no longer waits for a large crop jump
 - Add Center Face and Stable Background framing modes for explicit auto-frame behavior
@@ -189,13 +200,13 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Report real installer exit codes and clearer optional GPU verification output
 - Add clearer project sponsorship links in the app and README
 
-* Tue Apr 29 2026 doczeus <harshit@kshoonya.com> - 1.1.7-1
+* Wed Apr 29 2026 doczeus <harshit@kshoonya.com> - 1.1.7-1
 - Improve live background edges around hair, fingers, and hands near the body
 - Reduce face-effect spill into head hair so hair looks less bright and washed out
 - Keep the exported nvbroadcast microphone live even when voice effects and noise removal are turned off
 - Re-verify audio, video, meeting transcription, summaries, and packaging checks before release
 
-* Tue Apr 29 2026 doczeus <harshit@kshoonya.com> - 1.1.6-1
+* Wed Apr 29 2026 doczeus <harshit@kshoonya.com> - 1.1.6-1
 - Fix the live background alpha path so one dedicated worker owns CUDA inference instead of hopping across short-lived threads
 - Stop repeated invalid-resource-handle failures and RVM reset loops that could make replace mode extremely laggy
 - Reuse same-frame final mattes for relighting and cache more replace-mode work to cut duplicate live processing cost
@@ -208,7 +219,7 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Scope beautify denoise to the face ROI and preserve raw history to reduce motion smear on face and glasses
 - Reduce false replace-mode shoulder and underarm background breakout during raised-hand overlap
 
-* Mon Apr 21 2026 doczeus <harshit@kshoonya.com> - 1.1.4-1
+* Tue Apr 21 2026 doczeus <harshit@kshoonya.com> - 1.1.4-1
 - Stabilize Linux processed-mic routing for browser and meeting app compatibility
 - Fix optional meeting runtime validation and include the missing httpx dependency
 - Package the local meeting transcription runtime for release installers
@@ -229,21 +240,21 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Persist speaker selection and active profile state with reset-to-defaults support
 - Fix microphone test record/playback reliability and extend test durations to 30s/45s/60s
 
-* Fri Mar 28 2026 doczeus <harshit@kshoonya.com> - 1.1.1-1
+* Sat Mar 28 2026 doczeus <harshit@kshoonya.com> - 1.1.1-1
 - Stabilize the virtual camera sink path on Linux loopback devices
 - Reduce live face-effect latency with shared landmark reuse and ROI relighting
 - Tighten replace edges around shoulders, hair, and under-arm gaps
 - Improve local meeting transcription startup, chunking, and audio finalization
 - Save resolution changes safely without hanging the live stream
 
-* Thu Mar 27 2026 doczeus <harshit@kshoonya.com> - 1.1.0-1
+* Fri Mar 27 2026 doczeus <harshit@kshoonya.com> - 1.1.0-1
 - Add meeting assistant sidebar with live transcript and local session history
 - Capture both-way meeting audio for on-device transcription and notes
 - Keep local meeting records for 7 days with automatic cleanup
 - Add background optional-runtime installer flow for CUDA, TensorRT, and Whisper
 - Improve first-run setup guidance and in-app install progress handling
 
-* Thu Mar 27 2026 doczeus <harshit@kshoonya.com> - 1.0.2-1
+* Fri Mar 27 2026 doczeus <harshit@kshoonya.com> - 1.0.2-1
 - Improve background matte quality and mode restore behavior
 - Package desktop assets and AppStream metadata in release artifacts
 - Stop using editable installs in packaged environments
@@ -262,7 +273,7 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Session recording (save processed video)
 - User profiles (per-user settings)
 
-* Sun Mar 23 2026 doczeus <harshit@kshoonya.com> - 0.2.0-1
+* Mon Mar 23 2026 doczeus <harshit@kshoonya.com> - 0.2.0-1
 - Premium GPU modes (Killer, Zeus, DocZeus)
 - Fused CUDA kernel compositing
 - Edge refinement neural network

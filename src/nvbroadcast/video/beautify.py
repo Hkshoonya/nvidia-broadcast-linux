@@ -10,20 +10,10 @@ All effects are independently togglable with intensity control.
 Zero CPU cost when disabled.
 """
 
-import urllib.request
-from pathlib import Path
-
 import numpy as np
 import cv2
 
 from nvbroadcast.video.face_landmarks import get_shared_landmarker
-
-_MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
-_FACE_MODEL = "face_landmarker.task"
-_FACE_MODEL_URL = (
-    "https://storage.googleapis.com/mediapipe-models/"
-    "face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
-)
 
 # Face oval landmark indices (MediaPipe face mesh)
 _FACE_OVAL_INDICES = [
@@ -136,16 +126,6 @@ class FaceBeautifier:
         """Initialize FaceLandmarker model."""
         if self._initialized:
             return True
-
-        model_path = _MODELS_DIR / _FACE_MODEL
-        if not model_path.exists():
-            try:
-                _MODELS_DIR.mkdir(parents=True, exist_ok=True)
-                print(f"[NV Broadcast] Downloading {_FACE_MODEL}...")
-                urllib.request.urlretrieve(_FACE_MODEL_URL, str(model_path))
-            except Exception as e:
-                print(f"[NV Broadcast] Failed to download face model: {e}")
-                return False
 
         try:
             landmarker = get_shared_landmarker()
