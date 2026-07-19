@@ -7,11 +7,13 @@ from nvbroadcast.video import virtual_camera
 
 
 class VirtualCameraConfigTests(unittest.TestCase):
-    def test_macos_uses_the_coremedia_device_name(self):
-        with mock.patch.object(virtual_camera, "IS_MACOS", True):
+    def test_macos_uses_the_obs_virtual_camera_name(self):
+        with mock.patch.object(virtual_camera, "IS_MACOS", True), mock.patch.dict(
+            "sys.modules", {"pyvirtualcam": SimpleNamespace()}
+        ):
             device = virtual_camera.ensure_virtual_camera("/dev/video11")
 
-        self.assertEqual(device, virtual_camera.VIRTUAL_CAM_LABEL)
+        self.assertEqual(device, virtual_camera.MACOS_VIRTUAL_CAM_LABEL)
 
     def test_preferred_virtual_camera_device_is_used_when_it_exists(self):
         with mock.patch.object(virtual_camera, "IS_MACOS", False), mock.patch(

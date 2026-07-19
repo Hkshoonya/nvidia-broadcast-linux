@@ -122,6 +122,9 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn("onnx>=1.22.0", content)
             self.assertIn("click>=8.3.3", content)
 
+        self.assertIn("pyvirtualcam>=0.14", pyproject)
+        self.assertIn("pyvirtualcam>=0.14", requirements)
+
         installers = (
             REPO_ROOT / "install.sh",
             REPO_ROOT / "install_macos.sh",
@@ -229,6 +232,13 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('python3 -m pip install ".[dev]"', macos_job)
         self.assertIn("python3 -m pip check", macos_job)
         self.assertNotIn("--dry-run", macos_job)
+        self.assertIn("macos-15", macos_job)
+        self.assertIn("macos-15-intel", macos_job)
+
+        build_job = workflow.split("  build-macos:", 1)[1].split(
+            "  test-macos:", 1
+        )[0]
+        self.assertNotIn("NVBroadcastExtension.systemextension/**", build_job)
 
     def test_readme_documents_cuda_extra_for_source_gpu_installs(self):
         readme = (REPO_ROOT / "README.md").read_text()
@@ -266,9 +276,13 @@ class PackagingMetadataTests(unittest.TestCase):
         macos_constants = (REPO_ROOT / "macos" / "Shared" / "Constants.swift").read_text()
 
         self.assertIn('VIRTUAL_CAM_LABEL = "NVbroadcast"', constants)
-        self.assertIn('else VIRTUAL_CAM_LABEL', constants)
+        self.assertIn('MACOS_VIRTUAL_CAM_LABEL = "OBS Virtual Camera"', constants)
+        self.assertIn('else MACOS_VIRTUAL_CAM_LABEL', constants)
         self.assertIn('card_label="NVbroadcast"', readme)
-        self.assertIn('select **"NVbroadcast"** as your camera', readme)
+        self.assertIn(
+            'select **"NVbroadcast"** on Linux or **"OBS Virtual Camera"** on macOS',
+            readme,
+        )
         self.assertIn('V4L2_LABEL="NVbroadcast"', install_script)
         self.assertIn('card_label=\\"${V4L2_LABEL}\\"', install_script)
         self.assertIn('card_label="${V4L2_LABEL}"', install_script)
@@ -282,7 +296,9 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Description=NVbroadcast Virtual Camera Service", rpm_spec)
         self.assertIn('static let deviceName = "NVbroadcast"', macos_constants)
         self.assertIn('static let deviceModel = "NVbroadcast"', macos_constants)
-        self.assertIn("NVBROADCAST_ALLOW_OBS_VCAM_FALLBACK", (REPO_ROOT / "src" / "nvbroadcast" / "video" / "pipeline.py").read_text())
+        pipeline = (REPO_ROOT / "src" / "nvbroadcast" / "video" / "pipeline.py").read_text()
+        self.assertIn("pyvirtualcam.PixelFormat.BGR", pipeline)
+        self.assertNotIn("NVBROADCAST_ALLOW_OBS_VCAM_FALLBACK", pipeline)
 
         generated_content = "\n".join(
             line

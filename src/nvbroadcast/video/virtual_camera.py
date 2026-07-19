@@ -3,7 +3,7 @@
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
-"""Virtual camera management — v4l2loopback (Linux) / CoreMediaIO (macOS)."""
+"""Virtual camera management — v4l2loopback (Linux) / OBS (macOS)."""
 
 import subprocess
 import os
@@ -11,7 +11,11 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from nvbroadcast.core.constants import VIRTUAL_CAM_DEVICE, VIRTUAL_CAM_LABEL
+from nvbroadcast.core.constants import (
+    MACOS_VIRTUAL_CAM_LABEL,
+    VIRTUAL_CAM_DEVICE,
+    VIRTUAL_CAM_LABEL,
+)
 from nvbroadcast.core.platform import IS_LINUX, IS_MACOS
 
 _MJPEG_FORMATS = {"MJPG", "JPEG"}
@@ -235,10 +239,17 @@ def ensure_virtual_camera(preferred_device: str | None = None) -> str:
     """Ensure a virtual camera device exists and return its path/identifier.
 
     Linux: v4l2loopback device, defaulting to /dev/video10
-    macOS: proprietary CoreMediaIO extension — returns the branded device name
+    macOS: pyvirtualcam with OBS — returns the OBS virtual-camera device name
     """
     if IS_MACOS:
-        return VIRTUAL_CAM_LABEL
+        try:
+            import pyvirtualcam  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "Virtual camera requires pyvirtualcam and OBS Studio on macOS. "
+                "Run ./install_macos.sh to install the supported runtime."
+            ) from exc
+        return MACOS_VIRTUAL_CAM_LABEL
 
     preferred = (preferred_device or "").strip()
     if preferred and _video_nr_from_device(preferred) is None:

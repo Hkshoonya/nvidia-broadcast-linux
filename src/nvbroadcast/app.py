@@ -940,8 +940,13 @@ class NVBroadcastApp(Adw.Application):
 
             w, h = self.config.video.width, self.config.video.height
             status = f"Streaming: {camera_device} {w}x{h}@{self.config.video.fps}fps"
-            if self._vcam_available:
+            if (
+                self._vcam_available
+                and self._video_pipeline.virtual_camera_active
+            ):
                 status += f" -> {self._active_vcam_device()}"
+            elif self._vcam_available:
+                status += " - virtual camera unavailable"
             self._window.set_status(status)
             self.config.video.camera_device = camera_device
             self.config.video.output_format = output_format

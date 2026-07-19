@@ -217,8 +217,8 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Multi-Camera Support** — Hot-switch between cameras without restarting
 - **Apple-Inspired UI** — Glassmorphism cards, collapsible sections, smooth transitions
 - **Shared FaceLandmarker** — Single MediaPipe instance shared across all face effects (3x faster)
-- **macOS Support** — CPU modes with CoreML, AVFoundation camera, Homebrew installer
-- **CI Pipeline** — GitHub Actions builds .deb, .rpm, .pkg + Swift Camera Extension on macOS
+- **macOS Support** — CPU modes with CoreML, AVFoundation capture, and OBS Virtual Camera output through the Homebrew installer
+- **CI Pipeline** — GitHub Actions builds .deb, .rpm, and .pkg packages and compile-checks the prototype Swift Camera Extension on macOS
 
 ### v0.2.0
 
@@ -487,7 +487,7 @@ cd nvidia-broadcast-linux
 ./install_macos.sh
 ```
 
-Requires macOS 12+, Homebrew, Python 3.11+. Installs GStreamer, GTK4 via Homebrew.
+Requires macOS 12+, Homebrew, Python 3.11+, and OBS Studio for virtual-camera output. The installer provisions GStreamer and GTK4 and can install OBS. After installing OBS, open it once, start and stop **Virtual Camera**, then close OBS so its camera backend is registered for NV Broadcast.
 CPU modes with CoreML acceleration on Apple Silicon. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
 
 ### Linux — Snap Package
@@ -517,7 +517,7 @@ The installer:
 ### Update Behavior
 
 - **Git checkout / manual Linux packages** — the app checks GitHub Releases and opens the matching release download page when a newer stable build is available
-- **macOS package installs** — the app prefers the latest `.pkg` release asset when one is published
+- **macOS package installs** — the app prefers the latest `.pkg` release asset when one is published; the package updates an installation whose Homebrew, Python, GStreamer, GTK, and OBS prerequisites are already configured by `install_macos.sh`
 - **Snap installs** — the app opens the Snap Store listing; stable refreshes are normally handled by `snapd`
 
 ### Optional: TensorRT (for Zeus/Killer modes)
@@ -594,7 +594,7 @@ nvbroadcast          # Launch GUI (first time: setup wizard)
 2. App starts and auto-begins streaming
 3. Configure effects, select resolution/FPS/mode
 4. **Close the window** — app minimizes to background, virtual camera stays active
-5. Open **Chrome / Zoom / Discord / OBS** — select **"NVbroadcast"** as your camera
+5. Open **Chrome / Zoom / Discord** — select **"NVbroadcast"** on Linux or **"OBS Virtual Camera"** on macOS
 6. **Next login** — app starts automatically with all your settings remembered
 
 ### Controls

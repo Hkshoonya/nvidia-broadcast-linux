@@ -28,7 +28,7 @@ openai-whisper>=20231117; python_version < "3.14"
 scipy>=1.11
 
 # Cross-platform virtual camera (macOS: OBS Virtual Camera backend)
-pyvirtualcam>=0.4; sys_platform == "darwin"
+pyvirtualcam>=0.14; sys_platform == "darwin"
 
 # Audio
 # pyrnnoise publishes Linux wheels only; macOS uses DeepFilterNet through ONNX.

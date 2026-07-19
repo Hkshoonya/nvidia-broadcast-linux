@@ -40,9 +40,9 @@ jobs:
             dist/deb/*.deb
             dist/rpm/*.rpm
 
-  # ─── macOS: Camera Extension + .pkg ────────────────────────────────────────
+  # ─── macOS: .pkg ───────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -54,24 +54,37 @@ jobs:
           xcodebuild -version
           uname -m
 
-      - name: Build Camera Extension
-        run: bash macos/build.sh
-
       - name: Build .pkg installer
         run: bash build-packages.sh pkg
+
+      - name: Inspect .pkg payload
+        run: |
+          package="$(find dist/pkg -name '*.pkg' -type f -print -quit)"
+          test -n "$package"
+          rm -rf /tmp/nvbroadcast-pkg-expanded
+          pkgutil --expand-full "$package" /tmp/nvbroadcast-pkg-expanded
+          test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/src/nvbroadcast/__init__.py' -print -quit)"
+          test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/usr/local/bin/nvbroadcast' -print -quit)"
+          find /tmp/nvbroadcast-pkg-expanded -name postinstall -type f -exec bash -n {} \;
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-packages
-          path: |
-            dist/macos/NVBroadcastExtension.systemextension/**
-            dist/macos/frame_bridge.py
-            dist/pkg/*.pkg
+          path: dist/pkg/*.pkg
 
-  # ─── Test: macOS platform + extension compilation ──────────────────────────
+  # ─── Test: macOS platform + prototype extension compilation ────────────────
   test-macos:
-    runs-on: macos-14
+    name: Test macOS (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apple Silicon
+            runner: macos-15
+          - name: Intel
+            runner: macos-15-intel
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -118,7 +131,17 @@ jobs:
           print('Frame bridge test: OK')
           "
 
-      - name: Test Swift extension compilation
+      - name: Validate OBS virtual-camera API
+        run: |
+          python3 -c "
+          import inspect
+          import pyvirtualcam
+          assert pyvirtualcam.PixelFormat.BGR.value == '24BG'
+          assert 'backend' in inspect.signature(pyvirtualcam.Camera).parameters
+          print(f'pyvirtualcam {pyvirtualcam.__version__}: OBS API available')
+          "
+
+      - name: Test prototype Swift extension compilation
         run: |
           bash macos/build.sh
           test -f macos/.build/NVBroadcastExtension.systemextension/Contents/MacOS/NVBroadcastExtension

@@ -170,19 +170,28 @@ echo -e "  Launcher: ~/.local/bin/nvbroadcast"
 echo ""
 echo -e "${GREEN}[6/7]${NC} Virtual camera setup..."
 
+OBS_AVAILABLE=false
 if command -v obs &>/dev/null || [[ -d "/Applications/OBS.app" ]]; then
-    echo -e "  OBS Studio found — virtual camera available"
+    OBS_AVAILABLE=true
+    echo -e "  OBS Studio found"
 else
     echo -e "${YELLOW}  OBS Studio not installed.${NC}"
     read -p "  Install OBS for virtual camera support? [Y/n] " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
         brew install --cask obs
-        echo -e "  OBS installed — virtual camera available"
+        OBS_AVAILABLE=true
+        echo -e "  OBS installed"
     else
         echo -e "  Skipped. Virtual camera will not be available."
         echo -e "  Install later: brew install --cask obs"
     fi
+fi
+
+if [[ "$OBS_AVAILABLE" == "true" ]]; then
+    echo -e "${YELLOW}  One-time OBS setup:${NC} open OBS, start Virtual Camera,"
+    echo "  stop Virtual Camera, then close OBS. NV Broadcast can then publish"
+    echo "  to the 'OBS Virtual Camera' device without OBS running."
 fi
 
 # ── Step 7: Create config ───────────────────────────────────────────────────

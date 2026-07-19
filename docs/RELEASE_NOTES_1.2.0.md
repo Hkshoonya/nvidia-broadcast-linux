@@ -37,8 +37,11 @@ and desktop-integration work with configurable Linux virtual-camera output.
   the Linux setup scripts.
 - Keeps `/dev/video10` as the default while allowing `/dev/video11` or another
   loopback node when OBS or other software already uses that device number.
-- Leaves macOS virtual-camera selection under the CoreMediaIO extension rather
-  than displaying a Linux device-path control.
+- Keeps the Linux device-path control hidden on macOS and restores automatic
+  output through the supported OBS Virtual Camera backend in both passthrough
+  and effects modes.
+- Sends macOS BGRA capture frames as correctly ordered, contiguous BGR data and
+  disables only virtual-camera output if the OBS backend stops unexpectedly.
 
 ### Correctness and privacy
 
@@ -63,6 +66,12 @@ NVBROADCAST_VCAM_DEVICE_NUM=11 ./install.sh
 
 Then select `/dev/video11` as the Camera output in the app. Close OBS, browsers,
 and meeting applications before changing or reloading a v4l2loopback device.
+
+macOS virtual-camera output requires OBS Studio. Open OBS once after installing
+or upgrading it, start and stop **Virtual Camera**, close OBS, and then select
+**OBS Virtual Camera** in the meeting application. The Swift CoreMediaIO
+extension in the source tree remains a compile-tested prototype and is not
+installed or published as a release asset.
 
 ## Contributor credit
 
