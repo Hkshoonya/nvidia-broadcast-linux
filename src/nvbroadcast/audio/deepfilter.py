@@ -181,6 +181,13 @@ class DeepFilterDenoiser:
         try:
             model_path = _prepare_cuda_compatible(_download_model())
 
+            force_cuda = os.getenv("NVBROADCAST_DFN_PROVIDER", "").lower() == "cuda"
+            if force_cuda:
+                # Snap stores CUDA wheels under a nested site-packages path
+                # that the dynamic linker does not discover on its own.
+                from nvbroadcast.core.platform import preload_nvidia_runtime_libs
+                preload_nvidia_runtime_libs()
+
             import onnxruntime as ort
             opts = ort.SessionOptions()
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -197,7 +204,7 @@ class DeepFilterDenoiser:
 
             # CPU is measured faster than CUDA for this model size (0.6ms
             # vs 1.2ms per hop) and avoids a CUDA context in the helper.
-            if os.getenv("NVBROADCAST_DFN_PROVIDER", "").lower() == "cuda":
+            if force_cuda:
                 providers = [("CUDAExecutionProvider", {"device_id": 0}),
                              "CPUExecutionProvider"]
             else:

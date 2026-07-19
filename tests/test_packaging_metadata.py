@@ -31,6 +31,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f'version = "{current}"', pyproject)
         self.assertIn(f'__version__ = "{current}"', package_init)
         self.assertIn(f"version: '{current}'", snapcraft)
+        self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
         self.assertIn(f'<release version="{current}" date="2026-07-19">', metainfo)
         self.assertIn(f"### v{current}", readme)

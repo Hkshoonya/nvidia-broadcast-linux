@@ -139,5 +139,46 @@ class PatchedGraphCacheTests(unittest.TestCase):
             )
 
 
+class ProviderSetupTests(unittest.TestCase):
+    def test_cuda_provider_preloads_packaged_nvidia_libraries(self):
+        events = []
+        session = mock.MagicMock()
+        session.get_providers.return_value = ["CUDAExecutionProvider"]
+        fake_ort = mock.MagicMock()
+        fake_ort.GraphOptimizationLevel.ORT_ENABLE_ALL = "all"
+        fake_ort.SessionOptions.return_value = mock.MagicMock()
+
+        def create_session(*_args, **_kwargs):
+            events.append("session")
+            return session
+
+        fake_ort.InferenceSession.side_effect = create_session
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "model.onnx"
+            model.touch()
+            with mock.patch.object(deepfilter, "_download_model",
+                                   return_value=model), \
+                 mock.patch.object(deepfilter, "_prepare_cuda_compatible",
+                                   return_value=model), \
+                 mock.patch(
+                     "nvbroadcast.core.platform.preload_nvidia_runtime_libs",
+                     side_effect=lambda: events.append("preload"),
+                 ) as preload, \
+                 mock.patch.dict(
+                     "os.environ", {"NVBROADCAST_DFN_PROVIDER": "cuda"}
+                 ), \
+                 mock.patch.dict("sys.modules", {"onnxruntime": fake_ort}):
+                denoiser = deepfilter.DeepFilterDenoiser()
+                self.assertTrue(denoiser.initialize())
+
+        preload.assert_called_once_with()
+        self.assertEqual(events, ["preload", "session"])
+        providers = fake_ort.InferenceSession.call_args.kwargs["providers"]
+        self.assertEqual(
+            providers[0], ("CUDAExecutionProvider", {"device_id": 0})
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
