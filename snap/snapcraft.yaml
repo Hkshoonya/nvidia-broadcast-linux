@@ -1,28 +1,28 @@
 name: nvbroadcast
 title: NV Broadcast
 base: core24
-version: '1.2.0'
-summary: Community audio, performance, and camera update
+version: '1.2.1'
+summary: Visible eye contact correction patch
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.2.0:
-  - Adds DeepFilterNet3 neural noise removal with verified model downloads and
-    automatic RNNoise fallback.
-  - Reduces idle CPU use by capping ONNX Runtime threads and using blocking CUDA
-    synchronization by default.
-  - Adds a native StatusNotifierItem tray with clean shutdown behavior.
-  - Makes Linux virtual-camera output configurable so /dev/video10 conflicts
-    can be moved to another loopback device.
-  - Uses atomic config saves, private persistent logs, and consistent voice
-    effects across the app and audio helper.
-  - Stores first-run AI models in a writable per-user cache and verifies every
-    downloaded artifact against its pinned SHA-256 digest.
+  What's new in v1.2.1:
+  - Makes eye contact visibly correct moderate gaze at the persisted default
+    intensity instead of producing a sub-pixel no-op.
+  - Corrects horizontal and vertical gaze inside the detected eyelid contour,
+    smooths motion between frames, and preserves the frame alpha channel.
+  - Rejects blinks and unstable landmark offsets before applying the stronger
+    correction.
+  - Carries forward v1.2.0's corrected contiguous BGR output to OBS Virtual
+    Camera on supported Apple Silicon Macs.
 
   Recent quality updates:
+  - v1.2.0 adds DeepFilterNet3 noise removal, lower background CPU use, a native
+    StatusNotifierItem tray, verified model storage, and configurable Linux
+    virtual-camera output.
   - v1.1.13 adds Center Face and Stable Background Auto Frame modes and fixes
     minimum-zoom tracking.
   - v1.1.12 fixes OBS startup reliability, phone webcam fallback behavior,

@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.2.0
+Version:        1.2.1
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -153,6 +153,12 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Sun Jul 19 2026 doczeus <harshit@kshoonya.com> - 1.2.1-1
+- Make eye contact visibly correct moderate gaze at the default intensity
+- Correct both horizontal and vertical gaze inside a feathered eyelid contour
+- Smooth gaze movement while rejecting blinks and unstable landmark offsets
+- Preserve frame alpha while applying the localized eye correction
+
 * Sun Jul 19 2026 doczeus <harshit@kshoonya.com> - 1.2.0-1
 - Add DeepFilterNet3 neural noise removal with verified downloads and RNNoise fallback
 - Reduce idle CPU use through bounded ONNX Runtime threads and blocking CUDA synchronization
