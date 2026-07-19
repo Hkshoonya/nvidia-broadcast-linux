@@ -81,6 +81,8 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn("fuser -s", script)
             self.assertIn("modprobe -r v4l2loopback", script)
             self.assertIn("Skipping live", script)
+            self.assertIn("NVBROADCAST_VCAM_DEVICE_NUM", script)
+            self.assertIn("NVBROADCAST_VCAM_DEVICE", script)
             self.assertIn('card_label="${', script)
 
     def test_core_runtime_includes_audio_denoiser_import_dependencies(self):

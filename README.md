@@ -560,6 +560,9 @@ pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12
 sudo modprobe v4l2loopback devices=1 video_nr=10 \
     card_label="NVbroadcast" exclusive_caps=1 max_buffers=4
 
+# Use another output node if /dev/video10 conflicts:
+NVBROADCAST_VCAM_DEVICE_NUM=11 ./scripts/setup_v4l2loopback.sh
+
 # 6. Run
 python -m nvbroadcast
 ```

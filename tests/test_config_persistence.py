@@ -29,6 +29,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         config.video.height = 600
         config.video.fps = 30
         config.video.output_format = "I420"
+        config.video.vcam_device = "/dev/video11"
         config.video.auto_frame_mode = "stable"
         config.audio.mic_device = "mic0"
         config.audio.speaker_device = "speaker0"
@@ -56,6 +57,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         })
         self.assertEqual((loaded.video.width, loaded.video.height, loaded.video.fps), (800, 600, 30))
         self.assertEqual(loaded.video.output_format, "I420")
+        self.assertEqual(loaded.video.vcam_device, "/dev/video11")
         self.assertEqual(loaded.video.auto_frame_mode, "stable")
         self.assertEqual(loaded.audio.mic_device, "mic0")
         self.assertEqual(loaded.audio.speaker_device, "speaker0")
@@ -79,6 +81,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         existing.current_profile = "Custom"
         existing.ui_card_expanded = {"background": True}
         existing.audio.speaker_device = "speaker0"
+        existing.video.vcam_device = "/dev/video11"
         existing.video.background_removal = True
 
         reset = build_default_config(existing)
@@ -96,6 +99,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(reset.ui_card_expanded, {"background": True})
         self.assertEqual(reset.current_profile, "Default")
         self.assertEqual(reset.audio.speaker_device, "")
+        self.assertEqual(reset.video.vcam_device, "/dev/video11")
         self.assertFalse(reset.video.background_removal)
 
     def test_builtin_profiles_do_not_overwrite_manual_mode_or_capture_settings(self):

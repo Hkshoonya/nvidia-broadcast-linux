@@ -149,8 +149,40 @@ def is_v4l2loopback_loaded() -> bool:
         return False
 
 
-def get_virtual_camera_device() -> str | None:
+def _video_nr_from_device(device: str | None) -> int | None:
+    """Return the numeric v4l2 video index for `/dev/videoN` paths."""
+    if not device:
+        return None
+    match = re.fullmatch(r"/dev/video(\d+)", device.strip())
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _v4l2loopback_modprobe_command(device: str | None = None) -> str:
+    video_nr = (
+        _video_nr_from_device(device)
+        or _video_nr_from_device(VIRTUAL_CAM_DEVICE)
+        or 10
+    )
+    return (
+        "sudo modprobe v4l2loopback "
+        f'devices=1 video_nr={video_nr} card_label="{VIRTUAL_CAM_LABEL}" '
+        "exclusive_caps=1 max_buffers=4"
+    )
+
+
+def v4l2loopback_modprobe_command(device: str | None = None) -> str:
+    """Return the modprobe command for the selected virtual camera device."""
+    return _v4l2loopback_modprobe_command(device)
+
+
+def get_virtual_camera_device(preferred_device: str | None = None) -> str | None:
     """Find existing v4l2loopback device, or return None."""
+    preferred = (preferred_device or "").strip()
+    if preferred:
+        return preferred if os.path.exists(preferred) else None
+
     if os.path.exists(VIRTUAL_CAM_DEVICE):
         return VIRTUAL_CAM_DEVICE
 
@@ -163,7 +195,7 @@ def get_virtual_camera_device() -> str | None:
         )
         lines = result.stdout.split("\n")
         for i, line in enumerate(lines):
-            if "v4l2loopback" in line.lower() or "nvbroadcast" in line.lower():
+            if _is_virtual_camera_name(line):
                 # Next line contains the device path
                 if i + 1 < len(lines):
                     dev = lines[i + 1].strip()
@@ -175,32 +207,38 @@ def get_virtual_camera_device() -> str | None:
     return None
 
 
-def ensure_virtual_camera() -> str:
+def ensure_virtual_camera(preferred_device: str | None = None) -> str:
     """Ensure a virtual camera device exists and return its path/identifier.
 
-    Linux: v4l2loopback device at /dev/video10
+    Linux: v4l2loopback device, defaulting to /dev/video10
     macOS: proprietary CoreMediaIO extension — returns the branded device name
     """
     if IS_MACOS:
         return VIRTUAL_CAM_LABEL
 
-    device = get_virtual_camera_device()
+    preferred = (preferred_device or "").strip()
+    if preferred and _video_nr_from_device(preferred) is None:
+        raise RuntimeError(
+            "Virtual camera device must be a Linux video device path like /dev/video10."
+        )
+
+    device = get_virtual_camera_device(preferred)
     if device:
         return device
+
+    target_device = preferred or VIRTUAL_CAM_DEVICE
+    modprobe_cmd = _v4l2loopback_modprobe_command(target_device)
 
     if not is_v4l2loopback_loaded():
         raise RuntimeError(
             "v4l2loopback kernel module is not loaded.\n"
             "Install it with: sudo apt install v4l2loopback-dkms\n"
-            "Load it with: sudo modprobe v4l2loopback "
-            f'devices=1 video_nr=10 card_label="{VIRTUAL_CAM_LABEL}" '
-            "exclusive_caps=1 max_buffers=4"
+            f"Load {target_device} with: {modprobe_cmd}"
         )
 
     raise RuntimeError(
-        f"v4l2loopback is loaded but no device found at {VIRTUAL_CAM_DEVICE}.\n"
-        "Try: sudo modprobe -r v4l2loopback && sudo modprobe v4l2loopback "
-        f'devices=1 video_nr=10 card_label="{VIRTUAL_CAM_LABEL}" exclusive_caps=1 max_buffers=4'
+        f"v4l2loopback is loaded but no device found at {target_device}.\n"
+        f"Try: sudo modprobe -r v4l2loopback && {modprobe_cmd}"
     )
 
 
@@ -280,13 +318,19 @@ def set_firefox_pipewire(disabled: bool) -> tuple[bool, str]:
     return True, f"PipeWire camera {action} in {updated} profile(s). Restart Firefox to apply."
 
 
-def reset_virtual_camera() -> bool:
+def reset_virtual_camera(device: str | None = None) -> bool:
     """Reset v4l2loopback device to accept new format/resolution.
 
     Needed when changing output format (YUY2/I420/NV12) or resolution,
     because v4l2loopback with exclusive_caps=1 locks the format after
     the first producer writes. Close all consumers (browsers) first.
     """
+    target_device = (device or VIRTUAL_CAM_DEVICE).strip()
+    video_nr = (
+        _video_nr_from_device(target_device)
+        or _video_nr_from_device(VIRTUAL_CAM_DEVICE)
+        or 10
+    )
     try:
         subprocess.run(
             ["sudo", "modprobe", "-r", "v4l2loopback"],
@@ -294,12 +338,12 @@ def reset_virtual_camera() -> bool:
         )
         subprocess.run(
             ["sudo", "modprobe", "v4l2loopback",
-             "devices=1", "video_nr=10",
+             "devices=1", f"video_nr={video_nr}",
              f'card_label={VIRTUAL_CAM_LABEL}',
              "exclusive_caps=1", "max_buffers=4"],
             capture_output=True, timeout=5,
         )
-        return os.path.exists(VIRTUAL_CAM_DEVICE)
+        return os.path.exists(target_device)
     except Exception:
         return False
 

@@ -23,7 +23,11 @@ gi.require_version("Adw", "1")
 gi.require_version("Gst", "1.0")
 from gi.repository import Gtk, Adw, Gst, Gio, Gdk, GLib
 
-from nvbroadcast.core.constants import APP_ID, COMPUTE_GPU_INDEX, VIRTUAL_CAM_LABEL
+from nvbroadcast.core.constants import (
+    APP_ID,
+    COMPUTE_GPU_INDEX,
+    VIRTUAL_CAM_DEVICE,
+)
 from nvbroadcast.core.gpu import apply_cuda_blocking_sync
 from nvbroadcast.core.config import load_config, save_config
 from nvbroadcast.core.updates import (
@@ -36,7 +40,10 @@ from nvbroadcast.video.pipeline import VideoPipeline
 from nvbroadcast.video.effects import VideoEffects
 from nvbroadcast.video.autoframe import AutoFrame
 from nvbroadcast.video.beautify import FaceBeautifier
-from nvbroadcast.video.virtual_camera import ensure_virtual_camera
+from nvbroadcast.video.virtual_camera import (
+    ensure_virtual_camera,
+    v4l2loopback_modprobe_command,
+)
 from nvbroadcast.video.eye_contact import EyeContactCorrector
 from nvbroadcast.video.relighting import FaceRelighter
 from nvbroadcast.video.face_landmarks import get_shared_landmarker
@@ -206,10 +213,19 @@ class NVBroadcastApp(Adw.Application):
 
         self._stop_headless_vcam_service()
         try:
-            self._vcam_device = ensure_virtual_camera()
+            self._vcam_device = ensure_virtual_camera(self._preferred_vcam_device())
             self._vcam_available = True
         except RuntimeError as e:
             print(f"[NV Broadcast] Virtual camera unavailable: {e}")
+
+    def _preferred_vcam_device(self) -> str | None:
+        configured = (self.config.video.vcam_device or "").strip()
+        if not configured or configured == VIRTUAL_CAM_DEVICE:
+            return None
+        return configured
+
+    def _active_vcam_device(self) -> str:
+        return self._vcam_device or self.config.video.vcam_device or VIRTUAL_CAM_DEVICE
 
     def _stop_headless_vcam_service(self) -> bool:
         """Stop the optional headless passthrough service before GUI capture.
@@ -469,7 +485,7 @@ class NVBroadcastApp(Adw.Application):
         import subprocess
         try:
             result = subprocess.run(
-                ["fuser", self._vcam_device or "/dev/video10"],
+                ["fuser", self._active_vcam_device()],
                 capture_output=True, text=True, timeout=2,
             )
             pids = result.stdout.strip().split()
@@ -682,12 +698,14 @@ class NVBroadcastApp(Adw.Application):
             self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
 
         if self._vcam_available:
-            self._window.set_status(f"Ready - Virtual camera at {self._vcam_device}")
+            self._window.set_status(
+                f"Ready - Virtual camera at {self._active_vcam_device()}"
+            )
         else:
             self._window.set_status(
                 "Virtual camera not available. Run: "
-                'sudo modprobe v4l2loopback devices=1 video_nr=10 '
-                f'card_label="{VIRTUAL_CAM_LABEL}" exclusive_caps=1 max_buffers=4')
+                + v4l2loopback_modprobe_command(self.config.video.vcam_device)
+            )
 
         if normalized_quality:
             save_config(c)
@@ -881,7 +899,7 @@ class NVBroadcastApp(Adw.Application):
         self._video_pipeline = VideoPipeline()
         self._video_pipeline.configure(
             source_device=camera_device,
-            vcam_device=self._vcam_device or "/dev/video10",
+            vcam_device=self._active_vcam_device(),
             width=self.config.video.width,
             height=self.config.video.height,
             fps=self.config.video.fps,
@@ -920,7 +938,7 @@ class NVBroadcastApp(Adw.Application):
             w, h = self.config.video.width, self.config.video.height
             status = f"Streaming: {camera_device} {w}x{h}@{self.config.video.fps}fps"
             if self._vcam_available:
-                status += f" -> {self._vcam_device}"
+                status += f" -> {self._active_vcam_device()}"
             self._window.set_status(status)
             self.config.video.camera_device = camera_device
             self.config.video.output_format = output_format
@@ -1686,6 +1704,44 @@ class NVBroadcastApp(Adw.Application):
                 )
             else:
                 self._window.set_status(f"Format: {output_format}")
+
+    def set_vcam_device(self, device: str) -> bool:
+        device = (device or "").strip() or VIRTUAL_CAM_DEVICE
+        if IS_LINUX:
+            suffix = device.removeprefix("/dev/video")
+            if not device.startswith("/dev/video") or not suffix.isdigit():
+                if self._window:
+                    self._window.set_status(
+                        "Virtual camera device must look like /dev/video10."
+                    )
+                return False
+
+        if device == self.config.video.vcam_device:
+            return True
+
+        self.config.video.vcam_device = device
+        save_config(self.config)
+
+        if self._streaming:
+            if self._window:
+                self._window.set_status(
+                    f"Virtual camera saved: {device}. Restart broadcast to apply."
+                )
+            return True
+
+        try:
+            self._vcam_device = ensure_virtual_camera(self._preferred_vcam_device())
+            self._vcam_available = True
+            status = f"Virtual camera: {self._active_vcam_device()}"
+        except RuntimeError as e:
+            self._vcam_device = None
+            self._vcam_available = False
+            first_line = str(e).splitlines()[0]
+            status = f"Virtual camera saved: {device}. {first_line}"
+
+        if self._window:
+            self._window.set_status(status)
+        return True
 
     def set_skip_interval(self, value: int):
         """Set how many frames to skip between inferences."""

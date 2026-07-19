@@ -50,6 +50,15 @@ OUTPUT_FORMATS = {
 }
 
 
+def _strict_vcam_preference(device: str | None, explicit: bool = False) -> str | None:
+    configured = (device or "").strip()
+    if not configured:
+        return None
+    if explicit or configured != VIRTUAL_CAM_DEVICE:
+        return configured
+    return None
+
+
 def build_pipeline(
     source_device: str,
     vcam_device: str,
@@ -289,7 +298,10 @@ def main():
     parser.add_argument(
         "--vcam",
         default=None,
-        help=f"Virtual camera device (default: {VIRTUAL_CAM_DEVICE})",
+        help=(
+            "Virtual camera device "
+            f"(default: config value, then {VIRTUAL_CAM_DEVICE})"
+        ),
     )
     parser.add_argument(
         "--width", "-W", type=int, default=0,
@@ -319,6 +331,7 @@ def main():
     width = args.width or config.video.width
     height = args.height or config.video.height
     fps = args.fps or config.video.fps
+    requested_vcam = args.vcam or config.video.vcam_device
 
     # Auto-detect camera if not specified
     if not source_device or source_device == "/dev/video0":
@@ -331,13 +344,15 @@ def main():
 
     # Ensure virtual camera device exists
     try:
-        vcam = ensure_virtual_camera()
+        vcam = ensure_virtual_camera(
+            _strict_vcam_preference(requested_vcam, explicit=bool(args.vcam))
+        )
         print(f"[NVIDIA Broadcast VCam] Virtual camera: {vcam}")
     except RuntimeError as e:
         print(f"[NVIDIA Broadcast VCam] Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    vcam_device = args.vcam or vcam
+    vcam_device = vcam
     print(f"[NVIDIA Broadcast VCam] Source: {source_device} ({width}x{height}@{fps}fps)")
     print(f"[NVIDIA Broadcast VCam] Output: {vcam_device} (format: {args.format.upper()})")
     print(f"[NVIDIA Broadcast VCam] Virtual camera will be visible to browsers and apps")

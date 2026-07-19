@@ -27,6 +27,7 @@ from nvbroadcast.core.constants import (
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
     DEFAULT_FPS,
+    VIRTUAL_CAM_DEVICE,
     VIRTUAL_CAM_LABEL,
 )
 
@@ -37,7 +38,7 @@ class VideoPipeline:
         self._pipeline: Gst.Pipeline | None = None
         self._vcam_pipeline: Gst.Pipeline | None = None
         self._source_device: str = "/dev/video0"
-        self._vcam_device: str = "/dev/video10"
+        self._vcam_device: str = VIRTUAL_CAM_DEVICE
         self._width: int = DEFAULT_WIDTH
         self._height: int = DEFAULT_HEIGHT
         self._fps: int = DEFAULT_FPS

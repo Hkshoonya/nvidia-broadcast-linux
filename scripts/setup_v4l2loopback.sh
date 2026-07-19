@@ -2,7 +2,19 @@
 # Configure v4l2loopback for NVbroadcast virtual camera
 set -e
 
-DEVICE_NUM=10
+DEVICE_NUM="${NVBROADCAST_VCAM_DEVICE_NUM:-10}"
+if [ -n "${NVBROADCAST_VCAM_DEVICE:-}" ]; then
+    case "$NVBROADCAST_VCAM_DEVICE" in
+        /dev/video*) DEVICE_NUM="${NVBROADCAST_VCAM_DEVICE#/dev/video}" ;;
+        *) echo "WARNING: Ignoring invalid NVBROADCAST_VCAM_DEVICE=${NVBROADCAST_VCAM_DEVICE}; expected /dev/videoN." ;;
+    esac
+fi
+case "$DEVICE_NUM" in
+    ''|*[!0-9]*)
+        echo "WARNING: Invalid virtual camera number '${DEVICE_NUM}', using 10."
+        DEVICE_NUM=10
+        ;;
+esac
 LABEL="NVbroadcast"
 DEVICE="/dev/video${DEVICE_NUM}"
 

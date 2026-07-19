@@ -370,7 +370,19 @@ fi
 echo ""
 echo "[2/7] Configuring virtual camera (v4l2loopback)..."
 
-V4L2_DEVICE_NUM=10
+V4L2_DEVICE_NUM="${NVBROADCAST_VCAM_DEVICE_NUM:-10}"
+if [ -n "${NVBROADCAST_VCAM_DEVICE:-}" ]; then
+    case "$NVBROADCAST_VCAM_DEVICE" in
+        /dev/video*) V4L2_DEVICE_NUM="${NVBROADCAST_VCAM_DEVICE#/dev/video}" ;;
+        *) echo "WARNING: Ignoring invalid NVBROADCAST_VCAM_DEVICE=${NVBROADCAST_VCAM_DEVICE}; expected /dev/videoN." ;;
+    esac
+fi
+case "$V4L2_DEVICE_NUM" in
+    ''|*[!0-9]*)
+        echo "WARNING: Invalid virtual camera number '${V4L2_DEVICE_NUM}', using 10."
+        V4L2_DEVICE_NUM=10
+        ;;
+esac
 V4L2_DEVICE="/dev/video${V4L2_DEVICE_NUM}"
 V4L2_LABEL="NVbroadcast"
 V4L2_CONF="/etc/modprobe.d/nvbroadcast-v4l2loopback.conf"
