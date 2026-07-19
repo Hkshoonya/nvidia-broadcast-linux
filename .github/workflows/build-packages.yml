@@ -82,13 +82,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Python deps
+      - name: Install project and test dependencies
         run: |
           python3 -m pip install --upgrade "pip>=26.1.2"
-          python3 -m pip install numpy opencv-python-headless onnxruntime mediapipe pyvirtualcam "onnx>=1.22.0" "click>=8.3.3"
-
-      - name: Resolve macOS project dependencies
-        run: python3 -m pip install --dry-run --ignore-installed .
+          python3 -m pip install ".[dev]"
+          python3 -m pip check
 
       - name: Run macOS-safe unit tests
         run: |

@@ -45,7 +45,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 ### v1.2.0 — Community Audio, Performance, and Camera Update
 
 - **Configurable Virtual Camera Output** — Linux users can choose and persist the `/dev/videoN` output used by the app, headless service, installer, and recovery commands, avoiding conflicts with OBS and other loopback cameras
-- **DeepFilterNet3 Noise Removal** — The new neural denoiser improves difficult microphone cleanup, verifies its pinned model before loading, and falls back to RNNoise when it is unavailable
+- **DeepFilterNet3 Noise Removal** — The new neural denoiser improves difficult microphone cleanup, verifies its pinned model before loading, and falls back to RNNoise on Linux when it is unavailable
 - **Lower Runtime CPU Use** — ONNX Runtime thread pools are capped and CUDA waits use blocking synchronization by default, reducing idle CPU load without changing processing modes
 - **Native Desktop Tray** — A StatusNotifierItem tray works natively on modern Linux desktops, with explicit shutdown cleanup and the existing legacy fallback where needed
 - **Safer Settings, Logs, and Models** — Config saves are atomic, persistent logs use private permissions, first-run AI models use a writable per-user cache with pinned SHA-256 verification, voice effects behave consistently across app and helper paths, and PyAV is pinned to the compatible 16.x line

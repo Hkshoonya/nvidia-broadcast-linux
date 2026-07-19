@@ -97,11 +97,15 @@ class PackagingMetadataTests(unittest.TestCase):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         requirements = (REPO_ROOT / "requirements.txt").read_text()
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertIn('"pyrnnoise>=0.4"', pyproject)
+        self.assertIn(
+            '"pyrnnoise>=0.4; sys_platform == \'linux\'"', pyproject
+        )
         # av 17 removed av.option (needed by pyrnnoise->audiolab); av 14
         # added Codec.canonical_name. Only 16.x satisfies both.
         self.assertIn('"av>=16,<17"', pyproject)
-        self.assertIn("pyrnnoise>=0.4", requirements)
+        self.assertIn(
+            'pyrnnoise>=0.4; sys_platform == "linux"', requirements
+        )
         self.assertIn("av>=16,<17", requirements)
         self.assertIn("- pyrnnoise", snapcraft)
         self.assertIn("- av>=16,<17", snapcraft)
@@ -213,6 +217,18 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", rpm_step)
         self.assertIn('python -m pip install ".[dev]"', workflow)
         self.assertIn("python -m pip check", workflow)
+
+    def test_macos_ci_installs_the_actual_project_dependency_set(self):
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+        macos_job = workflow.split("  test-macos:", 1)[1].split(
+            "  test-linux:", 1
+        )[0]
+
+        self.assertIn('python3 -m pip install ".[dev]"', macos_job)
+        self.assertIn("python3 -m pip check", macos_job)
+        self.assertNotIn("--dry-run", macos_job)
 
     def test_readme_documents_cuda_extra_for_source_gpu_installs(self):
         readme = (REPO_ROOT / "README.md").read_text()

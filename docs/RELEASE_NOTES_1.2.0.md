@@ -11,7 +11,8 @@ and desktop-integration work with configurable Linux virtual-camera output.
 - Downloads the model from an immutable upstream revision and verifies its
   SHA-256 checksum before use.
 - Verifies generated ONNX cache files before reusing them.
-- Falls back to RNNoise when the model cannot be downloaded or initialized.
+- Falls back to RNNoise on Linux when the model cannot be downloaded or
+  initialized.
 
 ### Lower background CPU use
 

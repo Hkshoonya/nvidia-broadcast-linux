@@ -10,8 +10,8 @@ Two engines, best-available by default:
   same class of model as NVIDIA Broadcast's noise removal. ~0.6ms per
   10ms hop on CPU. Selected when engine is "auto" and the model
   initializes; see audio/deepfilter.py.
-- RNNoise via pyrnnoise: lightweight fallback, always initialized so a
-  DeepFilterNet failure can never leave noise removal silently dead.
+- RNNoise via pyrnnoise: lightweight Linux fallback, initialized when the
+  platform package is available.
 """
 
 import numpy as np
@@ -95,8 +95,8 @@ class AudioEffects:
     def initialize(self) -> bool:
         """Initialize the noise removal engine(s).
 
-        RNNoise is always initialized (it is the fallback); DeepFilterNet
-        is attempted on top when the configured engine allows it.
+        RNNoise is initialized when its platform package is available;
+        DeepFilterNet is attempted first when the configured engine allows it.
         """
         if self._initialized:
             return True
