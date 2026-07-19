@@ -299,7 +299,8 @@ fi
 # Create venv
 $PYTHON -m venv "$INSTALL_DIR/.venv" --system-site-packages 2>/dev/null || true
 source "$INSTALL_DIR/.venv/bin/activate"
-pip install --upgrade "pip>=26.1.2" -q 2>/dev/null || true
+pip install --upgrade \
+    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q 2>/dev/null || true
 pip install -q "$INSTALL_DIR" 2>/dev/null || true
 pip install -q --no-deps faster-whisper 2>/dev/null && \
     pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm 2>/dev/null || true

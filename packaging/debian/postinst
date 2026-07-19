@@ -13,7 +13,8 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 # Install Python dependencies
-"$VENV_DIR/bin/pip" install --upgrade "pip>=26.1.2" -q
+"$VENV_DIR/bin/pip" install --upgrade \
+    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
 "$VENV_DIR/bin/pip" install "$INSTALL_DIR" -q
 "$VENV_DIR/bin/pip" install --no-deps faster-whisper -q 2>/dev/null && \
     "$VENV_DIR/bin/pip" install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm -q 2>/dev/null || \

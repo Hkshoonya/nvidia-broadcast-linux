@@ -142,12 +142,19 @@ class PackagingMetadataTests(unittest.TestCase):
         installers = (
             REPO_ROOT / "install.sh",
             REPO_ROOT / "install_macos.sh",
+            REPO_ROOT / "setup_deps.sh",
             REPO_ROOT / "packaging" / "debian" / "postinst",
             REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec",
             REPO_ROOT / "build-packages.sh",
         )
         for installer in installers:
             self.assertIn("pip>=26.1.2", installer.read_text(), str(installer))
+            self.assertIn(
+                "setuptools>=83.0.0", installer.read_text(), str(installer)
+            )
+
+        self.assertIn('requires = ["setuptools>=83.0.0", "wheel"]', pyproject)
+        self.assertIn("setuptools>=83.0.0", build_workflow)
 
     def test_native_package_payloads_use_safe_ownership_and_permissions(self):
         build_script = (REPO_ROOT / "build-packages.sh").read_text()

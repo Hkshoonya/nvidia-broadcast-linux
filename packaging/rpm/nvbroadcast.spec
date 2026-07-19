@@ -117,7 +117,8 @@ echo 'v4l2loopback' > %{buildroot}/etc/modules-load.d/nvbroadcast-v4l2loopback.c
 if [ ! -d /opt/nvbroadcast/.venv ]; then
     python3 -m venv /opt/nvbroadcast/.venv --system-site-packages
 fi
-/opt/nvbroadcast/.venv/bin/pip install --upgrade "pip>=26.1.2" -q
+/opt/nvbroadcast/.venv/bin/pip install --upgrade \
+    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
 /opt/nvbroadcast/.venv/bin/pip install /opt/nvbroadcast -q
 /opt/nvbroadcast/.venv/bin/pip install --no-deps faster-whisper -q 2>/dev/null && \
     /opt/nvbroadcast/.venv/bin/pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm -q 2>/dev/null || true

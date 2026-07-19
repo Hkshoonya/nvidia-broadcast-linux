@@ -472,7 +472,8 @@ if [ ! -d "$VENV_DIR" ]; then
     python3 -m venv "$VENV_DIR" --system-site-packages
     echo "Created virtual environment"
 fi
-"$VENV_DIR/bin/pip" install --upgrade "pip>=26.1.2" -q
+"$VENV_DIR/bin/pip" install --upgrade \
+    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
 "$VENV_DIR/bin/pip" install "$SCRIPT_DIR" -q
 echo "Core packages installed."
 
