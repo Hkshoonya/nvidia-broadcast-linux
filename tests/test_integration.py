@@ -4,6 +4,10 @@ import subprocess
 import time
 import os
 import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest import mock
+
 import numpy as np
 
 
@@ -30,15 +34,23 @@ def test_virtual_camera_exists():
 
 
 def test_config_roundtrip():
-    from nvbroadcast.core.config import AppConfig, save_config, load_config
-    config = AppConfig()
-    config.video.camera_device = "/dev/video99"
-    config.compute_gpu = 1
-    save_config(config)
-    loaded = load_config()
+    import nvbroadcast.core.config as config_module
+
+    with TemporaryDirectory() as tmp:
+        config_dir = Path(tmp)
+        config_file = config_dir / "config.toml"
+        with (
+            mock.patch.object(config_module, "CONFIG_DIR", config_dir),
+            mock.patch.object(config_module, "CONFIG_FILE", config_file),
+        ):
+            config = config_module.AppConfig()
+            config.video.camera_device = "/dev/video99"
+            config.compute_gpu = 1
+            config_module.save_config(config)
+            loaded = config_module.load_config()
+
     assert loaded.video.camera_device == "/dev/video99"
-    config.video.camera_device = "/dev/video0"
-    save_config(config)
+    assert loaded.compute_gpu == 1
 
 
 def test_video_effects_blur():
@@ -59,21 +71,22 @@ def test_video_effects_replace():
     """Test background replacement with custom image."""
     from nvbroadcast.video.effects import VideoEffects
     import cv2
-    # Create test background
-    bg = np.zeros((1080, 1920, 3), dtype=np.uint8)
-    bg[:, :] = [50, 100, 200]
-    os.makedirs("data/backgrounds", exist_ok=True)
-    cv2.imwrite("data/backgrounds/test_bg.png", bg)
 
-    vfx = VideoEffects()
-    assert vfx.initialize()
-    vfx.enabled = True
-    vfx.mode = "replace"
-    assert vfx.set_background_image("data/backgrounds/test_bg.png")
-    frame = np.random.randint(0, 255, (720, 1280, 4), dtype=np.uint8).tobytes()
-    result = vfx.process_frame(frame, 1280, 720)
-    assert len(result) == len(frame)
-    vfx.cleanup()
+    with TemporaryDirectory() as tmp:
+        background_path = Path(tmp) / "test_bg.png"
+        bg = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        bg[:, :] = [50, 100, 200]
+        assert cv2.imwrite(str(background_path), bg)
+
+        vfx = VideoEffects()
+        assert vfx.initialize()
+        vfx.enabled = True
+        vfx.mode = "replace"
+        assert vfx.set_background_image(str(background_path))
+        frame = np.random.randint(0, 255, (720, 1280, 4), dtype=np.uint8).tobytes()
+        result = vfx.process_frame(frame, 1280, 720)
+        assert len(result) == len(frame)
+        vfx.cleanup()
 
 
 def test_autoframe():

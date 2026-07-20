@@ -2,7 +2,19 @@
 # Configure v4l2loopback for NVbroadcast virtual camera
 set -e
 
-DEVICE_NUM=10
+DEVICE_NUM="${NVBROADCAST_VCAM_DEVICE_NUM:-10}"
+if [ -n "${NVBROADCAST_VCAM_DEVICE:-}" ]; then
+    case "$NVBROADCAST_VCAM_DEVICE" in
+        /dev/video*) DEVICE_NUM="${NVBROADCAST_VCAM_DEVICE#/dev/video}" ;;
+        *) echo "WARNING: Ignoring invalid NVBROADCAST_VCAM_DEVICE=${NVBROADCAST_VCAM_DEVICE}; expected /dev/videoN." ;;
+    esac
+fi
+case "$DEVICE_NUM" in
+    ''|*[!0-9]*)
+        echo "WARNING: Invalid virtual camera number '${DEVICE_NUM}', using 10."
+        DEVICE_NUM=10
+        ;;
+esac
 LABEL="NVbroadcast"
 DEVICE="/dev/video${DEVICE_NUM}"
 
@@ -10,7 +22,17 @@ echo "=== NVbroadcast Virtual Camera Setup ==="
 
 # Make persistent across reboots
 CONF_FILE="/etc/modprobe.d/nvbroadcast-v4l2loopback.conf"
-if [ ! -f "$CONF_FILE" ] || grep -Eq 'card_label="(NVIDIA Broadcast|NVIDIA Broadcast Virtual Camera|NV Broadcast)"' "$CONF_FILE"; then
+if [ -e "$DEVICE" ]; then
+    if ! command -v v4l2-ctl &>/dev/null || \
+       ! v4l2-ctl -D -d "$DEVICE" 2>/dev/null | \
+           grep -Eiq 'Driver name[[:space:]]*:[[:space:]]*v4l2[[:space:]_-]*loopback'; then
+        echo "ERROR: ${DEVICE} already exists and is not a v4l2loopback virtual camera."
+        echo "Choose an unused video number with NVBROADCAST_VCAM_DEVICE_NUM."
+        exit 1
+    fi
+fi
+
+if [ ! -f "$CONF_FILE" ] || grep -Eq 'card_label="(NVIDIA Broadcast|NVIDIA Broadcast Virtual Camera|NV Broadcast|NVbroadcast)"' "$CONF_FILE"; then
     echo "Creating persistent config at ${CONF_FILE}..."
     echo "options v4l2loopback devices=1 video_nr=${DEVICE_NUM} card_label=\"${LABEL}\" exclusive_caps=1 max_buffers=4" | sudo tee "$CONF_FILE"
     echo "v4l2loopback" | sudo tee /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
@@ -49,7 +71,7 @@ if lsmod | grep -q v4l2loopback; then
         sudo modprobe -r v4l2loopback
         sudo modprobe v4l2loopback \
             devices=1 \
-            video_nr=${DEVICE_NUM} \
+            video_nr="${DEVICE_NUM}" \
             card_label="${LABEL}" \
             exclusive_caps=1 \
             max_buffers=4
@@ -66,7 +88,7 @@ fi
 echo "Loading v4l2loopback with device ${DEVICE}..."
 sudo modprobe v4l2loopback \
     devices=1 \
-    video_nr=${DEVICE_NUM} \
+    video_nr="${DEVICE_NUM}" \
     card_label="${LABEL}" \
     exclusive_caps=1 \
     max_buffers=4

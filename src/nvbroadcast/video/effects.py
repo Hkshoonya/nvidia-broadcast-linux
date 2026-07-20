@@ -61,8 +61,11 @@ _preload_cuda_libs()
 import onnxruntime as ort
 
 from nvbroadcast.core.constants import COMPUTE_GPU_INDEX
+from nvbroadcast.core.model_download import download_verified_model
 
 _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
+_RVM_MOBILE_SHA256 = "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"
+_RVM_RESNET_SHA256 = "25db300fcb6ee27f941a1b52c97856e8d1f13c7f35817f81a612f89af0e8a85c"
 _LEARNED_REFINER_MODELS = {
     "replace": _MODELS_DIR / "edge_refiner_replace.onnx",
     "remove": _MODELS_DIR / "edge_refiner_remove.onnx",
@@ -85,6 +88,7 @@ MODELS = {
         "type": "single_frame",
         "model": "isnet-general-use.onnx",
         "url": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+        "sha256": "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
         "input_size": 1024,
         "mean": [0.5, 0.5, 0.5],
         "std": [1.0, 1.0, 1.0],
@@ -97,6 +101,7 @@ MODELS = {
         "type": "single_frame",
         "model": "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
         "url": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
+        "sha256": "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
         "input_size": 1024,
         "mean": [0.485, 0.456, 0.406],
         "std": [0.229, 0.224, 0.225],
@@ -108,24 +113,28 @@ QUALITY_PRESETS = {
     "performance": {
         "model": "rvm_mobilenetv3_fp32.onnx",
         "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
+        "sha256": _RVM_MOBILE_SHA256,
         "downsample": 0.25,
         "label": "Performance (fastest, good edges)",
     },
     "balanced": {
         "model": "rvm_mobilenetv3_fp32.onnx",
         "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
+        "sha256": _RVM_MOBILE_SHA256,
         "downsample": 0.5,
         "label": "Balanced (fast, better edges)",
     },
     "quality": {
         "model": "rvm_resnet50_fp32.onnx",
         "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_resnet50_fp32.onnx",
+        "sha256": _RVM_RESNET_SHA256,
         "downsample": 0.375,
         "label": "Quality (detailed edges)",
     },
     "ultra": {
         "model": "rvm_resnet50_fp32.onnx",
         "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_resnet50_fp32.onnx",
+        "sha256": _RVM_RESNET_SHA256,
         "downsample": 0.5,
         "label": "Ultra (best quality, sharpest edges)",
     },
@@ -153,6 +162,23 @@ def _create_session(model_path: str, gpu_index: int,
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     opts.log_severity_level = 3
+    gpu_ep = any(
+        (p[0] if isinstance(p, tuple) else p) in
+        ("TensorrtExecutionProvider", "CUDAExecutionProvider", "CoreMLExecutionProvider")
+        for p in providers
+    )
+    try:
+        if gpu_ep:
+            # Inference runs on the GPU EP; only trivial CPU nodes remain, so
+            # a full-core intra-op pool is pure spin-wait waste at video rates.
+            opts.intra_op_num_threads = 2
+            opts.inter_op_num_threads = 1
+        # Live pipelines idle most of each frame budget; spinning workers
+        # burn a core each while waiting for the next frame.
+        opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        opts.add_session_config_entry("session.inter_op.allow_spinning", "0")
+    except Exception as exc:
+        print(f"[NV Broadcast] ORT thread-pool tuning unavailable: {exc}", flush=True)
     return ort.InferenceSession(str(model_path), opts, providers=providers)
 
 
@@ -421,17 +447,14 @@ def _get_fused_kernel():
     return _fused_kernel
 
 
-def _download_model(filename: str, url: str) -> Path:
-    """Download a model file if not present."""
-    model_path = _MODELS_DIR / filename
-    if model_path.exists():
-        return model_path
-    import urllib.request
-    _MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"[NV Broadcast] Downloading {filename}...")
-    urllib.request.urlretrieve(url, str(model_path))
-    print(f"[NV Broadcast] Downloaded {filename}")
-    return model_path
+def _download_model(filename: str, url: str, sha256: str) -> Path:
+    """Return a checksum-verified bundled or per-user cached model."""
+    return download_verified_model(
+        filename,
+        url,
+        sha256,
+        bundled_dir=_MODELS_DIR,
+    )
 
 
 def _get_device_name(session: ort.InferenceSession, gpu_index: int) -> str:
@@ -460,8 +483,11 @@ def _release_session(session):
 class _RVMBackend:
     """RobustVideoMatting — person-only with recurrent temporal states."""
 
+    _BACKLIGHT_QUALITY_PRESETS = frozenset({"quality", "ultra"})
+
     def __init__(self, gpu_index: int):
         self._gpu_index = gpu_index
+        self._quality = "quality"
         self.session = None
         self._r1 = self._r2 = self._r3 = self._r4 = None
         self._downsample_ratio = None
@@ -488,10 +514,14 @@ class _RVMBackend:
         self._r_gpu_out = None
         self._fgr_gpu = None
         self._pha_gpu = None
+        self._inference_gamma = None
 
     def load(self, quality: str, use_tensorrt: bool = False) -> str:
         preset = QUALITY_PRESETS[quality]
-        base_model_path = _download_model(preset["model"], preset["url"])
+        self._quality = quality
+        base_model_path = _download_model(
+            preset["model"], preset["url"], preset["sha256"]
+        )
         self._base_model_path = base_model_path
         self._trt_requested = bool(use_tensorrt)
         self._trt_disabled = False
@@ -520,6 +550,7 @@ class _RVMBackend:
         self._r2 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r3 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
+        self._inference_gamma = None
         self._trt_seed_shape = None
         device = _get_device_name(self.session, self._gpu_index)
         msg = f"RVM loaded on {device} | {preset['label']}"
@@ -720,6 +751,46 @@ class _RVMBackend:
         self.reset_state(log=True)
         self._state_input_shape = shape
 
+    @staticmethod
+    def _target_inference_gamma(rgb: np.ndarray) -> float:
+        """Estimate a shadow lift for strongly backlit model input."""
+        height, width = rgb.shape[:2]
+        step = max(1, min(height // 90, width // 160))
+        sample = np.ascontiguousarray(rgb[::step, ::step])
+        gray = cv2.cvtColor(sample, cv2.COLOR_RGB2GRAY)
+        histogram = cv2.calcHist([gray], [0], None, [256], [0, 256]).ravel()
+        cumulative = np.cumsum(histogram)
+        median = float(np.searchsorted(cumulative, cumulative[-1] * 0.50))
+        highlight = float(np.searchsorted(cumulative, cumulative[-1] * 0.95))
+
+        highlight_score = np.clip((highlight - 220.0) / 25.0, 0.0, 1.0)
+        shadow_score = np.clip((110.0 - median) / 60.0, 0.0, 1.0)
+        contrast_score = np.clip(((highlight - median) - 110.0) / 65.0, 0.0, 1.0)
+        lift = np.sqrt(highlight_score * shadow_score * contrast_score)
+        return float(1.0 - 0.25 * lift)
+
+    def _resolve_inference_gamma(self, rgb: np.ndarray) -> float:
+        """Smooth exposure adaptation so the model input cannot flicker."""
+        if self._quality not in self._BACKLIGHT_QUALITY_PRESETS:
+            self._inference_gamma = 1.0
+            return 1.0
+
+        target = self._target_inference_gamma(rgb)
+        if self._inference_gamma is None:
+            self._inference_gamma = target
+        else:
+            rate = 0.18 if target < self._inference_gamma else 0.08
+            self._inference_gamma += (target - self._inference_gamma) * rate
+        return float(self._inference_gamma)
+
+    @staticmethod
+    def _apply_inference_gamma(rgb: np.ndarray, gamma: float) -> np.ndarray:
+        if gamma >= 0.995:
+            return rgb
+        values = np.arange(256, dtype=np.float32) * (1.0 / 255.0)
+        lut = np.clip(np.power(values, gamma) * 255.0, 0, 255).astype(np.uint8)
+        return cv2.LUT(rgb, lut)
+
     def infer(self, frame: np.ndarray, width: int, height: int) -> np.ndarray | None:
         # Pre-downsample large frames to reduce preprocessing + inference cost.
         # E.g. 1080p → 720p input saves ~50% time; alpha is upscaled back.
@@ -734,6 +805,8 @@ class _RVMBackend:
 
         # Fast normalize: BGRA→RGB + /255 + HWC→NCHW
         rgb = cv2.cvtColor(small, cv2.COLOR_BGRA2RGB)
+        gamma = self._resolve_inference_gamma(rgb)
+        rgb = self._apply_inference_gamma(rgb, gamma)
         src = rgb.astype(np.float32) * (1.0 / 255.0)
         src = src.transpose(2, 0, 1)[np.newaxis]  # HWC -> 1xCxHxW
         self._ensure_state_shape(infer_w, infer_h)
@@ -808,7 +881,23 @@ class _RVMBackend:
         """
         cp = self._cupy
         h, w = frame_gpu.shape[:2]
-        rgb = frame_gpu[..., 2::-1].astype(cp.float32)
+        rgb_u8 = frame_gpu[..., 2::-1]
+        # Backlit shadow lift, same estimator as the numpy infer() path: the
+        # gamma target comes from a small strided sample downloaded to CPU
+        # (identical histogram math; ~90KB, negligible next to inference)
+        # and the lift itself is applied on device. Skipping this here would
+        # silently lose backlit stabilization whenever the IOBinding path
+        # is active.
+        if self._quality in self._BACKLIGHT_QUALITY_PRESETS:
+            step = max(1, min(h // 90, w // 160))
+            sample = cp.asnumpy(cp.ascontiguousarray(rgb_u8[::step, ::step]))
+            gamma = self._resolve_inference_gamma(sample)
+        else:
+            gamma = self._resolve_inference_gamma(None)
+        rgb = rgb_u8.astype(cp.float32)
+        if gamma < 0.995:
+            rgb = cp.clip(cp.power(rgb * (1.0 / 255.0), gamma) * 255.0,
+                          0.0, 255.0)
         if (h, w) != (infer_h, infer_w):
             from cupyx.scipy import ndimage as cndi
             rgb = cndi.zoom(
@@ -950,6 +1039,7 @@ class _RVMBackend:
         self._r3 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._state_input_shape = None
+        self._inference_gamma = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
         self._invalidate_iobinding()
@@ -961,6 +1051,7 @@ class _RVMBackend:
         self.session = None
         self._r1 = self._r2 = self._r3 = self._r4 = None
         self._state_input_shape = None
+        self._inference_gamma = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
         self._invalidate_iobinding()
@@ -990,7 +1081,9 @@ class _SingleFrameBackend:
         self._cpu_fallback_active = False
 
     def load(self, quality: str = "") -> str:
-        self._model_path = _download_model(self._info["model"], self._info["url"])
+        self._model_path = _download_model(
+            self._info["model"], self._info["url"], self._info["sha256"]
+        )
         try:
             self.session = _create_session(self._model_path, self._gpu_index)
             self._cpu_fallback_active = False

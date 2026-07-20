@@ -18,7 +18,10 @@ DEFAULT_FPS = 30
 
 import platform as _pf
 VIRTUAL_CAM_LABEL = "NVbroadcast"
-VIRTUAL_CAM_DEVICE = "/dev/video10" if _pf.system() != "Darwin" else VIRTUAL_CAM_LABEL
+MACOS_VIRTUAL_CAM_LABEL = "OBS Virtual Camera"
+VIRTUAL_CAM_DEVICE = (
+    "/dev/video10" if _pf.system() != "Darwin" else MACOS_VIRTUAL_CAM_LABEL
+)
 
 if _pf.system() == "Darwin":
     CONFIG_DIR = Path.home() / "Library" / "Application Support" / "nvbroadcast"
@@ -26,6 +29,15 @@ else:
     CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "nvbroadcast"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 PROFILES_DIR = CONFIG_DIR / "profiles"
+
+if _pf.system() == "Darwin":
+    STATE_DIR = Path.home() / "Library" / "Logs" / "nvbroadcast"
+else:
+    STATE_DIR = Path(
+        os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")
+    ) / "nvbroadcast"
+LOG_FILE = STATE_DIR / "nvbroadcast.log"
+LOG_MAX_BYTES = 2 * 1024 * 1024
 
 MAXINE_VFX_PATH = Path("/usr/local/VideoFX")
 MAXINE_AFX_PATH = Path("/usr/local/AudioFX")

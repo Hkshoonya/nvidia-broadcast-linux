@@ -133,7 +133,8 @@ def fetch_latest_release(timeout: int = 5) -> ReleaseInfo | None:
         },
     )
     try:
-        with urlopen(request, timeout=timeout) as response:
+        # Request targets the fixed HTTPS GitHub API endpoint above.
+        with urlopen(request, timeout=timeout) as response:  # nosec B310
             payload = json.loads(response.read().decode("utf-8"))
     except (URLError, OSError, TimeoutError, json.JSONDecodeError):
         return None

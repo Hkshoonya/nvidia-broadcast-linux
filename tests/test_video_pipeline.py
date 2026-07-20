@@ -1,6 +1,7 @@
 import unittest
 import threading
 import time
+from types import SimpleNamespace
 from unittest import mock
 
 import gi
@@ -162,6 +163,94 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertIn("format=BGRA", pipeline_str)
         self.assertFalse(pipeline._gpu_capture_active)
 
+    def test_macos_both_pipeline_modes_initialize_obs_backend(self):
+        import nvbroadcast.core.platform as platform_mod
+
+        for builder_name in (
+            "_build_passthrough_pipeline",
+            "_build_effects_pipeline",
+        ):
+            with self.subTest(builder=builder_name):
+                pipeline = VideoPipeline()
+                pipeline._source_device = "0"
+                pipeline._capture_format = "raw"
+                pipeline._width = 640
+                pipeline._height = 480
+                pipeline._fps = 30
+                fake_pipeline = self._fake_gst_pipeline()
+
+                with mock.patch.object(platform_mod, "IS_MACOS", True), \
+                     mock.patch(
+                         "nvbroadcast.video.pipeline.Gst.parse_launch",
+                         return_value=fake_pipeline,
+                     ), mock.patch.object(
+                         pipeline, "_setup_macos_virtual_camera"
+                     ) as setup_vcam:
+                    getattr(pipeline, builder_name)(True)
+
+                setup_vcam.assert_called_once_with()
+
+    def test_macos_backend_uses_obs_with_bgr_pixel_format(self):
+        pipeline = VideoPipeline()
+        pipeline._width = 640
+        pipeline._height = 480
+        pipeline._fps = 30
+        camera = SimpleNamespace(device="OBS Virtual Camera", close=mock.Mock())
+        camera_factory = mock.Mock(return_value=camera)
+        bgr_format = object()
+        pyvirtualcam = SimpleNamespace(
+            Camera=camera_factory,
+            PixelFormat=SimpleNamespace(BGR=bgr_format),
+        )
+
+        with mock.patch.dict("sys.modules", {"pyvirtualcam": pyvirtualcam}):
+            pipeline._setup_macos_virtual_camera()
+
+        camera_factory.assert_called_once_with(
+            width=640,
+            height=480,
+            fps=30,
+            fmt=bgr_format,
+            backend="obs",
+        )
+        self.assertIs(pipeline._pyvirtualcam, camera)
+        self.assertFalse(pipeline._vcam_failed)
+        self.assertTrue(pipeline.virtual_camera_active)
+
+    def test_macos_frame_conversion_is_contiguous_bgr(self):
+        pipeline = VideoPipeline()
+        pipeline._width = 2
+        pipeline._height = 1
+        camera = SimpleNamespace(send=mock.Mock(), close=mock.Mock())
+        pipeline._pyvirtualcam = camera
+
+        pipeline._send_macos_virtual_camera_frame(
+            bytes((10, 20, 30, 255, 40, 50, 60, 255))
+        )
+
+        sent = camera.send.call_args.args[0]
+        self.assertEqual(sent.tolist(), [[[10, 20, 30], [40, 50, 60]]])
+        self.assertTrue(sent.flags.c_contiguous)
+
+    def test_macos_send_failure_disables_only_virtual_camera(self):
+        pipeline = VideoPipeline()
+        pipeline._width = 1
+        pipeline._height = 1
+        pipeline._vcam_enabled = True
+        camera = SimpleNamespace(
+            send=mock.Mock(side_effect=RuntimeError("backend stopped")),
+            close=mock.Mock(),
+        )
+        pipeline._pyvirtualcam = camera
+
+        pipeline._send_macos_virtual_camera_frame(bytes((10, 20, 30, 255)))
+
+        camera.close.assert_called_once_with()
+        self.assertIsNone(pipeline._pyvirtualcam)
+        self.assertFalse(pipeline._vcam_enabled)
+        self.assertTrue(pipeline._vcam_failed)
+        self.assertFalse(pipeline.virtual_camera_active)
+
     def test_set_effects_active_queues_only_one_rebuild(self):
         pipeline = VideoPipeline()
         pipeline._running = True
@@ -263,6 +352,52 @@ class VideoPipelineRebuildTests(unittest.TestCase):
 
         self.assertEqual(result, Gst.FlowReturn.OK)
         self.assertEqual(appsrc.calls, 1)
+
+    def test_macos_passthrough_sample_sends_frame_to_virtual_camera(self):
+        pipeline = VideoPipeline()
+        pipeline._running = True
+        pipeline._vcam_enabled = True
+        pipeline._width = 2
+        pipeline._height = 1
+        frame = bytes((10, 20, 30, 255, 40, 50, 60, 255))
+        sample_buffer = Gst.Buffer.new_wrapped(frame)
+        sample = mock.Mock()
+        sample.get_buffer.return_value = sample_buffer
+        appsink = mock.Mock()
+        appsink.emit.return_value = sample
+
+        with mock.patch.object(
+            pipeline, "_send_macos_virtual_camera_frame"
+        ) as send_frame:
+            result = pipeline._on_preview_sample(appsink)
+
+        self.assertEqual(result, Gst.FlowReturn.OK)
+        send_frame.assert_called_once_with(frame)
+
+    def test_macos_effects_sample_sends_processed_frame_to_virtual_camera(self):
+        pipeline = VideoPipeline()
+        pipeline._running = True
+        pipeline._vcam_enabled = True
+        pipeline._width = 2
+        pipeline._height = 1
+        input_frame = bytes((10, 20, 30, 255, 40, 50, 60, 255))
+        output_frame = bytes((60, 50, 40, 255, 30, 20, 10, 255))
+        pipeline._effect_callback = lambda _frame, _w, _h: output_frame
+        sample_buffer = Gst.Buffer.new_wrapped(input_frame)
+        sample_buffer.pts = 123
+        sample_buffer.duration = 456
+        sample = mock.Mock()
+        sample.get_buffer.return_value = sample_buffer
+        appsink = mock.Mock()
+        appsink.emit.return_value = sample
+
+        with mock.patch.object(
+            pipeline, "_send_macos_virtual_camera_frame"
+        ) as send_frame:
+            result = pipeline._on_effects_sample(appsink)
+
+        self.assertEqual(result, Gst.FlowReturn.OK)
+        send_frame.assert_called_once_with(output_frame)
 
     def test_alpha_worker_reuses_single_thread_and_keeps_latest_frame(self):
         pipeline = VideoPipeline()

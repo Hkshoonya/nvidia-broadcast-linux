@@ -8,6 +8,7 @@
 import base64
 import json
 import os
+from pathlib import Path
 import queue
 import signal
 import subprocess
@@ -76,6 +77,7 @@ class AudioPipeline:
             use_helper_process = IS_LINUX and has_virtual_mic_backend() and not disable_helper
         self._use_helper_process = bool(use_helper_process)
         self._output_frames_pushed = 0
+        self._stereo_scratch: np.ndarray | None = None
         self._output_buffer_queue: queue.Queue[np.ndarray | None] = queue.Queue(maxsize=64)
         self._output_worker: threading.Thread | None = None
         self._stop_output_worker = threading.Event()
@@ -138,10 +140,21 @@ class AudioPipeline:
     def _build_capture_pipeline(self) -> Gst.Pipeline:
         pipeline = Gst.Pipeline.new("nvbroadcast-audio-input")
 
+        # Bigger capture blocks halve per-block Python/queue/pipe overhead
+        # (the denoiser still runs its fixed 10ms hops internally). 20ms
+        # stays inside the pacat --latency-msec 40 output budget.
+        try:
+            block_ms = max(5, min(40, int(
+                os.getenv("NVBROADCAST_AUDIO_BLOCK_MS", "20"))))
+        except ValueError:
+            block_ms = 20
+
         if IS_LINUX and self._virtual_mic_backend == "pulse":
             source = Gst.ElementFactory.make("pulsesrc", "mic-source")
             if self._mic_device:
                 source.set_property("device", self._mic_device)
+            source.set_property("latency-time", block_ms * 1000)
+            source.set_property("buffer-time", block_ms * 4000)
         else:
             source = Gst.ElementFactory.make("pipewiresrc", "mic-source")
             if self._mic_device:
@@ -149,9 +162,11 @@ class AudioPipeline:
             source.set_property("do-timestamp", True)
             source.set_property("min-buffers", 2)
             source.set_property("max-buffers", 4)
+            block_frames = (self._sample_rate * block_ms) // 1000
             source.set_property(
                 "stream-properties",
-                Gst.Structure.new_from_string("properties,node.latency=1024/48000"),
+                Gst.Structure.new_from_string(
+                    f"properties,node.latency={block_frames}/{self._sample_rate}"),
             )
 
         convert_in = Gst.ElementFactory.make("audioconvert", "convert-in")
@@ -250,47 +265,55 @@ class AudioPipeline:
         if not success:
             return Gst.FlowReturn.OK
 
-        audio = np.frombuffer(map_info.data, dtype=np.float32).copy()
-        buf.unmap(map_info)
+        # Read-only view into the mapped buffer — the map is held for the
+        # whole (synchronous) processing chain, so the hot path pays no
+        # full-block copy. Only the transcriber retains audio past this
+        # callback and gets an owned copy.
+        audio = np.frombuffer(map_info.data, dtype=np.float32)
+        try:
+            if self._transcriber_feed is not None:
+                audio = audio.copy()
 
-        if self._level_monitor:
-            self._level_monitor.update(audio)
+            if self._level_monitor:
+                self._level_monitor.update(audio)
 
-        if self._transcriber_feed:
-            try:
-                self._transcriber_feed.feed_audio(audio, self._sample_rate)
-            except Exception:
-                pass
+            if self._transcriber_feed:
+                try:
+                    self._transcriber_feed.feed_audio(audio, self._sample_rate)
+                except Exception:
+                    pass
 
-        processed = self._effects.process_chunk(audio, self._sample_rate)
-        if self._voice_fx and self._voice_fx.enabled:
-            processed = self._voice_fx.process_chunk(
-                processed,
-                self._sample_rate,
-                gate_reference=audio,
-            )
+            processed = self._effects.process_chunk(audio, self._sample_rate)
+            if self._voice_fx and self._voice_fx.enabled:
+                processed = self._voice_fx.process_chunk(
+                    processed,
+                    self._sample_rate,
+                    gate_reference=audio,
+                )
 
-        if self._uses_loopback_virtual_mic:
-            output_state = self._enqueue_output_audio(processed)
-        else:
-            output_state = self._push_buffer_direct(processed)
+            if self._uses_loopback_virtual_mic:
+                output_state = self._enqueue_output_audio(processed)
+            else:
+                output_state = self._push_buffer_direct(processed)
 
-        if self._debug_audio and self._debug_audio_buffers < 40:
-            self._debug_audio_buffers += 1
-            in_rms = float(np.sqrt(np.mean(np.square(audio)))) if len(audio) else 0.0
-            out_rms = float(np.sqrt(np.mean(np.square(processed)))) if len(processed) else 0.0
-            in_peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
-            out_peak = float(np.max(np.abs(processed))) if len(processed) else 0.0
-            print(
-                "[NVIDIA Broadcast Audio Debug] "
-                f"in_frames={len(audio)} out_frames={len(processed)} "
-                f"in_rms={in_rms:.6f} out_rms={out_rms:.6f} "
-                f"in_peak={in_peak:.6f} out_peak={out_peak:.6f} "
-                f"buf_duration_ms="
-                f"{(buf.duration / Gst.MSECOND) if buf.duration not in (None, Gst.CLOCK_TIME_NONE) else None} "
-                f"output_state={output_state}",
-                flush=True,
-            )
+            if self._debug_audio and self._debug_audio_buffers < 40:
+                self._debug_audio_buffers += 1
+                in_rms = float(np.sqrt(np.mean(np.square(audio)))) if len(audio) else 0.0
+                out_rms = float(np.sqrt(np.mean(np.square(processed)))) if len(processed) else 0.0
+                in_peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
+                out_peak = float(np.max(np.abs(processed))) if len(processed) else 0.0
+                print(
+                    "[NVIDIA Broadcast Audio Debug] "
+                    f"in_frames={len(audio)} out_frames={len(processed)} "
+                    f"in_rms={in_rms:.6f} out_rms={out_rms:.6f} "
+                    f"in_peak={in_peak:.6f} out_peak={out_peak:.6f} "
+                    f"buf_duration_ms="
+                    f"{(buf.duration / Gst.MSECOND) if buf.duration not in (None, Gst.CLOCK_TIME_NONE) else None} "
+                    f"output_state={output_state}",
+                    flush=True,
+                )
+        finally:
+            buf.unmap(map_info)
         return Gst.FlowReturn.OK
 
     def _push_buffer_direct(self, processed: np.ndarray):
@@ -300,11 +323,18 @@ class AudioPipeline:
                 return f"process-exited={self._output_process.returncode}"
             if self._output_process.stdin is None:
                 return "no-process-stdin"
-            stereo = np.repeat(processed.astype(np.float32, copy=False), 2)
-            payload = stereo.tobytes()
+            mono = processed.astype(np.float32, copy=False)
+            n = len(mono)
+            stereo = self._stereo_scratch
+            if stereo is None or len(stereo) < 2 * n:
+                stereo = np.empty(max(2 * n, 4096), dtype=np.float32)
+                self._stereo_scratch = stereo
+            stereo[0:2 * n:2] = mono
+            stereo[1:2 * n:2] = mono
+            payload = memoryview(stereo)[:2 * n]
             try:
                 self._output_process.stdin.write(payload)
-                return f"wrote={len(payload)}"
+                return f"wrote={payload.nbytes}"
             except (BrokenPipeError, OSError) as exc:
                 return f"write-failed={exc.__class__.__name__}"
 
@@ -323,8 +353,18 @@ class AudioPipeline:
         return self._appsrc.emit("push-buffer", new_buf)
 
     def _enqueue_output_audio(self, processed: np.ndarray) -> str:
-        """Queue processed audio for the dedicated output worker."""
-        chunk = np.array(processed, dtype=np.float32, copy=True)
+        """Queue processed audio for the dedicated output worker.
+
+        The worker consumes asynchronously, so the queued chunk must own its
+        data — a view into GStreamer-mapped memory would dangle after unmap.
+        The denoiser already returns owned copies; only pass-through views
+        (effects off) and voice-FX scratch outputs still need the copy.
+        """
+        if (processed.dtype == np.float32 and processed.flags.owndata
+                and not (self._voice_fx and self._voice_fx.enabled)):
+            chunk = processed
+        else:
+            chunk = np.array(processed, dtype=np.float32)
         try:
             self._output_buffer_queue.put(chunk, timeout=0.25)
         except queue.Full:
@@ -473,17 +513,31 @@ class AudioPipeline:
             if not line:
                 continue
             try:
-                pids.append(int(line))
+                pid = int(line)
             except ValueError:
                 continue
+            argv = self._read_process_argv(pid)
+            if any(
+                argv[index] == "-m"
+                and argv[index + 1] == "nvbroadcast.audio.service"
+                for index in range(len(argv) - 1)
+            ):
+                pids.append(pid)
         return pids
 
-    def _read_process_cmdline(self, pid: int) -> str:
+    def _read_process_argv(self, pid: int) -> list[str]:
         try:
             with open(f"/proc/{pid}/cmdline", "rb") as fh:
-                return fh.read().replace(b"\0", b" ").decode("utf-8", errors="ignore").strip()
+                return [
+                    arg.decode("utf-8", errors="ignore")
+                    for arg in fh.read().split(b"\0")
+                    if arg
+                ]
         except Exception:
-            return ""
+            return []
+
+    def _read_process_cmdline(self, pid: int) -> str:
+        return " ".join(self._read_process_argv(pid))
 
     def _read_process_ppid(self, pid: int) -> int:
         try:
@@ -530,6 +584,7 @@ class AudioPipeline:
             "sample_rate": self._sample_rate,
             "noise_removal": self._effects.enabled,
             "noise_intensity": self._effects.intensity,
+            "noise_engine": self._effects.engine,
             "voice_fx_enabled": self.voice_fx.enabled,
             "voice_fx_use_gpu": self.voice_fx.use_gpu,
             "voice_fx_settings": {
@@ -550,7 +605,27 @@ class AudioPipeline:
         self._stop_stale_helper_processes()
         state_json = json.dumps(self._helper_state(), separators=(",", ":")).encode("utf-8")
         state_b64 = base64.urlsafe_b64encode(state_json).decode("ascii")
-        stdio = None if self._debug_audio else subprocess.DEVNULL
+        if self._debug_audio:
+            stdio = None
+        else:
+            # Keep the helper's diagnostics inspectable — DEVNULL hid
+            # "denoiser failed to initialize" style messages entirely.
+            # Private permissions: the log names audio devices and settings.
+            try:
+                log_dir = Path(os.environ.get("XDG_CACHE_HOME",
+                                              Path.home() / ".cache")) / "nvbroadcast"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                fd = os.open(log_dir / "audio-helper.log",
+                             os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                try:
+                    # O_CREAT mode only applies to new files; fix up files
+                    # created by earlier builds with wider permissions.
+                    os.fchmod(fd, 0o600)
+                except OSError:
+                    pass
+                stdio = os.fdopen(fd, "w")
+            except Exception:
+                stdio = subprocess.DEVNULL
         cmd = [
             sys.executable,
             "-m",
@@ -572,6 +647,10 @@ class AudioPipeline:
         except Exception:
             self._helper_process = None
             return False
+        finally:
+            # Popen duplicated the fd; close ours so restarts don't leak.
+            if hasattr(stdio, "close"):
+                stdio.close()
 
         time.sleep(0.2)
         if self._helper_process.poll() is not None:

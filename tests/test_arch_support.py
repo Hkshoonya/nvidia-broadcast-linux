@@ -14,6 +14,7 @@ from nvbroadcast.core.platform import (
     has_tensorrt_runtime,
     legacy_tray_enabled,
     linux_multiarch_triplet,
+    preload_nvidia_runtime_libs,
     python_runtime_advisory,
     supports_openai_whisper_python,
     supports_tensorrt_python,
@@ -137,6 +138,45 @@ class ArchSupportTests(unittest.TestCase):
         with mock.patch.dict("sys.modules", {"onnxruntime": fake_ort}), \
              mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True):
             self.assertTrue(has_cuda_inference_runtime())
+
+    def test_preload_exposes_component_wheel_headers_to_cupy(self):
+        import nvbroadcast.core.platform as platform_mod
+
+        with TemporaryDirectory() as tmp:
+            runtime_root = Path(tmp)
+            include_dir = runtime_root / "include"
+            lib_dir = runtime_root / "lib"
+            include_dir.mkdir()
+            lib_dir.mkdir()
+            (include_dir / "cuda_runtime.h").touch()
+            (lib_dir / "libcudart.so.12").touch()
+
+            def fake_find_spec(name: str):
+                if name == "nvidia.cuda_runtime":
+                    return SimpleNamespace(submodule_search_locations=[str(runtime_root)])
+                return None
+
+            with mock.patch.object(platform_mod, "IS_LINUX", True), \
+                 mock.patch.dict(platform_mod.os.environ, {}, clear=True), \
+                 mock.patch("importlib.util.find_spec", side_effect=fake_find_spec), \
+                 mock.patch.object(platform_mod.ctypes, "CDLL") as cdll:
+                preload_nvidia_runtime_libs()
+                self.assertEqual(
+                    platform_mod.os.environ.get("CUDA_PATH"), str(runtime_root)
+                )
+                cdll.assert_called_once_with(
+                    str(lib_dir / "libcudart.so.12"),
+                    mode=platform_mod.ctypes.RTLD_GLOBAL,
+                )
+
+    def test_preload_preserves_explicit_cuda_path(self):
+        import nvbroadcast.core.platform as platform_mod
+
+        with mock.patch.object(platform_mod, "IS_LINUX", True), \
+             mock.patch.dict(platform_mod.os.environ, {"CUDA_PATH": "/opt/cuda"}, clear=True), \
+             mock.patch("importlib.util.find_spec", return_value=None):
+            preload_nvidia_runtime_libs()
+            self.assertEqual(platform_mod.os.environ.get("CUDA_PATH"), "/opt/cuda")
 
     def test_cupy_backend_requires_cuda_inference_provider(self):
         fake_cupy = SimpleNamespace()

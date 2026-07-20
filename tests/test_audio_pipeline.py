@@ -164,6 +164,28 @@ class AudioPipelineLifecycleTests(unittest.TestCase):
         self.assertIn("--parent-pid", cmd)
         self.assertIn(str(os.getpid()), cmd)
 
+    def test_iter_helper_pids_ignores_commands_that_only_mention_module(self):
+        pipeline = AudioPipeline(use_helper_process=False)
+        result = mock.Mock(returncode=0, stdout="50001\n50002\n50003\n")
+        argv = {
+            50001: ["bash", "-lc", "pgrep -f nvbroadcast.audio.service"],
+            50002: [
+                "python",
+                "-m",
+                "nvbroadcast.audio.service",
+                "--parent-pid",
+                "123",
+            ],
+            50003: ["python", "-c", "print('nvbroadcast.audio.service')"],
+        }
+
+        with mock.patch(
+            "nvbroadcast.audio.pipeline.subprocess.run", return_value=result
+        ), mock.patch.object(
+            pipeline, "_read_process_argv", side_effect=lambda pid: argv[pid]
+        ):
+            self.assertEqual(pipeline._iter_helper_pids(), [50002])
+
     def test_stop_stale_helper_processes_terminates_orphaned_helpers(self):
         pipeline = AudioPipeline(use_helper_process=False)
         current_pid = os.getpid()
@@ -197,6 +219,81 @@ class AudioPipelineLifecycleTests(unittest.TestCase):
             pipeline._stop_stale_helper_processes()
 
         terminate.assert_called_once_with(stale_pid)
+
+
+class DeepFilterStreamingParityTests(unittest.TestCase):
+    """The ring-buffer rewrite of process_chunk must be sample-exact with
+    the original concatenate-based streaming logic."""
+
+    @staticmethod
+    def _reference(session, blocks, intensity, hop, state_size):
+        """Original algorithm (np.concatenate streaming) as the oracle."""
+        state = np.zeros(state_size, dtype=np.float32)
+        in_buf = np.zeros(0, dtype=np.float32)
+        out_buf = np.zeros(hop, dtype=np.float32)
+        prev_dry = np.zeros(hop, dtype=np.float32)
+        outputs = []
+        for block in blocks:
+            in_buf = np.concatenate((in_buf, block.astype(np.float32)))
+            while len(in_buf) >= hop:
+                frame = in_buf[:hop]
+                in_buf = in_buf[hop:]
+                enhanced, state, _ = session(frame, state)
+                if intensity < 1.0:
+                    enhanced = (intensity * enhanced
+                                + (1.0 - intensity) * prev_dry)
+                prev_dry = frame
+                out_buf = np.concatenate((out_buf, enhanced))
+            n = len(block)
+            if len(out_buf) < n:
+                pad = np.zeros(n - len(out_buf), dtype=np.float32)
+                out_buf = np.concatenate((pad, out_buf))
+            outputs.append(out_buf[:n])
+            out_buf = out_buf[n:]
+        return outputs
+
+    def test_ring_buffer_matches_reference_across_block_sizes(self):
+        from nvbroadcast.audio import deepfilter as df
+
+        rng = np.random.default_rng(42)
+
+        def fake_session_run(_names, feeds):
+            frame = feeds["input_frame"]
+            state = feeds["states"]
+            # Deterministic fake "model": scaled input + state coupling.
+            enhanced = (frame * 0.5 + state[:len(frame)] * 0.25).astype(
+                np.float32)
+            new_state = np.roll(state, 1).astype(np.float32)
+            new_state[0] = float(frame.sum())
+            return [enhanced, new_state, np.float32(0.0)]
+
+        def oracle_session(frame, state):
+            out = fake_session_run(None, {"input_frame": frame,
+                                          "states": state,
+                                          "atten_lim_db": None})
+            return out[0], out[1], out[2]
+
+        # Mixed block sizes incl. non-multiples of the hop and a huge block
+        # that forces the ring to grow.
+        sizes = [480, 128, 480, 960, 333, 480, 17, 4800, 480 * 33, 240]
+        blocks = [rng.standard_normal(s).astype(np.float32) for s in sizes]
+
+        denoiser = df.DeepFilterDenoiser.__new__(df.DeepFilterDenoiser)
+        denoiser._initialized = True
+        denoiser._atten = np.array([100.0], dtype=np.float32)
+        denoiser.session = mock.Mock(run=mock.Mock(
+            side_effect=fake_session_run))
+        denoiser.reset()
+
+        intensity = 0.76
+        expected = self._reference(oracle_session, blocks, intensity,
+                                   df.HOP_SIZE, df.STATE_SIZE)
+        for block, want in zip(blocks, expected):
+            got = denoiser.process_chunk(block, df.SAMPLE_RATE,
+                                         intensity=intensity)
+            self.assertEqual(len(got), len(block))
+            self.assertTrue(got.flags.owndata)
+            np.testing.assert_allclose(got, want, rtol=0, atol=1e-6)
 
 
 if __name__ == "__main__":

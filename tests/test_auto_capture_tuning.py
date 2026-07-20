@@ -60,14 +60,14 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertEqual(app._landmark_reuse_frames(), 4)
 
-    def test_light_face_stack_keeps_landmark_reuse_tighter(self):
+    def test_eye_contact_only_requests_fresh_landmarks(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app._beautifier = SimpleNamespace(enabled=False)
         app._eye_contact = SimpleNamespace(enabled=True)
         app._relighter = SimpleNamespace(enabled=False)
         app._autoframe = SimpleNamespace(enabled=False)
 
-        self.assertEqual(app._landmark_reuse_frames(), 2)
+        self.assertEqual(app._landmark_reuse_frames(), 1)
 
     def test_performance_profile_uses_async_alpha(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
