@@ -42,6 +42,15 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.2.3 - Backlit Matting Stability Patch
+
+- **Adaptive Backlight Matting** - Quality and Ultra now compensate inside the RVM model input when a scene contains both strong highlights and deep foreground shadows, improving subject-mask stability in difficult sunlight
+- **Camera Image Preserved** - The adaptation never changes the original camera pixels, replacement image, or final frame colors; it only helps the segmentation model read shadow detail
+- **Balanced Lighting Unchanged** - Uniformly dark, uniformly bright, and normally balanced scenes stay on neutral processing, with smoothed recovery when lighting changes
+- **Focused Regression Coverage** - Tests cover backlight classification, temporal recovery, performance-mode bypass, input-frame integrity, and isolation from the user's saved configuration
+
+> If you are on `v1.2.2` or older, update to `v1.2.3`. This is the recommended stable patch for background blur and replacement in strongly backlit scenes, while retaining the binocular Eye Contact fixes from v1.2.2.
+
 ### v1.2.2 - Binocular Eye Contact Patch
 
 - **Shared Camera Target** - Eye Contact now derives one normalized gaze correction from both eyes instead of centering and smoothing each iris independently
@@ -508,7 +517,7 @@ cd nvidia-broadcast-linux
 ```
 
 Requires an Apple Silicon Mac with macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio for virtual-camera output. The installer provisions GStreamer and GTK4 and can install OBS. After installing OBS, open it once, start and stop **Virtual Camera**, then close OBS so its camera backend is registered for NV Broadcast.
-CPU modes use CoreML acceleration. Intel macOS is not included in v1.2.2 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
+CPU modes use CoreML acceleration. Intel macOS is not included in v1.2.3 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
 
 ### Linux — Snap Package
 
@@ -732,7 +741,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.2.2)
+│   ├── __init__.py              # Package version (1.2.3)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -765,7 +774,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.2.2)
+├── pyproject.toml               # Package config (v1.2.3)
 └── README.md
 ```
 

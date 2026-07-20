@@ -17,7 +17,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.2.2"
+        current = "1.2.3"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -33,7 +33,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-07-19">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-07-20">', metainfo)
         self.assertIn(f"### v{current}", readme)
         self.assertIn(f"nvbroadcast_{current}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{current}-1.noarch.rpm", docs_index)
@@ -243,6 +243,13 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", rpm_step)
         self.assertIn('python -m pip install ".[dev]"', workflow)
         self.assertIn("python -m pip check", workflow)
+
+    def test_release_gates_run_backlight_regressions(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
+        release_smoke = (REPO_ROOT / "scripts" / "release_smoke.py").read_text()
+
+        self.assertIn("tests/test_tensorrt_rvm.py", workflow)
+        self.assertIn('"tests.test_tensorrt_rvm"', release_smoke)
 
     def test_release_workflow_requires_every_built_package(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()

@@ -62,6 +62,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.2.3" date="2026-07-20">
+      <description>
+        <p>Backlit matting stability patch</p>
+        <ul>
+          <li>Improved Quality and Ultra background mattes when strong highlights and deep foreground shadows appear together</li>
+          <li>Adapted only the RVM model input while preserving original camera colors in displayed and virtual-camera output</li>
+          <li>Smoothed backlight adaptation over time and returned automatically to neutral processing in balanced lighting</li>
+          <li>Added regressions for lighting classification, recovery, performance-mode bypass, and input-frame integrity</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.2.2" date="2026-07-19">
       <description>
         <p>Binocular eye contact and latency patch</p>
