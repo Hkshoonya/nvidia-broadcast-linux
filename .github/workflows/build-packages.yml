@@ -105,7 +105,9 @@ jobs:
 
       - name: Run macOS-safe unit tests
         run: |
-          PYTHONPATH=src python3 -m unittest -v tests.test_updates
+          PYTHONPATH=src python3 -m pytest -q \
+            tests/test_eye_contact.py \
+            tests/test_updates.py
 
       - name: Test platform detection
         run: |
@@ -253,6 +255,7 @@ jobs:
             tests/test_background_overlay.py \
             tests/test_config_persistence.py \
             tests/test_deepfilter_model.py \
+            tests/test_eye_contact.py \
             tests/test_model_download.py \
             tests/test_summarizer.py \
             tests/test_training_bundle.py \

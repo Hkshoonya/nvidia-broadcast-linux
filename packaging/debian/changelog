@@ -1,3 +1,12 @@
+nvbroadcast (1.2.1-1) unstable; urgency=medium
+
+  * Make eye contact visibly correct moderate gaze at default intensity.
+  * Correct horizontal and vertical gaze inside the eyelid contour.
+  * Smooth gaze movement and reject blinks or unstable landmarks.
+  * Preserve frame alpha while applying the localized eye correction.
+
+ -- doczeus <harshit@kshoonya.com>  Sun, 19 Jul 2026 19:36:00 -0400
+
 nvbroadcast (1.2.0-1) unstable; urgency=medium
 
   * Add DeepFilterNet3 neural noise removal with RNNoise fallback.

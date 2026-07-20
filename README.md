@@ -42,6 +42,16 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.2.1 - Eye Contact Visibility Patch
+
+- **Visible at the Default Intensity** - Eye Contact now visibly moves a moderate gaze toward the camera instead of often producing an imperceptible sub-pixel change
+- **Natural, Bounded Eye Warping** - Horizontal and vertical correction is feathered inside the detected eyelid contour, smoothed between frames, and skipped for blinks or unstable landmark offsets
+- **Frame Integrity Preserved** - The localized correction changes color pixels only and leaves the frame alpha channel intact for background removal and virtual-camera output
+- **Corrected macOS OBS Output Included** - Upgrading from 1.1.13 also picks up the contiguous BGR OBS Virtual Camera path introduced in 1.2.0 for both passthrough and processed video
+- **Reporter Credit** - This patch resolves [Issue #31](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/31), reported on an Apple M3 Pro by [`@13v13reddy`](https://github.com/13v13reddy)
+
+> If you are on `v1.2.0` or older, update to `v1.2.1`. This is the recommended stable patch for visible eye-contact correction and the corrected macOS OBS camera path.
+
 ### v1.2.0 — Community Audio, Performance, and Camera Update
 
 - **Configurable Virtual Camera Output** — Linux users can choose and persist the `/dev/videoN` output used by the app, headless service, installer, and recovery commands, avoiding conflicts with OBS and other loopback cameras
@@ -488,7 +498,7 @@ cd nvidia-broadcast-linux
 ```
 
 Requires an Apple Silicon Mac with macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio for virtual-camera output. The installer provisions GStreamer and GTK4 and can install OBS. After installing OBS, open it once, start and stop **Virtual Camera**, then close OBS so its camera backend is registered for NV Broadcast.
-CPU modes use CoreML acceleration. Intel macOS is not included in v1.2.0 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
+CPU modes use CoreML acceleration. Intel macOS is not included in v1.2.1 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
 
 ### Linux — Snap Package
 
@@ -712,7 +722,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.2.0)
+│   ├── __init__.py              # Package version (1.2.1)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -745,7 +755,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.2.0)
+├── pyproject.toml               # Package config (v1.2.1)
 └── README.md
 ```
 
