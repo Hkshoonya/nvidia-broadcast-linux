@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.2.1
+Version:        1.2.2
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -153,6 +153,12 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Sun Jul 19 2026 doczeus <harshit@kshoonya.com> - 1.2.2-1
+- Derive Eye Contact correction from one shared binocular camera target
+- Preserve natural iris spacing with an outward target and head-yaw compensation
+- Follow coordinated gaze faster while smoothing one-eye landmark noise
+- Taper extreme side gaze and skip asymmetric correction during blinks
+
 * Sun Jul 19 2026 doczeus <harshit@kshoonya.com> - 1.2.1-1
 - Make eye contact visibly correct moderate gaze at the default intensity
 - Correct both horizontal and vertical gaze inside a feathered eyelid contour

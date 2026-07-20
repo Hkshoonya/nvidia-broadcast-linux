@@ -1,3 +1,12 @@
+nvbroadcast (1.2.2-1) unstable; urgency=medium
+
+  * Derive Eye Contact correction from one shared binocular camera target.
+  * Preserve natural iris spacing with an outward target and head-yaw compensation.
+  * Follow coordinated gaze faster while smoothing one-eye landmark noise.
+  * Taper extreme side gaze and skip asymmetric correction during blinks.
+
+ -- DocZeus <harshit@kshoonya.com>  Sun, 19 Jul 2026 22:00:23 -0400
+
 nvbroadcast (1.2.1-1) unstable; urgency=medium
 
   * Make eye contact visibly correct moderate gaze at default intensity.

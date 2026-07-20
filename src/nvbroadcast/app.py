@@ -1093,6 +1093,8 @@ class NVBroadcastApp(Adw.Application):
     def _landmark_reuse_frames(self) -> int:
         """Choose how aggressively to reuse shared face landmarks."""
         score = self._face_effect_load_score()
+        if self._eye_contact.enabled and score == 1:
+            return 1
         if score >= 5 and not self._autoframe.enabled:
             return 4
         return 2

@@ -42,6 +42,16 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.2.2 - Binocular Eye Contact Patch
+
+- **Shared Camera Target** - Eye Contact now derives one normalized gaze correction from both eyes instead of centering and smoothing each iris independently
+- **Natural Iris Spacing Preserved** - Separate, slightly outward target positions retain most of the person's measured binocular disparity instead of pulling both eyes toward a cross-eyed result
+- **Lower Stable-Tracking Latency** - Coordinated eye movement receives a faster response and fresh per-frame landmark requests when Eye Contact is the only active face effect, while one-eye landmark jumps keep stronger smoothing
+- **Safer Edge Cases** - Conservative head-yaw compensation follows the camera target, extreme side gaze tapers progressively, and a blink or unstable eye skips correction for the pair
+- **M3 Pro Follow-up** - [`@13v13reddy`](https://github.com/13v13reddy) confirmed that v1.2.1 made Eye Contact visible and near real time, then supplied the convergence test case fixed in this patch on [Issue #31](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/31)
+
+> If you are on `v1.2.1` or older, update to `v1.2.2`. This is the recommended stable patch for natural binocular eye contact, lower coordinated-gaze latency, and the corrected macOS OBS camera path.
+
 ### v1.2.1 - Eye Contact Visibility Patch
 
 - **Visible at the Default Intensity** - Eye Contact now visibly moves a moderate gaze toward the camera instead of often producing an imperceptible sub-pixel change
@@ -50,7 +60,7 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Corrected macOS OBS Output Included** - Upgrading from 1.1.13 also picks up the contiguous BGR OBS Virtual Camera path introduced in 1.2.0 for both passthrough and processed video
 - **Reporter Credit** - This patch resolves [Issue #31](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/31), reported on an Apple M3 Pro by [`@13v13reddy`](https://github.com/13v13reddy)
 
-> If you are on `v1.2.0` or older, update to `v1.2.1`. This is the recommended stable patch for visible eye-contact correction and the corrected macOS OBS camera path.
+> v1.2.1 fixed imperceptible correction at normal intensity. v1.2.2 supersedes it with shared binocular targeting after the reporter's Apple M3 Pro follow-up.
 
 ### v1.2.0 — Community Audio, Performance, and Camera Update
 
@@ -498,7 +508,7 @@ cd nvidia-broadcast-linux
 ```
 
 Requires an Apple Silicon Mac with macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio for virtual-camera output. The installer provisions GStreamer and GTK4 and can install OBS. After installing OBS, open it once, start and stop **Virtual Camera**, then close OBS so its camera backend is registered for NV Broadcast.
-CPU modes use CoreML acceleration. Intel macOS is not included in v1.2.1 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
+CPU modes use CoreML acceleration. Intel macOS is not included in v1.2.2 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
 
 ### Linux — Snap Package
 
@@ -722,7 +732,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.2.1)
+│   ├── __init__.py              # Package version (1.2.2)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -755,7 +765,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.2.1)
+├── pyproject.toml               # Package config (v1.2.2)
 └── README.md
 ```
 

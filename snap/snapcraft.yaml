@@ -1,25 +1,27 @@
 name: nvbroadcast
 title: NV Broadcast
 base: core24
-version: '1.2.1'
-summary: Visible eye contact correction patch
+version: '1.2.2'
+summary: Binocular eye contact and latency patch
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.2.1:
-  - Makes eye contact visibly correct moderate gaze at the persisted default
-    intensity instead of producing a sub-pixel no-op.
-  - Corrects horizontal and vertical gaze inside the detected eyelid contour,
-    smooths motion between frames, and preserves the frame alpha channel.
-  - Rejects blinks and unstable landmark offsets before applying the stronger
-    correction.
-  - Carries forward v1.2.0's corrected contiguous BGR output to OBS Virtual
-    Camera on supported Apple Silicon Macs.
+  What's new in v1.2.2:
+  - Derives one camera-facing gaze correction from both eyes instead of
+    centering and smoothing each iris independently.
+  - Preserves natural left/right iris spacing, adds a small outward target,
+    and compensates conservatively for head yaw.
+  - Follows coordinated eye movement faster while smoothing one-eye landmark
+    jumps and skipping both eyes during a blink or unstable detection.
+  - Tapers correction progressively at extreme side gaze to avoid abrupt or
+    over-corrected eye movement.
 
   Recent quality updates:
+  - v1.2.1 makes moderate eye contact correction visible at the default
+    intensity, preserves frame alpha, and includes corrected macOS OBS output.
   - v1.2.0 adds DeepFilterNet3 noise removal, lower background CPU use, a native
     StatusNotifierItem tray, verified model storage, and configurable Linux
     virtual-camera output.
