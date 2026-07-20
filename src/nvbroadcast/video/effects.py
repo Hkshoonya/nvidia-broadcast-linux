@@ -482,8 +482,11 @@ def _release_session(session):
 class _RVMBackend:
     """RobustVideoMatting — person-only with recurrent temporal states."""
 
+    _BACKLIGHT_QUALITY_PRESETS = frozenset({"quality", "ultra"})
+
     def __init__(self, gpu_index: int):
         self._gpu_index = gpu_index
+        self._quality = "quality"
         self.session = None
         self._r1 = self._r2 = self._r3 = self._r4 = None
         self._downsample_ratio = None
@@ -500,9 +503,11 @@ class _RVMBackend:
         self._reset_retry_logged = False
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
+        self._inference_gamma = None
 
     def load(self, quality: str, use_tensorrt: bool = False) -> str:
         preset = QUALITY_PRESETS[quality]
+        self._quality = quality
         base_model_path = _download_model(
             preset["model"], preset["url"], preset["sha256"]
         )
@@ -533,6 +538,7 @@ class _RVMBackend:
         self._r2 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r3 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
+        self._inference_gamma = None
         self._trt_seed_shape = None
         device = _get_device_name(self.session, self._gpu_index)
         msg = f"RVM loaded on {device} | {preset['label']}"
@@ -732,6 +738,46 @@ class _RVMBackend:
         self.reset_state(log=True)
         self._state_input_shape = shape
 
+    @staticmethod
+    def _target_inference_gamma(rgb: np.ndarray) -> float:
+        """Estimate a shadow lift for strongly backlit model input."""
+        height, width = rgb.shape[:2]
+        step = max(1, min(height // 90, width // 160))
+        sample = np.ascontiguousarray(rgb[::step, ::step])
+        gray = cv2.cvtColor(sample, cv2.COLOR_RGB2GRAY)
+        histogram = cv2.calcHist([gray], [0], None, [256], [0, 256]).ravel()
+        cumulative = np.cumsum(histogram)
+        median = float(np.searchsorted(cumulative, cumulative[-1] * 0.50))
+        highlight = float(np.searchsorted(cumulative, cumulative[-1] * 0.95))
+
+        highlight_score = np.clip((highlight - 220.0) / 25.0, 0.0, 1.0)
+        shadow_score = np.clip((110.0 - median) / 60.0, 0.0, 1.0)
+        contrast_score = np.clip(((highlight - median) - 110.0) / 65.0, 0.0, 1.0)
+        lift = np.sqrt(highlight_score * shadow_score * contrast_score)
+        return float(1.0 - 0.25 * lift)
+
+    def _resolve_inference_gamma(self, rgb: np.ndarray) -> float:
+        """Smooth exposure adaptation so the model input cannot flicker."""
+        if self._quality not in self._BACKLIGHT_QUALITY_PRESETS:
+            self._inference_gamma = 1.0
+            return 1.0
+
+        target = self._target_inference_gamma(rgb)
+        if self._inference_gamma is None:
+            self._inference_gamma = target
+        else:
+            rate = 0.18 if target < self._inference_gamma else 0.08
+            self._inference_gamma += (target - self._inference_gamma) * rate
+        return float(self._inference_gamma)
+
+    @staticmethod
+    def _apply_inference_gamma(rgb: np.ndarray, gamma: float) -> np.ndarray:
+        if gamma >= 0.995:
+            return rgb
+        values = np.arange(256, dtype=np.float32) * (1.0 / 255.0)
+        lut = np.clip(np.power(values, gamma) * 255.0, 0, 255).astype(np.uint8)
+        return cv2.LUT(rgb, lut)
+
     def infer(self, frame: np.ndarray, width: int, height: int) -> np.ndarray | None:
         # Pre-downsample large frames to reduce preprocessing + inference cost.
         # E.g. 1080p → 720p input saves ~50% time; alpha is upscaled back.
@@ -746,6 +792,8 @@ class _RVMBackend:
 
         # Fast normalize: BGRA→RGB + /255 + HWC→NCHW
         rgb = cv2.cvtColor(small, cv2.COLOR_BGRA2RGB)
+        gamma = self._resolve_inference_gamma(rgb)
+        rgb = self._apply_inference_gamma(rgb, gamma)
         src = rgb.astype(np.float32) * (1.0 / 255.0)
         src = src.transpose(2, 0, 1)[np.newaxis]  # HWC -> 1xCxHxW
         self._ensure_state_shape(infer_w, infer_h)
@@ -821,6 +869,7 @@ class _RVMBackend:
         self._r3 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._state_input_shape = None
+        self._inference_gamma = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
         if log:
@@ -831,6 +880,7 @@ class _RVMBackend:
         self.session = None
         self._r1 = self._r2 = self._r3 = self._r4 = None
         self._state_input_shape = None
+        self._inference_gamma = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
 

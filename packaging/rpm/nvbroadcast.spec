@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.2.2
+Version:        1.2.3
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -153,6 +153,12 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Mon Jul 20 2026 doczeus <harshit@kshoonya.com> - 1.2.3-1
+- Stabilize Quality and Ultra mattes in strongly backlit scenes
+- Adapt only model input while preserving displayed camera pixels
+- Return smoothly to neutral processing in balanced lighting
+- Isolate integration tests from persisted user configuration
+
 * Sun Jul 19 2026 doczeus <harshit@kshoonya.com> - 1.2.2-1
 - Derive Eye Contact correction from one shared binocular camera target
 - Preserve natural iris spacing with an outward target and head-yaw compensation
