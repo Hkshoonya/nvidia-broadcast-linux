@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
+import cv2
 import numpy as np
 import onnx
 from onnx import TensorProto, helper, numpy_helper
@@ -20,6 +21,61 @@ def _tensor_dims(value_info) -> list[int | str]:
         else:
             dims.append("?")
     return dims
+
+
+class RvmBacklightTests(unittest.TestCase):
+    @staticmethod
+    def _backlit_frame() -> np.ndarray:
+        frame = np.full((90, 160, 3), 45, dtype=np.uint8)
+        frame[:, :48] = 250
+        return frame
+
+    def test_backlit_input_gets_inference_only_shadow_lift(self):
+        gamma = _RVMBackend._target_inference_gamma(self._backlit_frame())
+
+        self.assertGreaterEqual(gamma, 0.75)
+        self.assertLess(gamma, 0.82)
+
+    def test_uniform_lighting_does_not_trigger_shadow_lift(self):
+        for level in (25, 128, 245):
+            with self.subTest(level=level):
+                frame = np.full((90, 160, 3), level, dtype=np.uint8)
+                self.assertEqual(_RVMBackend._target_inference_gamma(frame), 1.0)
+
+    def test_backlight_adaptation_releases_gradually(self):
+        backend = _RVMBackend(0)
+        first = backend._resolve_inference_gamma(self._backlit_frame())
+        balanced = np.full((90, 160, 3), 128, dtype=np.uint8)
+        released = backend._resolve_inference_gamma(balanced)
+
+        self.assertGreater(released, first)
+        self.assertLess(released, 1.0)
+
+    def test_only_quality_presets_use_backlight_preprocessing(self):
+        for quality in ("performance", "balanced"):
+            with self.subTest(quality=quality):
+                backend = _RVMBackend(0)
+                backend._quality = quality
+                self.assertEqual(
+                    backend._resolve_inference_gamma(self._backlit_frame()), 1.0
+                )
+
+        for quality in ("quality", "ultra"):
+            with self.subTest(quality=quality):
+                backend = _RVMBackend(0)
+                backend._quality = quality
+                self.assertLess(
+                    backend._resolve_inference_gamma(self._backlit_frame()), 1.0
+                )
+
+    def test_gamma_lift_does_not_modify_camera_pixels(self):
+        frame = self._backlit_frame()
+        original = frame.copy()
+
+        lifted = _RVMBackend._apply_inference_gamma(frame, 0.8)
+
+        self.assertTrue(np.array_equal(frame, original))
+        self.assertGreater(int(lifted[40, 80, 0]), int(frame[40, 80, 0]))
 
 
 class TensorrtRvmTests(unittest.TestCase):

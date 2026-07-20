@@ -10,6 +10,8 @@ Thank you for your interest in contributing! This project was built for the Linu
 
 3. **Be respectful** — We're all here because we love Linux and want better tools. Constructive feedback only.
 
+4. **Contributor credits follow merged work** — After a pull request is merged, its author is added to the app's About window under **Contributions to App**. Sponsors are credited separately under **Project Sponsors**; sponsorship does not imply code authorship.
+
 ## How to Contribute
 
 ### Reporting Bugs

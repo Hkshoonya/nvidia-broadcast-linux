@@ -42,6 +42,46 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.2.3 - Backlit Matting Stability Patch
+
+- **Adaptive Backlight Matting** - Quality and Ultra now compensate inside the RVM model input when a scene contains both strong highlights and deep foreground shadows, improving subject-mask stability in difficult sunlight
+- **Camera Image Preserved** - The adaptation never changes the original camera pixels, replacement image, or final frame colors; it only helps the segmentation model read shadow detail
+- **Balanced Lighting Unchanged** - Uniformly dark, uniformly bright, and normally balanced scenes stay on neutral processing, with smoothed recovery when lighting changes
+- **Focused Regression Coverage** - Tests cover backlight classification, temporal recovery, performance-mode bypass, input-frame integrity, and isolation from the user's saved configuration
+
+> If you are on `v1.2.2` or older, update to `v1.2.3`. This is the recommended stable patch for background blur and replacement in strongly backlit scenes, while retaining the binocular Eye Contact fixes from v1.2.2.
+
+### v1.2.2 - Binocular Eye Contact Patch
+
+- **Shared Camera Target** - Eye Contact now derives one normalized gaze correction from both eyes instead of centering and smoothing each iris independently
+- **Natural Iris Spacing Preserved** - Separate, slightly outward target positions retain most of the person's measured binocular disparity instead of pulling both eyes toward a cross-eyed result
+- **Lower Stable-Tracking Latency** - Coordinated eye movement receives a faster response and fresh per-frame landmark requests when Eye Contact is the only active face effect, while one-eye landmark jumps keep stronger smoothing
+- **Safer Edge Cases** - Conservative head-yaw compensation follows the camera target, extreme side gaze tapers progressively, and a blink or unstable eye skips correction for the pair
+- **M3 Pro Follow-up** - [`@13v13reddy`](https://github.com/13v13reddy) confirmed that v1.2.1 made Eye Contact visible and near real time, then supplied the convergence test case fixed in this patch on [Issue #31](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/31)
+
+> If you are on `v1.2.1` or older, update to `v1.2.2`. This is the recommended stable patch for natural binocular eye contact, lower coordinated-gaze latency, and the corrected macOS OBS camera path.
+
+### v1.2.1 - Eye Contact Visibility Patch
+
+- **Visible at the Default Intensity** - Eye Contact now visibly moves a moderate gaze toward the camera instead of often producing an imperceptible sub-pixel change
+- **Natural, Bounded Eye Warping** - Horizontal and vertical correction is feathered inside the detected eyelid contour, smoothed between frames, and skipped for blinks or unstable landmark offsets
+- **Frame Integrity Preserved** - The localized correction changes color pixels only and leaves the frame alpha channel intact for background removal and virtual-camera output
+- **Corrected macOS OBS Output Included** - Upgrading from 1.1.13 also picks up the contiguous BGR OBS Virtual Camera path introduced in 1.2.0 for both passthrough and processed video
+- **Reporter Credit** - This patch resolves [Issue #31](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/31), reported on an Apple M3 Pro by [`@13v13reddy`](https://github.com/13v13reddy)
+
+> v1.2.1 fixed imperceptible correction at normal intensity. v1.2.2 supersedes it with shared binocular targeting after the reporter's Apple M3 Pro follow-up.
+
+### v1.2.0 — Community Audio, Performance, and Camera Update
+
+- **Configurable Virtual Camera Output** — Linux users can choose and persist the `/dev/videoN` output used by the app, headless service, installer, and recovery commands, avoiding conflicts with OBS and other loopback cameras
+- **DeepFilterNet3 Noise Removal** — The new neural denoiser improves difficult microphone cleanup, verifies its pinned model before loading, and falls back to RNNoise on Linux when it is unavailable
+- **Lower Runtime CPU Use** — ONNX Runtime thread pools are capped and CUDA waits use blocking synchronization by default, reducing idle CPU load without changing processing modes
+- **Native Desktop Tray** — A StatusNotifierItem tray works natively on modern Linux desktops, with explicit shutdown cleanup and the existing legacy fallback where needed
+- **Safer Settings, Logs, and Models** — Config saves are atomic, persistent logs use private permissions, first-run AI models use a writable per-user cache with pinned SHA-256 verification, voice effects behave consistently across app and helper paths, and PyAV is pinned to the compatible 16.x line
+- **Contributor Release** — These audio, performance, tray, and correctness improvements were contributed by Jon Fuller ([`@perfectra1n`](https://github.com/perfectra1n)); the configurable output-device work completes [Issue #22](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/22)
+
+> If you are on `v1.1.13` or older, update to `v1.2.0`. This is the recommended stable release for stronger noise removal, lower background CPU use, native tray support, and conflict-free virtual-camera output selection.
+
 ### v1.1.13 — Auto Frame Tracking and Framing Patch
 
 - **Center Face Tracking Smoothed** — Auto Frame now follows side-to-side face movement continuously instead of waiting for a large lateral jump before the crop catches up
@@ -206,8 +246,8 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Multi-Camera Support** — Hot-switch between cameras without restarting
 - **Apple-Inspired UI** — Glassmorphism cards, collapsible sections, smooth transitions
 - **Shared FaceLandmarker** — Single MediaPipe instance shared across all face effects (3x faster)
-- **macOS Support** — CPU modes with CoreML, AVFoundation camera, Homebrew installer
-- **CI Pipeline** — GitHub Actions builds .deb, .rpm, .pkg + Swift Camera Extension on macOS
+- **macOS Support** — Apple Silicon CPU modes with CoreML, AVFoundation capture, and OBS Virtual Camera output through the Homebrew installer
+- **CI Pipeline** — GitHub Actions builds .deb, .rpm, and .pkg packages and compile-checks the prototype Swift Camera Extension on macOS
 
 ### v0.2.0
 
@@ -476,8 +516,8 @@ cd nvidia-broadcast-linux
 ./install_macos.sh
 ```
 
-Requires macOS 12+, Homebrew, Python 3.11+. Installs GStreamer, GTK4 via Homebrew.
-CPU modes with CoreML acceleration on Apple Silicon. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
+Requires an Apple Silicon Mac with macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio for virtual-camera output. The installer provisions GStreamer and GTK4 and can install OBS. After installing OBS, open it once, start and stop **Virtual Camera**, then close OBS so its camera backend is registered for NV Broadcast.
+CPU modes use CoreML acceleration. Intel macOS is not included in v1.2.3 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
 
 ### Linux — Snap Package
 
@@ -506,7 +546,7 @@ The installer:
 ### Update Behavior
 
 - **Git checkout / manual Linux packages** — the app checks GitHub Releases and opens the matching release download page when a newer stable build is available
-- **macOS package installs** — the app prefers the latest `.pkg` release asset when one is published
+- **macOS package installs** — the app prefers the latest `.pkg` release asset when one is published; the package updates an installation whose Homebrew, Python, GStreamer, GTK, and OBS prerequisites are already configured by `install_macos.sh`
 - **Snap installs** — the app opens the Snap Store listing; stable refreshes are normally handled by `snapd`
 
 ### Optional: TensorRT (for Zeus/Killer modes)
@@ -554,11 +594,14 @@ pip install -e .
 pip install -e ".[cuda]"
 
 # 4. Optional: CuPy-only retry for GPU compositing
-pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12
+pip install "cupy-cuda12x>=14.1.1,<15" nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12
 
 # 5. Virtual camera
 sudo modprobe v4l2loopback devices=1 video_nr=10 \
     card_label="NVbroadcast" exclusive_caps=1 max_buffers=4
+
+# Use another output node if /dev/video10 conflicts:
+NVBROADCAST_VCAM_DEVICE_NUM=11 ./scripts/setup_v4l2loopback.sh
 
 # 6. Run
 python -m nvbroadcast
@@ -580,7 +623,7 @@ nvbroadcast          # Launch GUI (first time: setup wizard)
 2. App starts and auto-begins streaming
 3. Configure effects, select resolution/FPS/mode
 4. **Close the window** — app minimizes to background, virtual camera stays active
-5. Open **Chrome / Zoom / Discord / OBS** — select **"NVbroadcast"** as your camera
+5. Open **Chrome / Zoom / Discord** — select **"NVbroadcast"** on Linux or **"OBS Virtual Camera"** on macOS
 6. **Next login** — app starts automatically with all your settings remembered
 
 ### Controls
@@ -698,7 +741,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.13)
+│   ├── __init__.py              # Package version (1.2.3)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -731,7 +774,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.13)
+├── pyproject.toml               # Package config (v1.2.3)
 └── README.md
 ```
 

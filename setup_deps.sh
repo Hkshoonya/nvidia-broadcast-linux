@@ -45,7 +45,8 @@ fi
 # Python venv + packages
 echo "[5/5] Setting up Python environment..."
 python3 -m venv .venv --system-site-packages
-.venv/bin/pip install --upgrade pip
+.venv/bin/pip install --upgrade \
+    "pip>=26.1.2" "setuptools>=83.0.0" wheel
 .venv/bin/pip install -e .
 
 echo ""

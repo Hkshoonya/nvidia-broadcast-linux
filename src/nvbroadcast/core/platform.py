@@ -281,6 +281,17 @@ def preload_nvidia_runtime_libs() -> None:
         return
     try:
         import importlib.util
+
+        # CuPy 14 uses CUDA_PATH to find the runtime headers required by
+        # NVRTC. Component wheels keep those headers in a nested package
+        # rather than a conventional /usr/local/cuda tree.
+        if not os.environ.get("CUDA_PATH"):
+            runtime_spec = importlib.util.find_spec("nvidia.cuda_runtime")
+            if runtime_spec and runtime_spec.submodule_search_locations:
+                runtime_root = Path(runtime_spec.submodule_search_locations[0])
+                if (runtime_root / "include" / "cuda_runtime.h").is_file():
+                    os.environ["CUDA_PATH"] = str(runtime_root)
+
         for pkg in NVIDIA_RUNTIME_LIB_MODULES:
             spec = importlib.util.find_spec(pkg)
             if spec and spec.submodule_search_locations:

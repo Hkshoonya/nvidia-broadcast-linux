@@ -23,7 +23,12 @@ gi.require_version("Adw", "1")
 gi.require_version("Gst", "1.0")
 from gi.repository import Gtk, Adw, Gst, Gio, Gdk, GLib
 
-from nvbroadcast.core.constants import APP_ID, COMPUTE_GPU_INDEX, VIRTUAL_CAM_LABEL
+from nvbroadcast.core.constants import (
+    APP_ID,
+    COMPUTE_GPU_INDEX,
+    VIRTUAL_CAM_DEVICE,
+)
+from nvbroadcast.core.gpu import apply_cuda_blocking_sync
 from nvbroadcast.core.config import load_config, save_config
 from nvbroadcast.core.updates import (
     fetch_latest_release,
@@ -35,7 +40,11 @@ from nvbroadcast.video.pipeline import VideoPipeline
 from nvbroadcast.video.effects import VideoEffects
 from nvbroadcast.video.autoframe import AutoFrame
 from nvbroadcast.video.beautify import FaceBeautifier
-from nvbroadcast.video.virtual_camera import ensure_virtual_camera
+from nvbroadcast.video.virtual_camera import (
+    ensure_virtual_camera,
+    is_v4l2loopback_device,
+    v4l2loopback_modprobe_command,
+)
 from nvbroadcast.video.eye_contact import EyeContactCorrector
 from nvbroadcast.video.relighting import FaceRelighter
 from nvbroadcast.video.face_landmarks import get_shared_landmarker
@@ -113,6 +122,11 @@ class NVBroadcastApp(Adw.Application):
             application_id=APP_ID,
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
+        # Must precede the first cupy/ORT CUDA call (primary-context creation)
+        # or GPU waits keep busy-spinning a core.
+        if apply_cuda_blocking_sync():
+            print("[NV Broadcast] CUDA blocking-sync enabled "
+                  "(NVBROADCAST_CUDA_SYNC=spin restores spin-wait)")
         self.config = load_config()
         if IS_LINUX and IS_ARM64 and self.config.mode_key in {
             "doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer",
@@ -204,7 +218,7 @@ class NVBroadcastApp(Adw.Application):
 
         self._stop_headless_vcam_service()
         try:
-            self._vcam_device = ensure_virtual_camera()
+            self._vcam_device = ensure_virtual_camera(self._preferred_vcam_device())
             self._vcam_available = True
         except RuntimeError as e:
             print(f"[NV Broadcast] Virtual camera unavailable: {e}")
@@ -222,6 +236,17 @@ class NVBroadcastApp(Adw.Application):
             else:
                 print("[NV Broadcast] Camera power save: v4l2 events "
                       "unavailable, falling back to fuser", flush=True)
+
+    def _preferred_vcam_device(self) -> str | None:
+        if not IS_LINUX:
+            return None
+        configured = (self.config.video.vcam_device or "").strip()
+        if not configured or configured == VIRTUAL_CAM_DEVICE:
+            return None
+        return configured
+
+    def _active_vcam_device(self) -> str:
+        return self._vcam_device or self.config.video.vcam_device or VIRTUAL_CAM_DEVICE
 
     def _stop_headless_vcam_service(self) -> bool:
         """Stop the optional headless passthrough service before GUI capture.
@@ -269,22 +294,41 @@ class NVBroadcastApp(Adw.Application):
             self._window.bind_dependency_installer(self._dependency_installer)
             self._window.load_meeting_sessions(self.list_meeting_sessions())
 
-            # Legacy GTK3 AppIndicator tray is opt-in only. Mixing GTK3 tray
+            # Native SNI (StatusNotifierItem) tray — pure D-Bus, safe in a
+            # GTK4 process, works on KDE/Hyprland/waybar/quickshell.
+            try:
+                from nvbroadcast.ui.sni_tray import SniTray
+                self._tray = SniTray(self)
+            except Exception as e:
+                print(f"[NV Broadcast] SNI tray failed: {e}")
+                self._tray = None
+
+            # Legacy GTK3 AppIndicator tray as fallback. Mixing GTK3 tray
             # code into this GTK4 app can terminate startup natively on some
-            # Linux desktops without a Python traceback.
-            if self._legacy_tray_enabled:
+            # Linux desktops without a Python traceback, so it stays gated.
+            if (self._tray is None or not getattr(self._tray, "bus_ready", False)) \
+                    and self._legacy_tray_enabled:
                 try:
                     from nvbroadcast.ui.tray import TrayIcon
                     self._tray = TrayIcon(self)
                     if self._tray.available:
-                        print("[NV Broadcast] System tray icon active")
+                        print("[NV Broadcast] System tray icon active (legacy)")
                 except Exception as e:
                     print(f"[NV Broadcast] Tray icon not available: {e}")
-            else:
-                print(
-                    "[NV Broadcast] Legacy tray integration disabled. "
-                    "Set NVBROADCAST_ENABLE_LEGACY_TRAY=1 to force-enable it."
-                )
+
+            # Preview textures are only worth building while the window is
+            # visible; each tick otherwise costs a full-frame copy plus a
+            # GTK GPU upload.
+            def _on_window_mapped(*_a):
+                if self._video_pipeline is not None:
+                    self._video_pipeline.set_preview_enabled(True)
+
+            def _on_window_unmapped(*_a):
+                if self._video_pipeline is not None:
+                    self._video_pipeline.set_preview_enabled(False)
+
+            self._window.connect("map", _on_window_mapped)
+            self._window.connect("unmap", _on_window_unmapped)
 
             # Showing the window must instantly wake camera power save.
             self._window.connect("map", lambda *a: (
@@ -473,7 +517,7 @@ class NVBroadcastApp(Adw.Application):
         import subprocess
         try:
             result = subprocess.run(
-                ["fuser", self._vcam_device or "/dev/video10"],
+                ["fuser", self._active_vcam_device()],
                 capture_output=True, text=True, timeout=2,
             )
         except Exception:
@@ -790,6 +834,7 @@ class NVBroadcastApp(Adw.Application):
         if self._audio_pipeline_should_publish() or c.audio.noise_removal or c.audio.voice_fx_enabled:
             audio_pipeline = self._ensure_audio_pipeline()
             audio_pipeline.auto_idle = getattr(c, "auto_idle", True)
+            audio_pipeline.effects.engine = c.audio.noise_engine
             audio_pipeline.effects.enabled = c.audio.noise_removal
             audio_pipeline.effects.intensity = c.audio.noise_intensity
             audio_pipeline.voice_fx.enabled = c.audio.voice_fx_enabled
@@ -803,12 +848,14 @@ class NVBroadcastApp(Adw.Application):
             self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
 
         if self._vcam_available:
-            self._window.set_status(f"Ready - Virtual camera at {self._vcam_device}")
+            self._window.set_status(
+                f"Ready - Virtual camera at {self._active_vcam_device()}"
+            )
         else:
             self._window.set_status(
                 "Virtual camera not available. Run: "
-                'sudo modprobe v4l2loopback devices=1 video_nr=10 '
-                f'card_label="{VIRTUAL_CAM_LABEL}" exclusive_caps=1 max_buffers=4')
+                + v4l2loopback_modprobe_command(self.config.video.vcam_device)
+            )
 
         if normalized_quality:
             save_config(c)
@@ -1002,7 +1049,7 @@ class NVBroadcastApp(Adw.Application):
         self._video_pipeline = VideoPipeline()
         self._video_pipeline.configure(
             source_device=camera_device,
-            vcam_device=self._vcam_device or "/dev/video10",
+            vcam_device=self._active_vcam_device(),
             width=self.config.video.width,
             height=self.config.video.height,
             fps=self.config.video.fps,
@@ -1040,8 +1087,13 @@ class NVBroadcastApp(Adw.Application):
 
             w, h = self.config.video.width, self.config.video.height
             status = f"Streaming: {camera_device} {w}x{h}@{self.config.video.fps}fps"
-            if self._vcam_available:
-                status += f" -> {self._vcam_device}"
+            if (
+                self._vcam_available
+                and self._video_pipeline.virtual_camera_active
+            ):
+                status += f" -> {self._active_vcam_device()}"
+            elif self._vcam_available:
+                status += " - virtual camera unavailable"
             self._window.set_status(status)
             self.config.video.camera_device = camera_device
             self.config.video.output_format = output_format
@@ -1190,6 +1242,8 @@ class NVBroadcastApp(Adw.Application):
     def _landmark_reuse_frames(self) -> int:
         """Choose how aggressively to reuse shared face landmarks."""
         score = self._face_effect_load_score()
+        if self._eye_contact.enabled and score == 1:
+            return 1
         if score >= 5 and not self._autoframe.enabled:
             return 4
         return 2
@@ -1810,6 +1864,51 @@ class NVBroadcastApp(Adw.Application):
             else:
                 self._window.set_status(f"Format: {output_format}")
 
+    def set_vcam_device(self, device: str) -> bool:
+        if not IS_LINUX:
+            return False
+        device = (device or "").strip() or VIRTUAL_CAM_DEVICE
+        suffix = device.removeprefix("/dev/video")
+        if not device.startswith("/dev/video") or not suffix.isdigit():
+            if self._window:
+                self._window.set_status(
+                    "Virtual camera device must look like /dev/video10."
+                )
+            return False
+        if os.path.exists(device) and not is_v4l2loopback_device(device):
+            if self._window:
+                self._window.set_status(
+                    f"{device} is not a v4l2loopback virtual camera."
+                )
+            return False
+
+        if device == self.config.video.vcam_device:
+            return True
+
+        self.config.video.vcam_device = device
+        save_config(self.config)
+
+        if self._streaming:
+            if self._window:
+                self._window.set_status(
+                    f"Virtual camera saved: {device}. Restart broadcast to apply."
+                )
+            return True
+
+        try:
+            self._vcam_device = ensure_virtual_camera(self._preferred_vcam_device())
+            self._vcam_available = True
+            status = f"Virtual camera: {self._active_vcam_device()}"
+        except RuntimeError as e:
+            self._vcam_device = None
+            self._vcam_available = False
+            first_line = str(e).splitlines()[0]
+            status = f"Virtual camera saved: {device}. {first_line}"
+
+        if self._window:
+            self._window.set_status(status)
+        return True
+
     def set_skip_interval(self, value: int):
         """Set how many frames to skip between inferences."""
         self._video_effects._skip_interval = max(1, value)
@@ -2391,8 +2490,18 @@ class NVBroadcastApp(Adw.Application):
     def set_noise_removal(self, enabled: bool):
         self.config.audio.noise_removal = enabled
         pipeline = self._ensure_audio_pipeline()
+        pipeline.effects.engine = self.config.audio.noise_engine
         pipeline.effects.enabled = enabled
         self._refresh_audio_pipeline()
+        save_config(self.config)
+
+    def set_noise_engine(self, engine: str):
+        """Switch the denoiser engine ("auto" = DeepFilterNet, "rnnoise")."""
+        engine = engine if engine in ("auto", "rnnoise") else "auto"
+        self.config.audio.noise_engine = engine
+        pipeline = self._ensure_audio_pipeline()
+        pipeline.effects.engine = engine
+        self._restart_audio_pipeline_for_live_settings()
         save_config(self.config)
 
     def set_noise_intensity(self, value: float):
@@ -2487,6 +2596,15 @@ class NVBroadcastApp(Adw.Application):
         if self._vcam_monitor:
             self._vcam_monitor.stop()
             self._vcam_monitor = None
+        # Unregister the SNI item and its dbusmenu explicitly; otherwise the
+        # tray host only notices when the bus connection dies and a stale
+        # icon can linger. The legacy tray has no shutdown, hence the guard.
+        if self._tray is not None and hasattr(self._tray, "shutdown"):
+            try:
+                self._tray.shutdown()
+            except Exception:
+                pass
+            self._tray = None
         if self._meeting_capture:
             self._meeting_capture.stop()
             self._meeting_capture = None

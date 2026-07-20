@@ -1,0 +1,37 @@
+nvbroadcast (1.2.3-1) unstable; urgency=medium
+
+  * Stabilize Quality and Ultra mattes in strongly backlit scenes.
+  * Adapt only model input while preserving displayed camera pixels.
+  * Return smoothly to neutral processing in balanced lighting.
+  * Isolate integration tests from persisted user configuration.
+
+ -- DocZeus <harshit@kshoonya.com>  Mon, 20 Jul 2026 05:30:01 -0400
+
+nvbroadcast (1.2.2-1) unstable; urgency=medium
+
+  * Derive Eye Contact correction from one shared binocular camera target.
+  * Preserve natural iris spacing with an outward target and head-yaw compensation.
+  * Follow coordinated gaze faster while smoothing one-eye landmark noise.
+  * Taper extreme side gaze and skip asymmetric correction during blinks.
+
+ -- DocZeus <harshit@kshoonya.com>  Sun, 19 Jul 2026 22:00:23 -0400
+
+nvbroadcast (1.2.1-1) unstable; urgency=medium
+
+  * Make eye contact visibly correct moderate gaze at default intensity.
+  * Correct horizontal and vertical gaze inside the eyelid contour.
+  * Smooth gaze movement and reject blinks or unstable landmarks.
+  * Preserve frame alpha while applying the localized eye correction.
+
+ -- doczeus <harshit@kshoonya.com>  Sun, 19 Jul 2026 19:36:00 -0400
+
+nvbroadcast (1.2.0-1) unstable; urgency=medium
+
+  * Add DeepFilterNet3 neural noise removal with RNNoise fallback.
+  * Reduce idle CPU use and improve ONNX Runtime and CUDA synchronization.
+  * Add native StatusNotifierItem tray integration and cleanup.
+  * Make the Linux virtual-camera output device configurable.
+  * Store verified AI models in a writable per-user cache.
+  * Use atomic config saves and private persistent logs.
+
+ -- doczeus <harshit@kshoonya.com>  Sun, 19 Jul 2026 13:00:00 -0400

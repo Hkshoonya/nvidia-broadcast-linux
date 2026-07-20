@@ -9,10 +9,13 @@ opencv-python-headless>=4.8
 psutil>=5.9
 
 # AI / Inference
-mediapipe>=0.10
+mediapipe>=0.10.35; sys_platform == "darwin"
+mediapipe>=0.10; sys_platform != "darwin"
 onnxruntime-gpu==1.24.4; sys_platform == "linux"
-onnxruntime>=1.24.4,<1.25; sys_platform == "darwin"
-onnx>=1.14
+# Version 1.23.2 keeps the supported Apple Silicon runtime on macOS 13+.
+onnxruntime>=1.23.2,<1.24; sys_platform == "darwin"
+onnx>=1.22.0
+click>=8.3.3
 
 # AI Meeting Transcription (local Whisper, no cloud)
 # faster-whisper is the packaged default path; openai-whisper remains optional
@@ -27,14 +30,18 @@ openai-whisper>=20231117; python_version < "3.14"
 scipy>=1.11
 
 # Cross-platform virtual camera (macOS: OBS Virtual Camera backend)
-pyvirtualcam>=0.4; sys_platform == "darwin"
+pyvirtualcam>=0.14; sys_platform == "darwin"
 
 # Audio
-av>=12
-pyrnnoise>=0.4
+# pyrnnoise publishes Linux wheels only; macOS uses DeepFilterNet through ONNX.
+# On Linux, pyrnnoise -> audiolab needs av.option (removed in av 17) and
+# Codec.canonical_name (added in av 14) — av 17+ breaks the denoiser import
+# and noise removal silently becomes a no-op.
+av>=16,<17
+pyrnnoise>=0.4; sys_platform == "linux"
 
 # GPU Compositing (recommended — 150x faster blend, Linux/NVIDIA only)
-cupy-cuda12x; sys_platform == "linux"
+cupy-cuda12x>=14.1.1,<15; sys_platform == "linux"
 
 # CUDA 12 Runtime Libraries (required for GPU acceleration)
 # These provide the .so files that ONNX Runtime needs at runtime.

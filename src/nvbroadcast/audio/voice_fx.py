@@ -6,16 +6,22 @@
 """Voice effects — bass boost, treble, compression, warmth, EQ.
 
 Real-time audio processing for professional microphone quality.
-GPU-accelerated via CuPy when available (same CUDA GPU as video effects),
-falls back to numpy on CPU. At 48kHz mono, GPU batch processing handles
-all effects in a single kernel launch — ~0.1ms vs ~2ms on CPU.
+
+One effect chain serves both GPU and CPU modes so they sound identical.
+The stateless warmth (tanh saturation) stage runs on CUDA via CuPy when
+GPU mode is on; the shelving filters and compressor are stateful/sequential
+and run vectorized on CPU in both modes. Either way the whole chain costs
+well under a millisecond per ~21ms block at 48kHz mono.
 """
 
 import numpy as np
 from dataclasses import dataclass
 
+from nvbroadcast.core.platform import preload_nvidia_runtime_libs
+
 # Try CuPy for GPU audio processing
 try:
+    preload_nvidia_runtime_libs()
     import cupy as cp
     _HAS_CUPY = True
 except ImportError:
@@ -74,6 +80,7 @@ class VoiceFX:
         self.settings = VoiceFXSettings()
         self._enabled = False
         self._use_gpu = use_gpu and _HAS_CUPY
+        self._gpu_demoted = False  # One-shot demotion after a CUDA failure
         # Filter state (for IIR continuity across chunks)
         self._bass_state = np.zeros(2)
         self._treble_state = np.zeros(2)
@@ -123,15 +130,16 @@ class VoiceFX:
         if gate_reference is None:
             gate_reference = audio
 
-        # GPU path: upload once, process all, download once
-        if self._use_gpu and _HAS_CUPY and len(audio) > 512:
-            try:
-                return self._process_gpu(audio, sample_rate, gate_reference)
-            except Exception:
-                pass  # Fall through to CPU
-
         result = audio.copy()
         s = self.settings
+
+        # A single effect chain for both GPU and CPU modes. A previous GPU
+        # branch ran the effects in a different order (gain before
+        # compression, an extra mid-chain clip), so toggling GPU audibly
+        # changed the sound — an ordering bug, not a hardware difference.
+        # The stateless warmth stage dispatches to CUDA when enabled; the
+        # stateful IIR/compressor stages are inherently sequential and stay
+        # on CPU in both modes.
 
         # Noise gate — silence audio below threshold
         if s.gate_threshold > 0:
@@ -147,7 +155,19 @@ class VoiceFX:
 
         # Warmth — subtle harmonic saturation (tape emulation)
         if s.warmth > 0.01:
-            result = self._warmth(result, s.warmth)
+            if (self._use_gpu and _HAS_CUPY and not self._gpu_demoted
+                    and len(result) > 512):
+                try:
+                    result = self._warmth_gpu(result, s.warmth)
+                except Exception as e:
+                    # Never retry a failing GPU per-block; audio must not
+                    # stutter. CPU output is identical (same formula).
+                    self._gpu_demoted = True
+                    print(f"[NVIDIA Broadcast] Voice FX GPU demoted to CPU: {e}",
+                          flush=True)
+                    result = self._warmth(result, s.warmth)
+            else:
+                result = self._warmth(result, s.warmth)
 
         # Compression — reduce dynamic range
         if s.compression > 0.01:
@@ -161,45 +181,14 @@ class VoiceFX:
         # Clip to prevent distortion
         return np.clip(result, -1.0, 1.0)
 
-    def _process_gpu(
-        self,
-        audio: np.ndarray,
-        sample_rate: int,
-        gate_reference: np.ndarray | None = None,
-    ) -> np.ndarray:
-        """GPU batch processing — all effects in one upload/download cycle."""
-        s = self.settings
+    @staticmethod
+    def _warmth_gpu(audio: np.ndarray, warmth: float) -> np.ndarray:
+        """CUDA warmth saturation — same formula as the CPU _warmth."""
         d = cp.asarray(audio, dtype=cp.float32)
-
-        # Noise gate
-        if s.gate_threshold > 0:
-            reference = audio if gate_reference is None else gate_reference
-            threshold_linear = self._gate_threshold_linear(s.gate_threshold)
-            d = d * self._gate_gain(self._reference_rms(reference), threshold_linear)
-
-        # Warmth (GPU-friendly — no state)
-        if s.warmth > 0.01:
-            drive = 1.0 + s.warmth * 3.0
-            wet = cp.tanh(d * drive) / cp.tanh(cp.float32(drive))
-            d = d * (1 - s.warmth * 0.5) + wet * (s.warmth * 0.5)
-
-        # Output gain
-        if abs(s.gain) > 0.01:
-            gain_linear = 10 ** (s.gain * 12 / 20)
-            d = d * gain_linear
-
-        d = cp.clip(d, -1.0, 1.0)
-        result = cp.asnumpy(d)
-
-        # Bass/treble/compression still on CPU (stateful IIR filters)
-        if abs(s.bass_boost) > 0.01:
-            result = self._bass_filter(result, s.bass_boost, sample_rate)
-        if abs(s.treble) > 0.01:
-            result = self._treble_filter(result, s.treble, sample_rate)
-        if s.compression > 0.01:
-            result = self._compress(result, s.compression, sample_rate)
-
-        return np.clip(result, -1.0, 1.0).astype(np.float32)
+        drive = 1.0 + warmth * 3.0
+        wet = cp.tanh(d * drive) / cp.tanh(cp.float32(drive))
+        d = d * (1 - warmth * 0.5) + wet * (warmth * 0.5)
+        return cp.asnumpy(d)
 
     @staticmethod
     def _gate_threshold_linear(threshold: float) -> float:

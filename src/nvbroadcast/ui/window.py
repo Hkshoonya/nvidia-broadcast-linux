@@ -11,7 +11,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gio, GLib
 
-from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE
+from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
 from nvbroadcast.core.config import save_config
 from nvbroadcast.core.gpu import detect_gpus, select_compute_gpu
 from nvbroadcast.ui.video_preview import VideoPreview
@@ -23,8 +23,18 @@ from nvbroadcast.video.virtual_camera import (
     list_camera_devices, list_camera_modes,
     get_firefox_profiles, is_firefox_pipewire_disabled, set_firefox_pipewire,
 )
-from nvbroadcast.core.platform import has_tensorrt_runtime, supports_tensorrt_python
+from nvbroadcast.core.platform import IS_LINUX, has_tensorrt_runtime, supports_tensorrt_python
 from nvbroadcast.core.resources import find_app_icon
+
+
+# Keep project authorship, financial sponsorship, and accepted contributions
+# separate. Add contributors here only after their pull request has been merged.
+_APP_SPONSORS = [
+    "Mattsky — GitHub Sponsor https://github.com/Mattsky",
+]
+_APP_CONTRIBUTORS = [
+    "Jon Fuller (@perfectra1n) https://github.com/perfectra1n",
+]
 
 
 def _collapsible_card(
@@ -390,10 +400,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         main_box.append(footer_box)
 
         def _update_perf():
-            pm = self._app.perf_monitor
-            self._perf_label.set_text(pm.format_status())
+            if self.get_mapped():
+                pm = self._app.perf_monitor
+                self._perf_label.set_text(pm.format_status())
             return True
-        GLib.timeout_add(1000, _update_perf)
+        GLib.timeout_add_seconds(1, _update_perf)
 
         self.set_content(main_box)
 
@@ -454,6 +465,24 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         ])
         self._format_selector.connect("device-changed", self._on_format_changed)
         input_card.append(self._format_selector)
+
+        self._vcam_entry = None
+        if IS_LINUX:
+            vcam_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            vcam_label = Gtk.Label(label="Output")
+            vcam_label.set_xalign(0)
+            vcam_row.append(vcam_label)
+            self._vcam_entry = Gtk.Entry()
+            self._vcam_entry.set_hexpand(True)
+            self._vcam_entry.set_placeholder_text(VIRTUAL_CAM_DEVICE)
+            self._vcam_entry.set_text(self._app.config.video.vcam_device)
+            self._vcam_entry.set_tooltip_text("Virtual camera device path")
+            self._vcam_entry.connect("activate", self._on_vcam_device_activate)
+            vcam_focus = Gtk.EventControllerFocus()
+            vcam_focus.connect("leave", self._on_vcam_device_focus_leave)
+            self._vcam_entry.add_controller(vcam_focus)
+            vcam_row.append(self._vcam_entry)
+            input_card.append(vcam_row)
 
         # Firefox compatibility toggle (only shown if Firefox is installed)
         if get_firefox_profiles():
@@ -789,6 +818,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._noise_slider.set_sensitive(False)
         self._noise_slider.connect("value-changed", self._on_noise_intensity_changed)
         mic_card.append(self._noise_slider)
+        self._noise_ai_toggle = EffectToggle(
+            "AI Denoiser", "DeepFilterNet neural noise removal (better quality)")
+        self._noise_ai_toggle.active = True
+        self._noise_ai_toggle.set_sensitive(False)
+        self._noise_ai_toggle.connect("toggled", self._on_noise_engine_toggled)
+        mic_card.append(self._noise_ai_toggle)
         box.append(self._build_collapsible_card("microphone", "Microphone", mic_card, expanded=True))
 
         # Voice Effects card
@@ -1189,6 +1224,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if self._updating_ui:
             return
         self._app.set_output_format(fmt)
+
+    def _on_vcam_device_activate(self, entry):
+        self._apply_vcam_device_entry()
+
+    def _on_vcam_device_focus_leave(self, controller):
+        self._apply_vcam_device_entry()
+
+    def _apply_vcam_device_entry(self):
+        if self._updating_ui or self._vcam_entry is None:
+            return
+        device = self._vcam_entry.get_text().strip() or VIRTUAL_CAM_DEVICE
+        if self._app.set_vcam_device(device):
+            self._vcam_entry.set_text(self._app.config.video.vcam_device)
 
     def _on_model_changed(self, selector, model):
         self._app.set_model(model)
@@ -1749,6 +1797,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._noise_toggle.active = a.noise_removal
         self._noise_slider.set_sensitive(a.noise_removal)
         self._noise_slider._scale.set_value(a.noise_intensity)
+        # Toggle on = "auto" (prefer DeepFilterNet, fall back to RNNoise);
+        # toggle off = pin the classic RNNoise engine.
+        self._noise_ai_toggle.active = a.noise_engine in ("auto", "deepfilter")
+        self._noise_ai_toggle.set_sensitive(a.noise_removal)
         self._speaker_toggle.active = a.speaker_denoise
         self._vfx_toggle.active = a.voice_fx_enabled
         self._vfx_preset.set_sensitive(a.voice_fx_enabled)
@@ -1776,6 +1828,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             return
         self._app.set_noise_removal(active)
         self._noise_slider.set_sensitive(active)
+        self._noise_ai_toggle.set_sensitive(active)
+
+    def _on_noise_engine_toggled(self, t, active):
+        if getattr(self._app, "_restoring", False):
+            return
+        self._app.set_noise_engine("auto" if active else "rnnoise")
 
     def _on_noise_intensity_changed(self, s, v):
         if getattr(self._app, "_restoring", False):
@@ -1991,6 +2049,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             fmt_map = {"YUY2": 0, "I420": 1, "NV12": 2}
             if config.video.output_format in fmt_map:
                 self._format_selector.set_selected_index(fmt_map[config.video.output_format])
+            if self._vcam_entry is not None:
+                self._vcam_entry.set_text(config.video.vcam_device)
         finally:
             self._updating_ui = False
 
@@ -2016,7 +2076,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             issue_url="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues",
             license_type=Gtk.License.GPL_3_0,
             copyright="Copyright (c) 2026 doczeus",
-            developers=["doczeus https://github.com/Hkshoonya"],
+            developers=["Code by doczeus https://github.com/Hkshoonya"],
             comments=(
                 "Unofficial NVIDIA Broadcast for Linux and other OS.\n\n"
                 "AI-powered virtual camera with background removal, blur, "
@@ -2024,11 +2084,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 "cancellation using GPU-accelerated deep learning.\n\n"
                 "9 processing modes including Killer, Zeus, and DocZeus "
                 "with fused CUDA kernels and edge refinement.\n\n"
-                "Created by doczeus | AI Powered"
+                "Code and original app by doczeus | AI Powered"
             ),
         )
         if hasattr(about, "add_credit_section"):
-            about.add_credit_section("Backers & Supporters", ["Mattsky https://github.com/Mattsky"])
+            about.add_credit_section("Project Sponsors", _APP_SPONSORS)
+            about.add_credit_section("Contributions to App", _APP_CONTRIBUTORS)
         about.add_link("Sponsor on GitHub", "https://github.com/sponsors/Hkshoonya")
         about.present()
 

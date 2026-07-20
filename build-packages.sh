@@ -51,15 +51,17 @@ BUILD_TARGET="${1:-all}"
 build_deb() {
     echo "[DEB] Building .deb package..."
 
-    local BUILD_DIR="/tmp/nvbroadcast-deb-build"
+    local BUILD_DIR
+    BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/nvbroadcast-deb-build.XXXXXX")
     local PKG_DIR="${BUILD_DIR}/nvbroadcast_${VERSION}-${REV}_all"
-    rm -rf "$BUILD_DIR"
     mkdir -p "$PKG_DIR/DEBIAN"
 
     # Generate binary control file (strip source-only fields, add version)
     cat > "$PKG_DIR/DEBIAN/control" << CTRL
 Package: nvbroadcast
 Version: ${VERSION}-${REV}
+Section: video
+Priority: optional
 Architecture: all
 Maintainer: doczeus <harshit@kshoonya.com>
 Depends: python3 (>= 3.11), python3-venv, python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, v4l-utils, v4l2loopback-dkms, psmisc, pipewire-bin | pipewire-utils, pulseaudio-utils
@@ -76,12 +78,18 @@ CTRL
     cp packaging/debian/postinst "$PKG_DIR/DEBIAN/"
     cp packaging/debian/prerm "$PKG_DIR/DEBIAN/"
     cp packaging/debian/postrm "$PKG_DIR/DEBIAN/"
+    sed -i '/^#DEBHELPER#$/d' \
+        "$PKG_DIR/DEBIAN/postinst" \
+        "$PKG_DIR/DEBIAN/prerm" \
+        "$PKG_DIR/DEBIAN/postrm"
     chmod 755 "$PKG_DIR/DEBIAN/postinst" "$PKG_DIR/DEBIAN/prerm" "$PKG_DIR/DEBIAN/postrm"
 
     # Application files -> /opt/nvbroadcast
     install -d "$PKG_DIR/opt/nvbroadcast"
     cp -r src pyproject.toml requirements.txt LICENSE README.md "$PKG_DIR/opt/nvbroadcast/"
-    find "$PKG_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    find "$PKG_DIR/opt/nvbroadcast/src" -type d \
+        \( -name "__pycache__" -o -name "*.egg-info" \) \
+        -prune -exec rm -rf {} +
     install -d "$PKG_DIR/opt/nvbroadcast/models"
     cp -r data "$PKG_DIR/opt/nvbroadcast/"
     [ -d configs ] && cp -r configs "$PKG_DIR/opt/nvbroadcast/" || true
@@ -98,6 +106,12 @@ CTRL
     # Icon
     install -d "$PKG_DIR/usr/share/icons/hicolor/scalable/apps"
     cp data/icons/com.doczeus.NVBroadcast.svg "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"
+
+    # Debian package documentation
+    install -d "$PKG_DIR/usr/share/doc/nvbroadcast"
+    install -m 644 packaging/debian/copyright "$PKG_DIR/usr/share/doc/nvbroadcast/copyright"
+    gzip -9n -c packaging/debian/changelog > \
+        "$PKG_DIR/usr/share/doc/nvbroadcast/changelog.Debian.gz"
 
     # Launcher scripts
     install -d "$PKG_DIR/usr/bin"
@@ -130,9 +144,21 @@ RestartSec=3
 WantedBy=graphical-session.target
 SVC
 
+    # Normalize the payload so local umask/ownership cannot leak into a system package.
+    find "$PKG_DIR" -type d -exec chmod 755 {} +
+    find "$PKG_DIR" -type f -exec chmod 644 {} +
+    chmod 755 \
+        "$PKG_DIR/DEBIAN/postinst" \
+        "$PKG_DIR/DEBIAN/prerm" \
+        "$PKG_DIR/DEBIAN/postrm" \
+        "$PKG_DIR/usr/bin/nvbroadcast" \
+        "$PKG_DIR/usr/bin/nvbroadcast-vcam"
+
     # Build .deb
     mkdir -p dist/deb
-    dpkg-deb --build "$PKG_DIR" "dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb"
+    dpkg-deb -Zxz --root-owner-group --build \
+        "$PKG_DIR" \
+        "dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb"
 
     echo "[DEB] Built: dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb"
     dpkg-deb --info "dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb" | head -10
@@ -150,18 +176,21 @@ build_rpm() {
         return
     fi
 
-    local RPM_DIR="/tmp/nvbroadcast-rpm-build"
-    rm -rf "$RPM_DIR"
+    local RPM_DIR
+    RPM_DIR=$(mktemp -d "${TMPDIR:-/tmp}/nvbroadcast-rpm-build.XXXXXX")
     mkdir -p "$RPM_DIR"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
     # Create source tarball
     local TAR_DIR="nvbroadcast-${VERSION}"
     local TAR_PATH="$RPM_DIR/SOURCES/${TAR_DIR}.tar.gz"
-    mkdir -p "/tmp/${TAR_DIR}"
-    cp -r src pyproject.toml requirements.txt LICENSE README.md data "/tmp/${TAR_DIR}/"
-    [ -d configs ] && cp -r configs "/tmp/${TAR_DIR}/" || true
-    (cd /tmp && tar czf "$TAR_PATH" "$TAR_DIR")
-    rm -rf "/tmp/${TAR_DIR}"
+    local TAR_ROOT="$RPM_DIR/source"
+    mkdir -p "$TAR_ROOT/$TAR_DIR"
+    cp -r src pyproject.toml requirements.txt LICENSE README.md data "$TAR_ROOT/$TAR_DIR/"
+    [ -d configs ] && cp -r configs "$TAR_ROOT/$TAR_DIR/" || true
+    find "$TAR_ROOT/$TAR_DIR/src" -type d \
+        \( -name "__pycache__" -o -name "*.egg-info" \) \
+        -prune -exec rm -rf {} +
+    (cd "$TAR_ROOT" && tar czf "$TAR_PATH" "$TAR_DIR")
 
     # Copy and update spec with current version
     sed "s/^Version:.*/Version:        ${VERSION}/" packaging/rpm/nvbroadcast.spec | \
@@ -196,17 +225,19 @@ build_pkg() {
         return
     fi
 
-    local BUILD_DIR="/tmp/nvbroadcast-pkg-build"
+    local BUILD_DIR
+    BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/nvbroadcast-pkg-build.XXXXXX")
     local INSTALL_ROOT="${BUILD_DIR}/root"
     local SCRIPTS_DIR="${BUILD_DIR}/scripts"
-    rm -rf "$BUILD_DIR"
     mkdir -p "$INSTALL_ROOT/opt/nvbroadcast"
     mkdir -p "$INSTALL_ROOT/usr/local/bin"
     mkdir -p "$SCRIPTS_DIR"
 
     # Application files -> /opt/nvbroadcast
     cp -r src pyproject.toml requirements.txt LICENSE README.md "$INSTALL_ROOT/opt/nvbroadcast/"
-    find "$INSTALL_ROOT" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    find "$INSTALL_ROOT/opt/nvbroadcast/src" -type d \
+        \( -name "__pycache__" -o -name "*.egg-info" \) \
+        -prune -exec rm -rf {} +
     mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/models"
     cp -r data "$INSTALL_ROOT/opt/nvbroadcast/"
     [ -d configs ] && cp -r configs "$INSTALL_ROOT/opt/nvbroadcast/" || true
@@ -239,13 +270,21 @@ INSTALL_DIR="/opt/nvbroadcast"
 
 echo "[NV Broadcast] Setting up Python environment..."
 
-# Find Python 3.11+
+if [ "$(uname -m)" != "arm64" ]; then
+    echo "[NV Broadcast] ERROR: v1.2.3 supports Apple Silicon Macs only."
+    exit 1
+fi
+
+# Find a Python version covered by the Apple Silicon release matrix
 PYTHON=""
 for p in python3.13 python3.12 python3.11 python3; do
     if command -v "$p" &>/dev/null; then
         ver=$("$p" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        major=$(echo "$ver" | cut -d. -f1)
         minor=$(echo "$ver" | cut -d. -f2)
-        if [ "$minor" -ge 11 ] 2>/dev/null; then
+        if [ "$major" -eq 3 ] 2>/dev/null && \
+           [ "$minor" -ge 11 ] 2>/dev/null && \
+           [ "$minor" -le 13 ] 2>/dev/null; then
             PYTHON="$p"
             break
         fi
@@ -253,14 +292,15 @@ for p in python3.13 python3.12 python3.11 python3; do
 done
 
 if [ -z "$PYTHON" ]; then
-    echo "[NV Broadcast] WARNING: Python 3.11+ not found. Run: brew install python@3.12"
+    echo "[NV Broadcast] WARNING: Python 3.11-3.13 not found. Run: brew install python@3.12"
     exit 0
 fi
 
 # Create venv
 $PYTHON -m venv "$INSTALL_DIR/.venv" --system-site-packages 2>/dev/null || true
 source "$INSTALL_DIR/.venv/bin/activate"
-pip install --upgrade pip -q 2>/dev/null || true
+pip install --upgrade \
+    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q 2>/dev/null || true
 pip install -q "$INSTALL_DIR" 2>/dev/null || true
 pip install -q --no-deps faster-whisper 2>/dev/null && \
     pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm 2>/dev/null || true
@@ -274,10 +314,16 @@ echo "[NV Broadcast] Installation complete. Run: nvbroadcast"
 POSTINST
     chmod 755 "$SCRIPTS_DIR/postinstall"
 
+    # Keep the package payload independent of the builder's local umask.
+    find "$INSTALL_ROOT" -type d -exec chmod 755 {} +
+    find "$INSTALL_ROOT" -type f -exec chmod 644 {} +
+    chmod 755 "$INSTALL_ROOT/usr/local/bin/nvbroadcast" "$SCRIPTS_DIR/postinstall"
+
     # Build component package
     mkdir -p dist/pkg
     pkgbuild \
         --root "$INSTALL_ROOT" \
+        --ownership recommended \
         --identifier "com.doczeus.nvbroadcast" \
         --version "${VERSION}.${REV}" \
         --scripts "$SCRIPTS_DIR" \
@@ -291,10 +337,10 @@ POSTINST
     <title>NV Broadcast ${VERSION}</title>
     <organization>com.doczeus</organization>
     <domains enable_localSystem="true"/>
-    <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
+    <options customize="never" require-scripts="true" rootVolumeOnly="true" hostArchitectures="arm64"/>
     <volume-check>
         <allowed-os-versions>
-            <os-version min="12.3"/>
+            <os-version min="13.0"/>
         </allowed-os-versions>
     </volume-check>
     <choices-outline>

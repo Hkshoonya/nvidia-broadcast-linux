@@ -27,6 +27,9 @@ class ProbeVcamConsumersTests(unittest.TestCase):
             _vcam_device="/dev/video10",
             _vcam_available=True,
             _video_pipeline=video_pipeline,
+            # Upstream resolves the device through this accessor so a
+            # configured override wins; the probe calls it, not the field.
+            _active_vcam_device=lambda: "/dev/video10",
         )
 
     def _probe(self, fake):
