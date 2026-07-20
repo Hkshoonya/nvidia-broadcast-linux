@@ -62,6 +62,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.2.2" date="2026-07-19">
+      <description>
+        <p>Binocular eye contact and latency patch</p>
+        <ul>
+          <li>Derived one shared camera-facing correction from both eyes instead of centering each iris independently</li>
+          <li>Preserved natural iris spacing with a small outward target and conservative head-yaw compensation</li>
+          <li>Reduced latency for coordinated gaze while retaining stronger smoothing for unstable one-eye landmarks</li>
+          <li>Tapered extreme side-gaze correction and skipped both eyes during blinks or asymmetric detections</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.2.1" date="2026-07-19">
       <description>
         <p>Eye contact visibility patch</p>
