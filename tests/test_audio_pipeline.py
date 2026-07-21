@@ -1,5 +1,6 @@
 import unittest
 import os
+import threading
 from unittest import mock
 
 import gi
@@ -226,6 +227,51 @@ def _pactl_result(payload):
     result.returncode = 0
     result.stdout = payload
     return result
+
+
+class IdleMonitorRestartTests(unittest.TestCase):
+    """Restarting the idle monitor while the previous run is blocked inside
+    a consumer probe must retire the old thread: each run owns its stop
+    event, so a stop can never be undone by the next start clearing it."""
+
+    def test_restart_while_probe_blocked_retires_old_monitor(self):
+        pipeline = AudioPipeline(use_helper_process=False)
+        pipeline._uses_loopback_virtual_mic = True
+        pipeline.auto_idle = True
+        pipeline._running = True
+        pipeline._idle_poll_interval_s = 0.01
+        probe_entered = threading.Event()
+        release_probe = threading.Event()
+
+        def blocked_probe():
+            probe_entered.set()
+            release_probe.wait(5)
+            return None  # unknown reads as in-use, never idles
+
+        pipeline._count_virtual_mic_consumers = blocked_probe
+        new_thread = None
+        try:
+            pipeline._start_idle_monitor()
+            old_thread = pipeline._idle_monitor
+            self.assertTrue(probe_entered.wait(2), "probe never entered")
+
+            pipeline._stop_idle_monitor()
+            pipeline._start_idle_monitor()
+            new_thread = pipeline._idle_monitor
+            self.assertIsNotNone(new_thread)
+            self.assertIsNot(new_thread, old_thread)
+
+            release_probe.set()
+            old_thread.join(2)
+            self.assertFalse(old_thread.is_alive(),
+                             "superseded monitor survived the restart")
+            self.assertTrue(new_thread.is_alive(),
+                            "replacement monitor should be running")
+        finally:
+            release_probe.set()
+            pipeline._stop_idle_monitor()
+            if new_thread is not None:
+                new_thread.join(2)
 
 
 class VirtualMicConsumerCountTests(unittest.TestCase):

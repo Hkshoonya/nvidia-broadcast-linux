@@ -88,6 +88,9 @@ class AudioPipeline:
         self._audio_idle = False
         self._idle_monitor: threading.Thread | None = None
         self._idle_monitor_stop = threading.Event()
+        # Poll cadences; instance attributes so tests can shrink them.
+        self._idle_poll_interval_s = 5.0
+        self._idle_wake_interval_s = 0.5
         self._debug_audio = os.getenv("NVBROADCAST_AUDIO_DEBUG", "").strip().lower() in {
             "1",
             "true",
@@ -735,9 +738,15 @@ class AudioPipeline:
         if not self._uses_loopback_virtual_mic:
             return
         self._audio_idle = False
-        self._idle_monitor_stop.clear()
+        # Each run owns its stop event. Reusing one shared event (clear on
+        # start, set on stop) raced with a monitor blocked inside a pactl
+        # probe: stop set the event, a quick restart cleared it again before
+        # the old thread ever checked it, and both monitors stayed alive
+        # toggling the same capture pipeline.
+        stop_event = threading.Event()
+        self._idle_monitor_stop = stop_event
         self._idle_monitor = threading.Thread(
-            target=self._idle_monitor_main, daemon=True,
+            target=self._idle_monitor_main, args=(stop_event,), daemon=True,
             name="nvbroadcast-audio-idle")
         self._idle_monitor.start()
 
@@ -746,14 +755,20 @@ class AudioPipeline:
         self._idle_monitor = None
         self._audio_idle = False
 
-    def _idle_monitor_main(self):
+    def _idle_monitor_main(self, stop_event: threading.Event):
         """Idle after 3 consecutive no-consumer checks; wake within 0.5s."""
         strikes = 0
-        while not self._idle_monitor_stop.wait(0.5 if self._audio_idle else 5.0):
+        while not stop_event.wait(
+                self._idle_wake_interval_s if self._audio_idle
+                else self._idle_poll_interval_s):
             if not self._running:
                 strikes = 0
                 continue
             consumers = self._count_virtual_mic_consumers()
+            if stop_event.is_set():
+                # Stopped while the probe was in flight: a superseded run
+                # must not touch pipeline state its replacement now owns.
+                break
             if self._audio_idle:
                 if consumers != 0:  # any consumer, or unknown -> resume
                     self._set_audio_idle(False)
