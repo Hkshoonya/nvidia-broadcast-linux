@@ -16,7 +16,7 @@ from nvbroadcast.core.constants import (
     VIRTUAL_CAM_DEVICE,
     VIRTUAL_CAM_LABEL,
 )
-from nvbroadcast.core.platform import IS_LINUX, IS_MACOS
+from nvbroadcast.core.platform import IS_MACOS
 
 _MJPEG_FORMATS = {"MJPG", "JPEG"}
 _RAW_FORMATS = {
@@ -641,7 +641,7 @@ def _device_caps_text(info: str) -> str:
 def is_usable_camera_device(device: str, name: str = "") -> bool:
     """Return whether a V4L2 node is a usable physical capture camera."""
     if IS_MACOS:
-        return bool(device or name)
+        return bool(device or name) and not _is_virtual_camera_name(name)
     if not device.startswith("/dev/video"):
         return False
     if _is_virtual_camera_name(name):
@@ -667,7 +667,20 @@ def is_usable_camera_device(device: str, name: str = "") -> bool:
 def resolve_camera_device(saved_device: str | None = None) -> str:
     """Return the saved camera if valid, otherwise the first usable camera."""
     if IS_MACOS:
-        return saved_device or ""
+        device = saved_device or ""
+        cameras = list_camera_devices()
+        for camera in cameras:
+            if camera["device"] == device:
+                return device
+
+        # v1.2.3 and older stored AVFoundation's numeric index. Migrate it
+        # only when that index still identifies a physical input; an OBS
+        # Virtual Camera index is intentionally absent from this filtered list.
+        if device.isdigit():
+            for camera in cameras:
+                if camera.get("legacy_device") == device:
+                    return camera["device"]
+        return cameras[0]["device"] if cameras else ""
 
     device = saved_device or ""
     if device and is_usable_camera_device(device):
@@ -683,11 +696,14 @@ def list_camera_devices() -> list[dict[str, str]]:
     """List available physical camera devices (one per physical camera).
 
     Linux: uses v4l2-ctl
-    macOS: uses system_profiler
+    macOS: uses GStreamer's AVFoundation device provider
     """
     if IS_MACOS:
         from nvbroadcast.core.platform import list_cameras_macos
-        return list_cameras_macos()
+        return [
+            camera for camera in list_cameras_macos()
+            if is_usable_camera_device(camera["device"], camera["name"])
+        ]
 
     cameras = []
     try:

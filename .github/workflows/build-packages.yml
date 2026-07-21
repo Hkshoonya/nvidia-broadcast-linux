@@ -106,6 +106,7 @@ jobs:
       - name: Run macOS-safe unit tests
         run: |
           PYTHONPATH=src python3 -m pytest -q \
+            tests/test_macos_camera.py \
             tests/test_eye_contact.py \
             tests/test_updates.py
 

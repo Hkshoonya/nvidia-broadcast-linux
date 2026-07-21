@@ -7,13 +7,14 @@
 
 import os
 import platform
-import subprocess
 import shutil
 import sys
 import ctypes
 import ctypes.util
 import importlib.metadata
+from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 IS_LINUX = platform.system() == "Linux"
 IS_MACOS = platform.system() == "Darwin"
@@ -25,6 +26,7 @@ TENSORRT_LIB_MODULES = (
     "tensorrt_cu12_libs",
     "tensorrt_cu13_libs",
 )
+_MACOS_AVF_DEVICE_PREFIX = "avf:"
 # NOTE: nvidia.cuda_nvrtc is intentionally NOT preloaded. Loading the CUDA 12
 # nvrtc wheel RTLD_GLOBAL poisons CuPy's kernel compiler when a CUDA 13 stack
 # (e.g. torch cu13 wheels) coexists in the same environment: CuPy resolves
@@ -332,8 +334,117 @@ def get_default_camera_device() -> str:
     if IS_LINUX:
         return "/dev/video0"
     if IS_MACOS:
-        return ""  # macOS uses AVFoundation device index, not path
+        return ""  # macOS resolves an AVFoundation selector during discovery
     return ""
+
+
+def _encode_macos_camera_device(unique_id: str) -> str:
+    """Return a config-safe camera identifier from an AVFoundation unique ID."""
+    return f"{_MACOS_AVF_DEVICE_PREFIX}{quote(unique_id, safe='')}"
+
+
+def _decode_macos_camera_device(device: str) -> str | None:
+    if not device.startswith(_MACOS_AVF_DEVICE_PREFIX):
+        return None
+    unique_id = unquote(device.removeprefix(_MACOS_AVF_DEVICE_PREFIX))
+    return unique_id or None
+
+
+def _gst_structure_value(structure, field: str, default=None):
+    """Read a GStreamer structure field without depending on GI tuple quirks."""
+    try:
+        if structure is None or not structure.has_field(field):
+            return default
+        return structure.get_value(field)
+    except Exception:
+        return default
+
+
+def _avf_camera_details(gst_devices) -> list[dict[str, object]]:
+    cameras: list[dict[str, object]] = []
+    for fallback_index, gst_device in enumerate(gst_devices):
+        properties = gst_device.get_properties()
+        if _gst_structure_value(properties, "device.api") != "avf":
+            continue
+        if bool(_gst_structure_value(properties, "avf.capture_screen", False)):
+            continue
+
+        unique_id = str(
+            _gst_structure_value(properties, "avf.unique_id", "") or ""
+        )
+        try:
+            device_index = int(gst_device.get_property("device-index"))
+        except Exception:
+            device_index = fallback_index
+
+        cameras.append({
+            "name": gst_device.get_display_name() or "Camera",
+            "unique_id": unique_id,
+            "index": device_index,
+        })
+    return cameras
+
+
+def _probe_avf_cameras() -> list[dict[str, object]]:
+    """Probe the same AVFoundation device provider used by avfvideosrc."""
+    if not IS_MACOS:
+        return []
+
+    try:
+        import gi
+
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst
+
+        Gst.init(None)
+        monitor = Gst.DeviceMonitor.new()
+        if not monitor.add_filter("Video/Source", None):
+            return []
+        return _avf_camera_details(monitor.get_devices())
+    except Exception:
+        return []
+
+
+@lru_cache(maxsize=1)
+def _avfvideosrc_supports_unique_id() -> bool:
+    """Return whether this GStreamer version can select AVF by stable ID."""
+    if not IS_MACOS:
+        return False
+    try:
+        import gi
+
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst
+
+        Gst.init(None)
+        source = Gst.ElementFactory.make("avfvideosrc")
+        return source is not None and source.find_property("unique-id") is not None
+    except Exception:
+        return False
+
+
+def _quote_gst_string(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _macos_camera_source_property(device: str) -> str:
+    """Build the avfvideosrc selector for current and future GStreamer."""
+    unique_id = _decode_macos_camera_device(device)
+    if unique_id is not None:
+        if _avfvideosrc_supports_unique_id():
+            return f"unique-id={_quote_gst_string(unique_id)}"
+
+        for camera in _probe_avf_cameras():
+            if camera["unique_id"] == unique_id and int(camera["index"]) >= 0:
+                return f"device-index={int(camera['index'])}"
+        raise ValueError("The selected macOS camera is no longer available")
+
+    if device.isdigit():
+        return f"device-index={int(device)}"
+    if not device:
+        raise ValueError("No physical macOS camera is available")
+    raise ValueError("The configured macOS camera identifier is invalid")
 
 
 def get_gst_camera_source() -> str:
@@ -352,10 +463,13 @@ def get_gst_camera_caps(
 ) -> str:
     """Return the GStreamer camera source + caps string for this OS."""
     if IS_MACOS:
-        # avfvideosrc outputs raw video directly (no MJPEG intermediate)
-        dev_prop = f"device-index={device}" if device.isdigit() else ""
+        # Select the physical source first, then adapt its native mode to the
+        # requested output. Fixed caps directly on avfvideosrc can fail when a
+        # camera advertises only a nearby size or frame rate.
+        dev_prop = _macos_camera_source_property(device)
         return (
             f"avfvideosrc {dev_prop} ! "
+            "videoconvert ! videoscale ! videorate ! "
             f"video/x-raw,width={width},height={height},"
             f"framerate={fps}/1"
         )
@@ -413,23 +527,27 @@ def get_onnx_providers(gpu_index: int = 0,
 
 
 def list_cameras_macos() -> list[dict[str, str]]:
-    """List camera devices on macOS using system_profiler."""
-    cameras = []
-    try:
-        result = subprocess.run(
-            ["system_profiler", "SPCameraDataType", "-json"],
-            capture_output=True, text=True, timeout=5,
-        )
-        import json
-        data = json.loads(result.stdout)
-        for cam in data.get("SPCameraDataType", []):
-            cameras.append({
-                "name": cam.get("_name", "Camera"),
-                "device": "0",  # avfvideosrc uses device-index
-            })
-    except Exception:
-        # Fallback: assume at least one camera exists
-        cameras.append({"name": "Default Camera", "device": "0"})
+    """List cameras using GStreamer's AVFoundation device provider."""
+    cameras: list[dict[str, str]] = []
+    for camera in _probe_avf_cameras():
+        unique_id = str(camera["unique_id"])
+        device_index = int(camera["index"])
+        if unique_id:
+            device = _encode_macos_camera_device(unique_id)
+        elif device_index >= 0:
+            device = str(device_index)
+        else:
+            continue
+
+        entry = {
+            "name": str(camera["name"]),
+            "device": device,
+        }
+        if device_index >= 0:
+            # Allows configurations from v1.2.3 and older to migrate without
+            # assuming that AVFoundation index 0 is a physical camera.
+            entry["legacy_device"] = str(device_index)
+        cameras.append(entry)
     return cameras
 
 
