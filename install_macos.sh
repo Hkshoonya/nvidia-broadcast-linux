@@ -208,7 +208,7 @@ minimize_on_close = true
 first_run = true
 
 [video]
-camera_device = "0"
+camera_device = ""
 width = 1280
 height = 720
 fps = 30
