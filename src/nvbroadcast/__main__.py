@@ -69,9 +69,14 @@ def _redirect_output_to_log():
 
 def main():
     _redirect_output_to_log()
+    from nvbroadcast.core.startup_trace import mark
+
+    mark("python entry")
     from nvbroadcast.app import NVBroadcastApp
 
+    mark("modules imported")
     app = NVBroadcastApp()
+    mark("app constructed")
     return app.run(sys.argv)
 
 

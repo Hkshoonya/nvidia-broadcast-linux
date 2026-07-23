@@ -17,6 +17,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 
 # Force CUDA device ordering to match nvidia-smi (PCI bus ID order) — Linux only
 if _platform.system() != "Darwin":
@@ -503,6 +504,16 @@ class _RVMBackend:
         self._reset_retry_logged = False
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
+        # IOBinding state: device-resident recurrent tensors + alpha buffer.
+        # Invalidated on every reset/session swap; the numpy _r1.._r4 mirrors
+        # stay untouched so the fallback path re-seeds from zeros cleanly.
+        self._cupy = None
+        self._iob_active = False
+        self._iob_shape = None
+        self._r_gpu_in = None
+        self._r_gpu_out = None
+        self._fgr_gpu = None
+        self._pha_gpu = None
         self._inference_gamma = None
 
     def load(self, quality: str, use_tensorrt: bool = False) -> str:
@@ -519,6 +530,7 @@ class _RVMBackend:
         self._trt_cache_path = None
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
+        self._invalidate_iobinding()
 
         if use_tensorrt:
             trt_path = base_model_path.with_name(
@@ -566,6 +578,7 @@ class _RVMBackend:
         self._trt_disabled = False if enabled else True
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
+        self._invalidate_iobinding()
         if enabled:
             return
         self._active_trt = False
@@ -860,6 +873,163 @@ class _RVMBackend:
 
         return alpha
 
+    def _preprocess_gpu(self, frame_gpu, infer_w: int, infer_h: int):
+        """BGRA uint8 HxWx4 on device -> normalized RGB float32 1x3xh'xw'.
+
+        Bilinear resize (vs INTER_AREA on CPU) is slightly more aliased at
+        2/3 scale; RVM downsamples internally again and is robust to it.
+        """
+        cp = self._cupy
+        h, w = frame_gpu.shape[:2]
+        rgb_u8 = frame_gpu[..., 2::-1]
+        # Backlit shadow lift, same estimator as the numpy infer() path: the
+        # gamma target comes from a small strided sample downloaded to CPU
+        # (identical histogram math; ~90KB, negligible next to inference)
+        # and the lift itself is applied on device. Skipping this here would
+        # silently lose backlit stabilization whenever the IOBinding path
+        # is active.
+        if self._quality in self._BACKLIGHT_QUALITY_PRESETS:
+            step = max(1, min(h // 90, w // 160))
+            sample = cp.asnumpy(cp.ascontiguousarray(rgb_u8[::step, ::step]))
+            gamma = self._resolve_inference_gamma(sample)
+        else:
+            gamma = self._resolve_inference_gamma(None)
+        rgb = rgb_u8.astype(cp.float32)
+        if gamma < 0.995:
+            rgb = cp.clip(cp.power(rgb * (1.0 / 255.0), gamma) * 255.0,
+                          0.0, 255.0)
+        if (h, w) != (infer_h, infer_w):
+            from cupyx.scipy import ndimage as cndi
+            rgb = cndi.zoom(
+                rgb, (infer_h / h, infer_w / w, 1), order=1,
+                mode="mirror", grid_mode=True)
+        src = cp.ascontiguousarray(rgb.transpose(2, 0, 1))[cp.newaxis]
+        return cp.ascontiguousarray(src * (1.0 / 255.0))
+
+    def _seed_iobinding(self, src_gpu, infer_w: int, infer_h: int):
+        """Warm-up run that seeds device-resident recurrent state.
+
+        Runs the plain numpy path once with zero (1,1,1,1) states (RVM
+        auto-shapes them), then copies the recurrent outputs into
+        cupy-owned ping-pong buffers. Owning the buffers ourselves (instead
+        of holding ORT-allocated OrtValues) keeps their lifetime out of
+        ORT's arena, which recycles output allocations across runs.
+        Returns the seed frame's alpha (numpy, at infer resolution).
+        """
+        cp = self._cupy
+        inputs = {
+            'src': cp.asnumpy(src_gpu),
+            'r1i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'r2i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'r3i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'r4i': np.zeros((1, 1, 1, 1), dtype=np.float32),
+            'downsample_ratio': self._downsample_ratio,
+        }
+        outputs = self.session.run(None, inputs)
+        self._r_gpu_in = [cp.asarray(outputs[i]) for i in (2, 3, 4, 5)]
+        self._r_gpu_out = [cp.empty_like(x) for x in self._r_gpu_in]
+        self._fgr_gpu = cp.empty((1, 3, infer_h, infer_w), dtype=cp.float32)
+        self._pha_gpu = cp.empty((1, 1, infer_h, infer_w), dtype=cp.float32)
+        self._iob_shape = (infer_w, infer_h)
+        self._iob_active = True
+        self._state_input_shape = (infer_w, infer_h)
+        return outputs[1][0, 0]
+
+    def infer_gpu(self, frame_gpu, width: int, height: int):
+        """Device-resident inference via IOBinding; returns a cupy alpha.
+
+        Returns None when ineligible (TRT requested, non-CUDA session) so the
+        caller can use the numpy path. Recurrent state stays on the GPU
+        across frames — the numpy path round-trips it host<->device every
+        single frame.
+        """
+        cp = self._cupy
+        if cp is None or self.session is None:
+            return None
+        if self._trt_requested and not self._trt_disabled:
+            return None
+        providers = self.session.get_providers()
+        if not providers or "CUDAExecutionProvider" not in providers[0]:
+            return None
+
+        if height > self._MAX_INFER_HEIGHT:
+            scale = self._MAX_INFER_HEIGHT / height
+            infer_w = int(width * scale) & ~1
+            infer_h = self._MAX_INFER_HEIGHT & ~1
+        else:
+            infer_w, infer_h = width, height
+
+        src_gpu = self._preprocess_gpu(frame_gpu, infer_w, infer_h)
+        self._ensure_state_shape(infer_w, infer_h)
+
+        if not self._iob_active or self._iob_shape != (infer_w, infer_h):
+            alpha_small = cp.asarray(
+                self._seed_iobinding(src_gpu, infer_w, infer_h))
+        else:
+            io = self.session.io_binding()
+            io.bind_input(
+                'src', device_type='cuda', device_id=self._gpu_index,
+                element_type=np.float32, shape=tuple(src_gpu.shape),
+                buffer_ptr=src_gpu.data.ptr)
+            for name, buf in zip(('r1i', 'r2i', 'r3i', 'r4i'), self._r_gpu_in):
+                io.bind_input(
+                    name, device_type='cuda', device_id=self._gpu_index,
+                    element_type=np.float32, shape=tuple(buf.shape),
+                    buffer_ptr=buf.data.ptr)
+            io.bind_cpu_input('downsample_ratio', self._downsample_ratio)
+            io.bind_output(
+                'fgr', device_type='cuda', device_id=self._gpu_index,
+                element_type=np.float32, shape=tuple(self._fgr_gpu.shape),
+                buffer_ptr=self._fgr_gpu.data.ptr)
+            io.bind_output(
+                'pha', device_type='cuda', device_id=self._gpu_index,
+                element_type=np.float32, shape=(1, 1, infer_h, infer_w),
+                buffer_ptr=self._pha_gpu.data.ptr)
+            for name, buf in zip(('r1o', 'r2o', 'r3o', 'r4o'), self._r_gpu_out):
+                io.bind_output(
+                    name, device_type='cuda', device_id=self._gpu_index,
+                    element_type=np.float32, shape=tuple(buf.shape),
+                    buffer_ptr=buf.data.ptr)
+            # ORT executes on its EP-level stream, which does not wait for
+            # cupy's null stream: without this fence it can read src_gpu
+            # before _preprocess_gpu's kernels have written it, and RVM on
+            # a blank frame emits a flat ~0.96 alpha — a one-frame "blur
+            # off" flash on the vcam.
+            cp.cuda.get_current_stream().synchronize()
+            self.session.run_with_iobinding(io)
+            # Same stream mismatch on the way out; fence before cupy (null
+            # stream) reads the bound buffers.
+            io.synchronize_outputs()
+            # Frame N's recurrent outputs become frame N+1's inputs — no
+            # D2H, no ORT-owned allocations: swap the cupy ping-pong pair.
+            self._r_gpu_in, self._r_gpu_out = self._r_gpu_out, self._r_gpu_in
+            alpha_small = self._pha_gpu[0, 0]
+
+        if alpha_small.shape[0] != height or alpha_small.shape[1] != width:
+            from cupyx.scipy import ndimage as cndi
+            alpha_small = cp.clip(alpha_small, 0, 1)
+            # order=1 (not cubic): the matte is refined and triple-blurred
+            # immediately after, so linear upscale is indistinguishable.
+            alpha = cndi.zoom(
+                alpha_small, (height / alpha_small.shape[0],
+                              width / alpha_small.shape[1]),
+                order=1, mode="mirror", grid_mode=True)
+            alpha = cp.clip(alpha, 0, 1).astype(cp.float32)
+        else:
+            alpha = alpha_small.astype(cp.float32, copy=True)
+
+        self._lowres_refined = False
+        return alpha
+
+    def _invalidate_iobinding(self):
+        """Drop device-resident IOBinding state; next GPU frame re-seeds."""
+        self._iob_active = False
+        self._iob_shape = None
+        self._r_gpu_in = None
+        self._r_gpu_out = None
+        self._fgr_gpu = None
+        self._pha_gpu = None
+
     def reset_state(self, log: bool = True):
         """Reset recurrent states for resolution change.
         Zero (1,1,1,1) tensors trigger RVM's built-in shape auto-detection.
@@ -872,6 +1042,7 @@ class _RVMBackend:
         self._inference_gamma = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
+        self._invalidate_iobinding()
         if log:
             print("[NV Broadcast] RVM recurrent states reset", flush=True)
 
@@ -883,6 +1054,7 @@ class _RVMBackend:
         self._inference_gamma = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
+        self._invalidate_iobinding()
 
 
 class _SingleFrameBackend:
@@ -1359,6 +1531,18 @@ class VideoEffects:
         self._fused_face_mask_source_id = None
         self._fused_vignette_gpu = None
         self._fused_vignette_source_id = None
+        self._fused_green_bg_gpu = None
+        self._fused_green_bg_size = None
+        # Whether the most recent composite already mirrored on-GPU
+        self.last_output_mirrored = False
+        # GPU-resident matte pipeline state (blur mode + fused kernel only)
+        self._prev_alpha_gpu = None
+        self._latest_final_matte_u8_gpu = None
+        self._gpu_morph_footprints = {}
+        self._gpu_matte_warned = False
+        self._gpu_infer_warned = False
+        # (frame, frame_gpu) from GPU inference, reused by _composite_fused
+        self._pending_frame_gpu = None
 
         # Alpha refinement
         self._apply_edge_config(edge_config)
@@ -1370,10 +1554,12 @@ class VideoEffects:
             self._matte_version += 1
             self._cached_alpha = None
             self._prev_alpha = None
+            self._prev_alpha_gpu = None
             self._stable_alpha = None
             self._cached_replace_matte = None
             self._cached_replace_matte_source_serial = None
             self._latest_final_matte_u8 = None
+            self._latest_final_matte_u8_gpu = None
             self._latest_final_matte_size = None
         self._reset_fused_gpu_caches(clear_bg=False)
 
@@ -1382,10 +1568,12 @@ class VideoEffects:
         with self._state_lock:
             self._matte_version += 1
             self._prev_alpha = None
+            self._prev_alpha_gpu = None
             self._stable_alpha = None
             self._cached_replace_matte = None
             self._cached_replace_matte_source_serial = None
             self._latest_final_matte_u8 = None
+            self._latest_final_matte_u8_gpu = None
             self._latest_final_matte_size = None
         self._reset_fused_gpu_caches(clear_bg=False)
 
@@ -1397,10 +1585,15 @@ class VideoEffects:
     def latest_final_matte_u8(self, width: int, height: int) -> np.ndarray | None:
         """Return the most recent per-frame final matte, if it matches this frame size."""
         with self._state_lock:
-            if self._latest_final_matte_u8 is None:
-                return None
             if self._latest_final_matte_size != (width, height):
                 return None
+            if self._latest_final_matte_u8 is None:
+                # GPU matte path stores the u8 matte on-device; download only
+                # when a CPU consumer (e.g. relighting) actually asks for it.
+                if self._latest_final_matte_u8_gpu is None:
+                    return None
+                self._latest_final_matte_u8 = self._cupy.asnumpy(
+                    self._latest_final_matte_u8_gpu)
             return self._latest_final_matte_u8.copy()
 
     def _remember_frame_size(self, width: int, height: int) -> None:
@@ -1442,15 +1635,43 @@ class VideoEffects:
             self._fused_bg_gpu = None
             self._fused_bg_source_id = None
             self._fused_bg_size = None
+            self._fused_green_bg_gpu = None
+            self._fused_green_bg_size = None
 
     def _commit_alpha(self, alpha: np.ndarray, matte_version: int) -> bool:
         """Store an alpha mask only if matte state has not been invalidated."""
+        if self._alpha_is_degenerate(alpha):
+            return False
         with self._state_lock:
             if matte_version != self._matte_version:
                 return False
             self._cached_alpha = alpha
             self._cached_alpha_serial += 1
             return True
+
+    def _alpha_is_degenerate(self, alpha) -> bool:
+        """Reject a flat all-foreground matte (inference saw a blank frame).
+
+        A constant high-alpha plane disables the background effect for one
+        frame — a visible flash. A constant LOW plane is a legitimate empty
+        scene and passes through. Keeping the previous matte for one
+        inference is invisible; committing the degenerate one is not.
+        """
+        try:
+            lo = float(alpha.min())
+            if lo < 0.5:
+                return False
+            spread = float(alpha.max()) - lo
+            if spread > 0.005:
+                return False
+        except Exception:
+            return False
+        now = time.monotonic()
+        if now - getattr(self, "_degenerate_matte_logged", 0.0) > 30.0:
+            self._degenerate_matte_logged = now
+            print(f"[NV Broadcast] Rejected degenerate matte "
+                  f"(flat alpha {lo:.3f})", flush=True)
+        return True
 
     @property
     def available(self) -> bool:
@@ -1743,6 +1964,9 @@ class VideoEffects:
         Moving: light smoothing so edges track movement.
         Hair/edges: always get extra smoothing since they jitter most.
         """
+        if self._cupy is not None and isinstance(alpha, self._cupy.ndarray):
+            return self._temporal_smooth_gpu(alpha, matte_version)
+
         with self._state_lock:
             if matte_version is not None and matte_version != self._matte_version:
                 return alpha
@@ -1833,6 +2057,54 @@ class VideoEffects:
         weight[dropping] *= drop_scale
 
         return weight * prev + (1.0 - weight) * alpha
+
+    def _temporal_smooth_gpu(self, alpha, matte_version: int | None = None):
+        """GPU port of _temporal_smooth for the blur-mode matte pipeline.
+
+        Mirrors the CPU math exactly but keeps everything device-resident
+        (including the motion gate — no per-frame D2H sync).
+        """
+        cp = self._cupy
+        with cp.cuda.Device(self._gpu_index):
+            with self._state_lock:
+                if matte_version is not None and matte_version != self._matte_version:
+                    return alpha
+                prev = self._prev_alpha_gpu
+            if prev is None or prev.shape != alpha.shape:
+                with self._state_lock:
+                    if matte_version is not None and matte_version != self._matte_version:
+                        return alpha
+                    self._prev_alpha_gpu = alpha.copy()
+                return alpha
+
+            # GPU matte path is blur-only, so use the blur-mode constants.
+            base_scale = 0.2
+            edge_scale = 2.5
+            fringe_scale = 3.5
+            max_weight = 0.7
+            fringe_min, fringe_max = 0.03, 0.30
+            drop_scale = 0.2
+
+            diff = cp.abs(alpha - prev)
+            motion_gate = cp.clip(1.0 - diff.mean() * 20.0, 0.15, 1.0)
+            base_w = self._temporal_strength * motion_gate
+
+            weight = cp.full(alpha.shape, base_scale, dtype=cp.float32) * base_w
+            edge_mask = (alpha > 0.03) & (alpha < 0.97)
+            weight[edge_mask] = base_w * edge_scale
+            thin_fringe = (alpha > fringe_min) & (alpha < fringe_max)
+            weight[thin_fringe] = base_w * fringe_scale
+            weight = cp.clip(weight, 0, max_weight)
+            dropping = alpha < prev - 0.05
+            weight[dropping] *= drop_scale
+
+            result = weight * prev + (1.0 - weight) * alpha
+
+            with self._state_lock:
+                if matte_version is not None and matte_version != self._matte_version:
+                    return alpha
+                self._prev_alpha_gpu = result.copy()
+            return result
 
     def _refresh_temporal_strength(self) -> None:
         """Tune temporal smoothing for the active model/engine/effect mode."""
@@ -2439,8 +2711,10 @@ class VideoEffects:
             return frame_data
         return result.tobytes()
 
-    def composite_only_array(self, frame: np.ndarray, width: int, height: int) -> np.ndarray:
+    def composite_only_array(self, frame: np.ndarray, width: int, height: int,
+                             mirror: bool = False) -> np.ndarray:
         """Composite current frame with cached alpha and return an ndarray."""
+        self.last_output_mirrored = False
         if not self._bg_removal_enabled or not self._initialized:
             return frame
         self._remember_frame_size(width, height)
@@ -2449,17 +2723,34 @@ class VideoEffects:
             return frame
 
         if alpha.shape[0] != height or alpha.shape[1] != width:
+            if self._cupy is not None and isinstance(alpha, self._cupy.ndarray):
+                alpha = self._cupy.asnumpy(alpha)
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
-        if not frame.flags.writeable:
+        if not frame.flags.writeable and self._bg_mode != "blur":
             frame = frame.copy()
 
-        return self._composite_array(frame, alpha, width, height, matte_version)
+        return self._composite_array(frame, alpha, width, height, matte_version,
+                                     mirror=mirror)
 
     def _composite_array(self, frame: np.ndarray, alpha: np.ndarray,
                          width: int, height: int,
-                         matte_version: int | None = None) -> np.ndarray:
+                         matte_version: int | None = None,
+                         mirror: bool = False) -> np.ndarray:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
+        self.last_output_mirrored = False
+        cp = self._cupy
+        alpha_is_gpu = cp is not None and isinstance(alpha, cp.ndarray)
+        # The GPU matte only helps the blur-mode fused path; any other route
+        # (mode switched mid-flight, size mismatch) needs numpy semantics.
+        if alpha_is_gpu and (
+            self._bg_mode != "blur"
+            or not self._use_fused_kernel
+            or alpha.shape[0] != height
+            or alpha.shape[1] != width
+        ):
+            alpha = cp.asnumpy(alpha)
+            alpha_is_gpu = False
         # Ensure alpha matches frame dimensions
         if alpha.shape[0] != height or alpha.shape[1] != width:
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
@@ -2467,14 +2758,27 @@ class VideoEffects:
         alpha = self._final_matte(frame, alpha, matte_version)
         with self._state_lock:
             if matte_version is None or matte_version == self._matte_version:
-                self._latest_final_matte_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+                if alpha_is_gpu:
+                    # Keep the u8 matte on-device; latest_final_matte_u8()
+                    # downloads lazily if a CPU consumer asks.
+                    self._latest_final_matte_u8_gpu = cp.clip(
+                        alpha * 255.0, 0, 255).astype(cp.uint8)
+                    self._latest_final_matte_u8 = None
+                else:
+                    self._latest_final_matte_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+                    self._latest_final_matte_u8_gpu = None
                 self._latest_final_matte_size = (width, height)
 
         # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass
         if self._use_fused_kernel and self._cupy is not None:
-            result = self._composite_fused(frame, alpha, width, height)
+            result = self._composite_fused(frame, alpha, width, height, mirror=mirror)
             if result is not None:
+                self.last_output_mirrored = mirror
                 return result
+
+        if alpha_is_gpu:
+            # Fused path failed — the CPU compositors need a numpy matte.
+            alpha = cp.asnumpy(alpha)
 
         # Standard compositing path
         if self._bg_mode == "blur":
@@ -2498,12 +2802,17 @@ class VideoEffects:
             return frame_data
         return result.tobytes()
 
-    def process_frame_array(self, frame: np.ndarray, width: int, height: int) -> np.ndarray:
+    def process_frame_array(self, frame: np.ndarray, width: int, height: int,
+                            mirror: bool = False) -> np.ndarray:
+        self.last_output_mirrored = False
         if not self._bg_removal_enabled or not self._initialized:
             return frame
 
         self._remember_frame_size(width, height)
-        if not frame.flags.writeable:
+        # Blur mode never writes into the source frame (GPU path uploads
+        # it, CPU path allocates its outputs), so skip the ~8MB copy.
+        # Remove/replace run in-place fringe cleanup and need their own copy.
+        if not frame.flags.writeable and self._bg_mode != "blur":
             frame = frame.copy()
 
         self._frame_counter += 1
@@ -2528,11 +2837,117 @@ class VideoEffects:
             if alpha is None:
                 return frame
 
-        return self._composite_array(frame, alpha, width, height, matte_version)
+        return self._composite_array(frame, alpha, width, height, matte_version,
+                                     mirror=mirror)
 
-    def _run_inference(self, frame: np.ndarray, width: int, height: int,
-                       matte_version: int | None = None) -> np.ndarray | None:
-        """Run the active backend's inference and refine the alpha."""
+    # ─── Device-resident frame path ──────────────────────────────────────
+    #
+    # cupy BGRA in -> cupy BGRA out, no CPU frame ever materialized. Only
+    # blur mode qualifies: remove/replace run CPU matte helpers
+    # (_final_matte, learned refiners) that need the numpy frame anyway.
+    # Every entry point returns None when the frame can't stay on-device;
+    # the caller then falls back to the CPU path for that frame.
+
+    def gpu_output_eligible(self) -> bool:
+        """Whether the device-resident composite path can currently run."""
+        return (
+            self._bg_removal_enabled
+            and self._initialized
+            and self._compositing in ("cupy", "gstreamer_gl")
+            and self._gpu_matte_eligible()
+            and _get_fused_kernel() is not None
+        )
+
+    def _store_final_matte_gpu(self, alpha, width: int, height: int,
+                               matte_version: int | None):
+        """Blur-mode matte bookkeeping (CPU consumers download lazily)."""
+        cp = self._cupy
+        with self._state_lock:
+            if matte_version is None or matte_version == self._matte_version:
+                if isinstance(alpha, cp.ndarray):
+                    self._latest_final_matte_u8_gpu = cp.clip(
+                        alpha * 255.0, 0, 255).astype(cp.uint8)
+                    self._latest_final_matte_u8 = None
+                else:
+                    self._latest_final_matte_u8 = np.clip(
+                        alpha * 255.0, 0, 255).astype(np.uint8)
+                    self._latest_final_matte_u8_gpu = None
+                self._latest_final_matte_size = (width, height)
+
+    def composite_only_gpu(self, fg_gpu, width: int, height: int,
+                           mirror: bool = False):
+        """Device-resident composite with the cached alpha (no inference)."""
+        self.last_output_mirrored = False
+        if not self.gpu_output_eligible():
+            return None
+        self._remember_frame_size(width, height)
+        alpha, matte_version = self._matte_snapshot()
+        if alpha is None or alpha.shape[0] != height or alpha.shape[1] != width:
+            return None
+        cp = self._cupy
+        try:
+            with cp.cuda.Device(self._gpu_index):
+                # blur mode: _final_matte is the identity, so the snapshot
+                # is already final — store it for CPU consumers and blend.
+                self._store_final_matte_gpu(alpha, width, height, matte_version)
+                output_gpu = self._composite_fused_gpu(
+                    fg_gpu, alpha, width, height, mirror=mirror)
+                if output_gpu is not None:
+                    self.last_output_mirrored = mirror
+                return output_gpu
+        except Exception as e:
+            print(f"[NV Broadcast] GPU composite failed: {e}", flush=True)
+            return None
+
+    def process_frame_gpu(self, fg_gpu, width: int, height: int,
+                          mirror: bool = False):
+        """Device-resident inline inference + composite (blur mode)."""
+        self.last_output_mirrored = False
+        if not self.gpu_output_eligible():
+            return None
+        self._remember_frame_size(width, height)
+        self._frame_counter += 1
+        alpha, matte_version = self._matte_snapshot()
+
+        run_inference = (
+            self._skip_interval <= 1
+            or self._frame_counter % self._skip_interval == 0
+            or alpha is None
+        )
+        if run_inference:
+            fresh = self._run_inference(None, width, height, matte_version,
+                                        frame_gpu=fg_gpu)
+            if fresh is not None:
+                if self._commit_alpha(fresh, matte_version):
+                    alpha = fresh
+                else:
+                    alpha, matte_version = self._matte_snapshot()
+            else:
+                alpha, matte_version = self._matte_snapshot()
+        if alpha is None or alpha.shape[0] != height or alpha.shape[1] != width:
+            return None
+        cp = self._cupy
+        try:
+            with cp.cuda.Device(self._gpu_index):
+                self._store_final_matte_gpu(alpha, width, height, matte_version)
+                output_gpu = self._composite_fused_gpu(
+                    fg_gpu, alpha, width, height, mirror=mirror)
+                if output_gpu is not None:
+                    self.last_output_mirrored = mirror
+                return output_gpu
+        except Exception as e:
+            print(f"[NV Broadcast] GPU composite failed: {e}", flush=True)
+            return None
+
+    def _run_inference(self, frame: np.ndarray | None, width: int, height: int,
+                       matte_version: int | None = None,
+                       frame_gpu=None) -> np.ndarray | None:
+        """Run the active backend's inference and refine the alpha.
+
+        ``frame_gpu`` lets device-resident callers hand over an already
+        uploaded BGRA frame; ``frame`` may then be None, which disables
+        the CPU fallbacks (the caller handles fallback itself).
+        """
         with self._lock:
             if self._engine_reload_in_progress:
                 return None
@@ -2547,7 +2962,31 @@ class VideoEffects:
                 backend = self._backend
                 if backend is None:
                     return None
-                alpha = backend.infer(frame, width, height)
+                alpha = None
+                if self._gpu_matte_eligible() and hasattr(backend, "infer_gpu"):
+                    try:
+                        cp = self._cupy
+                        with cp.cuda.Device(self._gpu_index):
+                            backend._cupy = cp
+                            fg_gpu = (frame_gpu if frame_gpu is not None
+                                      else cp.asarray(frame))
+                            alpha = backend.infer_gpu(fg_gpu, width, height)
+                            if alpha is not None and frame is not None \
+                                    and frame_gpu is None:
+                                # Let the fused compositor reuse this upload.
+                                self._pending_frame_gpu = (frame, fg_gpu)
+                    except Exception as e:
+                        if hasattr(backend, "_invalidate_iobinding"):
+                            backend._invalidate_iobinding()
+                        if not self._gpu_infer_warned:
+                            self._gpu_infer_warned = True
+                            print(f"[NV Broadcast] GPU-resident inference failed, "
+                                  f"using standard path: {e}", flush=True)
+                        alpha = None
+                if alpha is None:
+                    if frame is None:
+                        return None
+                    alpha = backend.infer(frame, width, height)
             if alpha is not None:
                 # Refine first, then temporal smooth on the FINAL output.
                 # RVM's raw edges jitter 6-8% — smoothing the final result
@@ -2556,6 +2995,8 @@ class VideoEffects:
                     alpha = self._refine_alpha(alpha)
                 # Edge refine: second pass at 720p for Zeus/Killer modes
                 if self._edge_refine_enabled:
+                    if frame is None:
+                        return None
                     if not self._edge_refiner._initialized:
                         self._edge_refiner.initialize(self._quality)
                     raw_refined = self._edge_refiner.refine(frame, alpha, width, height)
@@ -2599,8 +3040,164 @@ class VideoEffects:
         if sigmoid_midpoint is not None:
             self._sigmoid_midpoint = float(sigmoid_midpoint)
 
+    def _gpu_matte_eligible(self) -> bool:
+        """Whether the matte can stay device-resident through refinement.
+
+        Blur mode only: remove/replace run CPU-side matte helpers
+        (_final_matte, learned refiners) that would force downloads anyway.
+        Edge refine hands the matte to a CPU/ORT refiner mid-pipeline.
+        """
+        return (
+            self._cupy is not None
+            and self._compositing in ("cupy", "gstreamer_gl")
+            and self._use_fused_kernel
+            and self._bg_mode == "blur"
+            and not self._edge_refine_enabled
+        )
+
     def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
+        if self._gpu_matte_eligible():
+            try:
+                cp = self._cupy
+                with cp.cuda.Device(self._gpu_index):
+                    if not isinstance(alpha, cp.ndarray):
+                        alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
+                    else:
+                        alpha_gpu = alpha
+                    return self._refine_alpha_full_gpu(alpha_gpu)
+            except Exception as e:
+                if not self._gpu_matte_warned:
+                    self._gpu_matte_warned = True
+                    print(f"[NV Broadcast] GPU matte refine failed, "
+                          f"using CPU path: {e}", flush=True)
+        if self._cupy is not None and isinstance(alpha, self._cupy.ndarray):
+            alpha = self._cupy.asnumpy(alpha)
         return self._refine_alpha_full(alpha, reference_shape=alpha.shape[:2])
+
+    def _gpu_footprint(self, size: int):
+        """Cached device-resident elliptical footprint for GPU morphology."""
+        fp = self._gpu_morph_footprints.get(size)
+        if fp is None:
+            ell = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)) > 0
+            fp = self._cupy.asarray(ell)
+            self._gpu_morph_footprints[size] = fp
+        return fp
+
+    def _gpu_gaussian2d(self, x_f32, ksize: int):
+        """cv2.GaussianBlur-parity Gaussian on a device float32 array."""
+        from cupyx.scipy import ndimage as cndi
+        sigma = 0.3 * ((ksize - 1) * 0.5 - 1) + 0.8
+        return cndi.gaussian_filter(
+            x_f32, sigma=sigma, truncate=(ksize // 2) / sigma, mode="mirror")
+
+    def _fill_small_internal_holes_gpu(self, a8, binary_threshold: int,
+                                       fill_cutoff: int, fill_value: int,
+                                       max_area_ratio: float,
+                                       max_span_ratio: float):
+        """GPU port of _fill_small_internal_holes.
+
+        Semantic delta vs the CPU version: binary_fill_holes fills interior
+        holes of every silhouette component, not just the largest external
+        contour. For webcam scenes (one subject) this is equivalent; the
+        area/span thresholds below are identical.
+        """
+        import cupyx
+        cp = self._cupy
+        from cupyx.scipy import ndimage as cndi
+
+        binary = a8 > binary_threshold
+        holes = cndi.binary_fill_holes(binary) & ~binary
+        if not bool(holes.any()):
+            return a8
+
+        labels, num = cndi.label(holes)
+        if int(num) == 0:
+            return a8
+
+        h, w = a8.shape[:2]
+        max_area = max(6, int(h * w * max_area_ratio))
+        max_w = max(2, int(w * max_span_ratio))
+        max_h = max(2, int(h * max_span_ratio))
+
+        areas = cp.bincount(labels.ravel(), minlength=int(num) + 1)
+        ys, xs = cp.nonzero(holes)
+        lbl = labels[ys, xs]
+        min_y = cp.full(int(num) + 1, h, dtype=ys.dtype)
+        max_y = cp.zeros(int(num) + 1, dtype=ys.dtype)
+        min_x = cp.full(int(num) + 1, w, dtype=xs.dtype)
+        max_x = cp.zeros(int(num) + 1, dtype=xs.dtype)
+        cupyx.scatter_min(min_y, lbl, ys)
+        cupyx.scatter_max(max_y, lbl, ys)
+        cupyx.scatter_min(min_x, lbl, xs)
+        cupyx.scatter_max(max_x, lbl, xs)
+
+        ok = (
+            (areas <= max_area)
+            & ((max_x - min_x + 1) <= max_w)
+            & ((max_y - min_y + 1) <= max_h)
+        )
+        ok[0] = False
+
+        fill_mask = ok[labels] & (a8 < fill_cutoff)
+        result = a8.copy()
+        result[fill_mask] = fill_value
+        return result
+
+    def _refine_alpha_full_gpu(self, alpha_gpu):
+        """GPU port of the blur-mode branch of _refine_alpha_full.
+
+        Op-for-op mirror of the CPU path using cupyx.scipy.ndimage; sigma and
+        border modes are matched to cv2 semantics (mirror = BORDER_REFLECT_101,
+        sigma derived from ksize the way cv2 does for sigma=0).
+        """
+        cp = self._cupy
+        from cupyx.scipy import ndimage as cndi
+
+        a8 = cp.clip(alpha_gpu * 255, 0, 255).astype(cp.uint8)
+
+        # 1. Small close: fill tiny holes in hair/fine detail
+        a8 = cndi.grey_closing(a8, footprint=self._gpu_footprint(5))
+
+        # 2. Half-resolution close (2x2 box mean = exact INTER_AREA at 0.5)
+        h, w = a8.shape[:2]
+        if h % 2 == 0 and w % 2 == 0:
+            small = (a8.reshape(h // 2, 2, w // 2, 2)
+                     .astype(cp.float32).mean(axis=(1, 3)).astype(cp.uint8))
+            small = cndi.grey_closing(small, footprint=self._gpu_footprint(25))
+            a8 = cndi.zoom(small, 2, order=1, mode="mirror",
+                           grid_mode=True).astype(cp.uint8)
+
+        # 3. Fill interior holes
+        a8 = self._fill_small_internal_holes_gpu(
+            a8, binary_threshold=30, fill_cutoff=100, fill_value=220,
+            max_area_ratio=0.0007, max_span_ratio=0.07)
+
+        # 4. Wide dilate: 2 passes with 7x7
+        fp7 = self._gpu_footprint(7)
+        a8 = cndi.grey_dilation(a8, footprint=fp7)
+        a8 = cndi.grey_dilation(a8, footprint=fp7)
+
+        # 5. Three-pass Gaussian: wide, smooth gradient
+        t = a8.astype(cp.float32)
+        for k in (17, 11, 7):
+            t = self._gpu_gaussian2d(t, k)
+
+        # 6. Moderate sigmoid
+        t = t * (1.0 / 255.0)
+        sig = self._sigmoid_strength * 0.45
+        mid = self._sigmoid_midpoint
+        if sig > 0:
+            t = 1.0 / (1.0 + cp.exp(-sig * (t - mid)))
+
+        # 7. Core solidification + noise suppression
+        core = t > 0.75
+        t[core] = 1.0 - (1.0 - t[core]) ** 2.0
+        t[t < 0.02] = 0.0
+
+        # 8. Final feathering (quantize to u8 first, matching the CPU path)
+        r = cp.clip(t * 255, 0, 255).astype(cp.uint8).astype(cp.float32)
+        r = self._gpu_gaussian2d(r, 11)
+        return (r * (1.0 / 255.0)).astype(cp.float32)
 
     def _refine_alpha_full(
         self,
@@ -2738,83 +3335,143 @@ class VideoEffects:
     # ─── Fused CUDA Kernel (DocZeus/Killer) ─────────────────────────────
 
     def _composite_fused(self, frame: np.ndarray, alpha: np.ndarray,
-                         width: int, height: int) -> np.ndarray | None:
-        """Single-pass GPU composite: blend + enhance + vignette in one kernel."""
+                         width: int, height: int,
+                         mirror: bool = False) -> np.ndarray | None:
+        """Single-pass GPU composite: CPU frame in, CPU frame out."""
         kernel = _get_fused_kernel()
         if kernel is None:
             return None
         try:
             cp = self._cupy
-            total = width * height
 
-            # Build background
-            if self._bg_mode == "blur":
-                bg = cv2.GaussianBlur(frame, (self._blur_strength, self._blur_strength), 0)
-                bg_gpu = cp.asarray(bg)
-            elif self._bg_mode == "remove":
-                bg = np.zeros_like(frame)
-                bg[:, :, 1] = 255
-                bg[:, :, 3] = 255
-                bg_gpu = cp.asarray(bg)
-            else:
-                bg = self._get_bg_image(frame, width, height)
-                bg_source_id = id(bg)
-                if (
-                    self._fused_bg_gpu is None
-                    or self._fused_bg_source_id != bg_source_id
-                    or self._fused_bg_size != (width, height)
-                ):
-                    self._fused_bg_gpu = cp.asarray(bg)
-                    self._fused_bg_source_id = bg_source_id
-                    self._fused_bg_size = (width, height)
-                bg_gpu = self._fused_bg_gpu
-
-            # Upload all to GPU in one batch. Keep replace-mode foreground
-            # cleanup identical to the CPU/CuPy blend path so hair/edge fringe
-            # does not reappear only in DocZeus/Killer fused compositing.
+            # Keep replace-mode foreground cleanup identical to the CPU/CuPy
+            # blend path so hair/edge fringe does not reappear only in
+            # DocZeus/Killer fused compositing.
             if self._bg_mode == "replace" and self._bg_image is not None:
                 frame = self._prepare_replace_foreground(frame, alpha)
-            fg_gpu = cp.asarray(frame)
-            alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
-            output_gpu = cp.empty_like(fg_gpu)
-
-            face_mask = self._fused_face_mask
-            vignette = self._fused_vignette
-            if face_mask is not None and face_mask.shape[:2] == (height, width):
-                face_mask_source_id = id(face_mask)
-                if self._fused_face_mask_gpu is None or self._fused_face_mask_source_id != face_mask_source_id:
-                    self._fused_face_mask_gpu = cp.asarray(face_mask, dtype=cp.uint8)
-                    self._fused_face_mask_source_id = face_mask_source_id
-                face_mask_gpu = self._fused_face_mask_gpu
+            pending = self._pending_frame_gpu
+            self._pending_frame_gpu = None
+            if pending is not None and pending[0] is frame:
+                # Reuse the upload GPU inference already paid for this frame.
+                fg_gpu = pending[1]
             else:
-                face_mask_gpu = cp.zeros((height, width), dtype=cp.uint8)
-            if vignette is not None and vignette.shape[:2] == (height, width):
-                vignette_source_id = id(vignette)
-                if self._fused_vignette_gpu is None or self._fused_vignette_source_id != vignette_source_id:
-                    self._fused_vignette_gpu = cp.asarray(vignette, dtype=cp.float32)
-                    self._fused_vignette_source_id = vignette_source_id
-                vignette_gpu = self._fused_vignette_gpu
-            else:
-                vignette_gpu = cp.ones((height, width), dtype=cp.float32)
+                fg_gpu = cp.asarray(frame)
 
-            threads = 256
-            blocks = (total + threads - 1) // threads
-            kernel((blocks,), (threads,), (
-                fg_gpu, bg_gpu, alpha_gpu,
-                face_mask_gpu, vignette_gpu, output_gpu,
-                cp.int32(total),
-                cp.float32(self._fused_enhance_intensity),
-                cp.float32(self._fused_vignette_intensity),
-                cp.float32(self._fused_brightness),
-                cp.float32(self._fused_contrast),
-                cp.float32(self._fused_warmth),
-            ))
+            output_gpu = self._composite_fused_gpu(
+                fg_gpu, alpha, width, height, mirror=mirror, bg_frame=frame)
+            if output_gpu is None:
+                return None
             cp.cuda.Stream.null.synchronize()
 
             return cp.asnumpy(output_gpu)
         except Exception as e:
             print(f"[NV Broadcast] Fused kernel error: {e}")
             return None
+
+    def _composite_fused_gpu(self, fg_gpu, alpha, width: int, height: int,
+                             mirror: bool = False, bg_frame=None):
+        """Device-resident core of the fused composite.
+
+        Takes an already-uploaded BGRA foreground and returns the composited
+        cupy array without any sync or download — callers that need a numpy
+        frame go through _composite_fused. ``bg_frame`` is the CPU frame,
+        needed only by replace mode's background builder.
+        """
+        kernel = _get_fused_kernel()
+        if kernel is None:
+            return None
+        cp = self._cupy
+        total = width * height
+
+        # Build background on-device from the already-uploaded frame so
+        # blur/remove modes never touch the CPU or pay a second upload.
+        if self._bg_mode == "blur":
+            bg_gpu = self._gpu_blur_bgra(fg_gpu, self._blur_strength)
+        elif self._bg_mode == "remove":
+            bg_gpu = self._gpu_green_bg(height, width)
+        else:
+            if bg_frame is None:
+                return None
+            bg = self._get_bg_image(bg_frame, width, height)
+            bg_source_id = id(bg)
+            if (
+                self._fused_bg_gpu is None
+                or self._fused_bg_source_id != bg_source_id
+                or self._fused_bg_size != (width, height)
+            ):
+                self._fused_bg_gpu = cp.asarray(bg)
+                self._fused_bg_source_id = bg_source_id
+                self._fused_bg_size = (width, height)
+            bg_gpu = self._fused_bg_gpu
+
+        alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
+        output_gpu = cp.empty_like(fg_gpu)
+
+        face_mask = self._fused_face_mask
+        vignette = self._fused_vignette
+        if face_mask is not None and face_mask.shape[:2] == (height, width):
+            face_mask_source_id = id(face_mask)
+            if self._fused_face_mask_gpu is None or self._fused_face_mask_source_id != face_mask_source_id:
+                self._fused_face_mask_gpu = cp.asarray(face_mask, dtype=cp.uint8)
+                self._fused_face_mask_source_id = face_mask_source_id
+            face_mask_gpu = self._fused_face_mask_gpu
+        else:
+            face_mask_gpu = cp.zeros((height, width), dtype=cp.uint8)
+        if vignette is not None and vignette.shape[:2] == (height, width):
+            vignette_source_id = id(vignette)
+            if self._fused_vignette_gpu is None or self._fused_vignette_source_id != vignette_source_id:
+                self._fused_vignette_gpu = cp.asarray(vignette, dtype=cp.float32)
+                self._fused_vignette_source_id = vignette_source_id
+            vignette_gpu = self._fused_vignette_gpu
+        else:
+            vignette_gpu = cp.ones((height, width), dtype=cp.float32)
+
+        threads = 256
+        blocks = (total + threads - 1) // threads
+        kernel((blocks,), (threads,), (
+            fg_gpu, bg_gpu, alpha_gpu,
+            face_mask_gpu, vignette_gpu, output_gpu,
+            cp.int32(total),
+            cp.float32(self._fused_enhance_intensity),
+            cp.float32(self._fused_vignette_intensity),
+            cp.float32(self._fused_brightness),
+            cp.float32(self._fused_contrast),
+            cp.float32(self._fused_warmth),
+        ))
+        if mirror:
+            # Horizontal flip on-device so the caller can skip cv2.flip.
+            output_gpu = cp.ascontiguousarray(output_gpu[:, ::-1, :])
+        return output_gpu
+
+    def _gpu_blur_bgra(self, frame_gpu, ksize: int):
+        """Gaussian-blur a uint8 BGRA frame on GPU, matching cv2.GaussianBlur.
+
+        cv2 derives sigma from the kernel size when sigma=0; mode='mirror'
+        matches BORDER_REFLECT_101. Filter in float32 — filtering uint8
+        directly rounds per separable pass and causes visible banding.
+        """
+        cp = self._cupy
+        from cupyx.scipy import ndimage as cndi
+        sigma = 0.3 * ((ksize - 1) * 0.5 - 1) + 0.8
+        truncate = (ksize // 2) / sigma
+        blurred = cndi.gaussian_filter(
+            frame_gpu.astype(cp.float32), sigma=(sigma, sigma, 0),
+            truncate=truncate, mode="mirror")
+        bg = cp.clip(blurred, 0, 255).astype(cp.uint8)
+        bg[:, :, 3] = 255
+        return bg
+
+    def _gpu_green_bg(self, height: int, width: int):
+        """Cached device-resident green-screen background for remove mode."""
+        cp = self._cupy
+        if (self._fused_green_bg_gpu is None
+                or self._fused_green_bg_size != (width, height)):
+            bg = cp.zeros((height, width, 4), dtype=cp.uint8)
+            bg[:, :, 1] = 255
+            bg[:, :, 3] = 255
+            self._fused_green_bg_gpu = bg
+            self._fused_green_bg_size = (width, height)
+        return self._fused_green_bg_gpu
 
     def _get_bg_image(self, frame: np.ndarray, width: int, height: int) -> np.ndarray:
         """Get background image resized to match frame."""
@@ -2880,8 +3537,11 @@ class VideoEffects:
                     self._compositing = "cpu"
 
     def _blend(self, fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
-        """Alpha blend — uses CuPy GPU when available, regardless of mode."""
-        if self._cupy is not None:
+        """Alpha blend using the compositing backend selected by the user."""
+        if (
+            self._compositing in ("cupy", "gstreamer_gl")
+            and self._cupy is not None
+        ):
             return self._blend_cupy(fg, bg, alpha)
         return self._blend_cpu(fg, bg, alpha)
 

@@ -150,6 +150,9 @@ parts:
             nvidia-cufft-cu12 \
             nvidia-nvjitlink-cu12 \
             nvidia-cuda-nvrtc-cu12
+          # nvImageCodec + nvJPEG add about 256 MB installed. The Snap keeps
+          # GStreamer's CPU MJPEG decoder and still uses CUDA for inference,
+          # compositing, colorspace conversion, and virtual-camera output.
           ;;
         *)
           echo "Skipping CUDA mode runtime for ${CRAFT_ARCH_BUILD_FOR:-$(uname -m)} Snap build."

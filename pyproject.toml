@@ -68,6 +68,12 @@ cuda = [
     "nvidia-cufft-cu12",
     "nvidia-nvjitlink-cu12",
     "nvidia-cuda-nvrtc-cu12",
+    # GPU MJPEG decode for the device-resident frame path (optional at
+    # runtime: the pipeline falls back to jpegdec when unavailable).
+    # nvimgcodec dlopens libnvjpeg at probe time; without the nvjpeg
+    # wheel the probe fails and JPEG decode silently lands on the CPU.
+    "nvidia-nvimgcodec-cu12",
+    "nvidia-nvjpeg-cu12",
     "onnxruntime-gpu==1.24.4",
 ]
 meeting = [

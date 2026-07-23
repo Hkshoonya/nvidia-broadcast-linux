@@ -67,6 +67,138 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertIn("image/jpeg,width=1280,height=720,framerate=30/1", pipeline_str)
         self.assertIn("jpegdec", pipeline_str)
 
+    def _gpu_pipeline(self, output_format="YUY2", capture="mjpeg"):
+        pipeline = VideoPipeline()
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.select_camera_capture_format",
+            return_value=capture,
+        ):
+            pipeline.configure(
+                "/dev/video1", "/dev/video10",
+                width=1280, height=720, fps=30,
+                output_format=output_format,
+            )
+        pipeline._effects_active = True
+        processor = mock.Mock()
+        processor.configure.return_value = True
+        processor.supports_jpeg = False
+        pipeline.set_frame_processor(processor, lambda: (True, False, True))
+        return pipeline
+
+    def test_gpu_jpeg_capture_leg_skips_jpegdec(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._frame_processor.supports_jpeg = True
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertNotIn("jpegdec", pipeline_str)
+        sink = fake_pipeline.get_by_name.return_value
+        caps_calls = [c for c in sink.set_property.call_args_list
+                      if c.args and c.args[0] == "caps"]
+        self.assertIn("image/jpeg", caps_calls[0].args[1].to_string())
+        self.assertTrue(pipeline._gpu_jpeg_active)
+
+    def test_gpu_jpeg_demotion_falls_back_to_jpegdec_leg(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._frame_processor.supports_jpeg = True
+        pipeline._gpu_jpeg_demoted = True
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("jpegdec", pipeline_str)
+        self.assertFalse(pipeline._gpu_jpeg_active)
+        self.assertTrue(pipeline._gpu_capture_active)
+
+    def test_gpu_capture_leg_has_no_convert_element(self):
+        pipeline = self._gpu_pipeline()
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("jpegdec", pipeline_str)
+        self.assertNotIn("videoconvert", pipeline_str)
+        self.assertNotIn("cudaconvert", pipeline_str)
+        self.assertNotIn("BGRA", pipeline_str)
+        # the appsink caps restrict to formats the GPU kernels support
+        sink = fake_pipeline.get_by_name.return_value
+        caps_calls = [c for c in sink.set_property.call_args_list
+                      if c.args and c.args[0] == "caps"]
+        self.assertEqual(len(caps_calls), 1)
+        self.assertIn("I420", caps_calls[0].args[1].to_string())
+
+    def test_gpu_vcam_leg_is_convert_free_yuy2(self):
+        pipeline = self._gpu_pipeline()
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=True)
+        vcam_str = parse_launch.call_args_list[-1].args[0]
+        self.assertIn("format=YUY2", vcam_str)
+        self.assertIn("v4l2sink", vcam_str)
+        self.assertNotIn("videoconvert", vcam_str)
+        self.assertNotIn("cudaconvert", vcam_str)
+
+    def test_demoted_gpu_path_rebuilds_legacy_strings(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._gpu_path_demoted = True
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("format=BGRA", pipeline_str)
+
+    def test_non_yuy2_output_format_uses_legacy_path(self):
+        pipeline = self._gpu_pipeline(output_format="NV12")
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch",
+                        return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("format=BGRA", pipeline_str)
+        self.assertFalse(pipeline._gpu_capture_active)
+
+    def test_replacing_live_frame_processor_queues_rebuild_and_resets_demotion(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._running = True
+        pipeline._gpu_path_demoted = True
+        replacement = mock.Mock()
+
+        with mock.patch(
+            "nvbroadcast.video.pipeline.GLib.timeout_add", return_value=71
+        ) as timeout_add:
+            pipeline.set_frame_processor(
+                replacement, lambda: (True, False, True))
+
+        self.assertIs(pipeline._frame_processor, replacement)
+        self.assertFalse(pipeline._gpu_path_demoted)
+        self.assertTrue(pipeline._rebuild_pending)
+        timeout_add.assert_called_once()
+
+    def test_detaching_frame_processor_waits_for_inflight_callback(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._callbacks_in_flight = 1
+
+        worker = threading.Thread(
+            target=lambda: pipeline.set_frame_processor(
+                None, None, wait_for_inflight=True)
+        )
+        worker.start()
+        time.sleep(0.02)
+
+        self.assertTrue(worker.is_alive())
+        with pipeline._callback_lock:
+            pipeline._callbacks_in_flight = 0
+        worker.join(1.0)
+
+        self.assertFalse(worker.is_alive())
+        self.assertIsNone(pipeline._frame_processor)
+
     def test_macos_both_pipeline_modes_initialize_obs_backend(self):
         import nvbroadcast.core.platform as platform_mod
 
@@ -334,6 +466,98 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertEqual(processed_markers[0], 1)
         self.assertEqual(processed_markers[1], 3)
         self.assertEqual(len(set(seen_threads)), 1)
+
+
+class GpuPathFailureBridgingTests(unittest.TestCase):
+    """A GPU frame path error must never leave the virtual camera without a
+    frame: the last good payload is replayed while errors accumulate or the
+    demotion rebuild is in flight."""
+
+    def _make_pipeline(self, processor):
+        pipeline = VideoPipeline()
+        pipeline._running = True
+        pipeline._vcam_enabled = True
+        pipeline._vcam_appsrc = mock.Mock()
+        pipeline._frame_processor = processor
+        pipeline._frame_plan = None
+        return pipeline
+
+    @staticmethod
+    def _make_appsink(fmt="I420", width=4, height=2):
+        buf = mock.Mock()
+        buf.pts = 0
+        buf.duration = 0
+        structure = mock.Mock()
+        structure.get_name.return_value = "video/x-raw"
+        structure.get_string.return_value = fmt
+        structure.get_value.side_effect = lambda key: {
+            "width": width, "height": height}[key]
+        caps = mock.Mock()
+        caps.get_structure.return_value = structure
+        sample = mock.Mock()
+        sample.get_buffer.return_value = buf
+        sample.get_caps.return_value = caps
+        appsink = mock.Mock()
+        appsink.emit.return_value = sample
+        return appsink
+
+    def test_transient_error_replays_last_good_frame(self):
+        processor = mock.Mock()
+        processor.configure.return_value = True
+        processor.ingest.side_effect = RuntimeError("transient CUDA hiccup")
+        pipeline = self._make_pipeline(processor)
+        payload = b"\x80" * (4 * 2 * 2)
+        pipeline._last_good_yuy2 = (payload, (4, 2))
+        pipeline._gpu_frame_size = (4, 2)
+
+        result = pipeline._on_effects_sample_gpu(self._make_appsink())
+
+        self.assertEqual(result, Gst.FlowReturn.OK)
+        self.assertEqual(pipeline._gpu_path_errors, 1)
+        self.assertFalse(pipeline._gpu_path_demoted)
+        pushes = [c for c in pipeline._vcam_appsrc.emit.call_args_list
+                  if c.args[0] == "push-buffer"]
+        self.assertEqual(len(pushes), 1, "vcam must still receive a frame")
+        self.assertEqual(pushes[0].args[1].get_size(), len(payload))
+
+    def test_stale_sized_frame_is_not_replayed(self):
+        processor = mock.Mock()
+        processor.configure.return_value = True
+        processor.ingest.side_effect = RuntimeError("transient CUDA hiccup")
+        pipeline = self._make_pipeline(processor)
+        pipeline._last_good_yuy2 = (b"\x80" * 16, (2, 2))  # pre-rebuild size
+
+        pipeline._on_effects_sample_gpu(self._make_appsink(width=4, height=2))
+
+        pushes = [c for c in pipeline._vcam_appsrc.emit.call_args_list
+                  if c.args[0] == "push-buffer"]
+        self.assertEqual(pushes, [], "wrong-sized payload must not be pushed")
+
+    def test_rejected_new_caps_never_replay_previous_sized_frame(self):
+        processor = mock.Mock()
+        processor.configure.return_value = False
+        pipeline = self._make_pipeline(processor)
+        pipeline._last_good_yuy2 = (b"\x80" * 8, (2, 2))
+        pipeline._gpu_frame_size = (2, 2)
+
+        pipeline._on_effects_sample_gpu(
+            self._make_appsink(width=4, height=2))
+
+        pushes = [c for c in pipeline._vcam_appsrc.emit.call_args_list
+                  if c.args[0] == "push-buffer"]
+        self.assertEqual(pushes, [], "old caps payload must not cross the change")
+        self.assertTrue(pipeline._gpu_path_demoted)
+
+    def test_unsupported_negotiation_demotes_immediately(self):
+        processor = mock.Mock()
+        processor.configure.return_value = False  # can never succeed on retry
+        pipeline = self._make_pipeline(processor)
+
+        result = pipeline._on_effects_sample_gpu(self._make_appsink())
+
+        self.assertEqual(result, Gst.FlowReturn.OK)
+        self.assertTrue(pipeline._gpu_path_demoted,
+                        "persistent failure should not burn the 3-strike budget")
 
 
 if __name__ == "__main__":

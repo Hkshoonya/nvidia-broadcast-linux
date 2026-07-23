@@ -137,9 +137,9 @@ COMPOSITING_BACKENDS = {
         "requires": [],
     },
     "gstreamer_gl": {
-        "label": "GStreamer OpenGL (GPU — recommended)",
-        "description": "GPU blur + blend via OpenGL — dramatically reduces CPU usage",
-        "requires": ["glvideomixer", "gleffects_blur", "glupload"],
+        "label": "GPU (auto)",
+        "description": "CuPy CUDA compositing when available, otherwise CPU",
+        "requires": [],
     },
     "cupy": {
         "label": "CuPy CUDA (GPU — maximum performance)",
@@ -638,20 +638,6 @@ def detect_compositing_backends() -> dict[str, bool]:
     """Detect which compositing backends are available on this system."""
     available = {"cpu": True}
 
-    # Check GStreamer GL
-    try:
-        import gi
-        gi.require_version("Gst", "1.0")
-        from gi.repository import Gst
-        Gst.init(None)
-        gl_ok = all(
-            Gst.ElementFactory.find(e) is not None
-            for e in ["glvideomixer", "glupload", "gldownload"]
-        )
-        available["gstreamer_gl"] = gl_ok
-    except Exception:
-        available["gstreamer_gl"] = False
-
     # Check complete CUDA mode runtime: CuPy compositing plus ONNX CUDA inference.
     from nvbroadcast.core.platform import has_cuda_inference_runtime, supports_linux_gpu_stack
     if supports_linux_gpu_stack():
@@ -662,6 +648,11 @@ def detect_compositing_backends() -> dict[str, bool]:
             available["cupy"] = False
     else:
         available["cupy"] = False
+
+    # "gstreamer_gl" is a legacy config value that never built a GL pipeline;
+    # it resolves to CuPy compositing when available, else CPU — so it is
+    # always usable.
+    available["gstreamer_gl"] = True
 
     return available
 

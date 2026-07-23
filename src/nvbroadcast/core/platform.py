@@ -27,6 +27,12 @@ TENSORRT_LIB_MODULES = (
     "tensorrt_cu13_libs",
 )
 _MACOS_AVF_DEVICE_PREFIX = "avf:"
+# NOTE: nvidia.cuda_nvrtc is intentionally NOT preloaded. Loading the CUDA 12
+# nvrtc wheel RTLD_GLOBAL poisons CuPy's kernel compiler when a CUDA 13 stack
+# (e.g. torch cu13 wheels) coexists in the same environment: CuPy resolves
+# nvrtc 13 + CUDA 13 headers but compiles through the preloaded 12.9 library,
+# and every jitify/CUB kernel build fails. ORT's CUDA EP and cuDNN do not
+# require this preload (cuDNN falls back to precompiled engines).
 NVIDIA_RUNTIME_LIB_MODULES = (
     "nvidia.cuda_runtime",
     "nvidia.cublas",
@@ -34,7 +40,6 @@ NVIDIA_RUNTIME_LIB_MODULES = (
     "nvidia.curand",
     "nvidia.cufft",
     "nvidia.nvjitlink",
-    "nvidia.cuda_nvrtc",
 )
 
 

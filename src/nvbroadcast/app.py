@@ -28,6 +28,7 @@ from nvbroadcast.core.constants import (
     COMPUTE_GPU_INDEX,
     VIRTUAL_CAM_DEVICE,
 )
+from nvbroadcast.core import startup_trace
 from nvbroadcast.core.gpu import apply_cuda_blocking_sync
 from nvbroadcast.core.config import load_config, save_config
 from nvbroadcast.core.updates import (
@@ -141,6 +142,8 @@ class NVBroadcastApp(Adw.Application):
         self._window = None
         self._video_pipeline = None
         self._audio_pipeline = None
+        self._gpu_frame_path = None
+        self._gpu_frame_path_failed = False
         self._speaker_monitor = None
         self._video_effects = VideoEffects(
             gpu_index=self.config.compute_gpu,
@@ -199,8 +202,10 @@ class NVBroadcastApp(Adw.Application):
         self._transcriber.set_segment_callback(self._on_transcript_segment)
 
     def do_startup(self):
+        startup_trace.mark("do_startup begin")
         Adw.Application.do_startup(self)
         Gst.init(None)
+        startup_trace.mark("Gst.init done")
         cleanup_old_sessions()
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.DEFAULT)
 
@@ -236,6 +241,7 @@ class NVBroadcastApp(Adw.Application):
             else:
                 print("[NV Broadcast] Camera power save: v4l2 events "
                       "unavailable, falling back to fuser", flush=True)
+        startup_trace.mark("do_startup end (virtual camera ready)")
 
     def _preferred_vcam_device(self) -> str | None:
         if not IS_LINUX:
@@ -289,8 +295,10 @@ class NVBroadcastApp(Adw.Application):
             return False
 
     def do_activate(self):
+        startup_trace.mark("do_activate begin")
         if self._window is None:
             self._window = NVBroadcastWindow(self)
+            startup_trace.mark("window constructed")
             self._window.bind_dependency_installer(self._dependency_installer)
             self._window.load_meeting_sessions(self.list_meeting_sessions())
 
@@ -350,6 +358,7 @@ class NVBroadcastApp(Adw.Application):
             # from resetting effect states during restore)
             self._restoring = True
             self._restore_settings()
+            startup_trace.mark("settings restored")
             if self.config.auto_mode:
                 self.set_auto_mode_enabled(True)
             else:
@@ -375,6 +384,9 @@ class NVBroadcastApp(Adw.Application):
 
         self._window.set_visible(True)
         self._window.present()
+        startup_trace.mark("window presented")
+        print(f"[NV Broadcast] Window up in {startup_trace.elapsed():.1f}s",
+              flush=True)
         self._maybe_show_python_runtime_notice()
 
     def _on_setup_complete(self, wizard, profile_name, gpu_index, compositing):
@@ -748,6 +760,7 @@ class NVBroadcastApp(Adw.Application):
 
     def _auto_start(self):
         """Auto-start broadcast with saved settings."""
+        startup_trace.mark("auto-start begin")
         print(f"[NV Broadcast] Auto-start: streaming={self._streaming} vcam={self._vcam_available}", flush=True)
         if not self._streaming:
             camera = self.config.video.camera_device
@@ -998,6 +1011,7 @@ class NVBroadcastApp(Adw.Application):
             self._queue_pipeline_restart()
             return False
 
+        startup_trace.mark("start_pipeline begin")
         from nvbroadcast.core.config import PERFORMANCE_PROFILES
         from nvbroadcast.video.virtual_camera import resolve_camera_device, select_camera_mode
 
@@ -1046,6 +1060,7 @@ class NVBroadcastApp(Adw.Application):
             save_config(self.config)
         effects_fps = max(5, int(profile.get("effects_ratio", 1.0) * camera_fps))
 
+        startup_trace.mark("camera modes probed")
         self._video_pipeline = VideoPipeline()
         self._video_pipeline.configure(
             source_device=camera_device,
@@ -1061,6 +1076,8 @@ class NVBroadcastApp(Adw.Application):
         self._video_pipeline.set_effect_callback(self._process_frame)
         self._video_pipeline.set_alpha_callback(self._update_alpha)
         self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
+        self._sync_gpu_frame_path(output_format)
+        startup_trace.mark("gpu frame path ready")
         self._video_pipeline.set_preview_callback(
             lambda texture: self._window.update_preview(texture)
         )
@@ -1082,7 +1099,9 @@ class NVBroadcastApp(Adw.Application):
 
         try:
             self._video_pipeline.build(vcam_enabled=self._vcam_available)
+            startup_trace.mark("pipeline built")
             self._video_pipeline.start()
+            startup_trace.mark("pipeline started")
             self._streaming = True
 
             w, h = self.config.video.width, self.config.video.height
@@ -1133,6 +1152,63 @@ class NVBroadcastApp(Adw.Application):
         """Background thread — only updates the alpha mask."""
         self._video_effects.update_alpha(frame_data, width, height)
 
+    def _gpu_frame_path_allowed(self, output_format: str | None = None) -> bool:
+        """Return whether the active resource policy permits CUDA transport."""
+        target_format = output_format or self.config.video.output_format
+        return (
+            not IS_MACOS
+            and self.config.compute_focus != "cpu"
+            and self.config.compositing in ("cupy", "gstreamer_gl")
+            and target_format == "YUY2"
+            and os.getenv("NVBROADCAST_NO_GPU_FRAME_PATH") != "1"
+        )
+
+    def _sync_gpu_frame_path(self, output_format: str | None = None) -> None:
+        """Create, detach, or rebind the frame path for the active policy."""
+        allowed = self._gpu_frame_path_allowed(output_format)
+        if allowed:
+            if self._gpu_frame_path is None and not self._gpu_frame_path_failed:
+                from nvbroadcast.video.gpu_frame_path import GpuFramePath
+
+                self._gpu_frame_path = GpuFramePath.create(
+                    self._video_effects, gpu_index=self.config.compute_gpu)
+                if self._gpu_frame_path is None:
+                    self._gpu_frame_path_failed = True
+            processor = self._gpu_frame_path
+        else:
+            processor = None
+            self._gpu_frame_path = None
+            # A policy change is a valid reason to retry CUDA if the user
+            # explicitly selects a GPU mode later.
+            self._gpu_frame_path_failed = False
+
+        if self._video_pipeline is not None:
+            self._video_pipeline.set_frame_processor(
+                processor,
+                self._gpu_frame_plan if processor is not None else None,
+                wait_for_inflight=processor is None,
+            )
+
+    def _gpu_frame_plan(self):
+        """Per-frame routing for the device-resident path.
+
+        Returns (gpu_pure, mirror, inline_inference). gpu_pure means every
+        active stage runs on the GPU; any CPU face stage routes the frame
+        through the legacy bytes callback instead (still convert-free).
+        """
+        face_fx = (
+            self._beautifier.enabled
+            or self._eye_contact.enabled
+            or self._relighter.enabled
+        )
+        gpu_pure = (
+            not face_fx
+            and not self._autoframe.enabled
+            and self._video_effects.enabled
+            and self._video_effects.gpu_output_eligible()
+        )
+        return gpu_pure, self._mirror, self._inline_inference
+
     def _process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
         """Inline callback — processes EVERY frame with ALL effects.
         Runs composite + face effects + mirror on the current frame."""
@@ -1141,17 +1217,22 @@ class NVBroadcastApp(Adw.Application):
 
         self._perf_monitor.tick()
         frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
-        if not frame.flags.writeable:
-            frame = frame.copy()
-        result_frame = frame
-        landmarks = None
-        fused_beautify_overlay = False
 
         face_effects_active = (
             self._beautifier.enabled
             or self._eye_contact.enabled
             or self._relighter.enabled
         )
+        # Only pay the ~8MB writeable copy when a CPU stage might mutate
+        # the raw frame; the GPU blur path reads it exactly once, and the
+        # effects processor makes its own copy for remove/replace modes.
+        if not frame.flags.writeable and (
+            face_effects_active or self._autoframe.enabled
+        ):
+            frame = frame.copy()
+        result_frame = frame
+        landmarks = None
+        fused_beautify_overlay = False
         if face_effects_active:
             landmarker = get_shared_landmarker()
             raw_frame = result_frame
@@ -1185,11 +1266,21 @@ class NVBroadcastApp(Adw.Application):
 
         # Inline-inference profiles own the alpha path entirely. The pipeline
         # disables the background alpha worker in that mode to avoid cache races.
+        # Mirror on-GPU only when no CPU stage runs after compositing —
+        # later stages would otherwise operate on an already-flipped frame.
+        gpu_mirror = (
+            self._mirror
+            and not face_effects_active
+            and not self._autoframe.enabled
+            and self._video_effects.enabled
+        )
         if self._video_effects.enabled:
             if self._inline_inference:
-                result_frame = self._video_effects.process_frame_array(result_frame, width, height)
+                result_frame = self._video_effects.process_frame_array(
+                    result_frame, width, height, mirror=gpu_mirror)
             else:
-                result_frame = self._video_effects.composite_only_array(result_frame, width, height)
+                result_frame = self._video_effects.composite_only_array(
+                    result_frame, width, height, mirror=gpu_mirror)
 
         if face_effects_active:
             if self._beautifier.enabled:
@@ -1216,8 +1307,10 @@ class NVBroadcastApp(Adw.Application):
         if self._autoframe.enabled:
             result_frame = self._autoframe.process_frame_array(result_frame, width, height)
 
-        # Mirror flip
-        if self._mirror:
+        # Mirror flip (skipped when the fused GPU path already flipped)
+        if self._mirror and not (
+            gpu_mirror and self._video_effects.last_output_mirrored
+        ):
             result_frame = cv2.flip(result_frame, 1)
         return result_frame.tobytes()
 
@@ -1317,7 +1410,7 @@ class NVBroadcastApp(Adw.Application):
     def set_performance_profile(self, profile_name: str, compositing: str | None = None,
                                 use_tensorrt: bool = False, use_fused_kernel: bool = False,
                                 use_nvdec: bool = False, mode_key: str | None = None):
-        """Switch performance profile. All changes apply live — no pipeline restart."""
+        """Switch performance profile and apply its live processing policy."""
         from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
         if profile_name not in PERFORMANCE_PROFILES:
             return
@@ -1344,7 +1437,8 @@ class NVBroadcastApp(Adw.Application):
         apply_performance_profile(self.config, profile_name)
         profile = PERFORMANCE_PROFILES[profile_name]
 
-        # All settings apply immediately — no pipeline restart needed
+        # Model settings update immediately. A CPU/GPU transport change asks
+        # VideoPipeline for its normal teardown-safe internal rebuild below.
         self._video_effects.set_profile_infer_height(
             self._profile_infer_height(
                 profile_name,
@@ -1361,6 +1455,7 @@ class NVBroadcastApp(Adw.Application):
         if self._video_pipeline:
             self._video_pipeline.set_effects_fps(effects_fps)
             self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
+        self._sync_gpu_frame_path()
 
         save_config(self.config)
 
@@ -1704,6 +1799,7 @@ class NVBroadcastApp(Adw.Application):
                 status=f"{_COMPUTE_FOCUS_LABELS[focus]}: {detail}",
             )
 
+        self._sync_gpu_frame_path()
         save_config(self.config)
         if self._window is not None:
             if hasattr(self._window, "_sync_compute_focus_selector"):
@@ -1823,6 +1919,16 @@ class NVBroadcastApp(Adw.Application):
         """Switch the GPU used for AI compute."""
         if gpu_index == self.config.compute_gpu:
             return
+
+        # Detach first and wait for callbacks that captured the old processor.
+        # This prevents old-device CuPy buffers from reaching a newly reloaded
+        # VideoEffects backend on another GPU.
+        if self._video_pipeline is not None:
+            self._video_pipeline.set_frame_processor(
+                None, None, wait_for_inflight=True)
+        self._gpu_frame_path = None
+        self._gpu_frame_path_failed = False
+
         self.config.compute_gpu = gpu_index
         self._video_effects._gpu_index = gpu_index
         self._perf_monitor.set_gpu_index(gpu_index)
@@ -1830,6 +1936,7 @@ class NVBroadcastApp(Adw.Application):
         if self._video_effects.available:
             self._video_effects._cleanup_backend()
             self._video_effects.initialize()
+        self._sync_gpu_frame_path()
         save_config(self.config)
         from nvbroadcast.core.gpu import detect_gpus
         gpus = detect_gpus()
