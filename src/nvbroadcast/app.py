@@ -50,6 +50,7 @@ from nvbroadcast.video.eye_contact import EyeContactCorrector
 from nvbroadcast.video.relighting import FaceRelighter
 from nvbroadcast.video.face_landmarks import get_shared_landmarker
 from nvbroadcast.video.perf_monitor import PerfMonitor
+from nvbroadcast.video.vcam_monitor import VcamConsumerMonitor
 from nvbroadcast.ai.transcriber import MeetingTranscriber, save_transcript
 from nvbroadcast.ai.summarizer import MeetingSummarizer
 from nvbroadcast.core.platform import (
@@ -178,10 +179,13 @@ class NVBroadcastApp(Adw.Application):
         self._transcriber_preload_started = False
         self._vcam_device = None
         self._vcam_available = False
+        self._vcam_monitor = None  # v4l2 client-usage watcher (Linux)
         self._mirror = True  # Default: mirror (like looking in a mirror)
         self._tray = None
         self._legacy_tray_enabled = legacy_tray_enabled()
         self._vcam_consumers = 0  # Track virtual camera consumers
+        self._idle_active = False   # Camera power save engaged
+        self._idle_strikes = 0      # Consecutive no-consumer polls
         self._streaming = False
         self._use_nvdec = self.config.use_nvdec
         self._inline_inference = self.config.performance_profile in ("max_quality", "balanced")
@@ -223,6 +227,20 @@ class NVBroadcastApp(Adw.Application):
             self._vcam_available = True
         except RuntimeError as e:
             print(f"[NV Broadcast] Virtual camera unavailable: {e}")
+        if self._vcam_available and not IS_MACOS:
+            # Started here — before any pipeline can open the device — so
+            # the monitor's own-fd baseline cannot race our own opens, and
+            # kept for the whole session so consumers stay visible across
+            # pipeline restarts.
+            monitor = VcamConsumerMonitor(
+                self._vcam_device, wake_callback=self._on_vcam_consumer_wake)
+            if monitor.start():
+                self._vcam_monitor = monitor
+                print("[NV Broadcast] Camera power save: v4l2 client-usage "
+                      "monitor active", flush=True)
+            else:
+                print("[NV Broadcast] Camera power save: v4l2 events "
+                      "unavailable, falling back to fuser", flush=True)
         startup_trace.mark("do_startup end (virtual camera ready)")
 
     def _preferred_vcam_device(self) -> str | None:
@@ -320,8 +338,14 @@ class NVBroadcastApp(Adw.Application):
             self._window.connect("map", _on_window_mapped)
             self._window.connect("unmap", _on_window_unmapped)
 
-            # Camera power save: poll for vcam consumers
-            GLib.timeout_add(5000, self._check_vcam_consumers)
+            # Showing the window must instantly wake camera power save.
+            self._window.connect("map", lambda *a: (
+                self._exit_idle("window shown") if self._idle_active else None))
+
+            # Camera power save: poll for vcam consumers. Seconds-granularity
+            # so GLib can coalesce the wakeup; the 1s _idle_wake_tick handles
+            # fast wake-from-idle, this poll only latches idle entry.
+            GLib.timeout_add_seconds(10, self._check_vcam_consumers)
 
             # Start performance monitor
             self._perf_monitor.start()
@@ -483,42 +507,164 @@ class NVBroadcastApp(Adw.Application):
             print("[NV Broadcast] No tray available; closing window will quit the app")
         return False  # Allow normal close
 
-    def _check_vcam_consumers(self):
-        """Poll virtual camera device for active consumers.
+    def _probe_vcam_consumers(self) -> int | None:
+        """Count external processes holding the vcam device.
 
-        Tracks consumer count for status display. Pipeline stays running
-        to avoid device conflicts with exclusive_caps=1 — stopping and
-        restarting the pipeline while a consumer holds the device causes
-        v4l2sink to fail ("not a output device").
+        Primary source is the v4l2loopback client-usage monitor: inside
+        the bubblewrap user namespace, fuser cannot stat other processes'
+        /proc/PID/fd links and silently reports zero consumers, which
+        used to freeze live calls. fuser remains only as a fallback when
+        the v4l2 event is unavailable, with a liveness guard against
+        exactly that blindness.
+
+        Returns None when the answer is not trustworthy — callers MUST
+        treat None as "camera in use" so a detection failure can never
+        freeze someone's camera.
         """
-        if not self._vcam_available:
-            return True  # Keep polling
-
         if IS_MACOS:
-            return True
-
+            return None
+        if self._vcam_monitor is not None and self._vcam_monitor.running:
+            return self._vcam_monitor.consumers()
+        import os
         import subprocess
         try:
             result = subprocess.run(
                 ["fuser", self._active_vcam_device()],
                 capture_output=True, text=True, timeout=2,
             )
-            pids = result.stdout.strip().split()
-            import os
-            own_pid = str(os.getpid())
-            consumers = [p for p in pids if p.strip() and p.strip() != own_pid]
-            new_count = len(consumers)
         except Exception:
-            new_count = self._vcam_consumers
+            return None
+        # fuser: 0 = at least one accessor, 1 = none (or failure — but then
+        # stdout is empty either way, which is the safe reading).
+        if result.returncode not in (0, 1):
+            return None
+        own_pid = str(os.getpid())
+        count = 0
+        own_seen = False
+        for token in result.stdout.split():
+            pid = "".join(ch for ch in token if ch.isdigit())
+            if not pid:
+                continue
+            if pid == own_pid:
+                own_seen = True
+            else:
+                count += 1
+        pipeline_holds_device = (
+            self._video_pipeline is not None
+            and self._vcam_available
+            and not getattr(self._video_pipeline, "_vcam_failed", False)
+        )
+        if pipeline_holds_device and not own_seen:
+            # fuser cannot even see our own fd on the device: it is blind
+            # (user namespace), so its count of others is worthless.
+            return None
+        return count
 
-        if new_count != self._vcam_consumers:
-            self._vcam_consumers = new_count
+    def _check_vcam_consumers(self):
+        """Poll vcam consumers for status display and camera power save.
 
+        The pipeline is never stopped for power save — stopping it while a
+        consumer holds the device breaks v4l2sink with exclusive_caps=1.
+        Idle only pauses the capture leg (camera off, vcam device stays
+        open), and it errs hard toward "in use": unknown counts as in use,
+        and three consecutive idle verdicts are required before pausing.
+        """
+        if not self._vcam_available or not self._streaming:
+            self._idle_strikes = 0
+            return True  # Keep polling
+
+        consumers = self._probe_vcam_consumers()
+
+        if consumers is not None and consumers != self._vcam_consumers:
+            self._vcam_consumers = consumers
             if self._tray and self._tray.available:
-                status = f"streaming ({new_count} consumer{'s' if new_count != 1 else ''})" if self._streaming else "idle"
+                status = (f"streaming ({consumers} consumer"
+                          f"{'s' if consumers != 1 else ''})"
+                          if self._streaming else "idle")
                 self._tray.update_status(self._streaming, status)
 
+        window_hidden = not (self._window and self._window.get_visible())
+        pipeline = self._video_pipeline
+        can_idle = (
+            getattr(self.config, "auto_idle", True)
+            and pipeline is not None
+            and not pipeline.is_recording
+            and consumers == 0          # None (unknown) never idles
+            and window_hidden
+        )
+
+        if self._idle_active:
+            if not can_idle:
+                self._exit_idle("activity detected")
+            return True
+
+        if can_idle:
+            self._idle_strikes += 1
+            if self._idle_strikes >= 3:
+                self._enter_idle()
+        else:
+            self._idle_strikes = 0
         return True  # Keep polling
+
+    def _enter_idle(self):
+        pipeline = self._video_pipeline
+        if pipeline is None:
+            return
+        if not pipeline.set_capture_idle(True):
+            self._idle_strikes = 0
+            return
+        self._idle_active = True
+        self._idle_strikes = 0
+        if self._tray and self._tray.available:
+            self._tray.update_status(self._streaming, "power save (camera unused)")
+        # Fast wake poll: a consumer must never wait on the 10s status
+        # poll. The inotify monitor also wakes us event-driven; this tick
+        # is belt-and-braces (and covers window-shown).
+        GLib.timeout_add(1000, self._idle_wake_tick)
+
+    def _exit_idle(self, reason: str):
+        self._idle_active = False
+        self._idle_strikes = 0
+        pipeline = self._video_pipeline
+        if pipeline is not None:
+            pipeline.set_capture_idle(False)
+        print(f"[NV Broadcast] Power save resumed: {reason}", flush=True)
+        if self._tray and self._tray.available:
+            self._tray.update_status(self._streaming, "streaming")
+
+    def _on_vcam_consumer_wake(self):
+        """Called from the monitor thread on a sustained device open."""
+        GLib.idle_add(self._wake_from_vcam_monitor)
+
+    def _wake_from_vcam_monitor(self):
+        if self._idle_active:
+            self._exit_idle("consumer detected (v4l2 event)")
+        return False  # One-shot idle source
+
+    def _idle_wake_tick(self):
+        """1s wake poll while idle. Any doubt resumes the camera."""
+        if not self._idle_active:
+            return False  # Stop this timer
+        consumers = self._probe_vcam_consumers()
+        window_visible = bool(self._window and self._window.get_visible())
+        if consumers != 0 or window_visible:
+            self._exit_idle("consumer detected" if not window_visible
+                            else "window shown")
+            return False
+        return True
+
+    def set_auto_idle(self, enabled: bool):
+        """Toggle camera + mic power save from the UI."""
+        self.config.auto_idle = bool(enabled)
+        save_config(self.config)
+        if not enabled and self._idle_active:
+            self._exit_idle("power save disabled")
+        self._idle_strikes = 0
+        # The audio helper reads auto_idle from its spawn state — restart
+        # it so the mic-side monitor follows the new setting.
+        if self._audio_pipeline is not None:
+            self._audio_pipeline.auto_idle = bool(enabled)
+            self._restart_audio_pipeline_for_live_settings()
 
     def _preload_effects(self):
         """Pre-initialize AI models in background to eliminate first-use delay."""
@@ -700,6 +846,7 @@ class NVBroadcastApp(Adw.Application):
 
         if self._audio_pipeline_should_publish() or c.audio.noise_removal or c.audio.voice_fx_enabled:
             audio_pipeline = self._ensure_audio_pipeline()
+            audio_pipeline.auto_idle = getattr(c, "auto_idle", True)
             audio_pipeline.effects.engine = c.audio.noise_engine
             audio_pipeline.effects.enabled = c.audio.noise_removal
             audio_pipeline.effects.intensity = c.audio.noise_intensity
@@ -996,6 +1143,8 @@ class NVBroadcastApp(Adw.Application):
     def stop_pipeline(self, clear_pending_start: bool = True):
         if clear_pending_start:
             self._pending_start = None
+        self._idle_active = False
+        self._idle_strikes = 0
         if self._restart_source_id:
             GLib.source_remove(self._restart_source_id)
             self._restart_source_id = 0
@@ -2004,6 +2153,8 @@ class NVBroadcastApp(Adw.Application):
         videos_dir.mkdir(exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filepath = str(videos_dir / f"NVBroadcast_{timestamp}.mp4")
+        if self._idle_active:
+            self._exit_idle("recording started")
         if self._video_pipeline:
             self._video_pipeline.start_recording(filepath)
         self._last_recording_path = filepath
@@ -2508,6 +2659,9 @@ class NVBroadcastApp(Adw.Application):
 
     def do_shutdown(self):
         save_config(self.config)
+        if self._vcam_monitor:
+            self._vcam_monitor.stop()
+            self._vcam_monitor = None
         # Unregister the SNI item and its dbusmenu explicitly; otherwise the
         # tray host only notices when the bus connection dies and a stale
         # icon can linger. The legacy tray has no shutdown, hence the guard.

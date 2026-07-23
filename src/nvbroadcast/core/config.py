@@ -162,6 +162,8 @@ class AppConfig:
     use_fused_kernel: bool = False
     use_nvdec: bool = False
     auto_start: bool = True
+    # Pause the camera when the window is hidden and no app reads the vcam
+    auto_idle: bool = True
     minimize_on_close: bool = True
     check_for_updates: bool = True
     last_update_check: int = 0
@@ -205,7 +207,7 @@ def _load_from_toml(filepath: Path) -> AppConfig:
               "mode_key", "premium_edge_refine",
               "auto_mode",
               "use_tensorrt", "use_fused_kernel", "use_nvdec",
-              "auto_start", "minimize_on_close", "check_for_updates",
+              "auto_start", "auto_idle", "minimize_on_close", "check_for_updates",
               "last_update_check", "last_notified_version",
               "last_python_runtime_notice", "first_run",
               "current_profile"):
@@ -335,6 +337,7 @@ def _config_to_toml(config: AppConfig) -> str:
         f"use_fused_kernel = {_bool(config.use_fused_kernel)}",
         f"use_nvdec = {_bool(config.use_nvdec)}",
         f"auto_start = {_bool(config.auto_start)}",
+        f"auto_idle = {_bool(config.auto_idle)}",
         f"minimize_on_close = {_bool(config.minimize_on_close)}",
         f"check_for_updates = {_bool(config.check_for_updates)}",
         f"last_update_check = {config.last_update_check}",
