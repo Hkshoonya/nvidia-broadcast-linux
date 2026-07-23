@@ -620,6 +620,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._blur_slider.set_sensitive(False)
         self._blur_slider.connect("value-changed", self._on_blur_changed)
         bg_card.append(self._blur_slider)
+        self._blur_dim_slider = EffectSlider("Dim", 0.0)
+        self._blur_dim_slider.set_sensitive(False)
+        self._blur_dim_slider.connect("value-changed", self._on_blur_dim_changed)
+        bg_card.append(self._blur_dim_slider)
+        self._blur_desat_slider = EffectSlider("Desaturate", 0.0)
+        self._blur_desat_slider.set_sensitive(False)
+        self._blur_desat_slider.connect("value-changed", self._on_blur_desat_changed)
+        bg_card.append(self._blur_desat_slider)
 
         # Advanced Edge Tuning (collapsible)
         adv_expander = Gtk.Expander(label="Advanced Edge Tuning")
@@ -1013,20 +1021,36 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             btn.remove_css_class("suggested-action")
             btn.add_css_class("destructive-action")
 
+    def _sync_background_controls(self, enabled=None, mode=None):
+        """Keep background controls aligned with the active effect mode."""
+        if enabled is None:
+            enabled = self._bg_toggle.active
+        if mode is None:
+            mode = self._bg_mode.mode
+
+        enabled = bool(enabled)
+        blur_enabled = enabled and mode == "blur"
+        self._bg_mode.set_sensitive(enabled)
+        self._blur_slider.set_sensitive(blur_enabled)
+        self._blur_dim_slider.set_sensitive(blur_enabled)
+        self._blur_desat_slider.set_sensitive(blur_enabled)
+        self._bg_image_picker.set_sensitive(enabled and mode == "replace")
+
+        for control in (
+            self._quality_selector,
+            self._model_selector,
+            self._edge_dilate,
+            self._edge_blur,
+            self._edge_strength,
+            self._edge_midpoint,
+            self._skip_interval,
+            self._ema_weight,
+        ):
+            control.set_sensitive(enabled)
+
     def _on_bg_toggled(self, t, active):
         self._app.set_bg_removal(active)
-        self._bg_mode.set_sensitive(active)
-        self._blur_slider.set_sensitive(active)
-        self._quality_selector.set_sensitive(active)
-        self._model_selector.set_sensitive(active)
-        self._edge_dilate.set_sensitive(active)
-        self._edge_blur.set_sensitive(active)
-        self._edge_strength.set_sensitive(active)
-        self._edge_midpoint.set_sensitive(active)
-        self._skip_interval.set_sensitive(active)
-        self._ema_weight.set_sensitive(active)
-        mode = self._bg_mode.mode
-        self._bg_image_picker.set_sensitive(active and mode == "replace")
+        self._sync_background_controls(enabled=active)
 
     @staticmethod
     def _profile_and_comp_to_mode(profile, compositing):
@@ -1245,10 +1269,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.set_quality(quality)
 
     def _on_bg_mode_changed(self, s, mode):
+        self._sync_background_controls(mode=mode)
         if getattr(self._app, '_restoring', False):
             return
         self._app.set_bg_mode(mode)
-        self._bg_image_picker.set_sensitive(mode == "replace")
         if mode == "replace":
             path = self._bg_image_picker.ensure_default_selected()
             if path:
@@ -1261,6 +1285,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_blur_changed(self, s, v):
         self._app.set_blur_intensity(v)
+
+    def _on_blur_dim_changed(self, s, v):
+        self._app.set_blur_dim(v)
+
+    def _on_blur_desat_changed(self, s, v):
+        self._app.set_blur_desaturate(v)
 
     def _on_edge_dilate(self, s, v):
         self._app.set_edge_param("dilate_size", int(v))
@@ -1917,6 +1947,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Sliders
         self._blur_slider._scale.set_value(v.blur_intensity)
+        self._blur_dim_slider._scale.set_value(getattr(v, "blur_dim", 0.0))
+        self._blur_desat_slider._scale.set_value(getattr(v, "blur_desaturate", 0.0))
         self._zoom_slider._scale.set_value(v.auto_frame_zoom)
         mode_map = {"center": 0, "stable": 1}
         self._autoframe_mode_selector.set_selected_index(mode_map.get(v.auto_frame_mode, 0))
@@ -1929,20 +1961,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._edge_strength._scale.set_value(v.edge.sigmoid_strength)
         self._edge_midpoint._scale.set_value(v.edge.sigmoid_midpoint)
 
-        # Toggles - set without triggering signals first
-        if v.background_removal:
-            self._bg_toggle.active = True
-            self._bg_mode.set_sensitive(True)
-            self._blur_slider.set_sensitive(True)
-            self._quality_selector.set_sensitive(True)
-            self._model_selector.set_sensitive(True)
-            self._edge_dilate.set_sensitive(True)
-            self._edge_blur.set_sensitive(True)
-            self._edge_strength.set_sensitive(True)
-            self._edge_midpoint.set_sensitive(True)
-            self._skip_interval.set_sensitive(True)
-            self._ema_weight.set_sensitive(True)
-            self._bg_image_picker.set_sensitive(v.background_mode == "replace")
+        # Apply toggle and mode sensitivity together so restored non-blur
+        # modes never expose sliders that have no effect.
+        self._bg_toggle.active = v.background_removal
+        self._sync_background_controls(
+            enabled=v.background_removal,
+            mode=v.background_mode,
+        )
 
         if v.auto_frame:
             self._autoframe_toggle.active = True

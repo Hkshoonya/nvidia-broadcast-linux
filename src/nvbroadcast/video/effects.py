@@ -1496,7 +1496,9 @@ class VideoEffects:
         self._bg_mode = "blur"
         self._bg_image = None
         self._bg_image_path = ""
-        self._blur_strength = 21
+        self._blur_sigma = 1.5 + 58.5 * (0.7 ** 1.5)
+        self._blur_dim = 0.0
+        self._blur_desaturate = 0.0
         self._intensity = 0.7
         self._frame_size = None
         self._resized_bg = None
@@ -1739,8 +1741,31 @@ class VideoEffects:
     @intensity.setter
     def intensity(self, value: float):
         self._intensity = max(0.0, min(1.0, value))
-        k = int(5 + value * 94)
-        self._blur_strength = k if k % 2 == 1 else k + 1
+        # Sigma up to 60 with a perceptual curve: fine control at the low
+        # end, and slider max fully abstracts a 1080p background (the
+        # previous ksize-99 cap topped out around sigma 15, which still
+        # left shapes recognizable). Large radii are computed on a
+        # quarter-res image, so the top of the range costs less than the
+        # old full-res kernel did.
+        self._blur_sigma = 1.5 + 58.5 * (self._intensity ** 1.5)
+
+    @property
+    def blur_dim(self) -> float:
+        return self._blur_dim
+
+    @blur_dim.setter
+    def blur_dim(self, value: float):
+        """Darken the blurred background (0 = off, 1 = strong dim)."""
+        self._blur_dim = max(0.0, min(1.0, value))
+
+    @property
+    def blur_desaturate(self) -> float:
+        return self._blur_desaturate
+
+    @blur_desaturate.setter
+    def blur_desaturate(self, value: float):
+        """Desaturate the blurred background (0 = full color, 1 = gray)."""
+        self._blur_desaturate = max(0.0, min(1.0, value))
 
     def set_model(self, model_type: str):
         """Switch segmentation model."""
@@ -3386,7 +3411,7 @@ class VideoEffects:
         # Build background on-device from the already-uploaded frame so
         # blur/remove modes never touch the CPU or pay a second upload.
         if self._bg_mode == "blur":
-            bg_gpu = self._gpu_blur_bgra(fg_gpu, self._blur_strength)
+            bg_gpu = self._gpu_blur_bgra(fg_gpu, self._blur_sigma)
         elif self._bg_mode == "remove":
             bg_gpu = self._gpu_green_bg(height, width)
         else:
@@ -3443,23 +3468,82 @@ class VideoEffects:
             output_gpu = cp.ascontiguousarray(output_gpu[:, ::-1, :])
         return output_gpu
 
-    def _gpu_blur_bgra(self, frame_gpu, ksize: int):
-        """Gaussian-blur a uint8 BGRA frame on GPU, matching cv2.GaussianBlur.
+    def _gpu_blur_bgra(self, frame_gpu, sigma: float):
+        """Background blur for a uint8 BGRA frame on GPU.
 
-        cv2 derives sigma from the kernel size when sigma=0; mode='mirror'
-        matches BORDER_REFLECT_101. Filter in float32 — filtering uint8
-        directly rounds per separable pass and causes visible banding.
+        Small sigmas blur at full resolution. Large sigmas blur a
+        quarter-resolution copy with sigma/4 and scale back up — visually
+        equivalent to the huge full-res kernel, much cheaper, and the
+        resampling softens residual detail the way real lens bokeh does.
+        Filter in float32 — filtering uint8 directly rounds per separable
+        pass and causes visible banding. mode='mirror' matches cv2's
+        BORDER_REFLECT_101.
         """
         cp = self._cupy
         from cupyx.scipy import ndimage as cndi
-        sigma = 0.3 * ((ksize - 1) * 0.5 - 1) + 0.8
-        truncate = (ksize // 2) / sigma
-        blurred = cndi.gaussian_filter(
-            frame_gpu.astype(cp.float32), sigma=(sigma, sigma, 0),
-            truncate=truncate, mode="mirror")
+        f = frame_gpu.astype(cp.float32)
+        h, w = f.shape[:2]
+        if sigma > 8.0 and h % 4 == 0 and w % 4 == 0:
+            small = f.reshape(h // 4, 4, w // 4, 4, 4).mean(axis=(1, 3))
+            small = cndi.gaussian_filter(
+                small, sigma=(sigma / 4.0, sigma / 4.0, 0),
+                truncate=3.0, mode="mirror")
+            blurred = cndi.zoom(small, (4, 4, 1), order=1,
+                                mode="mirror", grid_mode=True)
+        else:
+            blurred = cndi.gaussian_filter(
+                f, sigma=(sigma, sigma, 0), truncate=3.0, mode="mirror")
+        if self._blur_desaturate > 0.0:
+            # BGRA luma (Rec.601): pull channels toward gray so the
+            # foreground pops, portrait-mode style.
+            luma = (0.114 * blurred[:, :, 0] + 0.587 * blurred[:, :, 1]
+                    + 0.299 * blurred[:, :, 2])[..., cp.newaxis]
+            d = self._blur_desaturate
+            blurred[:, :, :3] = blurred[:, :, :3] * (1.0 - d) + luma * d
+        if self._blur_dim > 0.0:
+            blurred[:, :, :3] *= 1.0 - self._blur_dim * 0.6
         bg = cp.clip(blurred, 0, 255).astype(cp.uint8)
         bg[:, :, 3] = 255
         return bg
+
+    def _tone_blurred_background_cpu(self, blurred: np.ndarray) -> np.ndarray:
+        """Apply dim and desaturation to a writeable BGRA blur result."""
+        color = blurred[:, :, :3]
+        dim_scale = 1.0 - self._blur_dim * 0.6
+        if self._blur_desaturate > 0.0:
+            gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
+            gray_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            desaturate = self._blur_desaturate
+            color = cv2.addWeighted(
+                color,
+                (1.0 - desaturate) * dim_scale,
+                gray_bgr,
+                desaturate * dim_scale,
+                0.0,
+            )
+        elif dim_scale < 1.0:
+            color = cv2.convertScaleAbs(color, alpha=dim_scale)
+        blurred[:, :, :3] = color
+        blurred[:, :, 3] = 255
+        return blurred
+
+    def _blur_background_cpu(self, frame: np.ndarray) -> np.ndarray:
+        """CPU twin of _gpu_blur_bgra for the non-CUDA compositing paths."""
+        sigma = self._blur_sigma
+        h, w = frame.shape[:2]
+        if sigma > 8.0 and h % 4 == 0 and w % 4 == 0:
+            small = cv2.resize(frame, (w // 4, h // 4),
+                               interpolation=cv2.INTER_AREA)
+            small = cv2.GaussianBlur(small, (0, 0), sigma / 4.0)
+            # Dim and desaturation are linear, so applying them before
+            # upscaling preserves the result without full-frame float arrays.
+            small = self._tone_blurred_background_cpu(small)
+            blurred = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+        else:
+            blurred = cv2.GaussianBlur(frame, (0, 0), max(sigma, 0.1))
+            blurred = self._tone_blurred_background_cpu(blurred)
+        blurred[:, :, 3] = 255
+        return blurred
 
     def _gpu_green_bg(self, height: int, width: int):
         """Cached device-resident green-screen background for remove mode."""
@@ -3573,8 +3657,7 @@ class VideoEffects:
             return self._blend_cpu(fg, bg, alpha)
 
     def _apply_blur(self, frame: np.ndarray, alpha: np.ndarray) -> np.ndarray:
-        blurred = cv2.GaussianBlur(frame, (self._blur_strength, self._blur_strength), 0)
-        return self._blend(frame, blurred, alpha)
+        return self._blend(frame, self._blur_background_cpu(frame), alpha)
 
     def _apply_green_screen(self, frame: np.ndarray, alpha: np.ndarray,
                             width: int, height: int) -> np.ndarray:
