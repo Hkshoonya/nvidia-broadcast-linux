@@ -301,12 +301,15 @@ class PackagingMetadataTests(unittest.TestCase):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         requirements = (REPO_ROOT / "requirements.txt").read_text()
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn("cuda = [", pyproject)
         self.assertIn('"cupy-cuda12x>=14.1.1,<15"', pyproject)
         self.assertIn('cupy-cuda12x>=14.1.1,<15; sys_platform == "linux"', requirements)
         self.assertIn('"cupy-cuda12x>=14.1.1,<15"', snapcraft)
         self.assertIn('export CUDA_PATH="$CUDA_RUNTIME"', snapcraft)
         self.assertIn('"onnxruntime-gpu==1.24.4"', pyproject)
+        self.assertIn('"nvidia-nvimgcodec-cu12"', pyproject)
+        self.assertIn('"nvidia-nvjpeg-cu12"', pyproject)
         self.assertIn(
             '"onnxruntime>=1.24.4,<1.25; sys_platform != \'darwin\'"',
             pyproject,
@@ -314,6 +317,9 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn('"pycuda>=2024.1"', pyproject)
         self.assertNotIn('"nvidia-cusparse-cu12"', pyproject)
         self.assertNotIn('"nvidia-cusolver-cu12"', pyproject)
+        self.assertNotIn("nvidia-nvimgcodec-cu12", snapcraft)
+        self.assertNotIn("nvidia-nvjpeg-cu12", snapcraft)
+        self.assertIn("intentionally uses GStreamer's CPU MJPEG decoder", readme)
 
     def test_linux_package_postinstalls_install_cuda_extra(self):
         deb_postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()

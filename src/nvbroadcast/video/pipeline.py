@@ -296,7 +296,8 @@ class VideoPipeline:
     def set_effect_callback(self, callback):
         self._effect_callback = callback
 
-    def set_frame_processor(self, processor, plan_callback):
+    def set_frame_processor(self, processor, plan_callback,
+                            *, wait_for_inflight: bool = False):
         """Register the device-resident frame path.
 
         ``processor`` is a GpuFramePath; ``plan_callback()`` is consulted
@@ -305,8 +306,28 @@ class VideoPipeline:
         effect callback (CPU face effects) but still uses the GPU for
         colorspace conversion and the convert-free vcam leg.
         """
+        previous = self._frame_processor
+        changed = processor is not previous
         self._frame_processor = processor
         self._frame_plan = plan_callback
+        if changed:
+            self._gpu_path_demoted = False
+            self._gpu_path_errors = 0
+            self._gpu_capture_active = False
+            self._gpu_jpeg_active = False
+            self._gpu_jpeg_demoted = False
+            self._gpu_frame_size = (0, 0)
+            self._frozen_yuy2 = None
+            if self._running and self._effects_active:
+                self._queue_rebuild()
+
+        if wait_for_inflight and previous is not None and changed:
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                with self._callback_lock:
+                    if self._callbacks_in_flight <= 0:
+                        break
+                time.sleep(0.001)
 
     def _gpu_path_enabled(self) -> bool:
         return (
@@ -587,8 +608,8 @@ class VideoPipeline:
             )
         else:
             tee_branch = (
-                f"videoconvert n-threads=2 qos=false ! video/x-raw,format=BGRA ! "
-                f"appsink name=preview emit-signals=true max-buffers=1 drop=true sync=false"
+                "videoconvert n-threads=2 qos=false ! video/x-raw,format=BGRA ! "
+                "appsink name=preview emit-signals=true max-buffers=1 drop=true sync=false"
             )
 
         # Camera source — platform-aware
@@ -923,6 +944,7 @@ class VideoPipeline:
                 self._push_yuy2_bytes(self._frozen_yuy2, buf_pts, buf_duration)
                 return Gst.FlowReturn.OK
 
+            negotiated_size = None
             try:
                 proc = self._frame_processor
                 s = sample.get_caps().get_structure(0)
@@ -930,6 +952,11 @@ class VideoPipeline:
                 fmt = "JPEG" if is_jpeg else s.get_string("format")
                 width = s.get_value("width")
                 height = s.get_value("height")
+                negotiated_size = (width, height)
+                if proc is None:
+                    self._replay_last_yuy2(
+                        negotiated_size, buf_pts, buf_duration)
+                    return Gst.FlowReturn.OK
                 if not proc.configure(width, height, fmt):
                     raise _GpuPathFatal(
                         f"appsink negotiated unsupported {fmt} {width}x{height}")
@@ -1022,10 +1049,10 @@ class VideoPipeline:
                 # Bridge the gap with the last good frame so the virtual
                 # camera never stalls while transient failures accumulate
                 # or the demotion rebuild is in flight.
-                last = self._last_good_yuy2
-                if last is not None and last[1] == self._gpu_frame_size:
+                if negotiated_size is not None:
                     try:
-                        self._push_yuy2_bytes(last[0], buf_pts, buf_duration)
+                        self._replay_last_yuy2(
+                            negotiated_size, buf_pts, buf_duration)
                     except Exception:
                         pass
                 if self._gpu_path_errors >= 3:
@@ -1058,6 +1085,15 @@ class VideoPipeline:
         vcam_buf.pts = pts
         vcam_buf.duration = duration
         appsrc.emit("push-buffer", vcam_buf)
+
+    def _replay_last_yuy2(self, frame_size, pts, duration) -> None:
+        last = self._last_good_yuy2
+        if (
+            last is not None
+            and last[1] == frame_size
+            and len(last[0]) == frame_size[0] * frame_size[1] * 2
+        ):
+            self._push_yuy2_bytes(last[0], pts, duration)
 
     def _update_alpha_bg(self, frame_data, width, height):
         """Run alpha inference in background — never blocks the capture."""

@@ -2853,6 +2853,7 @@ class VideoEffects:
         return (
             self._bg_removal_enabled
             and self._initialized
+            and self._compositing in ("cupy", "gstreamer_gl")
             and self._gpu_matte_eligible()
             and _get_fused_kernel() is not None
         )
@@ -3048,6 +3049,7 @@ class VideoEffects:
         """
         return (
             self._cupy is not None
+            and self._compositing in ("cupy", "gstreamer_gl")
             and self._use_fused_kernel
             and self._bg_mode == "blur"
             and not self._edge_refine_enabled
@@ -3535,8 +3537,11 @@ class VideoEffects:
                     self._compositing = "cpu"
 
     def _blend(self, fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
-        """Alpha blend — uses CuPy GPU when available, regardless of mode."""
-        if self._cupy is not None:
+        """Alpha blend using the compositing backend selected by the user."""
+        if (
+            self._compositing in ("cupy", "gstreamer_gl")
+            and self._cupy is not None
+        ):
             return self._blend_cupy(fg, bg, alpha)
         return self._blend_cpu(fg, bg, alpha)
 

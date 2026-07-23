@@ -163,6 +163,42 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertIn("format=BGRA", pipeline_str)
         self.assertFalse(pipeline._gpu_capture_active)
 
+    def test_replacing_live_frame_processor_queues_rebuild_and_resets_demotion(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._running = True
+        pipeline._gpu_path_demoted = True
+        replacement = mock.Mock()
+
+        with mock.patch(
+            "nvbroadcast.video.pipeline.GLib.timeout_add", return_value=71
+        ) as timeout_add:
+            pipeline.set_frame_processor(
+                replacement, lambda: (True, False, True))
+
+        self.assertIs(pipeline._frame_processor, replacement)
+        self.assertFalse(pipeline._gpu_path_demoted)
+        self.assertTrue(pipeline._rebuild_pending)
+        timeout_add.assert_called_once()
+
+    def test_detaching_frame_processor_waits_for_inflight_callback(self):
+        pipeline = self._gpu_pipeline()
+        pipeline._callbacks_in_flight = 1
+
+        worker = threading.Thread(
+            target=lambda: pipeline.set_frame_processor(
+                None, None, wait_for_inflight=True)
+        )
+        worker.start()
+        time.sleep(0.02)
+
+        self.assertTrue(worker.is_alive())
+        with pipeline._callback_lock:
+            pipeline._callbacks_in_flight = 0
+        worker.join(1.0)
+
+        self.assertFalse(worker.is_alive())
+        self.assertIsNone(pipeline._frame_processor)
+
     def test_macos_both_pipeline_modes_initialize_obs_backend(self):
         import nvbroadcast.core.platform as platform_mod
 
@@ -496,6 +532,21 @@ class GpuPathFailureBridgingTests(unittest.TestCase):
         pushes = [c for c in pipeline._vcam_appsrc.emit.call_args_list
                   if c.args[0] == "push-buffer"]
         self.assertEqual(pushes, [], "wrong-sized payload must not be pushed")
+
+    def test_rejected_new_caps_never_replay_previous_sized_frame(self):
+        processor = mock.Mock()
+        processor.configure.return_value = False
+        pipeline = self._make_pipeline(processor)
+        pipeline._last_good_yuy2 = (b"\x80" * 8, (2, 2))
+        pipeline._gpu_frame_size = (2, 2)
+
+        pipeline._on_effects_sample_gpu(
+            self._make_appsink(width=4, height=2))
+
+        pushes = [c for c in pipeline._vcam_appsrc.emit.call_args_list
+                  if c.args[0] == "push-buffer"]
+        self.assertEqual(pushes, [], "old caps payload must not cross the change")
+        self.assertTrue(pipeline._gpu_path_demoted)
 
     def test_unsupported_negotiation_demotes_immediately(self):
         processor = mock.Mock()

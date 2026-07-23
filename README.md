@@ -476,6 +476,11 @@ Verify that ONNX Runtime can see the GPU provider:
 
 The output should include `CUDAExecutionProvider`. On Python `3.14+`, TensorRT may still be unavailable, but CUDA modes can run when the CUDA extra installs successfully.
 
+The amd64 Snap includes CUDA inference, compositing, and frame conversion, but
+intentionally uses GStreamer's CPU MJPEG decoder. Bundling the optional
+nvImageCodec and nvJPEG runtimes would add about 256 MB to the Snap. Source,
+Debian, and RPM installs using the CUDA extra can use GPU MJPEG decoding.
+
 </details>
 
 <details>

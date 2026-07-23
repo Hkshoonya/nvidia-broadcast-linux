@@ -11,6 +11,7 @@ import threading
 import time
 import types
 import unittest
+from unittest import mock
 
 
 try:
@@ -159,6 +160,23 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertIsNone(effects._prev_alpha)
         self.assertIsNone(effects._stable_alpha)
         self.assertEqual(effects._matte_version, start_version + 1)
+
+    def test_cpu_compositing_stays_on_cpu_after_cupy_was_loaded(self):
+        effects = self._make_effects()
+        effects._cupy = self._FakeCupy
+        effects._compositing = "cpu"
+        effects._blend_cpu = mock.Mock(return_value="cpu")
+        effects._blend_cupy = mock.Mock(return_value="gpu")
+
+        result = effects._blend(
+            np.zeros((1, 1, 4), dtype=np.uint8),
+            np.zeros((1, 1, 4), dtype=np.uint8),
+            np.ones((1, 1), dtype=np.float32),
+        )
+
+        self.assertEqual(result, "cpu")
+        effects._blend_cpu.assert_called_once()
+        effects._blend_cupy.assert_not_called()
 
     def test_engine_mode_switch_waits_for_inflight_inference(self):
         effects = self._make_effects()

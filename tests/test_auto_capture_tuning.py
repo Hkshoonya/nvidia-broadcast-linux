@@ -209,6 +209,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
         app._video_pipeline = None
         app._window = None
         app._refresh_inference_policy = mock.Mock()
+        app._sync_gpu_frame_path = mock.Mock()
         app._use_nvdec = False
 
         NVBroadcastApp.set_performance_profile(
@@ -223,6 +224,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         apply_performance_profile.assert_called_once_with(app.config, "performance")
         app._video_effects.set_profile_infer_height.assert_called_once_with(288)
+        app._sync_gpu_frame_path.assert_called_once_with()
 
     @mock.patch("nvbroadcast.app.save_config")
     def test_apply_mode_key_syncs_named_mode_quality_preset(self, _save):

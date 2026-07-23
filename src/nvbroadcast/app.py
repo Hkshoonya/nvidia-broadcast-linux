@@ -1076,17 +1076,7 @@ class NVBroadcastApp(Adw.Application):
         self._video_pipeline.set_effect_callback(self._process_frame)
         self._video_pipeline.set_alpha_callback(self._update_alpha)
         self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
-        if (self._gpu_frame_path is None and not self._gpu_frame_path_failed
-                and not IS_MACOS
-                and os.getenv("NVBROADCAST_NO_GPU_FRAME_PATH") != "1"):
-            from nvbroadcast.video.gpu_frame_path import GpuFramePath
-            self._gpu_frame_path = GpuFramePath.create(
-                self._video_effects, gpu_index=self.config.compute_gpu)
-            if self._gpu_frame_path is None:
-                self._gpu_frame_path_failed = True
-        if self._gpu_frame_path is not None:
-            self._video_pipeline.set_frame_processor(
-                self._gpu_frame_path, self._gpu_frame_plan)
+        self._sync_gpu_frame_path(output_format)
         startup_trace.mark("gpu frame path ready")
         self._video_pipeline.set_preview_callback(
             lambda texture: self._window.update_preview(texture)
@@ -1161,6 +1151,43 @@ class NVBroadcastApp(Adw.Application):
     def _update_alpha(self, frame_data: bytes, width: int, height: int) -> None:
         """Background thread — only updates the alpha mask."""
         self._video_effects.update_alpha(frame_data, width, height)
+
+    def _gpu_frame_path_allowed(self, output_format: str | None = None) -> bool:
+        """Return whether the active resource policy permits CUDA transport."""
+        target_format = output_format or self.config.video.output_format
+        return (
+            not IS_MACOS
+            and self.config.compute_focus != "cpu"
+            and self.config.compositing in ("cupy", "gstreamer_gl")
+            and target_format == "YUY2"
+            and os.getenv("NVBROADCAST_NO_GPU_FRAME_PATH") != "1"
+        )
+
+    def _sync_gpu_frame_path(self, output_format: str | None = None) -> None:
+        """Create, detach, or rebind the frame path for the active policy."""
+        allowed = self._gpu_frame_path_allowed(output_format)
+        if allowed:
+            if self._gpu_frame_path is None and not self._gpu_frame_path_failed:
+                from nvbroadcast.video.gpu_frame_path import GpuFramePath
+
+                self._gpu_frame_path = GpuFramePath.create(
+                    self._video_effects, gpu_index=self.config.compute_gpu)
+                if self._gpu_frame_path is None:
+                    self._gpu_frame_path_failed = True
+            processor = self._gpu_frame_path
+        else:
+            processor = None
+            self._gpu_frame_path = None
+            # A policy change is a valid reason to retry CUDA if the user
+            # explicitly selects a GPU mode later.
+            self._gpu_frame_path_failed = False
+
+        if self._video_pipeline is not None:
+            self._video_pipeline.set_frame_processor(
+                processor,
+                self._gpu_frame_plan if processor is not None else None,
+                wait_for_inflight=processor is None,
+            )
 
     def _gpu_frame_plan(self):
         """Per-frame routing for the device-resident path.
@@ -1383,7 +1410,7 @@ class NVBroadcastApp(Adw.Application):
     def set_performance_profile(self, profile_name: str, compositing: str | None = None,
                                 use_tensorrt: bool = False, use_fused_kernel: bool = False,
                                 use_nvdec: bool = False, mode_key: str | None = None):
-        """Switch performance profile. All changes apply live — no pipeline restart."""
+        """Switch performance profile and apply its live processing policy."""
         from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
         if profile_name not in PERFORMANCE_PROFILES:
             return
@@ -1410,7 +1437,8 @@ class NVBroadcastApp(Adw.Application):
         apply_performance_profile(self.config, profile_name)
         profile = PERFORMANCE_PROFILES[profile_name]
 
-        # All settings apply immediately — no pipeline restart needed
+        # Model settings update immediately. A CPU/GPU transport change asks
+        # VideoPipeline for its normal teardown-safe internal rebuild below.
         self._video_effects.set_profile_infer_height(
             self._profile_infer_height(
                 profile_name,
@@ -1427,6 +1455,7 @@ class NVBroadcastApp(Adw.Application):
         if self._video_pipeline:
             self._video_pipeline.set_effects_fps(effects_fps)
             self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
+        self._sync_gpu_frame_path()
 
         save_config(self.config)
 
@@ -1770,6 +1799,7 @@ class NVBroadcastApp(Adw.Application):
                 status=f"{_COMPUTE_FOCUS_LABELS[focus]}: {detail}",
             )
 
+        self._sync_gpu_frame_path()
         save_config(self.config)
         if self._window is not None:
             if hasattr(self._window, "_sync_compute_focus_selector"):
@@ -1889,6 +1919,16 @@ class NVBroadcastApp(Adw.Application):
         """Switch the GPU used for AI compute."""
         if gpu_index == self.config.compute_gpu:
             return
+
+        # Detach first and wait for callbacks that captured the old processor.
+        # This prevents old-device CuPy buffers from reaching a newly reloaded
+        # VideoEffects backend on another GPU.
+        if self._video_pipeline is not None:
+            self._video_pipeline.set_frame_processor(
+                None, None, wait_for_inflight=True)
+        self._gpu_frame_path = None
+        self._gpu_frame_path_failed = False
+
         self.config.compute_gpu = gpu_index
         self._video_effects._gpu_index = gpu_index
         self._perf_monitor.set_gpu_index(gpu_index)
@@ -1896,6 +1936,7 @@ class NVBroadcastApp(Adw.Application):
         if self._video_effects.available:
             self._video_effects._cleanup_backend()
             self._video_effects.initialize()
+        self._sync_gpu_frame_path()
         save_config(self.config)
         from nvbroadcast.core.gpu import detect_gpus
         gpus = detect_gpus()
