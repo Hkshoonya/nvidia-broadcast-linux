@@ -183,8 +183,8 @@ See [CHANGELOG.md](./CHANGELOG.md) for latest updates!
                              └────────────────────────┘
 
   ┌───────────┐      ┌─────────────────────────────────┐      ┌──────────────┐
-  │    Mic    ├─────▶│       RNNoise AI Denoise        ├─────▶│ Virtual Mic  │
-  │           │      │       (48kHz, 10ms frames)      │      │  (PipeWire)  │
+  │    Mic    ├─────▶│    DeepFilterNet3 AI Denoise    ├─────▶│ Virtual Mic  │
+  │           │      │   RNNoise fallback at 48kHz     │      │  (PipeWire)  │
   └───────────┘      └─────────────────────────────────┘      └──────────────┘
 ```
 
@@ -510,6 +510,7 @@ nvidia-broadcast-linux/
 │   │   ├── dependency_installer.py  # Optional runtime installer flow
 │   │   ├── gpu.py               # GPU detection, CUDA device mapping
 │   │   ├── meeting_store.py     # On-device meeting history and retention
+│   │   ├── model_download.py     # Verified per-user AI model cache
 │   │   ├── platform.py          # OS/runtime feature detection
 │   │   ├── resources.py         # Packaged resource lookup
 │   │   └── updates.py           # GitHub release/update helpers
@@ -522,10 +523,12 @@ nvidia-broadcast-linux/
 │   │   ├── face_landmarks.py    # Shared MediaPipe face landmark worker
 │   │   ├── perf_monitor.py      # FPS/GPU performance monitor
 │   │   ├── relighting.py        # Face relighting effect
+│   │   ├── vcam_monitor.py       # Safe virtual-camera consumer detection
 │   │   └── virtual_camera.py    # v4l2loopback + camera capability query
 │   ├── audio/
+│   │   ├── deepfilter.py        # DeepFilterNet3 ONNX speech enhancement
 │   │   ├── devices.py           # Mic/speaker enumeration and routing
-│   │   ├── effects.py           # RNNoise denoiser
+│   │   ├── effects.py           # Denoiser selection and RNNoise fallback
 │   │   ├── level_monitor.py     # Audio level meter
 │   │   ├── meeting_capture.py   # Mixed mic + speaker meeting capture
 │   │   ├── mic_test.py          # Processed mic recording/playback test
@@ -539,6 +542,7 @@ nvidia-broadcast-linux/
 │       ├── setup_wizard.py      # First-run wizard
 │       ├── controls.py          # Effect toggles, sliders, file picker
 │       ├── device_selector.py   # Dropdown selector (single-connect fix)
+│       ├── sni_tray.py          # Native StatusNotifierItem tray
 │       ├── tray.py              # Optional legacy tray integration
 │       ├── video_preview.py     # Live video preview
 │       └── style.css            # App styling with Adwaita/system theme integration
