@@ -1,5 +1,6 @@
 import unittest
 import os
+import threading
 from unittest import mock
 
 import gi
@@ -219,6 +220,102 @@ class AudioPipelineLifecycleTests(unittest.TestCase):
             pipeline._stop_stale_helper_processes()
 
         terminate.assert_called_once_with(stale_pid)
+
+
+def _pactl_result(payload):
+    result = mock.Mock()
+    result.returncode = 0
+    result.stdout = payload
+    return result
+
+
+class IdleMonitorRestartTests(unittest.TestCase):
+    """Restarting the idle monitor while the previous run is blocked inside
+    a consumer probe must retire the old thread: each run owns its stop
+    event, so a stop can never be undone by the next start clearing it."""
+
+    def test_restart_while_probe_blocked_retires_old_monitor(self):
+        pipeline = AudioPipeline(use_helper_process=False)
+        pipeline._uses_loopback_virtual_mic = True
+        pipeline.auto_idle = True
+        pipeline._running = True
+        pipeline._idle_poll_interval_s = 0.01
+        probe_entered = threading.Event()
+        release_probe = threading.Event()
+
+        def blocked_probe():
+            probe_entered.set()
+            release_probe.wait(5)
+            return None  # unknown reads as in-use, never idles
+
+        pipeline._count_virtual_mic_consumers = blocked_probe
+        new_thread = None
+        try:
+            pipeline._start_idle_monitor()
+            old_thread = pipeline._idle_monitor
+            self.assertTrue(probe_entered.wait(2), "probe never entered")
+
+            pipeline._stop_idle_monitor()
+            pipeline._start_idle_monitor()
+            new_thread = pipeline._idle_monitor
+            self.assertIsNotNone(new_thread)
+            self.assertIsNot(new_thread, old_thread)
+
+            release_probe.set()
+            old_thread.join(2)
+            self.assertFalse(old_thread.is_alive(),
+                             "superseded monitor survived the restart")
+            self.assertTrue(new_thread.is_alive(),
+                            "replacement monitor should be running")
+        finally:
+            release_probe.set()
+            pipeline._stop_idle_monitor()
+            if new_thread is not None:
+                new_thread.join(2)
+
+
+class VirtualMicConsumerCountTests(unittest.TestCase):
+    """The counter must see only real recorders on nvbroadcast_mic — the
+    remap module holds nvbroadcast_sink.monitor open forever, and counting
+    that stream kept mic power save from ever engaging."""
+
+    SOURCES = (
+        '[{"index": 40, "name": "nvbroadcast_sink.monitor"},'
+        ' {"index": 41, "name": "nvbroadcast_mic"},'
+        ' {"index": 42, "name": "alsa_input.usb-mic"}]'
+    )
+
+    def _count(self, sources_json, outputs_json):
+        pipeline = AudioPipeline(use_helper_process=False)
+
+        def fake_run(cmd, **kwargs):
+            return _pactl_result(
+                sources_json if "sources" in cmd else outputs_json)
+
+        with mock.patch("nvbroadcast.audio.pipeline.subprocess.run",
+                        side_effect=fake_run):
+            return pipeline._count_virtual_mic_consumers()
+
+    def test_monitor_held_by_remap_module_counts_zero(self):
+        outputs = '[{"index": 7, "source": 40}]'  # remap loop on the monitor
+        self.assertEqual(self._count(self.SOURCES, outputs), 0)
+
+    def test_real_recorder_on_virtual_mic_counts(self):
+        outputs = '[{"index": 7, "source": 40}, {"index": 8, "source": 41}]'
+        self.assertEqual(self._count(self.SOURCES, outputs), 1)
+
+    def test_missing_virtual_mic_source_returns_none(self):
+        sources = '[{"index": 40, "name": "nvbroadcast_sink.monitor"}]'
+        self.assertIsNone(self._count(sources, "[]"))
+
+    def test_pactl_failure_returns_none(self):
+        pipeline = AudioPipeline(use_helper_process=False)
+        failed = mock.Mock()
+        failed.returncode = 1
+        failed.stdout = ""
+        with mock.patch("nvbroadcast.audio.pipeline.subprocess.run",
+                        return_value=failed):
+            self.assertIsNone(pipeline._count_virtual_mic_consumers())
 
 
 class DeepFilterStreamingParityTests(unittest.TestCase):
