@@ -1496,7 +1496,6 @@ class VideoEffects:
         self._bg_mode = "blur"
         self._bg_image = None
         self._bg_image_path = ""
-        self._blur_strength = 21
         self._blur_sigma = 1.5 + 58.5 * (0.7 ** 1.5)
         self._blur_dim = 0.0
         self._blur_desaturate = 0.0
@@ -1749,8 +1748,6 @@ class VideoEffects:
         # quarter-res image, so the top of the range costs less than the
         # old full-res kernel did.
         self._blur_sigma = 1.5 + 58.5 * (self._intensity ** 1.5)
-        k = int(5 + value * 94)
-        self._blur_strength = k if k % 2 == 1 else k + 1
 
     @property
     def blur_dim(self) -> float:
@@ -3509,6 +3506,27 @@ class VideoEffects:
         bg[:, :, 3] = 255
         return bg
 
+    def _tone_blurred_background_cpu(self, blurred: np.ndarray) -> np.ndarray:
+        """Apply dim and desaturation to a writeable BGRA blur result."""
+        color = blurred[:, :, :3]
+        dim_scale = 1.0 - self._blur_dim * 0.6
+        if self._blur_desaturate > 0.0:
+            gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
+            gray_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            desaturate = self._blur_desaturate
+            color = cv2.addWeighted(
+                color,
+                (1.0 - desaturate) * dim_scale,
+                gray_bgr,
+                desaturate * dim_scale,
+                0.0,
+            )
+        elif dim_scale < 1.0:
+            color = cv2.convertScaleAbs(color, alpha=dim_scale)
+        blurred[:, :, :3] = color
+        blurred[:, :, 3] = 255
+        return blurred
+
     def _blur_background_cpu(self, frame: np.ndarray) -> np.ndarray:
         """CPU twin of _gpu_blur_bgra for the non-CUDA compositing paths."""
         sigma = self._blur_sigma
@@ -3517,19 +3535,13 @@ class VideoEffects:
             small = cv2.resize(frame, (w // 4, h // 4),
                                interpolation=cv2.INTER_AREA)
             small = cv2.GaussianBlur(small, (0, 0), sigma / 4.0)
+            # Dim and desaturation are linear, so applying them before
+            # upscaling preserves the result without full-frame float arrays.
+            small = self._tone_blurred_background_cpu(small)
             blurred = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
         else:
             blurred = cv2.GaussianBlur(frame, (0, 0), max(sigma, 0.1))
-        if self._blur_desaturate > 0.0 or self._blur_dim > 0.0:
-            blurred = blurred.astype(np.float32)
-            if self._blur_desaturate > 0.0:
-                luma = (0.114 * blurred[:, :, 0] + 0.587 * blurred[:, :, 1]
-                        + 0.299 * blurred[:, :, 2])[..., np.newaxis]
-                d = self._blur_desaturate
-                blurred[:, :, :3] = blurred[:, :, :3] * (1.0 - d) + luma * d
-            if self._blur_dim > 0.0:
-                blurred[:, :, :3] *= 1.0 - self._blur_dim * 0.6
-            blurred = np.clip(blurred, 0, 255).astype(np.uint8)
+            blurred = self._tone_blurred_background_cpu(blurred)
         blurred[:, :, 3] = 255
         return blurred
 

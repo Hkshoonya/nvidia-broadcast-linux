@@ -1408,17 +1408,17 @@ class NVBroadcastApp(Adw.Application):
 
     def set_blur_intensity(self, value: float):
         self._video_effects.intensity = value
-        self.config.video.blur_intensity = value
+        self.config.video.blur_intensity = self._video_effects.intensity
         save_config(self.config)
 
     def set_blur_dim(self, value: float):
         self._video_effects.blur_dim = value
-        self.config.video.blur_dim = value
+        self.config.video.blur_dim = self._video_effects.blur_dim
         save_config(self.config)
 
     def set_blur_desaturate(self, value: float):
         self._video_effects.blur_desaturate = value
-        self.config.video.blur_desaturate = value
+        self.config.video.blur_desaturate = self._video_effects.blur_desaturate
         save_config(self.config)
 
     def set_performance_profile(self, profile_name: str, compositing: str | None = None,

@@ -31,6 +31,9 @@ class ConfigPersistenceTests(unittest.TestCase):
         config.video.output_format = "I420"
         config.video.vcam_device = "/dev/video11"
         config.video.auto_frame_mode = "stable"
+        config.video.blur_intensity = 0.9
+        config.video.blur_dim = 0.4
+        config.video.blur_desaturate = 0.75
         config.audio.mic_device = "mic0"
         config.audio.speaker_device = "speaker0"
         config.audio.voice_fx_enabled = True
@@ -59,6 +62,9 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(loaded.video.output_format, "I420")
         self.assertEqual(loaded.video.vcam_device, "/dev/video11")
         self.assertEqual(loaded.video.auto_frame_mode, "stable")
+        self.assertEqual(loaded.video.blur_intensity, 0.9)
+        self.assertEqual(loaded.video.blur_dim, 0.4)
+        self.assertEqual(loaded.video.blur_desaturate, 0.75)
         self.assertEqual(loaded.audio.mic_device, "mic0")
         self.assertEqual(loaded.audio.speaker_device, "speaker0")
         self.assertTrue(loaded.audio.voice_fx_enabled)

@@ -1021,22 +1021,36 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             btn.remove_css_class("suggested-action")
             btn.add_css_class("destructive-action")
 
+    def _sync_background_controls(self, enabled=None, mode=None):
+        """Keep background controls aligned with the active effect mode."""
+        if enabled is None:
+            enabled = self._bg_toggle.active
+        if mode is None:
+            mode = self._bg_mode.mode
+
+        enabled = bool(enabled)
+        blur_enabled = enabled and mode == "blur"
+        self._bg_mode.set_sensitive(enabled)
+        self._blur_slider.set_sensitive(blur_enabled)
+        self._blur_dim_slider.set_sensitive(blur_enabled)
+        self._blur_desat_slider.set_sensitive(blur_enabled)
+        self._bg_image_picker.set_sensitive(enabled and mode == "replace")
+
+        for control in (
+            self._quality_selector,
+            self._model_selector,
+            self._edge_dilate,
+            self._edge_blur,
+            self._edge_strength,
+            self._edge_midpoint,
+            self._skip_interval,
+            self._ema_weight,
+        ):
+            control.set_sensitive(enabled)
+
     def _on_bg_toggled(self, t, active):
         self._app.set_bg_removal(active)
-        self._bg_mode.set_sensitive(active)
-        self._blur_slider.set_sensitive(active)
-        self._blur_dim_slider.set_sensitive(active)
-        self._blur_desat_slider.set_sensitive(active)
-        self._quality_selector.set_sensitive(active)
-        self._model_selector.set_sensitive(active)
-        self._edge_dilate.set_sensitive(active)
-        self._edge_blur.set_sensitive(active)
-        self._edge_strength.set_sensitive(active)
-        self._edge_midpoint.set_sensitive(active)
-        self._skip_interval.set_sensitive(active)
-        self._ema_weight.set_sensitive(active)
-        mode = self._bg_mode.mode
-        self._bg_image_picker.set_sensitive(active and mode == "replace")
+        self._sync_background_controls(enabled=active)
 
     @staticmethod
     def _profile_and_comp_to_mode(profile, compositing):
@@ -1255,10 +1269,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.set_quality(quality)
 
     def _on_bg_mode_changed(self, s, mode):
+        self._sync_background_controls(mode=mode)
         if getattr(self._app, '_restoring', False):
             return
         self._app.set_bg_mode(mode)
-        self._bg_image_picker.set_sensitive(mode == "replace")
         if mode == "replace":
             path = self._bg_image_picker.ensure_default_selected()
             if path:
@@ -1947,22 +1961,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._edge_strength._scale.set_value(v.edge.sigmoid_strength)
         self._edge_midpoint._scale.set_value(v.edge.sigmoid_midpoint)
 
-        # Toggles - set without triggering signals first
-        if v.background_removal:
-            self._bg_toggle.active = True
-            self._bg_mode.set_sensitive(True)
-            self._blur_slider.set_sensitive(True)
-            self._blur_dim_slider.set_sensitive(True)
-            self._blur_desat_slider.set_sensitive(True)
-            self._quality_selector.set_sensitive(True)
-            self._model_selector.set_sensitive(True)
-            self._edge_dilate.set_sensitive(True)
-            self._edge_blur.set_sensitive(True)
-            self._edge_strength.set_sensitive(True)
-            self._edge_midpoint.set_sensitive(True)
-            self._skip_interval.set_sensitive(True)
-            self._ema_weight.set_sensitive(True)
-            self._bg_image_picker.set_sensitive(v.background_mode == "replace")
+        # Apply toggle and mode sensitivity together so restored non-blur
+        # modes never expose sliders that have no effect.
+        self._bg_toggle.active = v.background_removal
+        self._sync_background_controls(
+            enabled=v.background_removal,
+            mode=v.background_mode,
+        )
 
         if v.auto_frame:
             self._autoframe_toggle.active = True
