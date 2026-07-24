@@ -1,5 +1,18 @@
 # What's New
 
+## v1.3.0 - GPU Video, Power Save, and Blur Quality Update
+
+- **Device-Resident NVIDIA Video Path** - Supported Linux GPU modes can keep camera decode, RVM input, blur matte processing, compositing, mirroring, and YUY2 conversion on the GPU with pinned host transfers and optional nvImageCodec MJPEG decode
+- **Fallbacks Remain Safe** - GPU JPEG, CUDA conversion, and device-resident frame failures demote in stages to established GStreamer and CPU paths instead of taking down the virtual camera
+- **Stronger Adjustable Blur** - Background blur now reaches a substantially stronger portrait-style maximum, with separate Dim and Desaturate controls and matched GPU/CPU behavior
+- **Camera and Microphone Power Save** - Capture pauses only after repeated, reliable idle detection while virtual devices stay available; unknown consumer state, recording, or a visible window prevents idling
+- **macOS Camera Selection Fixed** - Supported Apple Silicon Macs now enumerate AVFoundation devices correctly, exclude OBS Virtual Camera from physical inputs, migrate older saved camera indexes, and negotiate native source modes before scaling
+- **Cleaner Sunlit Replacement Edges** - Saturated physical-background colors are removed from soft hair and shoulder pixels without recoloring solid foreground detail
+- **GPU Virtual Camera Negotiation Fixed** - The direct YUY2 output now declares progressive scan explicitly, preventing v4l2loopback negotiation failure and silent fallback
+- **Community Release** - GPU transport, power saving, and blur controls were contributed by Jon Fuller ([`@perfectra1n`](https://github.com/perfectra1n)); README and architecture documentation were reorganized by Cédric Prezelin ([`@Tenshock`](https://github.com/Tenshock))
+
+> If you are on `v1.2.3` or older, update to `v1.3.0`. This is the recommended stable release for lower GPU-mode CPU overhead, stronger blur controls, safer idle power use, corrected Apple Silicon camera selection, and cleaner replacement edges under difficult sunlight.
+
 ## v1.2.3 - Backlit Matting Stability Patch
 
 - **Adaptive Backlight Matting** - Quality and Ultra now compensate inside the RVM model input when a scene contains both strong highlights and deep foreground shadows, improving subject-mask stability in difficult sunlight

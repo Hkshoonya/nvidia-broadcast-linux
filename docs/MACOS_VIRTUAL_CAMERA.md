@@ -4,7 +4,7 @@
 
 This directory contains a prototype CoreMediaIO Camera Extension. It is
 compile-checked in CI, but it is not distribution-signed, notarized, activated
-by the `.pkg`, or published as a release asset. NV Broadcast v1.2.3 uses
+by the `.pkg`, or published as a release asset. NV Broadcast v1.3.0 uses
 pyvirtualcam with OBS Virtual Camera as its supported macOS output path.
 
 A production extension can replace that backend after frame delivery, dynamic

@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.2.3
+Version:        1.3.0
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -153,6 +153,15 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Fri Jul 24 2026 doczeus <harshit@kshoonya.com> - 1.3.0-1
+- Add a device-resident NVIDIA video path with staged safe fallbacks
+- Add stronger blur plus separate Dim and Desaturate controls
+- Add conservative camera and microphone power saving
+- Fix physical-camera selection and capture negotiation on Apple Silicon
+- Remove saturated color spill from sunlit replacement edges
+- Fix progressive negotiation for direct GPU virtual-camera output
+- Refresh release, store, website, and package metadata
+
 * Mon Jul 20 2026 doczeus <harshit@kshoonya.com> - 1.2.3-1
 - Stabilize Quality and Ultra mattes in strongly backlit scenes
 - Adapt only model input while preserving displayed camera pixels

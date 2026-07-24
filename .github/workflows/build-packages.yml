@@ -204,7 +204,10 @@ jobs:
       - name: Install Linux project dependencies
         run: |
           .venv/bin/python -m pip install ".[dev]"
+          .venv/bin/python -m pip install "pip-audit>=2.9" "bandit>=1.8"
           .venv/bin/python -m pip check
+          .venv/bin/python -m pip_audit --skip-editable
+          .venv/bin/python -m bandit -q -r src -ll
 
       - name: Test platform detection
         run: |

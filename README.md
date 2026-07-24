@@ -273,7 +273,7 @@ cd nvidia-broadcast-linux
 ```
 
 Requires an Apple Silicon Mac with macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio for virtual-camera output. The installer provisions GStreamer and GTK4 and can install OBS. After installing OBS, open it once, start and stop **Virtual Camera**, then close OBS so its camera backend is registered for NV Broadcast.
-CPU modes use CoreML acceleration. Intel macOS is not included in v1.2.3 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
+CPU modes use CoreML acceleration. Intel macOS is not included in v1.3.0 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
 
 ### Linux — Snap Package
 
@@ -502,7 +502,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.2.3)
+│   ├── __init__.py              # Package version (1.3.0)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── __main__.py              # CLI entry point
@@ -570,7 +570,7 @@ nvidia-broadcast-linux/
 ├── uninstall.sh                 # Clean removal
 ├── build-packages.sh            # Debian/RPM/macOS package builder
 ├── requirements.txt             # Runtime dependency set
-├── pyproject.toml               # Package config (v1.2.3)
+├── pyproject.toml               # Package config (v1.3.0)
 └── README.md
 ```
 

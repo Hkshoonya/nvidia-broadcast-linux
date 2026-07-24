@@ -17,7 +17,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.2.3"
+        current = "1.3.0"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -34,7 +34,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-07-20">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-07-24">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
         self.assertIn(f"nvbroadcast_{current}-1_all.deb", docs_index)
@@ -178,6 +178,14 @@ class PackagingMetadataTests(unittest.TestCase):
         for relative in ("LICENSE", "README.md"):
             self.assertEqual((REPO_ROOT / relative).stat().st_mode & stat.S_IXUSR, 0, relative)
 
+    def test_advertised_shell_entrypoints_are_executable(self):
+        for relative in ("build-packages.sh", "install.sh", "install_macos.sh"):
+            self.assertNotEqual(
+                (REPO_ROOT / relative).stat().st_mode & stat.S_IXUSR,
+                0,
+                relative,
+            )
+
     def test_rpm_changelog_weekdays_match_dates(self):
         rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         for line in rpm_spec.splitlines():
@@ -241,17 +249,33 @@ class PackagingMetadataTests(unittest.TestCase):
         rpm_step = workflow.split("- name: Build .rpm package", 1)[1].split(
             "- name: Upload Linux artifacts", 1
         )[0]
+        linux_test_job = workflow.split("  test-linux:", 1)[1].split(
+            "  test-python:", 1
+        )[0]
 
         self.assertNotIn("continue-on-error", rpm_step)
         self.assertIn('python -m pip install ".[dev]"', workflow)
         self.assertIn("python -m pip check", workflow)
+        self.assertIn('"pip-audit>=2.9" "bandit>=1.8"', linux_test_job)
+        self.assertIn("python -m pip_audit --skip-editable", linux_test_job)
+        self.assertIn("python -m bandit -q -r src -ll", linux_test_job)
 
-    def test_release_gates_run_backlight_regressions(self):
+    def test_release_gates_run_video_regressions(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
         release_smoke = (REPO_ROOT / "scripts" / "release_smoke.py").read_text()
 
         self.assertIn("tests/test_tensorrt_rvm.py", workflow)
-        self.assertIn('"tests.test_tensorrt_rvm"', release_smoke)
+        for module in (
+            "tests.test_tensorrt_rvm",
+            "tests.test_gpu_frame_path",
+            "tests.test_video_pipeline",
+            "tests.test_blur_controls",
+            "tests.test_app_gpu_frame_policy",
+            "tests.test_app_vcam_policy",
+            "tests.test_vcam_monitor",
+            "tests.test_macos_camera",
+        ):
+            self.assertIn(f'"{module}"', release_smoke)
 
     def test_release_workflow_requires_every_built_package(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()

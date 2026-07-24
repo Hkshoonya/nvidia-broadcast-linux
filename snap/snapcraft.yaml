@@ -1,25 +1,32 @@
 name: nvbroadcast
 title: NV Broadcast
 base: core24
-version: '1.2.3'
-summary: Backlit matting stability patch
+version: '1.3.0'
+summary: GPU video pipeline, stronger blur, and safe power saving
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.2.3:
-  - Improves Quality and Ultra background mattes when a scene contains both
-    strong highlights and deep foreground shadows.
-  - Adapts only the RVM model input, preserving the original camera colors and
-    replacement background in the displayed and virtual-camera frame.
-  - Smooths the adaptation over time and automatically returns to neutral in
-    balanced, uniformly dark, or uniformly bright lighting.
-  - Adds focused regressions for backlight detection, temporal recovery,
-    performance-mode bypass, and camera-frame integrity.
+  What's new in v1.3.0:
+  - Adds a device-resident NVIDIA video path with pinned transfers, GPU matte
+    processing, CUDA color conversion, and optional nvImageCodec MJPEG decode
+    on source, Debian, and RPM CUDA installs.
+  - Makes background blur substantially stronger and adds separate Dim and
+    Desaturate controls, with matched GPU and CPU fallback behavior.
+  - Pauses camera and microphone capture when they are safely idle while
+    keeping virtual devices available and waking promptly for real consumers.
+  - Fixes physical-camera selection and capture negotiation on supported
+    Apple Silicon Macs.
+  - Removes saturated physical-background color from sunlit replacement edges
+    and fixes direct GPU virtual-camera negotiation on Linux.
+  - Keeps automatic one-shot fallbacks for unavailable GPU decode, conversion,
+    or frame processing paths.
 
   Recent quality updates:
+  - v1.2.3 stabilizes Quality and Ultra mattes in strongly backlit scenes
+    without changing displayed camera colors.
   - v1.2.2 derives one shared binocular camera target, preserves natural iris
     spacing, and reduces coordinated eye-tracking latency.
   - v1.2.1 makes moderate eye contact correction visible at the default
