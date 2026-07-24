@@ -287,7 +287,11 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('python -m pip install ".[dev]"', workflow)
         self.assertIn("python -m pip check", workflow)
         self.assertIn('"pip-audit>=2.9" "bandit>=1.8"', linux_test_job)
-        self.assertIn("python -m pip_audit --skip-editable", linux_test_job)
+        self.assertIn(
+            "python -m pip_audit . --skip-editable --progress-spinner off",
+            linux_test_job,
+        )
+        self.assertNotIn("python -m pip_audit --skip-editable", linux_test_job)
         self.assertIn("python -m bandit -q -r src -ll", linux_test_job)
         self.assertIn("Install Linux desktop test dependencies", linux_test_job)
         self.assertIn("gir1.2-gstreamer-1.0", linux_test_job)

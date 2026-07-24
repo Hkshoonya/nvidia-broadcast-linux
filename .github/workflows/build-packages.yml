@@ -214,7 +214,9 @@ jobs:
           .venv/bin/python -m pip install ".[dev]"
           .venv/bin/python -m pip install "pip-audit>=2.9" "bandit>=1.8"
           .venv/bin/python -m pip check
-          .venv/bin/python -m pip_audit --skip-editable
+          # Audit the project resolution, excluding unrelated Ubuntu packages
+          # exposed by the system-site venv for GTK/GStreamer.
+          .venv/bin/python -m pip_audit . --skip-editable --progress-spinner off
           .venv/bin/python -m bandit -q -r src -ll
 
       - name: Test platform detection
