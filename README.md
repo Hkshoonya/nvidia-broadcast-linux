@@ -116,7 +116,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for latest updates!
 >
 > Switch modes anytime from the **Mode** dropdown. No restart needed.
 >
-> CUDA modes require the CUDA mode runtime: CuPy for compositing plus ONNX Runtime with `CUDAExecutionProvider` for model inference. Source, `.deb`, `.rpm`, and amd64 Snap installs handle this automatically on NVIDIA systems. The arm64 Snap build stays CPU-safe because ONNX Runtime GPU wheels are not published for Linux arm64 yet.
+> CUDA modes require the CUDA mode runtime: CuPy for compositing plus ONNX Runtime with `CUDAExecutionProvider` for model inference. Source, `.deb`, `.rpm`, and amd64 Snap installs handle this automatically on NVIDIA systems. The arm64 Snap build stays CPU-safe because ONNX Runtime GPU wheels are not published for Linux arm64 yet. Linux arm64 also omits MediaPipe until upstream publishes a wheel compatible with patched Protobuf; Auto Frame, Eye Contact, Face Relighting, and face-aware Video Enhancement are temporarily unavailable there.
 
 ---
 
@@ -283,7 +283,7 @@ sudo snap install nvbroadcast
 
 Snap users typically receive background refreshes from `snapd`. When the app sees a newer stable release, the in-app update button opens the Snap Store listing so the user can move directly into the store-managed upgrade path.
 
-The amd64 Snap build includes the CUDA mode runtime for NVIDIA systems. The arm64 Snap build stays CPU-safe because the required ONNX Runtime GPU wheels are not available for Linux arm64 yet. If CUDA modes are still unavailable on amd64 Snap, use the source installer, `.deb`, or `.rpm` release package as the fallback.
+The amd64 Snap build includes the CUDA mode runtime for NVIDIA systems. The arm64 Snap build stays CPU-safe because the required ONNX Runtime GPU wheels are not available for Linux arm64 yet. It also excludes MediaPipe until a Linux arm64 wheel can use patched Protobuf, so Auto Frame, Eye Contact, Face Relighting, and face-aware Video Enhancement are temporarily unavailable on that architecture. Background effects, virtual camera and microphone output, recording, and local meeting tools remain available. If CUDA modes are still unavailable on amd64 Snap, use the source installer, `.deb`, or `.rpm` release package as the fallback.
 
 Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
 

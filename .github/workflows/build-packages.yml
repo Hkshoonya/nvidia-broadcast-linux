@@ -177,14 +177,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
+      - name: Install Linux desktop test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-venv \
+            python3-gi \
+            python3-gi-cairo \
+            gir1.2-gtk-4.0 \
+            gir1.2-adw-1 \
+            gir1.2-gstreamer-1.0 \
+            gir1.2-gst-plugins-base-1.0 \
+            gstreamer1.0-plugins-base
 
       - name: Create release-smoke venv
         run: |
-          python3 -m venv .venv
+          /usr/bin/python3 -m venv --system-site-packages .venv
           .venv/bin/python -m pip install --upgrade "pip>=26.1.2" "setuptools>=83.0.0" wheel
 
       - name: Validate arm64 Python wheel availability
@@ -199,7 +207,7 @@ jobs:
             --python-version 312 \
             --implementation cp \
             --abi cp312 \
-            numpy opencv-python-headless onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy Pillow requests psutil pyrnnoise "av>=16,<17" mediapipe faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm
+            numpy opencv-python-headless "protobuf>=5.29.6" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy Pillow requests psutil pyrnnoise "av>=16,<17" faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm
 
       - name: Install Linux project dependencies
         run: |

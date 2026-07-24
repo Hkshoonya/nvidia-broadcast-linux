@@ -72,6 +72,11 @@ Linux virtual-camera output.
   shifted channel means by no more than 0.053 levels out of 255.
 - Backlight adaptation remains inference-only. It helps RVM read foreground
   detail but does not alter displayed camera exposure or white balance.
+- Linux arm64 stays on `protobuf>=5.29.6` and omits MediaPipe because the
+  available MediaPipe wheel requires a Protobuf branch affected by
+  CVE-2026-0994. Auto Frame, Eye Contact, Face Relighting, and face-aware Video
+  Enhancement are temporarily unavailable there; background effects, virtual
+  devices, recording, and meeting tools remain available.
 - Linux amd64/arm64 and supported Apple Silicon Python 3.11-3.13 package
   matrices remain release gates. Linux Python 3.11-3.14 unit matrices continue
   to protect compatible fallback behavior.
@@ -89,8 +94,8 @@ Linux virtual-camera output.
 
 ## Local release verification
 
-- Complete test suite: 394 tests and 13 subtests passed.
-- Release smoke suite: 197 tests passed, followed by a clean wheel build and
+- Complete test suite: 395 tests and 13 subtests passed.
+- Release smoke suite: 198 tests passed, followed by a clean wheel build and
   required desktop-asset inspection.
 - Focused video, GPU frame-path, and replacement-edge suite: 77 tests and
   2 subtests passed.

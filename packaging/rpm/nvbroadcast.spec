@@ -160,6 +160,7 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Fix physical-camera selection and capture negotiation on Apple Silicon
 - Remove saturated color spill from sunlit replacement edges
 - Fix progressive negotiation for direct GPU virtual-camera output
+- Keep Linux arm64 on patched Protobuf without insecure MediaPipe builds
 - Refresh release, store, website, and package metadata
 
 * Mon Jul 20 2026 doczeus <harshit@kshoonya.com> - 1.2.3-1

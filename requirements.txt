@@ -10,7 +10,9 @@ psutil>=5.9
 
 # AI / Inference
 mediapipe>=0.10.35; sys_platform == "darwin"
-mediapipe>=0.10; sys_platform != "darwin"
+# Linux arm64 has no MediaPipe wheel compatible with patched Protobuf yet.
+mediapipe>=0.10; sys_platform != "darwin" and platform_machine != "aarch64" and platform_machine != "arm64"
+protobuf>=5.29.6
 onnxruntime-gpu==1.24.4; sys_platform == "linux"
 # Version 1.23.2 keeps the supported Apple Silicon runtime on macOS 13+.
 onnxruntime>=1.23.2,<1.24; sys_platform == "darwin"

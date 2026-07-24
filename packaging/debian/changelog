@@ -6,6 +6,7 @@ nvbroadcast (1.3.0-1) unstable; urgency=medium
   * Fix physical-camera selection and capture negotiation on Apple Silicon.
   * Remove saturated color spill from sunlit replacement edges.
   * Fix progressive negotiation for direct GPU virtual-camera output.
+  * Keep Linux arm64 on patched Protobuf without insecure MediaPipe builds.
   * Refresh release, store, website, and package metadata.
 
  -- DocZeus <harshit@kshoonya.com>  Fri, 24 Jul 2026 09:13:48 -0400

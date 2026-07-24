@@ -9,6 +9,7 @@
 - **macOS Camera Selection Fixed** - Supported Apple Silicon Macs now enumerate AVFoundation devices correctly, exclude OBS Virtual Camera from physical inputs, migrate older saved camera indexes, and negotiate native source modes before scaling
 - **Cleaner Sunlit Replacement Edges** - Saturated physical-background colors are removed from soft hair and shoulder pixels without recoloring solid foreground detail
 - **GPU Virtual Camera Negotiation Fixed** - The direct YUY2 output now declares progressive scan explicitly, preventing v4l2loopback negotiation failure and silent fallback
+- **Secure Linux ARM64 Fallback** - Linux arm64 packages stay on patched Protobuf and omit MediaPipe until a compatible wheel exists; background effects, virtual devices, recording, and meeting tools remain available
 - **Community Release** - GPU transport, power saving, and blur controls were contributed by Jon Fuller ([`@perfectra1n`](https://github.com/perfectra1n)); README and architecture documentation were reorganized by Cédric Prezelin ([`@Tenshock`](https://github.com/Tenshock))
 
 > If you are on `v1.2.3` or older, update to `v1.3.0`. This is the recommended stable release for lower GPU-mode CPU overhead, stronger blur controls, safer idle power use, corrected Apple Silicon camera selection, and cleaner replacement edges under difficult sunlight.

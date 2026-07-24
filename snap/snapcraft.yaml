@@ -21,6 +21,8 @@ description: |
     Apple Silicon Macs.
   - Removes saturated physical-background color from sunlit replacement edges
     and fixes direct GPU virtual-camera negotiation on Linux.
+  - Keeps Linux arm64 on patched Protobuf; face-localized effects remain
+    unavailable there until upstream publishes a compatible MediaPipe wheel.
   - Keeps automatic one-shot fallbacks for unavailable GPU decode, conversion,
     or frame processing paths.
 
@@ -50,7 +52,9 @@ description: |
     behavior. GPU Focused selects the DocZeus/CUDA path when available, while
     CPU Focused keeps users on CPU modes when preferred.
   - The arm64 Snap build stays portable and CPU-safe until Linux arm64 GPU
-    wheels are available from upstream providers.
+    wheels are available from upstream providers. Auto Frame, Eye Contact,
+    Face Relighting, and face-aware Video Enhancement also remain unavailable
+    there until a MediaPipe wheel supports patched Protobuf.
 
   Core features:
   - Blur your background
@@ -108,7 +112,7 @@ parts:
     python-packages:
       - numpy
       - opencv-python-headless
-      - mediapipe
+      - protobuf>=5.29.6
       - onnxruntime==1.24.4
       - onnx>=1.22.0
       - click>=8.3.3

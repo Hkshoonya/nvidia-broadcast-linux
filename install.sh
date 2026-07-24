@@ -494,7 +494,16 @@ fi
 echo ""
 echo "Verifying core dependencies..."
 FAILED_PY=()
-for mod in numpy cv2 mediapipe onnxruntime PIL psutil onnx; do
+CORE_PY_MODULES=(numpy cv2 onnxruntime PIL psutil onnx)
+case "$(uname -m)" in
+    aarch64|arm64)
+        echo "  mediapipe ... NOT INSTALLED (secure Linux arm64 wheel unavailable)"
+        ;;
+    *)
+        CORE_PY_MODULES+=(mediapipe)
+        ;;
+esac
+for mod in "${CORE_PY_MODULES[@]}"; do
     if "$VENV_DIR/bin/python" -c "import $mod" 2>/dev/null; then
         echo "  $mod ... OK"
     else

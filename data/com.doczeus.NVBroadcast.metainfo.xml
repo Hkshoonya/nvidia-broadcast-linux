@@ -71,6 +71,7 @@
           <li>Added conservative camera and microphone power saving that keeps virtual devices available and treats uncertain consumer state as active</li>
           <li>Fixed physical camera selection and native capture negotiation on supported Apple Silicon Macs</li>
           <li>Removed saturated physical-background color from sunlit replacement edges and fixed direct GPU virtual-camera negotiation on Linux</li>
+          <li>Kept Linux arm64 on patched Protobuf while safely disabling MediaPipe-dependent face effects until a compatible upstream wheel is available</li>
           <li>Retained staged automatic fallback when GPU decode, conversion, or frame processing is unavailable</li>
         </ul>
       </description>
