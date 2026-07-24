@@ -139,6 +139,7 @@ class VideoPipelineRebuildTests(unittest.TestCase):
             pipeline.build(vcam_enabled=True)
         vcam_str = parse_launch.call_args_list[-1].args[0]
         self.assertIn("format=YUY2", vcam_str)
+        self.assertIn("interlace-mode=progressive", vcam_str)
         self.assertIn("v4l2sink", vcam_str)
         self.assertNotIn("videoconvert", vcam_str)
         self.assertNotIn("cudaconvert", vcam_str)

@@ -548,6 +548,35 @@ class BackgroundOverlayTests(unittest.TestCase):
             "replace-mode despill should clean both sides of the fringe",
         )
 
+    def test_despill_removes_saturated_backlight_color_from_soft_edge(self):
+        effects = self._make_effects()
+
+        fg = np.zeros((16, 16, 4), dtype=np.uint8)
+        fg[:, :, :3] = (65, 60, 70)
+        fg[:, :, 3] = 255
+        fg[:, 4, :3] = (90, 55, 245)
+        fg[:, 11, :3] = (90, 55, 245)
+
+        alpha = np.zeros((16, 16), dtype=np.float32)
+        alpha[:, 4] = 0.90
+        alpha[:, 5:11] = 0.99
+        alpha[:, 11] = 0.72
+
+        cleaned = effects._despill_fringe(fg, alpha)
+
+        for x in (4, 11):
+            before = int(fg[8, x, 2]) - int(fg[8, x, 1])
+            after = int(cleaned[8, x, 2]) - int(cleaned[8, x, 1])
+            self.assertLess(
+                after,
+                before - 80,
+                "saturated physical-background color should not survive as an edge outline",
+            )
+        self.assertTrue(
+            np.array_equal(cleaned[8, 8], fg[8, 8]),
+            "solid foreground color should remain unchanged",
+        )
+
     def test_despill_crops_to_active_subject_region(self):
         effects = self._make_effects()
 

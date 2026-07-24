@@ -734,17 +734,19 @@ class VideoPipeline:
         if self._gpu_capture_active:
             # The frame processor already delivers output-format YUY2 —
             # feed the sink directly, no convert element, half the bytes.
-            # PAR and colorimetry must be explicit: v4l2sink accept-caps is a
-            # SUBSET check against device caps that pin both fields (a convert
-            # element used to fixate them; without one, omitting a field means
-            # "any" and negotiation fails). 2:4:7:1 is the BT.601 colorimetry
-            # the conversion kernel produces and the legacy leg negotiated.
+            # PAR, colorimetry, and progressive scan must be explicit:
+            # v4l2sink accept-caps is a SUBSET check against device caps that
+            # pin these fields (a convert element used to fixate them; without
+            # one, omitting a field means "any" and negotiation fails).
+            # 2:4:7:1 is the BT.601 colorimetry the conversion kernel produces
+            # and the legacy leg negotiated.
             self._vcam_used_cuda = False
             self._vcam_pipeline = Gst.parse_launch(
                 f"appsrc name=src is-live=true format=time "
                 f"caps=video/x-raw,format=YUY2,width={self._width},"
                 f"height={self._height},framerate={self._fps}/1,"
-                f"pixel-aspect-ratio=1/1,colorimetry=2:4:7:1 ! "
+                f"pixel-aspect-ratio=1/1,colorimetry=2:4:7:1,"
+                f"interlace-mode=progressive ! "
                 f"queue max-size-buffers=1 max-size-bytes=0 "
                 f"max-size-time=0 leaky=downstream ! "
                 f"{self._v4l2sink_segment()}"

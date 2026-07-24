@@ -3693,8 +3693,12 @@ class VideoEffects:
         the alpha, the more contaminated. Strategy: pull fringe pixel colors
         toward nearby solid person pixels using a weighted blur.
         """
-        fringe = (alpha > 0.03) & (alpha < 0.35)
-        if not fringe.any():
+        # Soft matte pixels contain a mix of subject and the physical camera
+        # background. Include near-solid boundary pixels as well: edge-aware
+        # matte refinement can raise a strongly colored spill pixel above the
+        # old 0.35 cutoff even though its RGB value is still contaminated.
+        fringe = (alpha > 0.025) & (alpha < 0.94)
+        if not fringe.any() or not (alpha <= 0.025).any():
             return fg
         h, w = alpha.shape[:2]
         active = fringe | (alpha > 0.72)
@@ -3727,25 +3731,49 @@ class VideoEffects:
         if fringe_x.size == 0:
             return fg
 
-        clean_color = self._clean_color_reference(fg, alpha, solid_threshold=0.88)
+        clean_color = self._clean_color_reference(fg, alpha, solid_threshold=0.94)
 
-        # Blend fringe pixels toward clean color based on how contaminated they are
-        # alpha=0.03 → ~45% clean color, alpha=0.35 → 0%
-        color_delta = np.mean(
-            np.abs(
-                fg[fringe_y, fringe_x, :3].astype(np.int16)
-                - clean_color[fringe_y, fringe_x, :3].astype(np.int16)
-            ),
-            axis=1,
-        )
+        source_colors = fg[fringe_y, fringe_x, :3].astype(np.float32)
+        clean_colors = clean_color[fringe_y, fringe_x, :3].astype(np.float32)
+        color_delta = np.mean(np.abs(source_colors - clean_colors), axis=1)
         contaminated = color_delta > 10.0
         if not contaminated.any():
             return fg
 
         fringe_y = fringe_y[contaminated]
         fringe_x = fringe_x[contaminated]
+        source_colors = source_colors[contaminated]
+        clean_colors = clean_colors[contaminated]
         result = fg.copy()
-        blend = np.clip((0.35 - alpha[fringe_y, fringe_x]) / 0.32, 0.0, 1.0) * 0.45
+
+        # Low-alpha pixels are mostly the old background and need broad color
+        # reconstruction. Chroma/tone disagreement catches saturated spill
+        # (for example a red sunlit object) even when matte refinement raised
+        # the boundary alpha close to solid.
+        source_mean = source_colors.mean(axis=1, keepdims=True)
+        clean_mean = clean_colors.mean(axis=1, keepdims=True)
+        chroma_delta = np.mean(
+            np.abs(
+                (source_colors - source_mean)
+                - (clean_colors - clean_mean)
+            ),
+            axis=1,
+        )
+        tone_delta = np.abs(source_mean[:, 0] - clean_mean[:, 0])
+        opacity_weight = np.clip(
+            (0.94 - alpha[fringe_y, fringe_x]) / 0.915,
+            0.0,
+            1.0,
+        )
+        chroma_weight = np.clip((chroma_delta - 5.0) / 45.0, 0.0, 1.0)
+        tone_weight = np.clip((tone_delta - 20.0) / 100.0, 0.0, 1.0)
+        blend = np.clip(
+            0.62 * opacity_weight
+            + 0.68 * chroma_weight
+            + 0.25 * tone_weight,
+            0.0,
+            0.92,
+        )
         blend = blend[:, np.newaxis].astype(np.float32)
         repaired = np.clip(
             fg[fringe_y, fringe_x].astype(np.float32) * (1.0 - blend)
