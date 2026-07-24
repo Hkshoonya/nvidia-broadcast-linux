@@ -2507,11 +2507,31 @@ class NVBroadcastApp(Adw.Application):
         """Hot-switch to a different camera device."""
         if self.config.video.camera_device == device:
             return
+
+        from nvbroadcast.video.virtual_camera import select_camera_mode
+
+        selected_mode = select_camera_mode(
+            device,
+            self.config.video.width,
+            self.config.video.height,
+            self.config.video.fps,
+        )
         self.config.video.camera_device = device
+        self.config.video.width = selected_mode["width"]
+        self.config.video.height = selected_mode["height"]
+        self.config.video.fps = selected_mode["fps"]
         save_config(self.config)
+
+        if self._window:
+            self._window.sync_video_input_controls(self.config)
+
         if self._streaming:
-            self._stop_broadcast()
-            GLib.timeout_add(500, self._start_broadcast)
+            self.start_pipeline(device, self.config.video.output_format)
+        elif self._window:
+            self._window.set_status(
+                f"Camera: {device} {self.config.video.width}x"
+                f"{self.config.video.height}@{self.config.video.fps}fps"
+            )
 
     # --- Performance Monitor ---
 

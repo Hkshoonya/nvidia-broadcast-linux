@@ -420,6 +420,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         input_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
 
         self._camera_selector = DeviceSelector("Source")
+        self._camera_selector.connect("device-changed", self._on_camera_changed)
         input_card.append(self._camera_selector)
 
         # Query camera capabilities
@@ -1209,6 +1210,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_gpu_changed(self, selector, gpu_str):
         self._app.set_compute_gpu(int(gpu_str))
+
+    def _on_camera_changed(self, selector, device):
+        if self._updating_ui or getattr(self._app, "_restoring", False):
+            return
+        self._app.switch_camera(device)
 
     def _refresh_fps_options(self):
         """Rebuild FPS dropdown for the current resolution. Blocks signal cascade."""
