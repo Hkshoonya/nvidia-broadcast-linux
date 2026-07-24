@@ -264,6 +264,8 @@ class PackagingMetadataTests(unittest.TestCase):
 
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertNotIn("action-gh-release", build_job)
+        self.assertIn("snapcraft upload-metadata", build_job)
+        self.assertIn("matrix.arch == 'arm64'", build_job)
         self.assertIn("permissions:\n      contents: write", attach_job)
         self.assertIn("action-gh-release", attach_job)
 
