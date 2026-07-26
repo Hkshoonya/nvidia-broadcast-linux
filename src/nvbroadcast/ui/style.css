@@ -32,6 +32,14 @@
 @define-color danger_subtle rgba(229, 57, 53, 0.15);
 @define-color recording @destructive_bg_color;
 
+/* GTK 4.22 derives GtkImage baselines from its font metrics. Its default 0px
+   image font produces zero ascent and descent, causing an invalid 0/0 baseline
+   and repeated Gtk-WARNING messages. Keep the font size non-zero until GTK
+   handles zero metrics; icon dimensions remain controlled by their icon size. */
+image {
+    font-size: 1px;
+}
+
 /* ── Window & headerbar ───────────────────────────────────────────────────── */
 window {
     background-color: @bg_primary;
