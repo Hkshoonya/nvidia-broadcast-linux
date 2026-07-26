@@ -163,7 +163,7 @@ class VoiceFX:
                     # Never retry a failing GPU per-block; audio must not
                     # stutter. CPU output is identical (same formula).
                     self._gpu_demoted = True
-                    print(f"[NVIDIA Broadcast] Voice FX GPU demoted to CPU: {e}",
+                    print(f"[NV Broadcast] Voice FX GPU demoted to CPU: {e}",
                           flush=True)
                     result = self._warmth(result, s.warmth)
             else:

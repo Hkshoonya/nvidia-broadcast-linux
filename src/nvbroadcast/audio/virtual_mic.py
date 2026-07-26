@@ -149,13 +149,13 @@ def _create_pulse_virtual_mic() -> bool:
         ]
     )
     if sink.returncode != 0:
-        print(f"[NVIDIA Broadcast] Failed to create Pulse virtual sink: {sink.stderr.strip()}")
+        print(f"[NV Broadcast] Failed to create Pulse virtual sink: {sink.stderr.strip()}")
         return False
 
     try:
         _pulse_sink_module_id = int(sink.stdout.strip())
     except ValueError:
-        print("[NVIDIA Broadcast] Pulse sink module returned an invalid id")
+        print("[NV Broadcast] Pulse sink module returned an invalid id")
         return False
 
     source = _run_pactl(
@@ -171,19 +171,19 @@ def _create_pulse_virtual_mic() -> bool:
         ]
     )
     if source.returncode != 0:
-        print(f"[NVIDIA Broadcast] Failed to create Pulse virtual source: {source.stderr.strip()}")
+        print(f"[NV Broadcast] Failed to create Pulse virtual source: {source.stderr.strip()}")
         _destroy_pulse_virtual_mic()
         return False
 
     try:
         _pulse_source_module_id = int(source.stdout.strip())
     except ValueError:
-        print("[NVIDIA Broadcast] Pulse source module returned an invalid id")
+        print("[NV Broadcast] Pulse source module returned an invalid id")
         _destroy_pulse_virtual_mic()
         return False
 
     time.sleep(0.1)
-    print("[NVIDIA Broadcast] Virtual microphone created (pulse)")
+    print("[NV Broadcast] Virtual microphone created (pulse)")
     return True
 
 
@@ -231,15 +231,15 @@ def _create_pw_loopback_virtual_mic() -> bool:
         time.sleep(0.1)
         if _pw_loopback_process.poll() is not None:
             _pw_loopback_process = None
-            print("[NVIDIA Broadcast] Failed to create pw-loopback virtual microphone")
+            print("[NV Broadcast] Failed to create pw-loopback virtual microphone")
             return False
-        print("[NVIDIA Broadcast] Virtual microphone created (pw-loopback)")
+        print("[NV Broadcast] Virtual microphone created (pw-loopback)")
         return True
     except FileNotFoundError:
-        print("[NVIDIA Broadcast] pw-loopback not found. Install pipewire.")
+        print("[NV Broadcast] pw-loopback not found. Install pipewire.")
         return False
     except Exception as e:
-        print(f"[NVIDIA Broadcast] Failed to create pw-loopback virtual mic: {e}")
+        print(f"[NV Broadcast] Failed to create pw-loopback virtual mic: {e}")
         return False
 
 
@@ -250,7 +250,7 @@ def create_virtual_mic() -> bool:
         return _create_pulse_virtual_mic()
     if backend == "pw-loopback":
         return _create_pw_loopback_virtual_mic()
-    print("[NVIDIA Broadcast] No supported virtual mic backend found")
+    print("[NV Broadcast] No supported virtual mic backend found")
     return False
 
 
@@ -262,7 +262,7 @@ def destroy_virtual_mic():
         sink_ids, source_ids = _list_pulse_virtual_modules()
         if _pulse_sink_module_id is not None or _pulse_source_module_id is not None or sink_ids or source_ids:
             _destroy_pulse_virtual_mic()
-            print("[NVIDIA Broadcast] Virtual microphone removed")
+            print("[NV Broadcast] Virtual microphone removed")
             return
 
     # If we created Pulse modules in this process, unload them directly.
@@ -273,7 +273,7 @@ def destroy_virtual_mic():
             _pw_loopback_process.send_signal(signal.SIGTERM)
             _pw_loopback_process.wait(timeout=5)
         _pw_loopback_process = None
-        print("[NVIDIA Broadcast] Virtual microphone removed")
+        print("[NV Broadcast] Virtual microphone removed")
 
 
 def is_virtual_mic_active() -> bool:

@@ -215,11 +215,11 @@ class DeepFilterDenoiser:
             self._initialized = True
             active = self.session.get_providers()[0]
             device = "GPU" if "CUDA" in active else "CPU"
-            print(f"[NVIDIA Broadcast] Audio denoiser initialized "
+            print(f"[NV Broadcast] Audio denoiser initialized "
                   f"(DeepFilterNet3 on {device})", flush=True)
             return True
         except Exception as e:
-            print(f"[NVIDIA Broadcast] DeepFilterNet init failed: {e}", flush=True)
+            print(f"[NV Broadcast] DeepFilterNet init failed: {e}", flush=True)
             self.session = None
             return False
 

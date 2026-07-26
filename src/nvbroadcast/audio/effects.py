@@ -90,7 +90,7 @@ class AudioEffects:
             if dfn.initialize():
                 self._dfn = dfn
         except Exception as e:
-            print(f"[NVIDIA Broadcast] DeepFilterNet unavailable: {e}", flush=True)
+            print(f"[NV Broadcast] DeepFilterNet unavailable: {e}", flush=True)
 
     def initialize(self) -> bool:
         """Initialize the noise removal engine(s).
@@ -111,10 +111,10 @@ class AudioEffects:
             self._frame_size = rnnoise.FRAME_SIZE  # 480 samples
             self._initialized = True
             if self.active_engine == "rnnoise":
-                print("[NVIDIA Broadcast] Audio denoiser initialized (RNNoise)")
+                print("[NV Broadcast] Audio denoiser initialized (RNNoise)")
             return True
         except Exception as e:
-            print(f"[NVIDIA Broadcast] Failed to initialize audio denoiser: {e}")
+            print(f"[NV Broadcast] Failed to initialize audio denoiser: {e}")
             # DeepFilterNet alone still counts as an initialized denoiser.
             if self._dfn is not None and self._dfn.available:
                 self._initialized = True
@@ -142,7 +142,7 @@ class AudioEffects:
                                                intensity=self._intensity)
             except Exception as e:
                 self._dfn_demoted = True
-                print(f"[NVIDIA Broadcast] DeepFilterNet demoted to RNNoise: {e}",
+                print(f"[NV Broadcast] DeepFilterNet demoted to RNNoise: {e}",
                       flush=True)
 
         if self._state is None:
@@ -181,7 +181,7 @@ class AudioEffects:
             return output
 
         except Exception as e:
-            print(f"[NVIDIA Broadcast] Audio processing error: {e}")
+            print(f"[NV Broadcast] Audio processing error: {e}")
             return audio_data
 
     def cleanup(self):
