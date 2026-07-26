@@ -202,12 +202,13 @@ class AutoCaptureTuningTests(unittest.TestCase):
             set_engine_mode=mock.Mock(),
             set_profile_infer_height=mock.Mock(),
             _apply_edge_config=mock.Mock(),
-            _backend=None,
+            # Single-frame backends do not expose RVM's infer-height cap.
+            _backend=SimpleNamespace(),
             _skip_interval=1,
         )
         app._beautifier = SimpleNamespace(set_compositing=mock.Mock())
         app._video_pipeline = None
-        app._window = None
+        app._window = SimpleNamespace(set_status=mock.Mock())
         app._refresh_inference_policy = mock.Mock()
         app._sync_gpu_frame_path = mock.Mock()
         app._use_nvdec = False
@@ -225,6 +226,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
         apply_performance_profile.assert_called_once_with(app.config, "performance")
         app._video_effects.set_profile_infer_height.assert_called_once_with(288)
         app._sync_gpu_frame_path.assert_called_once_with()
+        app._window.set_status.assert_called_once_with("Mode: Performance | ?p")
 
     @mock.patch("nvbroadcast.app.save_config")
     def test_apply_mode_key_syncs_named_mode_quality_preset(self, _save):

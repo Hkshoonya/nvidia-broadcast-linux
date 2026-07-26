@@ -1474,7 +1474,7 @@ class NVBroadcastApp(Adw.Application):
         save_config(self.config)
 
         b = self._video_effects._backend
-        infer_h = b._MAX_INFER_HEIGHT if b else "?"
+        infer_h = getattr(b, "_MAX_INFER_HEIGHT", "?")
         print(f"[NV Broadcast] Mode: {profile_name} | infer={infer_h} skip={profile['skip_interval']} "
               f"fused={use_fused_kernel} nvdec={use_nvdec} comp={self.config.compositing} "
               f"efps={effects_fps}")
