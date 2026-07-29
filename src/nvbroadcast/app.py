@@ -199,11 +199,16 @@ class NVBroadcastApp(Adw.Application):
         self._manual_low_fps_streak = 0
         self._last_manual_warning = 0.0
         self._last_auto_capture_change = 0.0
+        self._hotkey_manager = None
+        self._hotkey_active = False
+        self._hotkey_status = "Global hotkeys are unavailable"
+        self._hotkey_display: dict[str, str] = {}
         self._transcriber.set_segment_callback(self._on_transcript_segment)
 
     def do_startup(self):
         startup_trace.mark("do_startup begin")
         Adw.Application.do_startup(self)
+        self._register_global_hotkeys()
         Gst.init(None)
         startup_trace.mark("Gst.init done")
         cleanup_old_sessions()
@@ -371,6 +376,7 @@ class NVBroadcastApp(Adw.Application):
                 wizard = SetupWizard(self._window, self)
                 wizard.connect("setup-complete", self._on_setup_complete)
                 wizard.present()
+                GLib.idle_add(self._sync_global_hotkeys)
             elif self.config.auto_start:
                 GLib.idle_add(self._finish_restore_and_auto_start)
             else:
@@ -471,6 +477,7 @@ class NVBroadcastApp(Adw.Application):
     def _finish_restore(self):
         """Release the startup restore guard after initial UI events settle."""
         self._restoring = False
+        self._sync_global_hotkeys()
         return False
 
     def _finish_restore_and_auto_start(self):
@@ -479,7 +486,220 @@ class NVBroadcastApp(Adw.Application):
             self._auto_start()
         finally:
             self._restoring = False
+        self._sync_global_hotkeys()
         return False
+
+    def _register_global_hotkeys(self) -> None:
+        """Export effect actions and select a supported desktop backend."""
+        from nvbroadcast.core.global_hotkeys import (
+            HOTKEY_ACTIONS,
+            GlobalHotkeyManager,
+        )
+
+        for hotkey in HOTKEY_ACTIONS:
+            action = Gio.SimpleAction.new(hotkey.action_id, None)
+            action.set_enabled(False)
+            action.connect(
+                "activate",
+                self._on_global_hotkey_action_activated,
+                hotkey.action_id,
+            )
+            self.add_action(action)
+        try:
+            self._hotkey_manager = GlobalHotkeyManager(
+                self._queue_global_hotkey_action,
+                self._on_global_hotkey_state,
+            )
+        except (
+            ImportError,
+            GLib.Error,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            print(
+                f"[NV Broadcast] Global hotkeys unavailable: {error}",
+                flush=True,
+            )
+            self._hotkey_manager = None
+
+    def _set_global_hotkey_actions_enabled(self, enabled: bool) -> None:
+        from nvbroadcast.core.global_hotkeys import HOTKEY_ACTIONS
+
+        for hotkey in HOTKEY_ACTIONS:
+            action = self.lookup_action(hotkey.action_id)
+            if action is not None:
+                action.set_enabled(bool(enabled))
+
+    def _queue_global_hotkey_action(self, action_id: str) -> None:
+        """Route portal activations through the exported application action."""
+        GLib.idle_add(self._activate_global_hotkey_action, action_id)
+
+    def _activate_global_hotkey_action(self, action_id: str) -> bool:
+        action = self.lookup_action(action_id)
+        if action is not None and action.get_enabled():
+            action.activate(None)
+        return False
+
+    def _on_global_hotkey_action_activated(
+        self,
+        _action,
+        _parameter,
+        action_id: str,
+    ) -> None:
+        GLib.idle_add(self._toggle_effect_from_hotkey, action_id)
+
+    def _toggle_effect_from_hotkey(self, action_id: str) -> bool:
+        if getattr(self, "_restoring", False) or self._window is None:
+            return False
+        controls = {
+            "toggle-background": ("_bg_toggle", "Background"),
+            "toggle-auto-frame": ("_autoframe_toggle", "Auto Frame"),
+            "toggle-eye-contact": ("_eye_contact_toggle", "Eye Contact"),
+            "toggle-mirror": ("_mirror_toggle", "Mirror"),
+            "toggle-mic-noise": ("_noise_toggle", "Mic Noise Removal"),
+        }
+        target = controls.get(action_id)
+        if target is None:
+            return False
+        attribute, title = target
+        toggle = getattr(self._window, attribute, None)
+        if toggle is None or not toggle.get_sensitive():
+            self._window.set_status(f"{title} is not available")
+            return False
+        toggle.active = not toggle.active
+        self._window.set_status(
+            f"{title}: {'On' if toggle.active else 'Off'}"
+        )
+        return False
+
+    def _on_global_hotkey_state(
+        self,
+        active: bool,
+        status: str,
+        display: dict[str, str],
+    ) -> None:
+        self._hotkey_active = bool(active)
+        self._hotkey_status = status
+        if display:
+            self._hotkey_display = dict(display)
+        elif not active:
+            self._hotkey_display = {}
+        if (
+            status == "Global shortcut setup was canceled"
+            and self.config.hotkeys.enabled
+        ):
+            self.config.hotkeys.enabled = False
+            save_config(self.config)
+        self._set_global_hotkey_actions_enabled(
+            active and self.config.hotkeys.enabled
+        )
+        if self._window is not None:
+            self._window.sync_hotkey_settings()
+
+    def _sync_global_hotkeys(self) -> bool:
+        if self._hotkey_manager is None:
+            self._set_global_hotkey_actions_enabled(False)
+            if self._window is not None:
+                self._window.sync_hotkey_settings()
+            return False
+        from nvbroadcast.core.global_hotkeys import (
+            HotkeyValidationError,
+            bindings_from_config,
+            sanitize_bindings,
+        )
+
+        bindings = bindings_from_config(self.config.hotkeys)
+        try:
+            self._set_global_hotkey_actions_enabled(False)
+            self._hotkey_manager.apply(
+                self.config.hotkeys.enabled,
+                bindings,
+            )
+        except HotkeyValidationError as error:
+            self.config.hotkeys.enabled = False
+            for key, value in sanitize_bindings(bindings).items():
+                setattr(self.config.hotkeys, key, value)
+            self._hotkey_manager.apply(
+                False,
+                bindings_from_config(self.config.hotkeys),
+            )
+            self._hotkey_active = False
+            self._hotkey_status = f"{error} Invalid saved shortcuts were cleared."
+            self._hotkey_display = {}
+            self._set_global_hotkey_actions_enabled(False)
+            save_config(self.config)
+        if self._window is not None:
+            self._window.sync_hotkey_settings()
+        return False
+
+    def set_hotkeys_enabled(self, enabled: bool) -> bool:
+        if self._hotkey_manager is None:
+            return False
+        if enabled and not self._hotkey_manager.available:
+            self._hotkey_manager.apply(True, {})
+            return False
+        from nvbroadcast.core.global_hotkeys import bindings_from_config
+
+        if not self._hotkey_manager.apply(
+            enabled,
+            bindings_from_config(self.config.hotkeys),
+        ):
+            return False
+        self.config.hotkeys.enabled = bool(enabled)
+        self._set_global_hotkey_actions_enabled(
+            enabled and self._hotkey_active
+        )
+        save_config(self.config)
+        if self._window is not None:
+            self._window.sync_hotkey_settings()
+        return True
+
+    def set_hotkey_binding(
+        self,
+        config_key: str,
+        accelerator: str,
+    ) -> tuple[bool, str]:
+        from nvbroadcast.core.global_hotkeys import (
+            HotkeyValidationError,
+            bindings_from_config,
+            normalize_bindings,
+        )
+
+        if (
+            self._hotkey_manager is None
+            or not self._hotkey_manager.inline_editable
+        ):
+            return False, "Shortcuts are managed by the desktop"
+        current = bindings_from_config(self.config.hotkeys)
+        if config_key not in current:
+            return False, "Unknown shortcut action"
+        proposed = dict(current)
+        proposed[config_key] = accelerator
+        try:
+            normalized = normalize_bindings(proposed)
+        except HotkeyValidationError as error:
+            return False, str(error)
+        if not self._hotkey_manager.apply(
+            self.config.hotkeys.enabled,
+            normalized,
+        ):
+            self._hotkey_manager.apply(
+                self.config.hotkeys.enabled,
+                current,
+            )
+            return False, self._hotkey_status
+        for key, value in normalized.items():
+            setattr(self.config.hotkeys, key, value)
+        save_config(self.config)
+        if self._window is not None:
+            self._window.sync_hotkey_settings()
+        return True, ""
+
+    def configure_global_hotkeys(self) -> bool:
+        if self._hotkey_manager is None:
+            return False
+        return self._hotkey_manager.configure()
 
     def _on_close_request(self, window):
         """Minimize to tray instead of quitting.
@@ -2744,6 +2964,9 @@ class NVBroadcastApp(Adw.Application):
 
     def do_shutdown(self):
         save_config(self.config)
+        if self._hotkey_manager is not None:
+            self._hotkey_manager.close()
+            self._hotkey_manager = None
         if self._vcam_monitor:
             self._vcam_monitor.stop()
             self._vcam_monitor = None

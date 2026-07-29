@@ -54,6 +54,57 @@ class EffectToggle(Adw.ActionRow):
         self.emit("toggled", switch.get_active())
 
 
+class HotkeyRow(Adw.ActionRow):
+    """A compact shortcut binding row with edit and clear commands."""
+
+    __gsignals__ = {
+        "edit-requested": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "clear-requested": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+
+    def __init__(self, title: str):
+        super().__init__(title=title)
+        self._binding_label = Gtk.Label(label="Not set")
+        self._binding_label.set_width_chars(14)
+        self._binding_label.set_max_width_chars(24)
+        self._binding_label.set_xalign(1)
+        self._binding_label.set_ellipsize(3)
+        self._binding_label.add_css_class("dim-label")
+        self.add_suffix(self._binding_label)
+
+        self._edit_button = Gtk.Button.new_from_icon_name("input-keyboard-symbolic")
+        self._edit_button.set_size_request(36, 36)
+        self._edit_button.set_valign(Gtk.Align.CENTER)
+        self._edit_button.add_css_class("flat")
+        self._edit_button.set_tooltip_text(f"Set {title} shortcut")
+        self._edit_button.connect(
+            "clicked",
+            lambda _button: self.emit("edit-requested"),
+        )
+        self.add_suffix(self._edit_button)
+
+        self._clear_button = Gtk.Button.new_from_icon_name("edit-clear-symbolic")
+        self._clear_button.set_size_request(36, 36)
+        self._clear_button.set_valign(Gtk.Align.CENTER)
+        self._clear_button.add_css_class("flat")
+        self._clear_button.set_tooltip_text(f"Clear {title} shortcut")
+        self._clear_button.connect(
+            "clicked",
+            lambda _button: self.emit("clear-requested"),
+        )
+        self.add_suffix(self._clear_button)
+
+    def set_binding(self, label: str) -> None:
+        self._binding_label.set_text(label or "Not set")
+        self._clear_button.set_visible(bool(label))
+
+    def set_inline_editable(self, editable: bool) -> None:
+        self._edit_button.set_visible(editable)
+        self._clear_button.set_visible(
+            editable and self._binding_label.get_text() != "Not set"
+        )
+
+
 class EffectSlider(Gtk.Box):
     """A labeled slider for effect intensity."""
 

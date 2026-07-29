@@ -63,6 +63,8 @@ def main() -> int:
             "tests.test_gpu_frame_path",
             "tests.test_video_pipeline",
             "tests.test_blur_controls",
+            "tests.test_global_hotkeys",
+            "tests.test_app_hotkeys",
             "tests.test_app_gpu_frame_policy",
             "tests.test_app_vcam_policy",
             "tests.test_vcam_monitor",

@@ -5,10 +5,11 @@
 #
 """User configuration management - persists all settings across sessions."""
 
+import json
 import os
 import tomllib
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from nvbroadcast.core.constants import CONFIG_DIR, CONFIG_FILE, VIRTUAL_CAM_DEVICE
 
@@ -81,6 +82,26 @@ class AudioConfig:
     voice_fx_compression: float = 0.7
     voice_fx_gate_threshold: float = 0.0
     voice_fx_gain: float = 0.05
+
+
+@dataclass
+class HotkeyConfig:
+    """Application-wide effect shortcuts."""
+    enabled: bool = False
+    toggle_background: str = ""
+    toggle_auto_frame: str = ""
+    toggle_eye_contact: str = ""
+    toggle_mirror: str = ""
+    toggle_mic_noise: str = ""
+
+
+_HOTKEY_BINDING_FIELDS = (
+    "toggle_background",
+    "toggle_auto_frame",
+    "toggle_eye_contact",
+    "toggle_mirror",
+    "toggle_mic_noise",
+)
 
 
 # Performance profiles: control where the workload runs (CPU vs GPU)
@@ -177,6 +198,7 @@ class AppConfig:
     ui_card_expanded: dict[str, bool] = field(default_factory=dict)
     video: VideoConfig = field(default_factory=VideoConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
 
 
 def build_default_config(existing: AppConfig | None = None) -> AppConfig:
@@ -197,6 +219,12 @@ def build_default_config(existing: AppConfig | None = None) -> AppConfig:
     default.auto_mode = existing.auto_mode
     default.ui_card_expanded = dict(existing.ui_card_expanded)
     default.video.vcam_device = existing.video.vcam_device
+    default.hotkeys = HotkeyConfig(
+        **{
+            key: getattr(existing.hotkeys, key)
+            for key in ("enabled", *_HOTKEY_BINDING_FIELDS)
+        }
+    )
     return default
 
 
@@ -286,6 +314,19 @@ def _load_from_toml(filepath: Path) -> AppConfig:
                 migrated = get_voice_fx_preset("Studio")
                 if migrated is not None:
                     config.audio.voice_fx_gate_threshold = migrated.gate_threshold
+    hotkeys = data.get("hotkeys", {})
+    if isinstance(hotkeys, dict):
+        enabled = hotkeys.get("enabled")
+        if isinstance(enabled, bool):
+            config.hotkeys.enabled = enabled
+        for key in _HOTKEY_BINDING_FIELDS:
+            value = hotkeys.get(key)
+            if (
+                isinstance(value, str)
+                and len(value) <= 128
+                and all(char.isprintable() for char in value)
+            ):
+                setattr(config.hotkeys, key, value)
     ui_cards = data.get("ui", {}).get("cards", {})
     if isinstance(ui_cards, dict):
         config.ui_card_expanded = {
@@ -328,6 +369,7 @@ def _config_to_toml(config: AppConfig) -> str:
     """Serialize AppConfig to TOML string (complete — all fields)."""
     v = config.video
     a = config.audio
+    h = config.hotkeys
     b = v.beauty
     e = v.edge
     lines = [
@@ -407,6 +449,13 @@ def _config_to_toml(config: AppConfig) -> str:
         f"voice_fx_compression = {a.voice_fx_compression}",
         f"voice_fx_gate_threshold = {a.voice_fx_gate_threshold}",
         f"voice_fx_gain = {a.voice_fx_gain}",
+        "",
+        "[hotkeys]",
+        f"enabled = {_bool(h.enabled)}",
+        *(
+            f"{key} = {json.dumps(getattr(h, key), ensure_ascii=True)}"
+            for key in _HOTKEY_BINDING_FIELDS
+        ),
     ]
     if config.ui_card_expanded:
         lines.extend(["", "[ui.cards]"])
