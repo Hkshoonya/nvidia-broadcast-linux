@@ -282,8 +282,13 @@ class PackagingMetadataTests(unittest.TestCase):
         review_step = build_job.split(
             "- name: Upload to Snap Store for review", 1
         )[1].split("- name: Publish to Snap Store", 1)[0]
+        publish_step = build_job.split(
+            "- name: Publish to Snap Store", 1
+        )[1].split("- name: Update Snap Store metadata", 1)[0]
         self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", review_step)
         self.assertNotIn("secrets.SNAP_TOKEN", review_step)
+        self.assertIn("timeout-minutes: 30", review_step)
+        self.assertIn("timeout-minutes: 30", publish_step)
         self.assertIn("permissions:\n      contents: write", attach_job)
         self.assertIn("action-gh-release", attach_job)
         self.assertNotIn("inputs.candidate", attach_job)

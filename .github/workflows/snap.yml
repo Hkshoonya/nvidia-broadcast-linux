@@ -154,12 +154,14 @@ jobs:
 
       - name: Upload to Snap Store for review
         if: steps.store-target.outputs.action == 'upload'
+        timeout-minutes: 30
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_CANDIDATE_TOKEN }}
         run: snapcraft upload "${{ steps.snapcraft.outputs.snap }}"
 
       - name: Publish to Snap Store
         if: steps.store-target.outputs.action == 'release'
+        timeout-minutes: 30
         uses: snapcore/action-publish@214b86e5ca036ead1668c79afb81e550e6c54d40 # v1
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ steps.store-target.outputs.channel == 'stable' && secrets.SNAP_TOKEN || secrets.SNAP_CANDIDATE_TOKEN }}
