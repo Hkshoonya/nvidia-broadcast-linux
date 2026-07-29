@@ -31,6 +31,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         config.video.output_format = "I420"
         config.video.vcam_device = "/dev/video11"
         config.video.auto_frame_mode = "stable"
+        config.video.eye_contact_mode = "gaze_lock"
         config.video.blur_intensity = 0.9
         config.video.blur_dim = 0.4
         config.video.blur_desaturate = 0.75
@@ -62,6 +63,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(loaded.video.output_format, "I420")
         self.assertEqual(loaded.video.vcam_device, "/dev/video11")
         self.assertEqual(loaded.video.auto_frame_mode, "stable")
+        self.assertEqual(loaded.video.eye_contact_mode, "gaze_lock")
         self.assertEqual(loaded.video.blur_intensity, 0.9)
         self.assertEqual(loaded.video.blur_dim, 0.4)
         self.assertEqual(loaded.video.blur_desaturate, 0.75)
@@ -154,6 +156,19 @@ class ConfigPersistenceTests(unittest.TestCase):
             loaded = _load_from_toml(path)
 
         self.assertEqual(loaded.video.auto_frame_mode, "center")
+
+    def test_invalid_eye_contact_mode_loads_as_natural(self):
+        raw = '[video]\neye_contact_mode = "broken"\n'
+
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(raw)
+            loaded = _load_from_toml(path)
+
+        self.assertEqual(loaded.video.eye_contact_mode, "natural")
 
     def test_legacy_natural_voice_fx_defaults_migrate_to_audible_preset(self):
         legacy = """

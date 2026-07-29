@@ -56,6 +56,7 @@ class VideoConfig:
     mirror: bool = True
     eye_contact: bool = False
     eye_contact_intensity: float = 0.35
+    eye_contact_mode: str = "natural"
     relighting: bool = False
     relighting_intensity: float = 0.6
     edge: EdgeConfig = field(default_factory=EdgeConfig)
@@ -225,6 +226,8 @@ def _load_from_toml(filepath: Path) -> AppConfig:
                 setattr(config.video, k, v)
         if config.video.auto_frame_mode not in ("center", "stable"):
             config.video.auto_frame_mode = "center"
+        if config.video.eye_contact_mode not in ("natural", "gaze_lock"):
+            config.video.eye_contact_mode = "natural"
         if "edge" in data["video"]:
             for k, v in data["video"]["edge"].items():
                 if hasattr(config.video.edge, k):
@@ -369,6 +372,7 @@ def _config_to_toml(config: AppConfig) -> str:
         f"mirror = {_bool(v.mirror)}",
         f"eye_contact = {_bool(v.eye_contact)}",
         f"eye_contact_intensity = {v.eye_contact_intensity}",
+        f'eye_contact_mode = "{v.eye_contact_mode}"',
         f"relighting = {_bool(v.relighting)}",
         f"relighting_intensity = {v.relighting_intensity}",
         "",

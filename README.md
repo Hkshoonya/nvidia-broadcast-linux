@@ -58,7 +58,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for latest updates!
 - **Green Screen** — Solid green for OBS chroma key
 - **Auto Frame** — Face tracking with Center Face and Stable Background modes
 - **Video Enhancement** — Skin smooth, enhance, sharpen, denoise, vignette
-- **Eye Contact Correction** — MediaPipe iris tracking redirects gaze to camera
+- **Eye Contact Correction** — Natural and Gaze Lock modes redirect gaze to camera
 - **Face Relighting** — Fill light guided by the scene
 - **Recording to MP4** — NVENC hardware encode (x264 fallback)
 - **User Profiles** — 5 built-in (Meeting, Streaming, etc.) + custom save/load
