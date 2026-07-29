@@ -1086,7 +1086,7 @@ button:focus-visible, a:focus-visible {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#76b900" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/></svg>
         </div>
         <h3>Eye Contact</h3>
-        <p>Look at the camera even when reading your screen.</p>
+        <p>Natural correction or Gaze Lock while reading your screen.</p>
       </div>
 
       <div class="feature-card reveal" data-cat="video" role="article">
@@ -1412,8 +1412,8 @@ button:focus-visible, a:focus-visible {
           <div class="terminal-body" role="code">
             <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('deb')">Copy</button>
             <div class="terminal-line"><span class="comment"># Download the .deb from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.3.0-1_all.deb</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_1.3.0-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.4.0-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_1.4.0-1_all.deb</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo apt-get install -f</span></div>
             <div class="terminal-line"><span class="comment"># Upgrade later: repeat the same three commands with the newer .deb</span></div>
           </div>
@@ -1433,8 +1433,8 @@ button:focus-visible, a:focus-visible {
           <div class="terminal-body" role="code">
             <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('rpm')">Copy</button>
             <div class="terminal-line"><span class="comment"># Download the .rpm from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.3.0-1.noarch.rpm</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-1.3.0-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.4.0-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-1.4.0-1.noarch.rpm</span></div>
             <div class="terminal-line"><span class="comment"># Upgrade later: download the newer .rpm and run the same dnf install command</span></div>
           </div>
         </div>
@@ -1457,7 +1457,7 @@ button:focus-visible, a:focus-visible {
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo snap refresh nvbroadcast</span></div>
           </div>
         </div>
-        <p class="install-note">For systems with Snap support. Tag pushes publish the current stable build to the Snap Store, and `snap refresh nvbroadcast` upgrades in place. Users on older builds should refresh to `1.3.0` for the device-resident GPU video path, stronger blur controls, safe camera and microphone power saving, corrected Apple Silicon camera selection, and cleaner sunlit replacement edges. Linux arm64 omits MediaPipe-dependent face effects until upstream provides a wheel compatible with patched Protobuf; background effects, virtual devices, recording, and meeting tools remain available.</p>
+        <p class="install-note">For systems with Snap support. Tag pushes publish the current stable build to the Snap Store, and `snap refresh nvbroadcast` upgrades in place. Users on older builds should refresh to `1.4.0` for rebindable global effect hotkeys, optional Gaze Lock, live camera switching, and reliable background processing during quality or mode changes. Linux arm64 omits MediaPipe-dependent face effects until upstream provides a wheel compatible with patched Protobuf; background effects, virtual devices, recording, and meeting tools remain available.</p>
       </div>
 
       <!-- Arch -->
@@ -1498,8 +1498,8 @@ button:focus-visible, a:focus-visible {
           </div>
         </div>
         <p class="install-note">
-          Existing configured installs can download the update package: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/NVBroadcast-1.3.0-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.3.0-1.pkg</a><br>
-          Requires Apple Silicon, macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio. After installing OBS, open it once, start and stop Virtual Camera, then close OBS. Intel macOS is not included in v1.3.0 because a secure current MediaPipe wheel is unavailable.
+          Existing configured installs can download the update package: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/NVBroadcast-1.4.0-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.4.0-1.pkg</a><br>
+          Requires Apple Silicon, macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio. After installing OBS, open it once, start and stop Virtual Camera, then close OBS. Intel macOS is not included in v1.4.0 because a secure current MediaPipe wheel is unavailable.
         </p>
       </div>
 
@@ -1678,8 +1678,8 @@ document.querySelectorAll('.install-tab').forEach(tab => {
 /* ── Copy command ── */
 const commands = {
   source: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
-  deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.3.0-1_all.deb && sudo dpkg -i nvbroadcast_1.3.0-1_all.deb && sudo apt-get install -f',
-  rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.3.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.3.0-1.noarch.rpm',
+  deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.4.0-1_all.deb && sudo dpkg -i nvbroadcast_1.4.0-1_all.deb && sudo apt-get install -f',
+  rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.4.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.4.0-1.noarch.rpm',
   snap: 'sudo snap install nvbroadcast || sudo snap refresh nvbroadcast',
   arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
   macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'

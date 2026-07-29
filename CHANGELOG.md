@@ -2,8 +2,18 @@
 
 ## Unreleased
 
+## v1.4.0 - Global Controls, Gaze Lock, and Live Video Reliability Update
+
 - **Rebindable Global Effect Hotkeys** - Linux users can toggle Background, Auto Frame, Eye Contact, Mirror, and Mic Noise Removal while another app has focus. Supported desktops use the XDG GlobalShortcuts portal; GNOME systems without that portal fall back to isolated custom keybindings with fixed application actions, duplicate and unsafe bindings are rejected, and recording actions remain excluded ([Issue #45](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/45))
 - **Optional Gaze Lock** - Eye Contact now offers Natural and Gaze Lock modes. Gaze Lock holds small coordinated eye movements closer to the camera target while retaining blink fallback, binocular stability checks, and smooth head-pose updates ([Issue #38](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/38))
+- **Live Camera Source Switching** - Changing the selected physical camera updates the active capture pipeline without requiring an application restart
+- **Safer Profile Switching** - Profiles now apply correctly when a video backend can provide only one current frame, preventing stale-frame failures during live configuration changes
+- **Crash-Safe Background Mode Changes** - RVM quality and processing-mode changes now rebuild, warm, and atomically replace the inference session while serializing concurrent reloads. CUDA allocation failures trigger a clean provider rebuild and retain CPU fallback instead of leaving the app stuck on the original camera image
+- **Cleaner Hair and Facial-Hair Edges** - Ultra quality retains more fine foreground detail and suppresses neutral or bright background spill around head hair, beards, and other soft replacement boundaries without recoloring the solid subject
+- **Quieter, Consistent Diagnostics** - GTK image baseline warnings are removed and audio/video runtime logs use a consistent NV Broadcast prefix
+- **Community Release** - Live camera switching, safer profile switching, GTK warning cleanup, and log harmonization were contributed by Cédric Prezelin ([`@Tenshock`](https://github.com/Tenshock))
+
+> If you are on `v1.3.0` or older, update to `v1.4.0`. This is the recommended stable release for global effect controls, optional Gaze Lock, live camera switching, and reliable background processing during quality or mode changes.
 
 ## v1.3.0 - GPU Video, Power Save, and Blur Quality Update
 

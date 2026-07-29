@@ -31,7 +31,7 @@ fi
 
 MACOS_ARCH=$(uname -m)
 if [[ "$MACOS_ARCH" != "arm64" ]]; then
-    echo -e "${RED}Error: v1.3.0 supports Apple Silicon Macs only.${NC}"
+    echo -e "${RED}Error: v1.4.0 supports Apple Silicon Macs only.${NC}"
     echo "A secure current MediaPipe wheel is not available for Intel macOS."
     exit 1
 fi
