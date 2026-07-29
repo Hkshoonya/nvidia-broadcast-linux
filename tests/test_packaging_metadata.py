@@ -277,6 +277,13 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('snapcraft upload "${{ steps.snapcraft.outputs.snap }}"', build_job)
         self.assertIn("release: ${{ steps.store-target.outputs.channel }}", build_job)
         self.assertIn("steps.store-target.outputs.channel == 'stable'", build_job)
+        self.assertIn("secrets.SNAP_TOKEN", build_job)
+        self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", build_job)
+        review_step = build_job.split(
+            "- name: Upload to Snap Store for review", 1
+        )[1].split("- name: Publish to Snap Store", 1)[0]
+        self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", review_step)
+        self.assertNotIn("secrets.SNAP_TOKEN", review_step)
         self.assertIn("permissions:\n      contents: write", attach_job)
         self.assertIn("action-gh-release", attach_job)
         self.assertNotIn("inputs.candidate", attach_job)
