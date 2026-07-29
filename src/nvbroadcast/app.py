@@ -1644,7 +1644,8 @@ class NVBroadcastApp(Adw.Application):
 
     def set_performance_profile(self, profile_name: str, compositing: str | None = None,
                                 use_tensorrt: bool = False, use_fused_kernel: bool = False,
-                                use_nvdec: bool = False, mode_key: str | None = None):
+                                use_nvdec: bool = False, mode_key: str | None = None,
+                                quality_preset: str | None = None):
         """Switch performance profile and apply its live processing policy."""
         from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
         if profile_name not in PERFORMANCE_PROFILES:
@@ -1656,8 +1657,20 @@ class NVBroadcastApp(Adw.Application):
             self._video_effects.set_compositing(compositing)
             self._beautifier.set_compositing(compositing)
 
-        # Apply engine mode (TensorRT / Fused CUDA kernel)
-        self._video_effects.set_engine_mode(use_tensorrt, use_fused_kernel)
+        profile_infer_height = self._profile_infer_height(
+            profile_name,
+            use_tensorrt=use_tensorrt,
+            use_fused_kernel=use_fused_kernel,
+        )
+
+        # Apply model quality, inference dimensions, TensorRT, and the fused
+        # path as one transition so no frame can observe mixed mode settings.
+        self._video_effects.set_engine_mode(
+            use_tensorrt,
+            use_fused_kernel,
+            quality=quality_preset,
+            profile_infer_height=profile_infer_height,
+        )
         self.config.use_tensorrt = use_tensorrt
         self.config.use_fused_kernel = use_fused_kernel
 
@@ -1674,13 +1687,6 @@ class NVBroadcastApp(Adw.Application):
 
         # Model settings update immediately. A CPU/GPU transport change asks
         # VideoPipeline for its normal teardown-safe internal rebuild below.
-        self._video_effects.set_profile_infer_height(
-            self._profile_infer_height(
-                profile_name,
-                use_tensorrt=use_tensorrt,
-                use_fused_kernel=use_fused_kernel,
-            )
-        )
         self._video_effects._skip_interval = profile["skip_interval"]
         self._video_effects._apply_edge_config(self.config.video.edge)
 
@@ -1710,6 +1716,7 @@ class NVBroadcastApp(Adw.Application):
             return False
 
         profile, comp, trt, fused, nvdec = mapped
+        expected_quality = self._mode_quality_preset(mode_key)
         self.set_performance_profile(
             profile,
             compositing=comp,
@@ -1717,8 +1724,8 @@ class NVBroadcastApp(Adw.Application):
             use_fused_kernel=fused,
             use_nvdec=nvdec,
             mode_key=mode_key,
+            quality_preset=expected_quality,
         )
-        expected_quality = self._mode_quality_preset(mode_key)
         if expected_quality:
             self._video_effects.quality = expected_quality
             self.config.video.quality_preset = expected_quality

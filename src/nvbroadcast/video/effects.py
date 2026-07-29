@@ -558,16 +558,23 @@ class _RVMBackend:
             msg += " [TensorRT build on first frame]"
         return msg
 
+    def _release_active_session(self) -> None:
+        """Detach the active session before collecting its GPU allocations."""
+        session = self.session
+        self.session = None
+        self._invalidate_iobinding()
+        _release_session(session)
+
     def _fallback_to_cuda(self):
         """Recreate the session on CUDA after TRT runtime/build failure."""
         if self._base_model_path is None:
             return
-        _release_session(self.session)
+        self._release_active_session()
+        self.reset_state()
         self.session = _create_session(self._base_model_path, self._gpu_index, use_tensorrt=False)
         self._active_trt = False
         self._trt_disabled = True
         self._trt_session_shape = None
-        self.reset_state()
         if not self._trt_fallback_logged:
             print("[NV Broadcast] TensorRT runtime failed during inference - falling back to CUDA", flush=True)
             self._trt_fallback_logged = True
@@ -588,7 +595,8 @@ class _RVMBackend:
         providers = self.session.get_providers()
         if providers and "CUDAExecutionProvider" in providers[0]:
             return
-        _release_session(self.session)
+        self._release_active_session()
+        self.reset_state()
         self.session = _create_session(self._base_model_path, self._gpu_index, use_tensorrt=False)
 
     def _sync_runtime_provider_state(self) -> None:
@@ -646,25 +654,55 @@ class _RVMBackend:
             "cuda_call",
             "cudnn",
             "cuda error",
+            "bfcarena::allocaterawinternal",
+            "cuda out of memory",
+            "cudaerror_memoryallocation",
         )
-        return any(token in msg for token in tokens)
+        arena_exhausted = (
+            "available memory of" in msg
+            and "requested bytes of" in msg
+        )
+        return arena_exhausted or any(token in msg for token in tokens)
 
     def _recover_cuda_session(self, exc: Exception) -> bool:
         """Recreate the CUDA session after a runtime failure."""
         if self._base_model_path is None:
             return False
         try:
-            _release_session(self.session)
-            self.session = _create_session(self._base_model_path, self._gpu_index, use_tensorrt=False)
-            self._active_trt = False
-            self._trt_disabled = False
-            self._trt_session_shape = None
+            self._release_active_session()
             self.reset_state()
-            if not self._cuda_recovery_logged:
-                print(
-                    f"[NV Broadcast] Recreated CUDA inference session after runtime failure: {exc}",
-                    flush=True,
+            using_cpu = False
+            cuda_recovery_error = ""
+            try:
+                self.session = _create_session(
+                    self._base_model_path,
+                    self._gpu_index,
+                    use_tensorrt=False,
                 )
+            except Exception as cuda_error:
+                cuda_recovery_error = str(cuda_error)
+                self.session = _create_session(
+                    self._base_model_path,
+                    self._gpu_index,
+                    cpu_only=True,
+                )
+                using_cpu = True
+            self._active_trt = False
+            self._trt_disabled = using_cpu
+            self._trt_session_shape = None
+            if not self._cuda_recovery_logged:
+                if using_cpu:
+                    print(
+                        "[NV Broadcast] CUDA session recovery failed; "
+                        f"using CPU inference: {cuda_recovery_error}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "[NV Broadcast] Recreated CUDA inference session "
+                        f"after runtime failure: {exc}",
+                        flush=True,
+                    )
                 self._cuda_recovery_logged = True
             return True
         except Exception:
@@ -1047,8 +1085,7 @@ class _RVMBackend:
             print("[NV Broadcast] RVM recurrent states reset", flush=True)
 
     def cleanup(self):
-        _release_session(self.session)
-        self.session = None
+        self._release_active_session()
         self._r1 = self._r2 = self._r3 = self._r4 = None
         self._state_input_shape = None
         self._inference_gamma = None
@@ -1467,11 +1504,13 @@ class _LearnedMatteRefiner:
 # ─── Main VideoEffects Class ─────────────────────────────────────────────────
 
 class VideoEffects:
+    _DETAIL_QUALITY_PRESETS = frozenset({"quality", "ultra"})
+
     def __init__(self, gpu_index: int = COMPUTE_GPU_INDEX, edge_config=None,
                  compositing: str = "cpu"):
         self._gpu_index = gpu_index
         self._initialized = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._state_lock = threading.Lock()
         self._quality = "quality"
         self._model_type = "rvm"
@@ -1518,6 +1557,7 @@ class VideoEffects:
         self._temporal_strength = 0.34  # EMA weight for temporal smoothing
         self._engine_reload_generation = 0
         self._engine_reload_in_progress = False
+        self._engine_reload_lock = threading.Lock()
         self._last_frame_size = None
         self._fused_face_mask = None
         self._fused_vignette = None
@@ -1713,26 +1753,21 @@ class VideoEffects:
 
     @quality.setter
     def quality(self, value: str):
-        if self._model_type != "rvm":
-            return  # Quality presets only apply to RVM
-        if value not in QUALITY_PRESETS or value == self._quality:
-            return
-        old = self._quality
-        self._quality = value
-        if self._initialized:
-            old_model = QUALITY_PRESETS[old]["model"]
-            new_model = QUALITY_PRESETS[value]["model"]
-            if old_model != new_model:
-                # Different model file — full reload
-                self._cleanup_backend()
-                self.initialize()
-            else:
-                # Same model, different downsample — just update ratio
-                with self._lock:
-                    if isinstance(self._backend, _RVMBackend):
-                        self._backend._downsample_ratio = np.array(
-                            [QUALITY_PRESETS[value]["downsample"]], dtype=np.float32
-                        )
+        with self._lock:
+            if self._model_type != "rvm":
+                return  # Quality presets only apply to RVM
+            if value not in QUALITY_PRESETS or value == self._quality:
+                return
+            self._quality = value
+            if self._initialized:
+                # Every preset change can alter the model or recurrent tensor
+                # dimensions. Rebuild the session instead of mutating a live
+                # RVM session, whose CUDA arena retains the old allocation
+                # pattern.
+                self._schedule_engine_reload(
+                    self._use_tensorrt,
+                    self._resolve_max_infer_height(),
+                )
 
     @property
     def intensity(self) -> float:
@@ -1926,44 +1961,48 @@ class VideoEffects:
             warm_frame[:, :, 3] = 255
 
         def _worker():
-            try:
-                backend, msg = self._build_backend()
-                if hasattr(backend, '_MAX_INFER_HEIGHT'):
-                    old_h = backend._MAX_INFER_HEIGHT
-                    backend._MAX_INFER_HEIGHT = infer_h
-                    if old_h != infer_h:
-                        backend.reset_state()
-                else:
-                    old_h = infer_h
-
-                if warm_frame is not None:
-                    try:
-                        backend.infer(warm_frame, warm_frame.shape[1], warm_frame.shape[0])
-                    except Exception as warm_error:
-                        raise RuntimeError(f"backend warmup failed: {warm_error}") from warm_error
-
+            with self._engine_reload_lock:
                 with self._lock:
                     if generation != self._engine_reload_generation:
-                        backend.cleanup()
                         return
-                    previous = self._backend
-                    self._backend = backend
-                    self._initialized = True
-                    self._engine_reload_in_progress = False
-                self._prepare_backend_handoff()
-                if previous is not None and previous is not backend:
-                    previous.cleanup()
-                print(f"[NV Broadcast] {msg}")
-                if hasattr(backend, '_MAX_INFER_HEIGHT') and old_h != infer_h:
-                    print(f"[NV Broadcast] Inference resolution: {old_h}p → {infer_h}p")
-            except Exception as e:
-                print(f"[NV Broadcast] Failed to reload model backend: {e}")
-                with self._lock:
-                    if generation == self._engine_reload_generation:
+                try:
+                    backend, msg = self._build_backend()
+                    if hasattr(backend, '_MAX_INFER_HEIGHT'):
+                        old_h = backend._MAX_INFER_HEIGHT
+                        backend._MAX_INFER_HEIGHT = infer_h
+                        if old_h != infer_h:
+                            backend.reset_state()
+                    else:
+                        old_h = infer_h
+
+                    if warm_frame is not None:
+                        try:
+                            backend.infer(warm_frame, warm_frame.shape[1], warm_frame.shape[0])
+                        except Exception as warm_error:
+                            raise RuntimeError(f"backend warmup failed: {warm_error}") from warm_error
+
+                    with self._lock:
+                        if generation != self._engine_reload_generation:
+                            backend.cleanup()
+                            return
+                        previous = self._backend
+                        self._backend = backend
+                        self._initialized = True
                         self._engine_reload_in_progress = False
-                        if old_backend is not None:
-                            self._backend = old_backend
-                            self._initialized = True
+                    self._prepare_backend_handoff()
+                    if previous is not None and previous is not backend:
+                        previous.cleanup()
+                    print(f"[NV Broadcast] {msg}")
+                    if hasattr(backend, '_MAX_INFER_HEIGHT') and old_h != infer_h:
+                        print(f"[NV Broadcast] Inference resolution: {old_h}p → {infer_h}p")
+                except Exception as e:
+                    print(f"[NV Broadcast] Failed to reload model backend: {e}")
+                    with self._lock:
+                        if generation == self._engine_reload_generation:
+                            self._engine_reload_in_progress = False
+                            if old_backend is not None:
+                                self._backend = old_backend
+                                self._initialized = True
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -2321,7 +2360,7 @@ class VideoEffects:
         immediately visible as a halo. This path keeps replacement mattes more
         stable without smearing motion.
         """
-        preserve_detail = self._quality == "quality"
+        preserve_detail = self._quality in self._DETAIL_QUALITY_PRESETS
         with self._state_lock:
             if matte_version is not None and matte_version != self._matte_version:
                 return alpha
@@ -2529,7 +2568,7 @@ class VideoEffects:
         """
         if matte is None or min(matte.shape[:2]) < 8:
             return matte
-        preserve_detail = self._quality == "quality"
+        preserve_detail = self._quality in self._DETAIL_QUALITY_PRESETS
 
         h, w = matte.shape[:2]
         transition = (matte > 0.05) & (matte < 0.95)
@@ -2875,11 +2914,23 @@ class VideoEffects:
 
     def gpu_output_eligible(self) -> bool:
         """Whether the device-resident composite path can currently run."""
+        with self._lock:
+            backend = self._backend
+            session = getattr(backend, "session", None)
+            try:
+                providers = session.get_providers() if session is not None else ()
+            except Exception:
+                providers = ()
+            has_gpu_provider = any(
+                provider in ("CUDAExecutionProvider", "TensorrtExecutionProvider")
+                for provider in providers
+            )
         return (
             self._bg_removal_enabled
             and self._initialized
             and self._compositing in ("cupy", "gstreamer_gl")
             and self._gpu_matte_eligible()
+            and has_gpu_provider
             and _get_fused_kernel() is not None
         )
 
@@ -3003,6 +3054,22 @@ class VideoEffects:
                     except Exception as e:
                         if hasattr(backend, "_invalidate_iobinding"):
                             backend._invalidate_iobinding()
+                        is_cuda_error = getattr(
+                            backend,
+                            "_is_cuda_runtime_error",
+                            None,
+                        )
+                        recover_cuda = getattr(
+                            backend,
+                            "_recover_cuda_session",
+                            None,
+                        )
+                        if (
+                            callable(is_cuda_error)
+                            and callable(recover_cuda)
+                            and is_cuda_error(e)
+                        ):
+                            recover_cuda(e)
                         if not self._gpu_infer_warned:
                             self._gpu_infer_warned = True
                             print(f"[NV Broadcast] GPU-resident inference failed, "
@@ -3231,7 +3298,9 @@ class VideoEffects:
     ) -> np.ndarray:
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
         is_replace = self._bg_mode == "replace"
-        preserve_detail = is_replace and self._quality == "quality"
+        preserve_detail = (
+            is_replace and self._quality in self._DETAIL_QUALITY_PRESETS
+        )
         preserve_holes = None
         preserve_slits = None
         if is_replace:
@@ -3570,42 +3639,58 @@ class VideoEffects:
 
     # ─── Compositing ─────────────────────────────────────────────────────
 
-    def set_engine_mode(self, use_tensorrt: bool, use_fused_kernel: bool):
+    def set_engine_mode(self, use_tensorrt: bool, use_fused_kernel: bool,
+                        quality: str | None = None,
+                        profile_infer_height: int | None = None):
         """Set inference/compositing engine.
 
         Zeus/Killer modes use aggressive 480p/360p pre-downsampling for faster inference.
         DocZeus/Killer modes use a fused CUDA kernel for single-pass compositing.
         """
-        self._use_tensorrt = use_tensorrt
-        self._use_fused_kernel = use_fused_kernel
-        self._refresh_temporal_strength()
-        if self._backend and hasattr(self._backend, '_MAX_INFER_HEIGHT'):
-            new_h = self._resolve_max_infer_height()
+        reload_backend = False
+        changed = False
+        old_h = None
+        with self._lock:
+            if (
+                quality is not None
+                and self._model_type == "rvm"
+                and quality in QUALITY_PRESETS
+            ):
+                self._quality = quality
+            if profile_infer_height is not None:
+                infer_h = int(profile_infer_height) & ~1
+                self._requested_non_trt_infer_height = max(
+                    240,
+                    min(720, infer_h),
+                )
+            self._use_tensorrt = use_tensorrt
+            self._use_fused_kernel = use_fused_kernel
+            self._refresh_temporal_strength()
 
-            reload_backend = False
-            old_h = new_h
-            changed = False
-            with self._lock:
-                backend = self._backend
-                if backend is None or not hasattr(backend, '_MAX_INFER_HEIGHT'):
-                    return
-                current_trt = bool(getattr(backend, "_trt_requested", False))
-                reload_backend = current_trt != bool(use_tensorrt)
-                if not reload_backend and hasattr(backend, "set_tensorrt_requested"):
-                    backend.set_tensorrt_requested(use_tensorrt)
-                old_h = backend._MAX_INFER_HEIGHT
-                if not reload_backend:
-                    backend._MAX_INFER_HEIGHT = new_h
-                    # Only reset recurrent states if resolution actually changed
-                    if old_h != new_h:
-                        backend.reset_state()
-                        changed = True
+            backend = self._backend
+            if backend is None or not hasattr(backend, '_MAX_INFER_HEIGHT'):
+                return
+            new_h = self._resolve_max_infer_height()
+            current_trt = bool(getattr(backend, "_trt_requested", False))
+            current_quality = getattr(backend, "_quality", self._quality)
+            reload_backend = (
+                current_trt != bool(use_tensorrt)
+                or current_quality != self._quality
+            )
             if reload_backend:
                 self._schedule_engine_reload(use_tensorrt, new_h)
                 return
-            if changed:
-                self.reset_cached_mattes()
-                print(f"[NV Broadcast] Inference resolution: {old_h}p → {new_h}p")
+            if hasattr(backend, "set_tensorrt_requested"):
+                backend.set_tensorrt_requested(use_tensorrt)
+            old_h = backend._MAX_INFER_HEIGHT
+            backend._MAX_INFER_HEIGHT = new_h
+            # Only reset recurrent states if resolution actually changed.
+            if old_h != new_h:
+                backend.reset_state()
+                changed = True
+        if changed:
+            self.reset_cached_mattes()
+            print(f"[NV Broadcast] Inference resolution: {old_h}p → {new_h}p")
 
     def set_compositing(self, backend: str):
         """Switch compositing backend (cpu, gstreamer_gl, cupy)."""
@@ -3766,11 +3851,11 @@ class VideoEffects:
             1.0,
         )
         chroma_weight = np.clip((chroma_delta - 5.0) / 45.0, 0.0, 1.0)
-        tone_weight = np.clip((tone_delta - 20.0) / 100.0, 0.0, 1.0)
+        tone_weight = np.clip((tone_delta - 12.0) / 90.0, 0.0, 1.0)
         blend = np.clip(
             0.62 * opacity_weight
             + 0.68 * chroma_weight
-            + 0.25 * tone_weight,
+            + 0.55 * tone_weight,
             0.0,
             0.92,
         )
@@ -3849,6 +3934,7 @@ class VideoEffects:
 
     def _cleanup_backend(self):
         with self._lock:
+            self._engine_reload_generation += 1
             if self._backend:
                 self._backend.cleanup()
             self._backend = None

@@ -6,6 +6,7 @@ and compositing logic with synthetic frames.
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import threading
 import time
@@ -229,6 +230,10 @@ class BackgroundOverlayTests(unittest.TestCase):
 
         time.sleep(0.05)
         self.assertFalse(switch_done.is_set(), "mode switch should wait for in-flight inference")
+        self.assertFalse(
+            effects._use_tensorrt,
+            "target engine flags must not change while old inference is in flight",
+        )
 
         release_infer.set()
         infer_thread.join(1.0)
@@ -263,6 +268,46 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertEqual(scheduled, [(True, 480)])
         self.assertIs(effects._backend, original_backend)
 
+    def test_quality_change_reloads_instead_of_mutating_live_rvm_ratio(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        backend = self.effects_module._RVMBackend(0)
+        backend._quality = "quality"
+        backend._downsample_ratio = np.array([0.375], dtype=np.float32)
+        effects._backend = backend
+        effects._quality = "quality"
+        effects._schedule_engine_reload = mock.Mock()
+
+        effects.quality = "ultra"
+
+        self.assertEqual(effects.quality, "ultra")
+        self.assertEqual(float(backend._downsample_ratio[0]), 0.375)
+        effects._schedule_engine_reload.assert_called_once_with(False, 720)
+
+    def test_combined_quality_and_engine_change_schedules_one_reload(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        backend = self.effects_module._RVMBackend(0)
+        backend._quality = "quality"
+        backend._trt_requested = False
+        backend._MAX_INFER_HEIGHT = 720
+        backend._downsample_ratio = np.array([0.375], dtype=np.float32)
+        effects._backend = backend
+        effects._quality = "quality"
+        effects._schedule_engine_reload = mock.Mock()
+
+        effects.set_engine_mode(
+            True,
+            True,
+            quality="performance",
+            profile_infer_height=288,
+        )
+
+        self.assertEqual(effects.quality, "performance")
+        self.assertEqual(float(backend._downsample_ratio[0]), 0.375)
+        self.assertEqual(backend._MAX_INFER_HEIGHT, 720)
+        effects._schedule_engine_reload.assert_called_once_with(True, 360)
+
     def test_run_inference_skips_while_engine_reload_is_in_progress(self):
         effects = self._make_effects()
         effects._initialized = True
@@ -284,6 +329,54 @@ class BackgroundOverlayTests(unittest.TestCase):
 
         self.assertIsNone(alpha)
         self.assertEqual(backend.calls, 0)
+
+    def test_gpu_inference_cuda_failure_rebuilds_damaged_session(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._gpu_matte_eligible = mock.Mock(return_value=True)
+        effects._cupy = types.SimpleNamespace(
+            cuda=types.SimpleNamespace(
+                Device=mock.Mock(return_value=contextlib.nullcontext()),
+            ),
+        )
+        backend = mock.Mock()
+        failure = RuntimeError(
+            "BFCArena::AllocateRawInternal: Available memory of 10999040 "
+            "is smaller than requested bytes of 17855232"
+        )
+        backend.infer_gpu.side_effect = failure
+        backend._is_cuda_runtime_error.return_value = True
+        backend._recover_cuda_session.return_value = True
+        effects._backend = backend
+
+        alpha = effects._run_inference(
+            None,
+            4,
+            4,
+            effects._matte_version,
+            frame_gpu=object(),
+        )
+
+        self.assertIsNone(alpha)
+        backend._invalidate_iobinding.assert_called_once_with()
+        backend._recover_cuda_session.assert_called_once_with(failure)
+
+    def test_cpu_fallback_disables_gpu_pure_frame_routing(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._bg_removal_enabled = True
+        effects._compositing = "cupy"
+        effects._gpu_matte_eligible = mock.Mock(return_value=True)
+        backend = mock.Mock()
+        backend.session.get_providers.return_value = ["CPUExecutionProvider"]
+        effects._backend = backend
+
+        with mock.patch.object(
+            self.effects_module,
+            "_get_fused_kernel",
+            return_value=object(),
+        ):
+            self.assertFalse(effects.gpu_output_eligible())
 
     def test_engine_reload_warms_backend_before_swap(self):
         effects = self._make_effects()
@@ -393,21 +486,23 @@ class BackgroundOverlayTests(unittest.TestCase):
         )
 
     def test_refine_alpha_quality_preserves_narrow_hairline_gap(self):
-        effects = self._make_effects()
-        effects._bg_mode = "replace"
-        effects._quality = "quality"
+        for quality in ("quality", "ultra"):
+            with self.subTest(quality=quality):
+                effects = self._make_effects()
+                effects._bg_mode = "replace"
+                effects._quality = quality
 
-        alpha = np.zeros((15, 15), dtype=np.float32)
-        alpha[2:14, 3:12] = 0.95
-        alpha[2:8, 7:8] = 0.02
+                alpha = np.zeros((15, 15), dtype=np.float32)
+                alpha[2:14, 3:12] = 0.95
+                alpha[2:8, 7:8] = 0.02
 
-        refined = effects._refine_alpha(alpha)
+                refined = effects._refine_alpha(alpha)
 
-        self.assertLess(
-            float(refined[4, 7]),
-            0.25,
-            "quality replace refinement should preserve narrow hairline openings",
-        )
+                self.assertLess(
+                    float(refined[4, 7]),
+                    0.25,
+                    f"{quality} replace refinement should preserve narrow hairline openings",
+                )
 
     def test_replace_matte_preserves_narrow_hairline_gap(self):
         effects = self._make_effects()
@@ -575,6 +670,33 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertTrue(
             np.array_equal(cleaned[8, 8], fg[8, 8]),
             "solid foreground color should remain unchanged",
+        )
+
+    def test_despill_removes_neutral_bright_halo_from_dark_hair_edge(self):
+        effects = self._make_effects()
+
+        fg = np.zeros((16, 16, 4), dtype=np.uint8)
+        fg[:, :, :3] = (34, 35, 36)
+        fg[:, :, 3] = 255
+        fg[:, 4, :3] = (188, 190, 192)
+        fg[:, 11, :3] = (188, 190, 192)
+
+        alpha = np.zeros((16, 16), dtype=np.float32)
+        alpha[:, 4] = 0.90
+        alpha[:, 5:11] = 0.99
+        alpha[:, 11] = 0.78
+
+        cleaned = effects._despill_fringe(fg, alpha)
+
+        for x in (4, 11):
+            self.assertLess(
+                int(cleaned[8, x, :3].mean()),
+                int(fg[8, x, :3].mean()) - 55,
+                "neutral wall color should not survive as a light hair outline",
+            )
+        self.assertTrue(
+            np.array_equal(cleaned[8, 8], fg[8, 8]),
+            "solid dark hair color should remain unchanged",
         )
 
     def test_despill_crops_to_active_subject_region(self):
