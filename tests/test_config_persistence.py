@@ -41,6 +41,9 @@ class ConfigPersistenceTests(unittest.TestCase):
         config.audio.voice_fx_use_gpu = False
         config.audio.voice_fx_preset = "Podcast"
         config.audio.voice_fx_warmth = 0.4
+        config.hotkeys.enabled = True
+        config.hotkeys.toggle_background = "<Control><Alt>b"
+        config.hotkeys.toggle_auto_frame = "<Shift><Super>F12"
 
         import tempfile
         from pathlib import Path
@@ -73,6 +76,9 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertFalse(loaded.audio.voice_fx_use_gpu)
         self.assertEqual(loaded.audio.voice_fx_preset, "Podcast")
         self.assertEqual(loaded.audio.voice_fx_warmth, 0.4)
+        self.assertTrue(loaded.hotkeys.enabled)
+        self.assertEqual(loaded.hotkeys.toggle_background, "<Control><Alt>b")
+        self.assertEqual(loaded.hotkeys.toggle_auto_frame, "<Shift><Super>F12")
 
     def test_build_default_config_preserves_runtime_flags(self):
         existing = AppConfig()
@@ -91,6 +97,8 @@ class ConfigPersistenceTests(unittest.TestCase):
         existing.audio.speaker_device = "speaker0"
         existing.video.vcam_device = "/dev/video11"
         existing.video.background_removal = True
+        existing.hotkeys.enabled = True
+        existing.hotkeys.toggle_background = "<Control><Alt>b"
 
         reset = build_default_config(existing)
 
@@ -109,6 +117,8 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(reset.audio.speaker_device, "")
         self.assertEqual(reset.video.vcam_device, "/dev/video11")
         self.assertFalse(reset.video.background_removal)
+        self.assertTrue(reset.hotkeys.enabled)
+        self.assertEqual(reset.hotkeys.toggle_background, "<Control><Alt>b")
 
     def test_builtin_profiles_do_not_overwrite_manual_mode_or_capture_settings(self):
         config = AppConfig()
@@ -169,6 +179,28 @@ class ConfigPersistenceTests(unittest.TestCase):
             loaded = _load_from_toml(path)
 
         self.assertEqual(loaded.video.eye_contact_mode, "natural")
+
+    def test_invalid_hotkey_types_and_control_characters_are_ignored(self):
+        raw = """
+[hotkeys]
+enabled = "yes"
+toggle_background = 42
+toggle_auto_frame = "<Control><Alt>a\\n"
+toggle_eye_contact = "<Control><Alt>e"
+"""
+
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(raw)
+            loaded = _load_from_toml(path)
+
+        self.assertFalse(loaded.hotkeys.enabled)
+        self.assertEqual(loaded.hotkeys.toggle_background, "")
+        self.assertEqual(loaded.hotkeys.toggle_auto_frame, "")
+        self.assertEqual(loaded.hotkeys.toggle_eye_contact, "<Control><Alt>e")
 
     def test_legacy_natural_voice_fx_defaults_migrate_to_audible_preset(self):
         legacy = """

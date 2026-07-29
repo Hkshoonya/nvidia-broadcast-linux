@@ -57,6 +57,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for latest updates!
 - **Background Replace** — Any image via native file picker
 - **Green Screen** — Solid green for OBS chroma key
 - **Auto Frame** — Face tracking with Center Face and Stable Background modes
+- **Global Effect Hotkeys** — Rebind effect toggles without bringing the app forward
 - **Video Enhancement** — Skin smooth, enhance, sharpen, denoise, vignette
 - **Eye Contact Correction** — Natural and Gaze Lock modes redirect gaze to camera
 - **Face Relighting** — Fill light guided by the scene
@@ -513,6 +514,7 @@ nvidia-broadcast-linux/
 │   │   ├── config.py            # TOML config, performance profiles, compositing backends
 │   │   ├── constants.py         # App ID, paths, GPU config
 │   │   ├── dependency_installer.py  # Optional runtime installer flow
+│   │   ├── global_hotkeys.py     # Portal and GNOME global effect shortcuts
 │   │   ├── gpu.py               # GPU detection, CUDA device mapping
 │   │   ├── meeting_store.py     # On-device meeting history and retention
 │   │   ├── model_download.py     # Verified per-user AI model cache

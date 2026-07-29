@@ -9,14 +9,19 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, Gio, GLib
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 
 from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
 from nvbroadcast.core.config import save_config
 from nvbroadcast.core.gpu import detect_gpus, select_compute_gpu
 from nvbroadcast.ui.video_preview import VideoPreview
 from nvbroadcast.ui.controls import (
-    EffectToggle, EffectSlider, BackgroundModeSelector, BackgroundImagePicker
+    EffectToggle,
+    EffectSlider,
+    BackgroundModeSelector,
+    BackgroundImagePicker,
+    HotkeyRow,
 )
 from nvbroadcast.ui.device_selector import DeviceSelector
 from nvbroadcast.video.virtual_camera import (
@@ -98,6 +103,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._pending_mode_key = ""
         self._pending_meeting_start = False
         self._shown_advisories: set[str] = set()
+        self._updating_hotkeys = False
         self._card_revealers: dict[str, Gtk.Revealer] = {}
         self._card_chevrons: dict[str, Gtk.Image] = {}
         self._card_defaults: dict[str, bool] = {}
@@ -578,6 +584,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         box.append(self._build_collapsible_card("processing", "Processing", proc_card, expanded=True))
 
+        self._hotkey_toggle = None
+        self._hotkey_rows = {}
+        self._hotkey_configure_row = None
+        self._hotkey_configure_button = None
+        if IS_LINUX:
+            box.append(self._build_hotkey_card())
+
         # Background effect card
         bg_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._bg_toggle = EffectToggle("Background", "Remove, blur, or replace background")
@@ -790,6 +803,63 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         box.append(self._build_collapsible_card("video_enhancement", "Video Enhancement", beauty_card, expanded=False))
 
         return box
+
+    def _build_hotkey_card(self) -> Gtk.Widget:
+        from nvbroadcast.core.global_hotkeys import HOTKEY_ACTIONS
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self._hotkey_toggle = EffectToggle(
+            "Global Hotkeys",
+            "System-wide effect shortcuts",
+        )
+        self._hotkey_toggle.connect("toggled", self._on_hotkeys_toggled)
+        card.append(self._hotkey_toggle)
+
+        self._hotkey_configure_row = Adw.ActionRow(
+            title="System Shortcuts",
+            subtitle="Managed by the desktop portal",
+        )
+        self._hotkey_configure_button = Gtk.Button.new_from_icon_name(
+            "input-keyboard-symbolic"
+        )
+        self._hotkey_configure_button.set_size_request(36, 36)
+        self._hotkey_configure_button.set_valign(Gtk.Align.CENTER)
+        self._hotkey_configure_button.add_css_class("flat")
+        self._hotkey_configure_button.set_tooltip_text(
+            "Configure global hotkeys"
+        )
+        self._hotkey_configure_button.connect(
+            "clicked",
+            self._on_configure_hotkeys,
+        )
+        self._hotkey_configure_row.add_suffix(
+            self._hotkey_configure_button
+        )
+        card.append(self._hotkey_configure_row)
+
+        for action in HOTKEY_ACTIONS:
+            row = HotkeyRow(action.title)
+            row.connect(
+                "edit-requested",
+                self._on_hotkey_edit_requested,
+                action.config_key,
+                action.title,
+            )
+            row.connect(
+                "clear-requested",
+                self._on_hotkey_clear_requested,
+                action.config_key,
+            )
+            self._hotkey_rows[action.config_key] = row
+            card.append(row)
+
+        self.sync_hotkey_settings()
+        return self._build_collapsible_card(
+            "global_hotkeys",
+            "Hotkeys",
+            card,
+            expanded=False,
+        )
 
     def _build_audio_section(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -1062,6 +1132,143 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _on_bg_toggled(self, t, active):
         self._app.set_bg_removal(active)
         self._sync_background_controls(enabled=active)
+
+    def _on_hotkeys_toggled(self, toggle, active):
+        if (
+            self._updating_hotkeys
+            or getattr(self._app, "_restoring", False)
+        ):
+            return
+        if not self._app.set_hotkeys_enabled(active):
+            self._updating_hotkeys = True
+            try:
+                toggle.active = self._app.config.hotkeys.enabled
+            finally:
+                self._updating_hotkeys = False
+            self.set_status(self._app._hotkey_status)
+
+    def _on_hotkey_edit_requested(self, _row, config_key, title):
+        dialog = Gtk.Dialog(
+            title=f"{title} Shortcut",
+            transient_for=self,
+            modal=True,
+        )
+        dialog.set_default_size(420, 150)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        status = Gtk.Label(label="Waiting for shortcut")
+        status.set_margin_top(28)
+        status.set_margin_bottom(28)
+        status.set_margin_start(20)
+        status.set_margin_end(20)
+        dialog.get_content_area().append(status)
+
+        controller = Gtk.EventControllerKey()
+        controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+        def _capture(_controller, keyval, _keycode, modifiers):
+            from nvbroadcast.core.global_hotkeys import normalize_accelerator
+
+            if keyval == Gdk.KEY_Escape:
+                dialog.destroy()
+                return True
+            if keyval in (Gdk.KEY_BackSpace, Gdk.KEY_Delete):
+                ok, message = self._app.set_hotkey_binding(config_key, "")
+                if ok:
+                    dialog.destroy()
+                else:
+                    status.set_text(message)
+                return True
+            accelerator = Gtk.accelerator_name(
+                keyval,
+                modifiers & Gtk.accelerator_get_default_mod_mask(),
+            )
+            normalized = normalize_accelerator(accelerator or "")
+            if not normalized:
+                status.set_text(
+                    "Use Control, Alt, Super, or a function key"
+                )
+                return True
+            ok, message = self._app.set_hotkey_binding(
+                config_key,
+                normalized,
+            )
+            if ok:
+                dialog.destroy()
+            else:
+                status.set_text(message)
+            return True
+
+        controller.connect("key-pressed", _capture)
+        dialog.add_controller(controller)
+        dialog.connect("response", lambda window, _response: window.destroy())
+        dialog.present()
+
+    def _on_hotkey_clear_requested(self, _row, config_key):
+        ok, message = self._app.set_hotkey_binding(config_key, "")
+        if not ok:
+            self.set_status(message)
+
+    def _on_configure_hotkeys(self, _button):
+        if not self._app.configure_global_hotkeys():
+            self.set_status("Desktop shortcut settings are not available")
+
+    def sync_hotkey_settings(self):
+        if self._hotkey_toggle is None:
+            return
+        from nvbroadcast.core.global_hotkeys import (
+            HOTKEY_ACTIONS,
+            accelerator_label,
+        )
+
+        manager = self._app._hotkey_manager
+        available = bool(manager and manager.available)
+        requested = bool(self._app.config.hotkeys.enabled)
+        if available and requested:
+            subtitle = self._app._hotkey_status
+        elif available:
+            subtitle = f"{manager.backend_title} system shortcuts"
+        else:
+            subtitle = self._app._hotkey_status
+
+        self._updating_hotkeys = True
+        try:
+            self._hotkey_toggle.set_available(available, subtitle)
+            self._hotkey_toggle.active = requested if available else False
+        finally:
+            self._updating_hotkeys = False
+
+        portal = bool(manager and manager.backend_name == "portal")
+        inline_editable = bool(
+            available and manager and manager.inline_editable
+        )
+        display = self._app._hotkey_display
+        for action in HOTKEY_ACTIONS:
+            row = self._hotkey_rows.get(action.config_key)
+            if row is None:
+                continue
+            configured = getattr(
+                self._app.config.hotkeys,
+                action.config_key,
+                "",
+            )
+            label = (
+                display.get(action.config_key, "")
+                if portal
+                else accelerator_label(configured)
+            )
+            row.set_binding(label)
+            row.set_inline_editable(inline_editable)
+            row.set_sensitive(available)
+
+        self._hotkey_configure_row.set_visible(portal)
+        self._hotkey_configure_button.set_sensitive(
+            bool(
+                portal
+                and requested
+                and self._app._hotkey_active
+                and manager.can_configure
+            )
+        )
 
     @staticmethod
     def _profile_and_comp_to_mode(profile, compositing):
@@ -1737,10 +1944,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self.set_status(f"Switched to {name} profile")
 
     def _on_user_profile_selected(self, btn, name, popover):
+        from copy import deepcopy
+
         from nvbroadcast.core.config import load_profile, save_config
         loaded = load_profile(name)
         if loaded:
             loaded.ui_card_expanded = dict(self._app.config.ui_card_expanded)
+            loaded.hotkeys = deepcopy(self._app.config.hotkeys)
             self._app.config = loaded
             self._app.config.current_profile = name
             save_config(self._app.config)
@@ -2052,6 +2262,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._mirror_toggle.active = v.mirror
         self._power_save_toggle.active = getattr(config, "auto_idle", True)
         self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
+        self.sync_hotkey_settings()
 
     def sync_video_input_controls(self, config):
         """Sync camera, resolution, FPS, and format selectors from config."""

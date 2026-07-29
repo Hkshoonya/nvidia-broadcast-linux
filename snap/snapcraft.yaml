@@ -143,6 +143,7 @@ parts:
       - v4l-utils
       - libayatana-appindicator3-1
       - gir1.2-ayatanaappindicator3-0.1
+      - gnome-settings-daemon-common
     override-build: |
       craftctl default
       SNAP_PYTHON_SITE="$CRAFT_PART_INSTALL/lib/python3/dist-packages"

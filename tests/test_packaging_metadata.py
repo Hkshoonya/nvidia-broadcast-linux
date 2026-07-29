@@ -116,6 +116,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("av>=16,<17", requirements)
         self.assertIn("- pyrnnoise", snapcraft)
         self.assertIn("- av>=16,<17", snapcraft)
+        self.assertIn("- gnome-settings-daemon-common", snapcraft)
         self.assertIn("import av; import av.option", install_script)
         self.assertIn("av ... OK", install_script)
 
