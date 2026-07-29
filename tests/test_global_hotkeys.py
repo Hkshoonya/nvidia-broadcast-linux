@@ -18,6 +18,7 @@ from nvbroadcast.core.global_hotkeys import (
     accelerator_to_portal_trigger,
     normalize_accelerator,
     normalize_bindings,
+    sanitize_bindings,
 )
 
 
@@ -64,6 +65,19 @@ class AcceleratorValidationTests(unittest.TestCase):
         self.assertEqual(set(normalized), {
             action.config_key for action in HOTKEY_ACTIONS
         })
+
+    def test_sanitize_preserves_valid_bindings_and_drops_bad_values(self):
+        bindings = sanitize_bindings({
+            "toggle_background": "<Primary><Alt>b",
+            "toggle_auto_frame": "<Control><Alt>b",
+            "toggle_eye_contact": "e",
+            "toggle_mirror": "F12",
+        })
+
+        self.assertEqual(bindings["toggle_background"], "<Control><Alt>b")
+        self.assertEqual(bindings["toggle_auto_frame"], "")
+        self.assertEqual(bindings["toggle_eye_contact"], "")
+        self.assertEqual(bindings["toggle_mirror"], "F12")
 
     def test_labels_and_portal_triggers_use_desktop_formats(self):
         self.assertTrue(accelerator_label("<Control><Alt>b"))

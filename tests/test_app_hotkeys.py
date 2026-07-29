@@ -4,6 +4,7 @@ from unittest import mock
 
 from nvbroadcast.app import NVBroadcastApp
 from nvbroadcast.core.config import AppConfig
+from nvbroadcast.core.global_hotkeys import HotkeyValidationError
 
 
 class _FakeToggle:
@@ -78,6 +79,47 @@ class AppHotkeyActionTests(unittest.TestCase):
 
 
 class AppHotkeySettingsTests(unittest.TestCase):
+    def test_restore_clears_only_invalid_saved_bindings(self):
+        config = AppConfig()
+        config.hotkeys.enabled = True
+        config.hotkeys.toggle_background = "<Control><Alt>b"
+        config.hotkeys.toggle_auto_frame = "<Primary><Alt>b"
+        config.hotkeys.toggle_eye_contact = "e"
+        config.hotkeys.toggle_mirror = "F12"
+        manager = SimpleNamespace(
+            apply=mock.Mock(
+                side_effect=[
+                    HotkeyValidationError("Invalid saved shortcuts"),
+                    True,
+                ]
+            ),
+        )
+        app = SimpleNamespace(
+            config=config,
+            _hotkey_manager=manager,
+            _hotkey_active=True,
+            _hotkey_status="",
+            _hotkey_display={"toggle_background": "Ctrl+Alt+B"},
+            _window=None,
+            _set_global_hotkey_actions_enabled=mock.Mock(),
+        )
+
+        with mock.patch("nvbroadcast.app.save_config") as save:
+            self.assertFalse(NVBroadcastApp._sync_global_hotkeys(app))
+
+        self.assertFalse(config.hotkeys.enabled)
+        self.assertEqual(
+            config.hotkeys.toggle_background,
+            "<Control><Alt>b",
+        )
+        self.assertEqual(config.hotkeys.toggle_auto_frame, "")
+        self.assertEqual(config.hotkeys.toggle_eye_contact, "")
+        self.assertEqual(config.hotkeys.toggle_mirror, "F12")
+        self.assertEqual(manager.apply.call_count, 2)
+        self.assertIn("were cleared", app._hotkey_status)
+        self.assertEqual(app._hotkey_display, {})
+        save.assert_called_once_with(config)
+
     def test_portal_cancel_disables_exported_actions_and_preference(self):
         config = AppConfig()
         config.hotkeys.enabled = True

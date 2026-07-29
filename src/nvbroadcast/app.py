@@ -606,20 +606,28 @@ class NVBroadcastApp(Adw.Application):
         from nvbroadcast.core.global_hotkeys import (
             HotkeyValidationError,
             bindings_from_config,
+            sanitize_bindings,
         )
 
+        bindings = bindings_from_config(self.config.hotkeys)
         try:
             self._set_global_hotkey_actions_enabled(False)
             self._hotkey_manager.apply(
                 self.config.hotkeys.enabled,
-                bindings_from_config(self.config.hotkeys),
+                bindings,
             )
         except HotkeyValidationError as error:
             self.config.hotkeys.enabled = False
+            for key, value in sanitize_bindings(bindings).items():
+                setattr(self.config.hotkeys, key, value)
+            self._hotkey_manager.apply(
+                False,
+                bindings_from_config(self.config.hotkeys),
+            )
             self._hotkey_active = False
-            self._hotkey_status = str(error)
+            self._hotkey_status = f"{error} Invalid saved shortcuts were cleared."
+            self._hotkey_display = {}
             self._set_global_hotkey_actions_enabled(False)
-            self._hotkey_manager.apply(False, {})
             save_config(self.config)
         if self._window is not None:
             self._window.sync_hotkey_settings()

@@ -197,6 +197,23 @@ def normalize_bindings(bindings: Mapping[str, str]) -> dict[str, str]:
     return normalized
 
 
+def sanitize_bindings(bindings: Mapping[str, str]) -> dict[str, str]:
+    """Preserve valid bindings while dropping invalid or duplicate values."""
+    sanitized: dict[str, str] = {}
+    owners: set[str] = set()
+    for action in HOTKEY_ACTIONS:
+        accelerator = normalize_accelerator(
+            bindings.get(action.config_key, "")
+        )
+        duplicate_key = accelerator.casefold()
+        if not accelerator or duplicate_key in owners:
+            sanitized[action.config_key] = ""
+            continue
+        owners.add(duplicate_key)
+        sanitized[action.config_key] = accelerator
+    return sanitized
+
+
 def bindings_from_config(config) -> dict[str, str]:
     return {
         action.config_key: getattr(config, action.config_key, "")
