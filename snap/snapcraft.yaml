@@ -88,10 +88,18 @@ platforms:
     build-on: [arm64]
     build-for: [arm64]
 
+slots:
+  nvbroadcast-dbus:
+    interface: dbus
+    bus: session
+    name: com.doczeus.NVBroadcast
+
 apps:
   nvbroadcast:
     command: bin/nvbroadcast-wrapper
     extensions: [gnome]
+    slots:
+      - nvbroadcast-dbus
     plugs:
       - home
       - network

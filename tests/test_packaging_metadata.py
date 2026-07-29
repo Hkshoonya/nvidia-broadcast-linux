@@ -117,6 +117,10 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("- pyrnnoise", snapcraft)
         self.assertIn("- av>=16,<17", snapcraft)
         self.assertIn("- gnome-settings-daemon-common", snapcraft)
+        self.assertIn("interface: dbus", snapcraft)
+        self.assertIn("bus: session", snapcraft)
+        self.assertIn("name: com.doczeus.NVBroadcast", snapcraft)
+        self.assertIn("- nvbroadcast-dbus", snapcraft)
         self.assertIn("import av; import av.option", install_script)
         self.assertIn("av ... OK", install_script)
 
