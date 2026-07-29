@@ -165,7 +165,7 @@ class AutoFrame:
                 bundled_dir=_MODELS_DIR,
             )
         except Exception as e:
-            print(f"[NVIDIA Broadcast] Failed to download face detection model: {e}")
+            print(f"[NV Broadcast] Failed to download face detection model: {e}")
             return False
 
         try:
@@ -180,10 +180,10 @@ class AutoFrame:
             )
             self._detector = self._mp_vision.FaceDetector.create_from_options(options)
             self._initialized = True
-            print("[NVIDIA Broadcast] Face detection initialized")
+            print("[NV Broadcast] Face detection initialized")
             return True
         except Exception as e:
-            print(f"[NVIDIA Broadcast] Failed to initialize face detection: {e}")
+            print(f"[NV Broadcast] Failed to initialize face detection: {e}")
             return False
 
     def process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
