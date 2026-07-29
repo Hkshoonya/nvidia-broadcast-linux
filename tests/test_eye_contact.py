@@ -88,6 +88,34 @@ class EyeContactTests(unittest.TestCase):
             )
         return centers
 
+    @classmethod
+    def _shifts(cls, corrector, landmarks):
+        eyes = [
+            corrector._measure_eye(
+                landmarks,
+                eye_indices,
+                iris_indices,
+                cls._WIDTH,
+                cls._HEIGHT,
+            )
+            for eye_indices, iris_indices in (
+                (_LEFT_EYE, _LEFT_IRIS),
+                (_RIGHT_EYE, _RIGHT_IRIS),
+            )
+        ]
+        if any(eye is None for eye in eyes):
+            raise AssertionError("test eye geometry was rejected")
+        return corrector._binocular_shifts(eyes, landmarks, cls._WIDTH)
+
+    def test_default_mode_is_natural_and_invalid_values_fall_back(self):
+        corrector = EyeContactCorrector()
+
+        self.assertEqual(corrector.mode, "natural")
+        corrector.mode = "gaze_lock"
+        self.assertEqual(corrector.mode, "gaze_lock")
+        corrector.mode = "broken"
+        self.assertEqual(corrector.mode, "natural")
+
     def test_default_intensity_moves_shared_gaze_without_inward_convergence(self):
         frame, landmarks = self._scene()
         before = self._iris_centers(frame)
@@ -150,6 +178,23 @@ class EyeContactTests(unittest.TestCase):
 
         self.assertTrue(np.array_equal(output, blink_frame))
         self.assertIsNone(corrector._smoothed_correction)
+
+    def test_gaze_lock_resets_camera_target_after_blink(self):
+        frame, landmarks = self._scene()
+        corrector = EyeContactCorrector()
+        corrector.enabled = True
+        corrector.mode = "gaze_lock"
+        corrector.process_frame(frame.copy(), landmarks=landmarks)
+        self.assertIsNotNone(corrector._locked_camera_target)
+
+        blink_frame, blink_landmarks = self._scene(blink_eye=0)
+        output = corrector.process_frame(
+            blink_frame.copy(),
+            landmarks=blink_landmarks,
+        )
+
+        self.assertTrue(np.array_equal(output, blink_frame))
+        self.assertIsNone(corrector._locked_camera_target)
 
     def test_extreme_side_gaze_is_not_corrected(self):
         frame, landmarks = self._scene(left_offset=(20, 0), right_offset=(20, 0))
@@ -283,6 +328,77 @@ class EyeContactTests(unittest.TestCase):
             abs(float(stable._smoothed_correction[0])),
             abs(float(noisy._smoothed_correction[0])) * 1.7,
         )
+
+    def test_gaze_lock_reduces_small_coordinated_eye_motion(self):
+        _, start_landmarks = self._scene(
+            left_offset=(4, 0),
+            right_offset=(4, 0),
+        )
+        _, moved_landmarks = self._scene(
+            left_offset=(8, 0),
+            right_offset=(8, 0),
+        )
+
+        corrected_motion = {}
+        for mode in ("natural", "gaze_lock"):
+            corrector = EyeContactCorrector()
+            corrector.enabled = True
+            corrector.intensity = 0.35
+            corrector.mode = mode
+            start_shifts = self._shifts(corrector, start_landmarks)
+            moved_shifts = self._shifts(corrector, moved_landmarks)
+            start_position = 4.0 + np.mean([shift[0] for shift in start_shifts])
+            moved_position = 8.0 + np.mean([shift[0] for shift in moved_shifts])
+            corrected_motion[mode] = abs(float(moved_position - start_position))
+
+        self.assertLess(
+            corrected_motion["gaze_lock"],
+            corrected_motion["natural"] * 0.6,
+        )
+
+    def test_gaze_lock_is_stronger_at_default_intensity(self):
+        _, landmarks = self._scene()
+        mean_shift = {}
+        for mode in ("natural", "gaze_lock"):
+            corrector = EyeContactCorrector()
+            corrector.enabled = True
+            corrector.intensity = 0.35
+            corrector.mode = mode
+            shifts = self._shifts(corrector, landmarks)
+            mean_shift[mode] = abs(float(np.mean([shift[0] for shift in shifts])))
+
+        self.assertGreater(mean_shift["gaze_lock"], mean_shift["natural"] * 1.25)
+
+    def test_gaze_lock_holds_small_head_jitter_and_follows_large_turn(self):
+        _, frontal_landmarks = self._scene(
+            left_offset=(0, 0),
+            right_offset=(0, 0),
+        )
+        _, jitter_landmarks = self._scene(
+            left_offset=(0, 0),
+            right_offset=(0, 0),
+            nose_offset=5,
+        )
+        _, turned_landmarks = self._scene(
+            left_offset=(0, 0),
+            right_offset=(0, 0),
+            nose_offset=16,
+        )
+        corrector = EyeContactCorrector()
+        corrector.enabled = True
+        corrector.mode = "gaze_lock"
+
+        self._shifts(corrector, frontal_landmarks)
+        self._shifts(corrector, jitter_landmarks)
+        self.assertAlmostEqual(float(corrector._locked_camera_target[0]), 0.0)
+
+        self._shifts(corrector, turned_landmarks)
+        first_turn_target = float(corrector._locked_camera_target[0])
+        for _ in range(4):
+            self._shifts(corrector, turned_landmarks)
+
+        self.assertLess(first_turn_target, -0.015)
+        self.assertLess(float(corrector._locked_camera_target[0]), first_turn_target)
 
 
 if __name__ == "__main__":

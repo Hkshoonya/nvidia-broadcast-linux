@@ -1,5 +1,9 @@
 # What's New
 
+## Unreleased
+
+- **Optional Gaze Lock** - Eye Contact now offers Natural and Gaze Lock modes. Gaze Lock holds small coordinated eye movements closer to the camera target while retaining blink fallback, binocular stability checks, and smooth head-pose updates ([Issue #38](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/38))
+
 ## v1.3.0 - GPU Video, Power Save, and Blur Quality Update
 
 - **Device-Resident NVIDIA Video Path** - Supported Linux GPU modes can keep camera decode, RVM input, blur matte processing, compositing, mirroring, and YUY2 conversion on the GPU with pinned host transfers and optional nvImageCodec MJPEG decode

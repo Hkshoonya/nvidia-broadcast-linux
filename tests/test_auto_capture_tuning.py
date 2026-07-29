@@ -161,6 +161,24 @@ class AutoCaptureTuningTests(unittest.TestCase):
         self.assertEqual(NVBroadcastApp._mode_compute_focus("zeus"), "gpu")
         self.assertEqual(NVBroadcastApp._mode_compute_focus("cpu_light"), "cpu")
 
+    @mock.patch("nvbroadcast.app.save_config")
+    def test_set_eye_contact_mode_persists_and_normalizes(self, save_config):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app._eye_contact = SimpleNamespace(mode="natural")
+        app._restoring = False
+
+        NVBroadcastApp.set_eye_contact_mode(app, "gaze_lock")
+
+        self.assertEqual(app._eye_contact.mode, "gaze_lock")
+        self.assertEqual(app.config.video.eye_contact_mode, "gaze_lock")
+
+        NVBroadcastApp.set_eye_contact_mode(app, "broken")
+
+        self.assertEqual(app._eye_contact.mode, "natural")
+        self.assertEqual(app.config.video.eye_contact_mode, "natural")
+        self.assertEqual(save_config.call_count, 2)
+
     def test_profile_infer_height_uses_process_scale(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()
@@ -284,6 +302,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
         app.config = AppConfig()
         app.config.mode_key = "killer"
         app.config.video.quality_preset = "quality"
+        app.config.video.eye_contact_mode = "gaze_lock"
         app.config.performance_profile = "performance"
         app.config.compositing = "cupy"
 
@@ -313,7 +332,11 @@ class AutoCaptureTuningTests(unittest.TestCase):
             restore_settings=mock.Mock(),
             set_status=mock.Mock(),
         )
-        app._eye_contact = SimpleNamespace(enabled=False, intensity=0.0)
+        app._eye_contact = SimpleNamespace(
+            enabled=False,
+            intensity=0.0,
+            mode="natural",
+        )
         app._relighter = SimpleNamespace(enabled=False, intensity=0.0)
         app._autoframe = SimpleNamespace(enabled=False, zoom_level=1.0)
         app._video_pipeline = None
@@ -325,6 +348,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertEqual(app.config.video.quality_preset, "performance")
         self.assertEqual(app._video_effects._quality, "performance")
+        self.assertEqual(app._eye_contact.mode, "gaze_lock")
         save_config.assert_called_once_with(app.config)
 
     @mock.patch("nvbroadcast.app.save_config")

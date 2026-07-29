@@ -834,6 +834,7 @@ class NVBroadcastApp(Adw.Application):
             self._video_effects.set_background_image(c.video.background_image)
         self._eye_contact.enabled = c.video.eye_contact
         self._eye_contact.intensity = c.video.eye_contact_intensity
+        self._eye_contact.mode = c.video.eye_contact_mode
         self._relighter.enabled = c.video.relighting
         self._relighter.intensity = c.video.relighting_intensity
         self._beautifier.enabled = c.video.beauty.enabled
@@ -2181,6 +2182,15 @@ class NVBroadcastApp(Adw.Application):
     def set_eye_contact_intensity(self, value: float):
         self._eye_contact.intensity = value
         self.config.video.eye_contact_intensity = value
+        save_config(self.config)
+
+    def set_eye_contact_mode(self, mode: str):
+        if getattr(self, '_restoring', False):
+            return
+        if mode not in ("natural", "gaze_lock"):
+            mode = "natural"
+        self._eye_contact.mode = mode
+        self.config.video.eye_contact_mode = mode
         save_config(self.config)
 
     # --- Face Relighting ---

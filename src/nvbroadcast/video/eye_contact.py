@@ -17,6 +17,7 @@ _RIGHT_EYE = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 3
 _LEFT_IRIS = [468, 469, 470, 471, 472]
 _RIGHT_IRIS = [473, 474, 475, 476, 477]
 _NOSE_TIP = 1
+_EYE_CONTACT_MODES = ("natural", "gaze_lock")
 
 
 @dataclass(frozen=True)
@@ -34,8 +35,10 @@ class EyeContactCorrector:
     def __init__(self):
         self._enabled = False
         self._intensity = 0.45
+        self._mode = "natural"
         self._smoothed_correction: np.ndarray | None = None
         self._previous_disparity: np.ndarray | None = None
+        self._locked_camera_target: np.ndarray | None = None
 
     @property
     def enabled(self) -> bool:
@@ -57,9 +60,21 @@ class EyeContactCorrector:
         if self._intensity == 0.0:
             self._reset_tracking()
 
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    @mode.setter
+    def mode(self, value: str):
+        mode = value if value in _EYE_CONTACT_MODES else "natural"
+        if mode != self._mode:
+            self._mode = mode
+            self._reset_tracking()
+
     def _reset_tracking(self) -> None:
         self._smoothed_correction = None
         self._previous_disparity = None
+        self._locked_camera_target = None
 
     def process_frame(self, frame: np.ndarray, landmarks=None) -> np.ndarray:
         if not self._enabled or self._intensity == 0.0:
@@ -199,6 +214,18 @@ class EyeContactCorrector:
         target_x = float(np.clip(-yaw * 0.32, -0.08, 0.08))
         return np.array((target_x, 0.0), dtype=np.float32)
 
+    def _stabilize_camera_target(self, camera_target: np.ndarray) -> np.ndarray:
+        if self._locked_camera_target is None:
+            self._locked_camera_target = camera_target.astype(np.float32)
+        else:
+            delta = camera_target - self._locked_camera_target
+            deadzone = np.array((0.01, 0.015), dtype=np.float32)
+            if np.any(np.abs(delta) > deadzone):
+                self._locked_camera_target = (
+                    self._locked_camera_target + delta * 0.45
+                ).astype(np.float32)
+        return self._locked_camera_target
+
     def _binocular_shifts(self, eyes: list[_EyeGeometry], landmarks,
                           img_w: int) -> list[np.ndarray] | None:
         pair_weight = min(eye.correction_weight for eye in eyes)
@@ -222,20 +249,28 @@ class EyeContactCorrector:
         self._previous_disparity = disparity.astype(np.float32)
 
         camera_target = self._head_pose_target(landmarks, eyes, img_w)
+        if self._mode == "gaze_lock":
+            camera_target = self._stabilize_camera_target(camera_target)
         raw_correction = camera_target - shared_gaze
         if self._smoothed_correction is None:
             smoothed_correction = raw_correction
         else:
             # Consistent binocular motion can follow quickly. Disagreement is
             # smoothed more heavily so one noisy iris does not pull the pair.
-            response = 0.40 + agreement * 0.40
+            if self._mode == "gaze_lock":
+                response = 0.30 + agreement * 0.70
+            else:
+                response = 0.40 + agreement * 0.40
             smoothed_correction = (
                 self._smoothed_correction * (1.0 - response)
                 + raw_correction * response
             )
         self._smoothed_correction = smoothed_correction.astype(np.float32)
 
-        strength = float(np.sqrt(self._intensity))
+        if self._mode == "gaze_lock":
+            strength = float(np.power(self._intensity, 0.25))
+        else:
+            strength = float(np.sqrt(self._intensity))
         confidence = 0.65 + agreement * 0.35
         eye_midpoint = float(
             (eyes[0].eye_center[0] + eyes[1].eye_center[0]) * 0.5

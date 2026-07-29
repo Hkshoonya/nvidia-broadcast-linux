@@ -711,6 +711,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         )
         self._eye_contact_toggle.connect("toggled", self._on_eye_contact_toggled)
         ec_card.append(self._eye_contact_toggle)
+        self._eye_contact_mode_selector = DeviceSelector("Mode")
+        self._eye_contact_mode_selector.set_devices([
+            {"name": "Natural", "device": "natural"},
+            {"name": "Gaze Lock", "device": "gaze_lock"},
+        ])
+        self._eye_contact_mode_selector.set_sensitive(False)
+        self._eye_contact_mode_selector.connect(
+            "device-changed", self._on_eye_contact_mode_changed
+        )
+        ec_card.append(self._eye_contact_mode_selector)
         self._eye_contact_slider = EffectSlider("Intensity", 0.35, 0.0, 1.0)
         self._eye_contact_slider.set_sensitive(False)
         self._eye_contact_slider.connect("value-changed", self._on_eye_contact_intensity)
@@ -1674,9 +1684,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     # --- Eye Contact ---
     def _on_eye_contact_toggled(self, t, active):
         self._app.set_eye_contact(active)
+        self._eye_contact_mode_selector.set_sensitive(active)
         self._eye_contact_slider.set_sensitive(active)
         self._app.config.video.eye_contact = active
         save_config(self._app.config)
+
+    def _on_eye_contact_mode_changed(self, selector, mode):
+        self._app.set_eye_contact_mode(mode)
 
     def _on_eye_contact_intensity(self, s, v):
         self._app.set_eye_contact_intensity(v)
@@ -1785,6 +1799,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         a = config.audio
         # Eye contact
         self._eye_contact_toggle.active = v.eye_contact
+        eye_mode_map = {"natural": 0, "gaze_lock": 1}
+        self._eye_contact_mode_selector.set_selected_index(
+            eye_mode_map.get(v.eye_contact_mode, 0)
+        )
+        self._eye_contact_mode_selector.set_sensitive(v.eye_contact)
         self._eye_contact_slider.set_sensitive(v.eye_contact)
         self._eye_contact_slider._scale.set_value(v.eye_contact_intensity)
         # Relighting
@@ -1818,6 +1837,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Apply effects to backend
         self._app._eye_contact.enabled = v.eye_contact
         self._app._eye_contact.intensity = v.eye_contact_intensity
+        self._app._eye_contact.mode = v.eye_contact_mode
         self._app._relighter.enabled = v.relighting
         self._app._relighter.intensity = v.relighting_intensity
         self._app._mirror = v.mirror
@@ -2000,9 +2020,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                     break
 
         # Eye contact
-        if v.eye_contact:
-            self._eye_contact_toggle.active = True
-            self._eye_contact_slider.set_sensitive(True)
+        self._eye_contact_toggle.active = v.eye_contact
+        self._eye_contact_mode_selector.set_sensitive(v.eye_contact)
+        self._eye_contact_slider.set_sensitive(v.eye_contact)
+        eye_mode_map = {"natural": 0, "gaze_lock": 1}
+        self._eye_contact_mode_selector.set_selected_index(
+            eye_mode_map.get(v.eye_contact_mode, 0)
+        )
         self._eye_contact_slider._scale.set_value(v.eye_contact_intensity)
 
         # Relighting
