@@ -271,8 +271,12 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("action-gh-release", build_job)
         self.assertIn("snapcraft upload-metadata", build_job)
         self.assertIn("matrix.arch == 'arm64'", build_job)
+        self.assertIn("inputs.candidate", build_job)
+        self.assertIn("release: ${{ steps.store-target.outputs.channel }}", build_job)
+        self.assertIn("steps.store-target.outputs.channel == 'stable'", build_job)
         self.assertIn("permissions:\n      contents: write", attach_job)
         self.assertIn("action-gh-release", attach_job)
+        self.assertNotIn("inputs.candidate", attach_job)
 
     def test_release_workflows_reject_version_mismatched_tags(self):
         build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
@@ -608,8 +612,12 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_snap_workflow_supports_manual_release_recovery(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
         self.assertIn("publish:", workflow)
+        self.assertIn("candidate:", workflow)
         self.assertIn("release_tag:", workflow)
+        self.assertIn("id: store-target", workflow)
         self.assertIn("id: release-target", workflow)
+        self.assertIn('CHANNEL="candidate"', workflow)
+        self.assertIn("candidate and publish cannot both be enabled", workflow)
         self.assertIn("release_tag is required when publishing from workflow_dispatch", workflow)
         self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
 

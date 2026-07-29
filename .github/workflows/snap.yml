@@ -11,6 +11,11 @@ on:
         required: false
         type: boolean
         default: false
+      candidate:
+        description: Upload the built snap to the candidate channel without creating or attaching a GitHub release.
+        required: false
+        type: boolean
+        default: false
       release_tag:
         description: Existing release tag to attach assets to when publish is enabled.
         required: false
@@ -49,6 +54,31 @@ jobs:
           name: snap-package-${{ matrix.arch }}
           path: ${{ steps.snapcraft.outputs.snap }}
 
+      - name: Resolve Snap Store target
+        id: store-target
+        env:
+          PUBLISH_CANDIDATE: ${{ inputs.candidate }}
+          PUBLISH_STABLE: ${{ inputs.publish }}
+        run: |
+          CHANNEL=""
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            CHANNEL="stable"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$PUBLISH_CANDIDATE" = "true" ] && [ "$PUBLISH_STABLE" = "true" ]; then
+              echo "::error::candidate and publish cannot both be enabled."
+              exit 1
+            fi
+
+            if [ "$PUBLISH_STABLE" = "true" ]; then
+              CHANNEL="stable"
+            elif [ "$PUBLISH_CANDIDATE" = "true" ]; then
+              CHANNEL="candidate"
+            fi
+          fi
+
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
       - name: Resolve release target
         id: release-target
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish == true)
@@ -82,7 +112,7 @@ jobs:
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Validate Snap Store registration
-        if: steps.release-target.outputs.tag != ''
+        if: steps.store-target.outputs.channel != ''
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
         run: |
@@ -103,16 +133,16 @@ jobs:
           fi
 
       - name: Publish to Snap Store
-        if: steps.release-target.outputs.tag != ''
+        if: steps.store-target.outputs.channel != ''
         uses: snapcore/action-publish@214b86e5ca036ead1668c79afb81e550e6c54d40 # v1
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
         with:
           snap: ${{ steps.snapcraft.outputs.snap }}
-          release: stable
+          release: ${{ steps.store-target.outputs.channel }}
 
       - name: Update Snap Store metadata
-        if: steps.release-target.outputs.tag != '' && matrix.arch == 'arm64'
+        if: steps.store-target.outputs.channel == 'stable' && matrix.arch == 'arm64'
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
         run: snapcraft upload-metadata "${{ steps.snapcraft.outputs.snap }}" --force
