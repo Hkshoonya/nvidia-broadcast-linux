@@ -321,6 +321,15 @@ class TensorrtRvmTests(unittest.TestCase):
         )
         self.assertTrue(backend._is_shape_transition_error(exc))
 
+    def test_bfc_arena_exhaustion_is_treated_as_cuda_runtime_error(self):
+        backend = _RVMBackend(1)
+        exc = RuntimeError(
+            "BFCArena::AllocateRawInternal: Available memory of 10999040 "
+            "is smaller than requested bytes of 17855232"
+        )
+
+        self.assertTrue(backend._is_cuda_runtime_error(exc))
+
     def test_infer_resets_proactively_when_input_shape_changes(self):
         backend = _RVMBackend(1)
         backend.session = mock.Mock()
@@ -385,7 +394,6 @@ class TensorrtRvmTests(unittest.TestCase):
             "CUDA failure 400: invalid resource handle"
         )
         rebuilt_session.run.return_value = outputs
-        create_session.return_value = rebuilt_session
 
         backend.session = original_session
         backend._base_model_path = Path("/tmp/base.onnx")
@@ -396,6 +404,15 @@ class TensorrtRvmTests(unittest.TestCase):
         backend._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         frame = np.zeros((360, 640, 4), dtype=np.uint8)
 
+        def create_replacement(*_args, **_kwargs):
+            self.assertIsNone(
+                backend.session,
+                "the exhausted CUDA session must be detached before replacement allocation",
+            )
+            return rebuilt_session
+
+        create_session.side_effect = create_replacement
+
         with mock.patch.object(backend, "reset_state", wraps=backend.reset_state) as reset_state:
             alpha = backend.infer(frame, 640, 360)
 
@@ -404,6 +421,39 @@ class TensorrtRvmTests(unittest.TestCase):
         create_session.assert_called_once_with(Path("/tmp/base.onnx"), 1, use_tensorrt=False)
         release_session.assert_called_once_with(original_session)
         reset_state.assert_called_once()
+
+    @mock.patch("nvbroadcast.video.effects._release_session")
+    @mock.patch("nvbroadcast.video.effects._create_session")
+    def test_cuda_recovery_falls_back_to_cpu_when_rebuild_fails(
+        self,
+        create_session,
+        release_session,
+    ):
+        backend = _RVMBackend(1)
+        original_session = mock.Mock()
+        cpu_session = mock.Mock()
+        backend.session = original_session
+        backend._base_model_path = Path("/tmp/base.onnx")
+        create_session.side_effect = [
+            RuntimeError("CUDA session allocation failed"),
+            cpu_session,
+        ]
+
+        recovered = backend._recover_cuda_session(
+            RuntimeError("BFCArena::AllocateRawInternal")
+        )
+
+        self.assertTrue(recovered)
+        self.assertIs(backend.session, cpu_session)
+        self.assertTrue(backend._trt_disabled)
+        self.assertEqual(
+            create_session.call_args_list,
+            [
+                mock.call(Path("/tmp/base.onnx"), 1, use_tensorrt=False),
+                mock.call(Path("/tmp/base.onnx"), 1, cpu_only=True),
+            ],
+        )
+        release_session.assert_called_once_with(original_session)
 
     def test_infer_shape_transition_error_resets_once_and_recovers(self):
         backend = _RVMBackend(1)

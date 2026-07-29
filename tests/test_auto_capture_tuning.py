@@ -242,7 +242,13 @@ class AutoCaptureTuningTests(unittest.TestCase):
         )
 
         apply_performance_profile.assert_called_once_with(app.config, "performance")
-        app._video_effects.set_profile_infer_height.assert_called_once_with(288)
+        app._video_effects.set_profile_infer_height.assert_not_called()
+        app._video_effects.set_engine_mode.assert_called_once_with(
+            False,
+            False,
+            quality=None,
+            profile_infer_height=288,
+        )
         app._sync_gpu_frame_path.assert_called_once_with()
         app._window.set_status.assert_called_once_with("Mode: Performance | ?p")
 
@@ -259,6 +265,10 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertTrue(changed)
         app.set_performance_profile.assert_called_once()
+        self.assertEqual(
+            app.set_performance_profile.call_args.kwargs["quality_preset"],
+            "performance",
+        )
         self.assertEqual(app._video_effects.quality, "performance")
         self.assertEqual(app.config.video.quality_preset, "performance")
 
@@ -293,6 +303,10 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertTrue(changed)
         app.set_performance_profile.assert_called_once()
+        self.assertEqual(
+            app.set_performance_profile.call_args.kwargs["quality_preset"],
+            "ultra",
+        )
         self.assertEqual(app._video_effects.quality, "ultra")
         self.assertEqual(app.config.video.quality_preset, "ultra")
 
