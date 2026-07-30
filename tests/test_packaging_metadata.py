@@ -563,6 +563,7 @@ class PackagingMetadataTests(unittest.TestCase):
             "- name: Validate arm64 Python wheel availability", 1
         )[1].split("- name: Install Linux project dependencies", 1)[0]
         self.assertIn("protobuf>=5.29.6,<7", arm64_wheel_check)
+        self.assertIn("opencv-contrib-python>=4.8.1.78,<5", arm64_wheel_check)
         for package in (
             "pyrnnoise",
             "av>=16,<17",
