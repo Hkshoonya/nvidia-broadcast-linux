@@ -160,6 +160,8 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Rebuild RVM sessions safely during quality and processing-mode changes
 - Recover from CUDA allocation failures with clean provider and CPU fallback
 - Preserve fine hair detail and reduce neutral or bright replacement halos
+- Keep microphone capture active to prevent delayed Pulse/PipeWire clients
+- Bound Protobuf to the patched 5.29.6 through 6.x compatibility range
 - Remove GTK image baseline warnings and harmonize runtime log prefixes
 - Refresh release, store, website, and package metadata
 

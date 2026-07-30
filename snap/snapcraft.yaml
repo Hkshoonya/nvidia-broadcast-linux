@@ -119,7 +119,7 @@ parts:
     python-packages:
       - numpy
       - opencv-python-headless
-      - protobuf>=5.29.6
+      - protobuf>=5.29.6,<7
       - onnxruntime==1.24.4
       - onnx>=1.22.0
       - click>=8.3.3

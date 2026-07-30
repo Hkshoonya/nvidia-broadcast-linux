@@ -133,7 +133,7 @@ class PackagingMetadataTests(unittest.TestCase):
         for content in (pyproject, requirements, snapcraft, build_workflow):
             self.assertIn("onnx>=1.22.0", content)
             self.assertIn("click>=8.3.3", content)
-            self.assertIn("protobuf>=5.29.6", content)
+            self.assertIn("protobuf>=5.29.6,<7", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn("pyvirtualcam>=0.14", requirements)
@@ -541,7 +541,7 @@ class PackagingMetadataTests(unittest.TestCase):
         arm64_wheel_check = build_workflow.split(
             "- name: Validate arm64 Python wheel availability", 1
         )[1].split("- name: Install Linux project dependencies", 1)[0]
-        self.assertIn("protobuf>=5.29.6", arm64_wheel_check)
+        self.assertIn("protobuf>=5.29.6,<7", arm64_wheel_check)
         self.assertNotIn("mediapipe", arm64_wheel_check)
         for package in (
             "pyrnnoise",

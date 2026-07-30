@@ -12,6 +12,13 @@ from nvbroadcast.audio.pipeline import AudioPipeline
 
 
 class AudioPipelineLifecycleTests(unittest.TestCase):
+    def test_mic_power_save_is_disabled_for_client_latency_compatibility(self):
+        pipeline = AudioPipeline(use_helper_process=False)
+
+        self.assertFalse(pipeline.auto_idle)
+        pipeline.auto_idle = True
+        self.assertFalse(pipeline._helper_state()["auto_idle"])
+
     def test_start_uses_loopback_virtual_mic_before_playing(self):
         pipeline = AudioPipeline(use_helper_process=False)
         pipeline._pipeline = mock.Mock()

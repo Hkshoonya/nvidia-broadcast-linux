@@ -71,6 +71,8 @@
           <li>Added live physical-camera switching and fixed profile changes for single-frame video backends</li>
           <li>Rebuilt and atomically swapped RVM sessions during quality or processing-mode changes, with clean CUDA recovery and CPU fallback</li>
           <li>Preserved more fine head-hair and facial-hair detail in Ultra quality while suppressing neutral or bright background spill on soft replacement edges</li>
+          <li>Kept microphone capture active so Pulse/PipeWire clients do not retain multi-second latency after opening an idle virtual microphone</li>
+          <li>Bound Protobuf to the patched 5.29.6 through 6.x range for compatibility with system-site Python packages</li>
           <li>Removed GTK image baseline warnings and harmonized runtime log prefixes</li>
         </ul>
       </description>

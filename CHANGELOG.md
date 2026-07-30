@@ -10,6 +10,8 @@
 - **Safer Profile Switching** - Profiles now apply correctly when a video backend can provide only one current frame, preventing stale-frame failures during live configuration changes
 - **Crash-Safe Background Mode Changes** - RVM quality and processing-mode changes now rebuild, warm, and atomically replace the inference session while serializing concurrent reloads. CUDA allocation failures trigger a clean provider rebuild and retain CPU fallback instead of leaving the app stuck on the original camera image
 - **Cleaner Hair and Facial-Hair Edges** - Ultra quality retains more fine foreground detail and suppresses neutral or bright background spill around head hair, beards, and other soft replacement boundaries without recoloring the solid subject
+- **Low-Latency Virtual Microphone** - Power Save now pauses only camera capture. Microphone capture stays active so Discord and other Pulse/PipeWire clients cannot retain a multi-second buffer after opening an idle virtual microphone ([Issue #44](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/44))
+- **Compatible Protobuf Resolution** - Source and packaged installs stay on patched Protobuf 5.29.6 through 6.x, avoiding conflicts with current OpenTelemetry packages exposed through system-site Python environments
 - **Quieter, Consistent Diagnostics** - GTK image baseline warnings are removed and audio/video runtime logs use a consistent NV Broadcast prefix
 - **Community Release** - Live camera switching, safer profile switching, GTK warning cleanup, and log harmonization were contributed by Cédric Prezelin ([`@Tenshock`](https://github.com/Tenshock))
 

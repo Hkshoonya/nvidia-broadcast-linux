@@ -65,6 +65,19 @@ switching and desktop diagnostics.
 - The existing backlight adaptation remains inference-only and does not change
   displayed camera exposure or white balance.
 
+## Low-latency virtual microphone
+
+- Power Save now applies only to camera capture, matching the setting shown in
+  the application.
+- Microphone capture remains active while the processed virtual microphone is
+  published. This prevents Discord and other Pulse/PipeWire clients from
+  retaining a multi-second capture buffer when they connect to an idle source.
+- The denoiser and voice-effects path remains isolated in its helper process;
+  this change only removes the incompatible microphone suspend/resume cycle.
+- Protobuf remains at the patched `>=5.29.6,<7` range so source installations
+  that expose host GTK packages do not conflict with current OpenTelemetry
+  packages.
+
 ## Community
 
 - Cédric Prezelin
@@ -75,10 +88,12 @@ switching and desktop diagnostics.
   Issues #45 and #38.
 - The background mode-switch and edge-quality fix follows live RTX camera
   testing and the regression report resolved in PR #49.
+- The virtual-microphone resume correction follows the Discord latency report
+  tracked in Issue #44.
 
 ## Compatibility and release validation
 
-- The complete test suite passed with 443 tests and 15 subtests.
+- The complete test suite passed with 445 tests and 15 subtests.
 - The focused background, CUDA recovery, and mode-switch suite passed with
   95 tests and 9 subtests.
 - Release smoke passed 235 tests, built the wheel, and verified required
