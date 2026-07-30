@@ -58,7 +58,7 @@ Repository = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
 Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "packaging>=26.0"]
+dev = ["pytest>=9.0.3", "packaging>=26.0"]
 cuda = [
     "cupy-cuda12x>=14.1.1,<15",
     "nvidia-cublas-cu12",

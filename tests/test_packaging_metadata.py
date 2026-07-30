@@ -138,6 +138,7 @@ class PackagingMetadataTests(unittest.TestCase):
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn("pyvirtualcam>=0.14", requirements)
+        self.assertIn('dev = ["pytest>=9.0.3", "packaging>=26.0"]', pyproject)
         self.assertIn('"mediapipe>=1.0.0"', pyproject)
         self.assertIn("\nmediapipe>=1.0.0\n", requirements)
         self.assertNotIn("\n      - mediapipe\n", snapcraft)
