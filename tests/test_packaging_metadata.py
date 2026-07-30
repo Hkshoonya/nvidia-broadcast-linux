@@ -129,7 +129,7 @@ class PackagingMetadataTests(unittest.TestCase):
         for content in (pyproject, requirements, snapcraft, build_workflow):
             self.assertIn("onnx>=1.22.0", content)
             self.assertIn("click>=8.3.3", content)
-            self.assertIn("protobuf>=5.29.6,<7", content)
+            self.assertIn("protobuf>=6.33.5,<7", content)
 
         for content in (pyproject, requirements, snapcraft, build_workflow):
             self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
@@ -556,13 +556,13 @@ class PackagingMetadataTests(unittest.TestCase):
         cuda_install = snapcraft.split(
             "Installing amd64 CUDA mode runtime into Snap", 1
         )[1].split("# nvImageCodec", 1)[0]
-        self.assertIn("- protobuf>=5.29.6,<7", snapcraft)
-        self.assertNotIn('"protobuf>=5.29.6,<7"', cuda_install)
+        self.assertIn("- protobuf>=6.33.5,<7", snapcraft)
+        self.assertNotIn('"protobuf>=6.33.5,<7"', cuda_install)
         self.assertIn("onnxruntime==1.24.4", build_workflow)
         arm64_wheel_check = build_workflow.split(
             "- name: Validate arm64 Python wheel availability", 1
         )[1].split("- name: Install Linux project dependencies", 1)[0]
-        self.assertIn("protobuf>=5.29.6,<7", arm64_wheel_check)
+        self.assertIn("protobuf>=6.33.5,<7", arm64_wheel_check)
         self.assertIn("opencv-contrib-python>=4.8.1.78,<5", arm64_wheel_check)
         for package in (
             "pyrnnoise",

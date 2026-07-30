@@ -125,7 +125,7 @@ parts:
       - opencv-contrib-python>=4.8.1.78,<5
       - packaging>=26.0
       - setuptools>=83.0.0
-      - protobuf>=5.29.6,<7
+      - protobuf>=6.33.5,<7
       - onnxruntime==1.24.4
       - onnx>=1.22.0
       - click>=8.3.3
