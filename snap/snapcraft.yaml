@@ -57,9 +57,7 @@ description: |
     behavior. GPU Focused selects the DocZeus/CUDA path when available, while
     CPU Focused keeps users on CPU modes when preferred.
   - The arm64 Snap build stays portable and CPU-safe until Linux arm64 GPU
-    wheels are available from upstream providers. Auto Frame, Eye Contact,
-    Face Relighting, and face-aware Video Enhancement also remain unavailable
-    there until a MediaPipe wheel supports patched Protobuf.
+    wheels are available from upstream providers.
 
   Core features:
   - Blur your background
