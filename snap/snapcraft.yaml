@@ -139,7 +139,7 @@ parts:
       - scipy
       - pyrnnoise
       - psutil
-      - Pillow
+      - Pillow>=12.3.0
       - requests
     stage-packages:
       - python3-gi

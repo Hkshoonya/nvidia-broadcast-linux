@@ -28,7 +28,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.26",
-    "Pillow>=10.0",
+    "Pillow>=12.3.0",
     "opencv-contrib-python>=4.8.1.78,<5",
     # Current secure macOS wheels are Apple Silicon-only. Requiring 1.0.0
     # prevents Intel Macs from silently resolving an older vulnerable

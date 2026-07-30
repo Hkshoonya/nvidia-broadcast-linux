@@ -134,6 +134,7 @@ class PackagingMetadataTests(unittest.TestCase):
         for content in (pyproject, requirements, snapcraft, build_workflow):
             self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
             self.assertNotIn("opencv-python-headless", content)
+            self.assertIn("Pillow>=12.3.0", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn("pyvirtualcam>=0.14", requirements)
