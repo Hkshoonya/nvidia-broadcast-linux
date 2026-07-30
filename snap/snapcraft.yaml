@@ -20,6 +20,8 @@ description: |
     mode changes, with clean CUDA recovery and CPU fallback.
   - Preserves more head-hair and facial-hair detail in Ultra quality while
     suppressing neutral and bright background spill on soft edges.
+  - Keeps microphone capture active so Discord and other Pulse/PipeWire
+    clients do not retain multi-second latency after opening the virtual mic.
   - Removes GTK image baseline warnings and harmonizes runtime log prefixes.
 
   Recent quality updates:
