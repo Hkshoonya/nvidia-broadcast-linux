@@ -537,6 +537,10 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Installing amd64 CUDA mode runtime into Snap", snapcraft)
         self.assertIn("Skipping CUDA mode runtime", snapcraft)
         self.assertIn("arm64 Snap build stays portable and CPU-safe", snapcraft)
+        cuda_install = snapcraft.split(
+            "Installing amd64 CUDA mode runtime into Snap", 1
+        )[1].split("# nvImageCodec", 1)[0]
+        self.assertIn('"protobuf>=5.29.6,<7"', cuda_install)
         self.assertIn("onnxruntime==1.24.4", build_workflow)
         arm64_wheel_check = build_workflow.split(
             "- name: Validate arm64 Python wheel availability", 1

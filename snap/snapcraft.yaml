@@ -162,6 +162,7 @@ parts:
           echo "Installing amd64 CUDA mode runtime into Snap..."
           python3 -m pip install --no-cache-dir --upgrade \
             --target "$SNAP_PYTHON_SITE" \
+            "protobuf>=5.29.6,<7" \
             onnxruntime-gpu==1.24.4 \
             "cupy-cuda12x>=14.1.1,<15" \
             nvidia-cublas-cu12 \
