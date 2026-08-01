@@ -400,5 +400,56 @@ class AutoCaptureTuningTests(unittest.TestCase):
         save_config.assert_called_once_with(app.config)
 
 
+class AutoStartBroadcastStateTests(unittest.TestCase):
+    """_auto_start must respect the profile's saved broadcast state."""
+
+    def _make_app(self, broadcast_started):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.video.camera_device = "/dev/video0"
+        app.config.video.output_format = "YUY2"
+        app.config.broadcast_started = broadcast_started
+        app._streaming = False
+        app._vcam_available = True
+        app.start_pipeline = mock.Mock()
+        app._window = SimpleNamespace(
+            _streaming=False,
+            set_status=mock.Mock(),
+            _stream_btn=SimpleNamespace(
+                set_label=mock.Mock(),
+                remove_css_class=mock.Mock(),
+                add_css_class=mock.Mock(),
+            ),
+        )
+        return app
+
+    def test_auto_start_skipped_when_profile_saved_stopped(self):
+        app = self._make_app(broadcast_started=False)
+
+        NVBroadcastApp._auto_start(app)
+
+        app.start_pipeline.assert_not_called()
+        app._window.set_status.assert_called_once()
+        self.assertFalse(app._window._streaming)
+
+    def test_auto_start_runs_when_profile_saved_running(self):
+        app = self._make_app(broadcast_started=True)
+
+        NVBroadcastApp._auto_start(app)
+
+        app.start_pipeline.assert_called_once_with("/dev/video0", "YUY2")
+        self.assertTrue(app._window._streaming)
+
+    def test_auto_start_preserves_legacy_behavior_when_state_unknown(self):
+        # Legacy configs have no broadcast_started key -> None; they keep the
+        # previous always-start behavior.
+        app = self._make_app(broadcast_started=None)
+
+        NVBroadcastApp._auto_start(app)
+
+        app.start_pipeline.assert_called_once_with("/dev/video0", "YUY2")
+        self.assertTrue(app._window._streaming)
+
+
 if __name__ == "__main__":
     unittest.main()

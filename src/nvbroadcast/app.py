@@ -981,6 +981,14 @@ class NVBroadcastApp(Adw.Application):
     def _auto_start(self):
         """Auto-start broadcast with saved settings."""
         startup_trace.mark("auto-start begin")
+        # Respect the profile's saved broadcast state: a profile saved while
+        # stopped must not start the broadcast on launch. Legacy configs
+        # (broadcast_started is None) keep the previous always-start behavior.
+        if self.config.broadcast_started is False:
+            print("[NV Broadcast] Auto-start skipped: profile saved while stopped", flush=True)
+            if self._window:
+                self._window.set_status("Broadcast stopped (saved profile state)")
+            return False
         print(f"[NV Broadcast] Auto-start: streaming={self._streaming} vcam={self._vcam_available}", flush=True)
         if not self._streaming:
             camera = self.config.video.camera_device
