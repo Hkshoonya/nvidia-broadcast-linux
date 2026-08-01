@@ -2128,6 +2128,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         cameras = list_camera_devices()
         if cameras:
             self._camera_selector.set_devices(cameras)
+        # No source: hide the preview so we don't show an empty/white screen.
+        self._preview_frame.set_visible(bool(cameras))
 
     def _update_gpu_info(self):
         gpus = detect_gpus()
