@@ -1960,6 +1960,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._profile_btn.set_label(f"Profile: {name}")
             popover.popdown()
             self.set_status(f"Switched to {name} profile")
+            # Restore the broadcast start/stop state recorded in the profile.
+            # Legacy profiles (broadcast_started is None) leave the pipeline
+            # untouched. Reusing _on_stream_toggle keeps all pipeline logic in
+            # one place.
+            want_running = loaded.broadcast_started
+            if want_running is True and not self._streaming:
+                self._on_stream_toggle(self._stream_btn)
+            elif want_running is False and self._streaming:
+                self._on_stream_toggle(self._stream_btn)
 
     def _on_save_profile(self, btn, popover):
         popover.popdown()
@@ -1983,6 +1992,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             name = entry.get_text().strip()
             if name:
                 from nvbroadcast.core.config import save_profile, save_config
+                # Capture whether the broadcast is currently running so the
+                # profile can restore it later.
+                self._app.config.broadcast_started = self._streaming
                 save_profile(name, self._app.config)
                 self._app.config.current_profile = name
                 save_config(self._app.config)

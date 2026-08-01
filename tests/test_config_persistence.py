@@ -6,7 +6,9 @@ from nvbroadcast.core.config import (
     apply_builtin_profile,
     build_default_config,
     load_config,
+    load_profile,
     save_config,
+    save_profile,
     _config_to_toml,
     _load_from_toml,
 )
@@ -256,6 +258,66 @@ voice_fx_gain = 0.05
         self.assertIsNotNone(expected)
         self.assertEqual(loaded.audio.voice_fx_preset, "Studio")
         self.assertEqual(loaded.audio.voice_fx_gate_threshold, expected.gate_threshold)
+
+    def test_roundtrip_persists_broadcast_started_true(self):
+        config = AppConfig()
+        config.broadcast_started = True
+
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(_config_to_toml(config))
+            loaded = _load_from_toml(path)
+
+        self.assertIs(loaded.broadcast_started, True)
+
+    def test_roundtrip_persists_broadcast_started_false(self):
+        config = AppConfig()
+        config.broadcast_started = False
+
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(_config_to_toml(config))
+            loaded = _load_from_toml(path)
+
+        self.assertIs(loaded.broadcast_started, False)
+
+    def test_legacy_profile_without_broadcast_started_is_none(self):
+        legacy = """
+current_profile = "Meeting"
+"""
+
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy.toml"
+            path.write_text(legacy)
+            loaded = _load_from_toml(path)
+
+        self.assertIsNone(loaded.broadcast_started)
+
+    def test_save_and_load_profile_preserves_broadcast_started(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch(
+                "nvbroadcast.core.config.PROFILES_DIR", Path(tmp)
+            ):
+                config = AppConfig()
+                config.broadcast_started = True
+                save_profile("My Stream", config)
+
+                loaded = load_profile("My Stream")
+
+        self.assertIsNotNone(loaded)
+        self.assertIs(loaded.broadcast_started, True)
 
 
 class ConfigCorruptionRecoveryTests(unittest.TestCase):
