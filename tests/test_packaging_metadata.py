@@ -335,7 +335,7 @@ class PackagingMetadataTests(unittest.TestCase):
         snap_release = snap_workflow.split("- name: Attach snaps to GitHub Release", 1)[1]
 
         self.assertIn("draft: true", package_release)
-        self.assertIn("draft: true", snap_release)
+        self.assertIn("draft: ${{ github.event_name == 'push' }}", snap_release)
 
     def test_release_workflow_requires_rpm_and_installs_linux_dependencies(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
