@@ -164,6 +164,7 @@ class DependencyInstallerTests(unittest.TestCase):
         installer = dependency_installer.DependencyInstaller()
         with mock.patch.object(dependency_installer, "IS_LINUX", True), \
              mock.patch.object(dependency_installer, "IS_ARM64", False), \
+             mock.patch.object(dependency_installer, "_has_cuda_mode_runtime", return_value=True), \
              mock.patch.object(dependency_installer, "has_tensorrt_runtime", return_value=True), \
              mock.patch.object(dependency_installer, "supports_tensorrt_python", return_value=False):
             self.assertIsNone(installer.unsupported_reason_for_mode("zeus"))
