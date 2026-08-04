@@ -86,13 +86,34 @@ def _has_whisper() -> bool:
 
 
 def _supports_cuda_runtime() -> bool:
-    if _running_in_snap() and not _has_cuda_mode_runtime():
-        return False
     return supports_linux_gpu_stack()
 
 
 def _running_in_snap() -> bool:
     return bool(os.environ.get("SNAP"))
+
+
+def _runtime_install_block_reason() -> str | None:
+    if _running_in_snap():
+        return (
+            "Optional runtimes cannot be installed inside the immutable Snap. "
+            "Refresh the Snap to receive bundled runtime updates."
+        )
+
+    venv_root = Path(sys.prefix)
+    venv_pip = Path(sys.executable).parent / "pip"
+    if (
+        sys.prefix == getattr(sys, "base_prefix", sys.prefix)
+        or not venv_pip.is_file()
+        or not os.access(venv_pip, os.X_OK)
+        or not os.access(venv_root, os.W_OK)
+    ):
+        return (
+            "This app runtime is managed by its installer and cannot be changed "
+            "from the GUI. Install optional runtimes through the same package or "
+            "use a user-owned source installation."
+        )
+    return None
 
 
 def _has_cuda_mode_runtime() -> bool:
@@ -145,8 +166,8 @@ PACKAGE_SPECS = {
         ),
         "install_args": ["install", "tensorrt-cu12"],
         "supported": _supports_tensorrt_runtime,
-        "check": has_tensorrt_runtime,
-        "verify": has_tensorrt_runtime,
+        "check": lambda: has_tensorrt_runtime(),
+        "verify": lambda: has_tensorrt_runtime(),
         "help": "Retry later with: .venv/bin/pip install tensorrt-cu12",
         "unsupported_reason": (
             "TensorRT premium modes are currently available only on Linux x86_64 "
@@ -228,8 +249,6 @@ class DependencyInstaller(GObject.Object):
         spec = PACKAGE_SPECS.get(key)
         if spec is None:
             return False
-        if not self.is_supported(key):
-            return False
         try:
             return bool(spec["check"]())
         except Exception:
@@ -253,6 +272,23 @@ class DependencyInstaller(GObject.Object):
         if key in PACKAGE_BUNDLES:
             return PACKAGE_BUNDLES[key]
         return PACKAGE_SPECS[key]
+
+    def install_block_reason(self, key: str) -> str | None:
+        if key in PACKAGE_BUNDLES:
+            for package_id in PACKAGE_BUNDLES[key]["packages"]:
+                reason = self.install_block_reason(package_id)
+                if reason:
+                    return reason
+            return None
+
+        spec = PACKAGE_SPECS.get(key)
+        if spec is None:
+            return "Unknown optional runtime."
+        if self.is_available(key):
+            return None
+        if not self.is_supported(key):
+            return spec.get("unsupported_reason", f"{spec['title']} is not supported on this system.")
+        return _runtime_install_block_reason()
 
     def unsupported_reason_for_mode(self, mode_key: str) -> str | None:
         if (
@@ -280,6 +316,27 @@ class DependencyInstaller(GObject.Object):
                 f"{tensorrt_python_unsupported_reason()} "
                 "Use DocZeus or the CUDA modes instead."
             )
+        if (
+            _running_in_snap()
+            and mode_key in ("zeus", "killer")
+            and not has_tensorrt_runtime()
+        ):
+            return (
+                "TensorRT is not included in this Snap build, and strict Snaps "
+                "cannot install runtimes after deployment. Use DocZeus or a CUDA "
+                "mode instead."
+            )
+        required_runtimes: list[str] = []
+        if mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer"):
+            required_runtimes.append("cupy")
+        if mode_key in ("zeus", "killer"):
+            required_runtimes.append("tensorrt")
+        for package_id in required_runtimes:
+            if self.is_available(package_id):
+                continue
+            block_reason = self.install_block_reason(package_id)
+            if block_reason:
+                return f"{block_reason} Use a mode whose runtime is already installed."
         return None
 
     def missing_for_mode(self, mode_key: str) -> list[str]:
@@ -302,7 +359,7 @@ class DependencyInstaller(GObject.Object):
         return None
 
     def start_install(self, key: str) -> bool:
-        if not self.is_supported(key):
+        if self.install_block_reason(key):
             return False
         with self._lock:
             if self._active_job_id:
@@ -371,11 +428,11 @@ class DependencyInstaller(GObject.Object):
         spec = PACKAGE_SPECS[package_id]
         if self.is_available(package_id):
             return True, f"{spec['title']} already available."
-        if not self.is_supported(package_id):
-            return False, spec.get("unsupported_reason", f"{spec['title']} is not supported on this system.")
+        block_reason = self.install_block_reason(package_id)
+        if block_reason:
+            return False, block_reason
 
         label_prefix = f"{prefix}: " if prefix else ""
-        venv_pip = Path(sys.executable).parent / "pip"
         install_steps = spec.get("install_steps") or [spec["install_args"]]
         GLib.idle_add(
             self._emit_progress,
@@ -389,7 +446,7 @@ class DependencyInstaller(GObject.Object):
             step_prefix = ""
             if len(install_steps) > 1:
                 step_prefix = f"Step {step_index}/{len(install_steps)}: "
-            cmd = [str(venv_pip), *install_args, "--progress-bar", "off"]
+            cmd = [sys.executable, "-m", "pip", *install_args, "--progress-bar", "off"]
             try:
                 proc = subprocess.Popen(
                     cmd,
