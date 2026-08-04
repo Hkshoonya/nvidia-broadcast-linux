@@ -328,6 +328,15 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Tag $GITHUB_REF_NAME does not match package version", build_workflow)
         self.assertIn("Release tag $RELEASE_TAG does not match Snap version", snap_workflow)
 
+    def test_tag_artifacts_remain_draft_until_inspected(self):
+        build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
+        snap_workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        package_release = build_workflow.split("- name: Create GitHub Release", 1)[1]
+        snap_release = snap_workflow.split("- name: Attach snaps to GitHub Release", 1)[1]
+
+        self.assertIn("draft: true", package_release)
+        self.assertIn("draft: true", snap_release)
+
     def test_release_workflow_requires_rpm_and_installs_linux_dependencies(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
         rpm_step = workflow.split("- name: Build .rpm package", 1)[1].split(
