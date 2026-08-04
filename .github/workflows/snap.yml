@@ -69,6 +69,28 @@ jobs:
           fi
           echo "Verified that the Snap contains no runtime pip installer."
 
+      - name: Verify Snap runtime dependency closure
+        env:
+          SNAP_PATH: ${{ steps.snapcraft.outputs.snap }}
+        run: |
+          SNAP_ROOT="$(mktemp -d)"
+          trap 'rm -rf "$SNAP_ROOT"' EXIT
+          unsquashfs -f -d "$SNAP_ROOT" "$SNAP_PATH" >/dev/null
+
+          mapfile -t SNAP_PYTHON_PATHS < <(
+            find "$SNAP_ROOT/lib" "$SNAP_ROOT/usr/lib" \
+              -type d \( -name site-packages -o -name dist-packages \) \
+              -print | sort
+          )
+          if [ "${#SNAP_PYTHON_PATHS[@]}" -eq 0 ]; then
+            echo "::error::The Snap contains no discoverable Python package roots."
+            exit 1
+          fi
+          SNAP_PYTHONPATH="$(IFS=:; printf '%s' "${SNAP_PYTHON_PATHS[*]}")"
+          PYTHONPATH="$SNAP_PYTHONPATH" python3 -S \
+            scripts/validate_snap_runtime.py "$SNAP_ROOT" \
+            --platform-machine "${{ matrix.arch }}"
+
       - name: Upload snap artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

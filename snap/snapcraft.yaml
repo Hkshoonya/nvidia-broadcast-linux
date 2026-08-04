@@ -122,7 +122,9 @@ parts:
     source: .
     python-packages:
       - numpy
-      - opencv-python-headless
+      - opencv-contrib-python>=4.8.1.78,<5
+      - packaging>=26.0
+      - setuptools>=83.0.0
       - protobuf>=5.29.6,<7
       - onnxruntime==1.24.4
       - onnx>=1.22.0
@@ -162,11 +164,14 @@ parts:
       case "${CRAFT_ARCH_BUILD_FOR:-$(uname -m)}" in
         amd64|x86_64)
           echo "Installing amd64 CUDA mode runtime into Snap..."
+          # The base site already owns shared Python dependencies; keep the
+          # higher-priority CUDA overlay limited to its explicit GPU payload.
           python3 -m pip install --no-cache-dir --upgrade \
+            --no-deps \
             --target "$SNAP_PYTHON_SITE" \
-            "protobuf>=5.29.6,<7" \
             onnxruntime-gpu==1.24.4 \
             "cupy-cuda12x>=14.1.1,<15" \
+            "cuda-pathfinder>=1.3.4,<2" \
             nvidia-cublas-cu12 \
             nvidia-cuda-runtime-cu12 \
             nvidia-cudnn-cu12 \

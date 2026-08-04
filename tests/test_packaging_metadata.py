@@ -135,6 +135,10 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn("click>=8.3.3", content)
             self.assertIn("protobuf>=5.29.6,<7", content)
 
+        for content in (pyproject, requirements, snapcraft, build_workflow):
+            self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
+            self.assertNotIn("opencv-python-headless", content)
+
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn("pyvirtualcam>=0.14", requirements)
         self.assertIn(
@@ -576,7 +580,8 @@ class PackagingMetadataTests(unittest.TestCase):
         cuda_install = snapcraft.split(
             "Installing amd64 CUDA mode runtime into Snap", 1
         )[1].split("# nvImageCodec", 1)[0]
-        self.assertIn('"protobuf>=5.29.6,<7"', cuda_install)
+        self.assertIn("- protobuf>=5.29.6,<7", snapcraft)
+        self.assertNotIn('"protobuf>=5.29.6,<7"', cuda_install)
         self.assertIn("onnxruntime==1.24.4", build_workflow)
         arm64_wheel_check = build_workflow.split(
             "- name: Validate arm64 Python wheel availability", 1
@@ -605,6 +610,24 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("-name 'pip-*.dist-info'", snapcraft)
         self.assertIn("Verify Snap excludes runtime pip", workflow)
         self.assertIn("must not contain a runtime pip installer", workflow)
+
+    def test_snap_validates_runtime_dependency_closure(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        cuda_install = snapcraft.split(
+            'echo "Installing amd64 CUDA mode runtime into Snap..."', 1
+        )[1].split("# nvImageCodec", 1)[0]
+
+        self.assertIn("- packaging>=26.0", snapcraft)
+        self.assertIn("- setuptools>=83.0.0", snapcraft)
+        self.assertIn("--no-deps", cuda_install)
+        self.assertIn('"cuda-pathfinder>=1.3.4,<2"', cuda_install)
+        self.assertNotRegex(
+            cuda_install,
+            r'(?m)^\s+"?(?:numpy|packaging|protobuf)(?:[<>=][^"]*)?"?\s+\\$',
+        )
+        self.assertIn("Verify Snap runtime dependency closure", workflow)
+        self.assertIn("scripts/validate_snap_runtime.py", workflow)
 
     def test_packaged_backgrounds_include_bundled_default(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
