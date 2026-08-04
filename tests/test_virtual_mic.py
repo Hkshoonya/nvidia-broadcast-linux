@@ -145,8 +145,9 @@ class VirtualMicTests(unittest.TestCase):
         self.assertIn("--capture-props", cmd)
         self.assertIn("--playback-props", cmd)
 
+    @mock.patch("nvbroadcast.audio.virtual_mic.virtual_mic_backend", return_value="pulse")
     @mock.patch("nvbroadcast.audio.virtual_mic._run_pactl")
-    def test_destroy_virtual_mic_unloads_pulse_modules(self, run_pactl):
+    def test_destroy_virtual_mic_unloads_pulse_modules(self, run_pactl, _backend):
         virtual_mic._pulse_sink_module_id = 11
         virtual_mic._pulse_source_module_id = 12
         run_pactl.side_effect = lambda args: (
@@ -172,8 +173,9 @@ class VirtualMicTests(unittest.TestCase):
         self.assertIsNone(virtual_mic._pulse_sink_module_id)
         self.assertIsNone(virtual_mic._pulse_source_module_id)
 
+    @mock.patch("nvbroadcast.audio.virtual_mic.virtual_mic_backend", return_value="pulse")
     @mock.patch("nvbroadcast.audio.virtual_mic._run_pactl")
-    def test_destroy_virtual_mic_unloads_matching_modules_even_without_globals(self, run_pactl):
+    def test_destroy_virtual_mic_unloads_matching_modules_even_without_globals(self, run_pactl, _backend):
         run_pactl.side_effect = lambda args: (
             mock.Mock(
                 returncode=0,
