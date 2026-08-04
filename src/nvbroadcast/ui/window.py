@@ -1642,6 +1642,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 self.set_status("Meeting ended")
         else:
             if not self._app.dependency_installer.is_available("whisper"):
+                block_reason = self._app.dependency_installer.install_block_reason("whisper")
+                if block_reason:
+                    self.set_status(block_reason)
+                    return
                 self._pending_meeting_start = True
                 self._prompt_dependency_install(
                     "whisper",
@@ -2450,7 +2454,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self.set_status("Optional runtime install skipped")
             return
         if not self._app.dependency_installer.start_install(install_key):
-            self.set_status("Another optional runtime install is already running")
+            reason = self._app.dependency_installer.install_block_reason(install_key)
+            self.set_status(reason or "Another optional runtime install is already running")
 
     def _dismiss_install_banner(self, _button):
         self._stop_install_pulse()

@@ -118,6 +118,7 @@ parts:
     plugin: python
     source: .
     python-packages:
+      - pip>=26.1.2,<27
       - numpy
       - opencv-python-headless
       - protobuf>=5.29.6
