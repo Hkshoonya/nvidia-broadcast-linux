@@ -578,6 +578,10 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("- setuptools>=83.0.0", snapcraft)
         self.assertIn("--no-deps", cuda_install)
         self.assertIn('"cuda-pathfinder>=1.3.4,<2"', cuda_install)
+        self.assertNotRegex(
+            cuda_install,
+            r'(?m)^\s+"?(?:numpy|packaging|protobuf)(?:[<>=][^"]*)?"?\s+\\$',
+        )
         self.assertIn("Verify Snap runtime dependency closure", workflow)
         self.assertIn("scripts/validate_snap_runtime.py", workflow)
 
