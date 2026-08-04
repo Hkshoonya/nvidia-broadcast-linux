@@ -311,6 +311,16 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("inputs.candidate", attach_job)
         self.assertNotIn("inputs.review", attach_job)
 
+    def test_snap_tag_build_does_not_auto_publish_to_store(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        store_target = workflow.split("- name: Resolve Snap Store target", 1)[1].split(
+            "- name: Resolve release target", 1
+        )[0]
+
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]', store_target)
+        self.assertNotIn("refs/tags", store_target)
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", workflow)
+
     def test_release_workflows_reject_version_mismatched_tags(self):
         build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
         snap_workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()

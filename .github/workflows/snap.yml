@@ -85,10 +85,7 @@ jobs:
           ACTION=""
           CHANNEL=""
 
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            ACTION="release"
-            CHANNEL="stable"
-          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             REQUEST_COUNT=0
             for REQUESTED in "$PUBLISH_STABLE" "$PUBLISH_CANDIDATE" "$UPLOAD_FOR_REVIEW"; do
               if [ "$REQUESTED" = "true" ]; then
