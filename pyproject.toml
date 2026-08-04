@@ -29,7 +29,7 @@ classifiers = [
 dependencies = [
     "numpy>=1.26",
     "Pillow>=10.0",
-    "opencv-python-headless>=4.8",
+    "opencv-contrib-python>=4.8.1.78,<5",
     # Current secure macOS wheels are Apple Silicon-only. Requiring 0.10.35
     # prevents Intel Macs from silently resolving the vulnerable 0.10.21
     # fallback; install_macos.sh reports the architecture requirement first.
@@ -62,7 +62,7 @@ Repository = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
 Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "packaging>=26.0"]
 cuda = [
     "cupy-cuda12x>=14.1.1,<15",
     "nvidia-cublas-cu12",
