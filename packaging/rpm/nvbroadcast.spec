@@ -163,6 +163,9 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Keep microphone capture active to prevent delayed Pulse/PipeWire clients
 - Bound Protobuf to the patched 5.29.6 through 6.x compatibility range
 - Keep optional runtime mutation out of Snap, DEB, and RPM app sessions
+- Use one bounded OpenCV owner and stage complete Snap Python dependencies
+- Reject missing, incompatible, or duplicate Snap dependencies before upload
+- Keep tag artifacts draft and require explicit Snap Store promotion
 - Remove the build-time pip installer from Snap runtime artifacts
 - Remove GTK image baseline warnings and harmonize runtime log prefixes
 - Refresh release, store, website, and package metadata

@@ -13,6 +13,8 @@
 - **Low-Latency Virtual Microphone** - Power Save now pauses only camera capture. Microphone capture stays active so Discord and other Pulse/PipeWire clients cannot retain a multi-second buffer after opening an idle virtual microphone ([Issue #44](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/44))
 - **Compatible Protobuf Resolution** - Source and packaged installs stay on patched Protobuf 5.29.6 through 6.x, avoiding conflicts with current OpenTelemetry packages exposed through system-site Python environments
 - **Safe Optional Runtime Ownership** - Snap, DEB, and RPM installations no longer attempt to modify their immutable or installer-owned Python environments from the GUI. User-owned source environments retain optional installs, bundled runtimes remain usable, and Snap artifacts omit the build-time `pip` installer entirely
+- **Validated Packaged Runtime Closure** - Source, native packages, and Snap use one bounded OpenCV contrib owner. Snap stages `packaging` and `setuptools` explicitly, keeps shared dependencies out of the CUDA overlay, and rejects missing, incompatible, or duplicate core packages before artifact upload
+- **Inspected Release Promotion** - Version tags create draft GitHub artifacts for inspection, while Snap Store review, candidate, and stable actions require an explicit manual workflow after validation
 - **Quieter, Consistent Diagnostics** - GTK image baseline warnings are removed and audio/video runtime logs use a consistent NV Broadcast prefix
 - **Community Release** - Live camera switching, safer profile switching, GTK warning cleanup, and log harmonization were contributed by Cédric Prezelin ([`@Tenshock`](https://github.com/Tenshock))
 

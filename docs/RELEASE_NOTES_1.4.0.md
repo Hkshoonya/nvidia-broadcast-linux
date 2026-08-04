@@ -88,9 +88,21 @@ switching and desktop diagnostics.
   CUDA, TensorRT, and meeting-runtime installation.
 - Runtimes already bundled by a package remain available even when the current
   environment cannot install or update them.
+- Source, native package, and Snap dependency sets use one bounded
+  `opencv-contrib-python` distribution so separate wheels do not compete for
+  ownership of the `cv2` module.
+- Snap stages `packaging` and `setuptools` explicitly. The higher-priority
+  amd64 CUDA overlay is installed without transitive dependencies and contains
+  only its explicit GPU payload, leaving shared Python packages under one
+  owner.
 - Snap builds remove the build-time `pip` module, metadata, and executables
   from the final runtime. The compressed artifact is inspected for all three
   before it can be uploaded or published.
+- Every built Snap now validates active dependency metadata, version bounds,
+  required imports, and duplicate core owners before artifact upload.
+- Version tags build draft GitHub release artifacts for inspection and do not
+  promote the Snap Store automatically. Store review, candidate, and stable
+  actions remain explicit manual workflows.
 
 ## Community
 
@@ -107,11 +119,11 @@ switching and desktop diagnostics.
 
 ## Compatibility and release validation
 
-- The complete non-hardware test suite passed with 441 tests and 15 subtests.
-- The focused dependency, architecture, and packaging suite passed 77 tests.
+- The complete non-hardware test suite passed with 449 tests and 15 subtests.
+- The focused packaging and Snap runtime-validator suite passed 49 tests.
 - The focused background, CUDA recovery, and mode-switch suite passed with
   95 tests and 9 subtests.
-- Release smoke passed 241 tests, built the wheel, and verified required
+- Release smoke passed 249 tests, built the wheel, and verified required
   desktop and package assets.
 - Linux package CI passed for amd64 and arm64, including Python 3.11, 3.13,
   and 3.14 coverage plus Debian and RPM artifacts.
@@ -132,3 +144,8 @@ not be promoted until the Snap Store grants the one-time installation
 declaration and a strict-confinement shortcut test passes. This release gate is
 tracked in
 [Issue #48](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/48).
+
+A `v1.4.0` tag creates draft GitHub artifacts for inspection but performs no
+Snap Store release. Store review upload, candidate testing, and stable
+promotion are separate manual actions, so this declaration gate cannot be
+bypassed by tagging the release.

@@ -22,8 +22,10 @@ description: |
     suppressing neutral and bright background spill on soft edges.
   - Keeps microphone capture active so Discord and other Pulse/PipeWire
     clients do not retain multi-second latency after opening the virtual mic.
-  - Keeps optional runtime installation out of immutable package environments
-    and removes the build-time pip installer from every Snap runtime artifact.
+  - Uses one bounded OpenCV 4 owner and validates packaged dependencies before
+    artifact upload.
+  - Keeps runtime installers out of immutable package environments and removes
+    pip from Snap.
   - Removes GTK image baseline warnings and harmonizes runtime log prefixes.
 
   Recent quality updates:
