@@ -531,7 +531,6 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("- openai-whisper", snapcraft)
         self.assertIn("onnxruntime==1.24.4", snapcraft)
         self.assertIn("onnxruntime-gpu==1.24.4", snapcraft)
-        self.assertIn("- pip>=26.1.2,<27", snapcraft)
         self.assertIn("Installing amd64 CUDA mode runtime into Snap", snapcraft)
         self.assertIn("Skipping CUDA mode runtime", snapcraft)
         self.assertIn("arm64 Snap build stays portable and CPU-safe", snapcraft)
@@ -553,6 +552,16 @@ class PackagingMetadataTests(unittest.TestCase):
             "tqdm",
         ):
             self.assertIn(package, build_workflow)
+
+    def test_snap_excludes_runtime_pip_installer(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+
+        self.assertNotRegex(snapcraft, r"(?m)^\s+- pip(?:[<>=].*)?$")
+        self.assertIn('"$CRAFT_PART_INSTALL/bin/pip"', snapcraft)
+        self.assertIn("-name 'pip-*.dist-info'", snapcraft)
+        self.assertIn("Verify Snap excludes runtime pip", workflow)
+        self.assertIn("must not contain a runtime pip installer", workflow)
 
     def test_packaged_backgrounds_include_bundled_default(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
