@@ -135,11 +135,9 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn("click>=8.3.3", content)
             self.assertIn("protobuf>=5.29.6", content)
 
-        for content in (pyproject, requirements, build_workflow):
+        for content in (pyproject, requirements, snapcraft, build_workflow):
             self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
-        self.assertNotIn("opencv-python-headless", pyproject)
-        self.assertNotIn("opencv-python-headless", requirements)
-        self.assertIn("opencv-python-headless>=4.8,<5", snapcraft)
+            self.assertNotIn("opencv-python-headless", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn("pyvirtualcam>=0.14", requirements)

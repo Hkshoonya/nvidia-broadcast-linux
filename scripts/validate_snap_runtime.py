@@ -20,7 +20,7 @@ from packaging.utils import canonicalize_name
 REQUIRED_RUNTIME = {
     "packaging": SpecifierSet(">=26.0"),
     "setuptools": SpecifierSet(">=83.0.0"),
-    "opencv-python-headless": SpecifierSet(">=4.8,<5"),
+    "opencv-contrib-python": SpecifierSet(">=4.8.1.78,<5"),
 }
 IMPORT_PROBES = ("packaging", "setuptools")
 ARCHITECTURES = {
@@ -117,7 +117,7 @@ def dependency_problems(
     opencv_owners = {
         name: versions for name, versions in installed.items() if name.startswith("opencv-")
     }
-    if set(opencv_owners) != {"opencv-python-headless"}:
+    if set(opencv_owners) != {"opencv-contrib-python"}:
         rendered = ", ".join(
             f"{name} ({', '.join(versions)})"
             for name, versions in sorted(opencv_owners.items())

@@ -119,7 +119,7 @@ parts:
     source: .
     python-packages:
       - numpy
-      - opencv-python-headless>=4.8,<5
+      - opencv-contrib-python>=4.8.1.78,<5
       - packaging>=26.0
       - setuptools>=83.0.0
       - protobuf>=5.29.6

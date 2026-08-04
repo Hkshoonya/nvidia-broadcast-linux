@@ -34,14 +34,14 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
     def _add_valid_runtime(self) -> None:
         self._add_distribution("packaging", "26.3")
         self._add_distribution("setuptools", "83.0.0")
-        self._add_distribution("opencv-python-headless", "4.14.0.94")
+        self._add_distribution("opencv-contrib-python", "4.14.0.94")
         self._add_distribution(
             "nvbroadcast",
             "1.4.0",
             (
                 "packaging>=26.0",
                 "setuptools>=83.0.0",
-                "opencv-python-headless>=4.8,<5",
+                "opencv-contrib-python>=4.8.1.78,<5",
                 'ignored-extra; extra == "meeting"',
                 'ignored-platform; sys_platform == "darwin"',
             ),
@@ -60,7 +60,7 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
 
     def test_rejects_missing_dependency_and_opencv_major_upgrade(self):
         self._add_distribution("setuptools", "83.0.0")
-        self._add_distribution("opencv-python-headless", "5.0.0.93")
+        self._add_distribution("opencv-contrib-python", "5.0.0.93")
         self._add_distribution("nvbroadcast", "1.4.0", ("packaging>=26.0",))
 
         _, problems = dependency_problems(self.snap_root, "amd64")
@@ -70,7 +70,7 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
 
     def test_rejects_multiple_opencv_owners(self):
         self._add_valid_runtime()
-        self._add_distribution("opencv-contrib-python", "4.14.0.94")
+        self._add_distribution("opencv-python-headless", "4.14.0.94")
 
         _, problems = dependency_problems(self.snap_root, "arm64")
 
