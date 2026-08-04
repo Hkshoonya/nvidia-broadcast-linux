@@ -12,7 +12,7 @@
 - **Cleaner Hair and Facial-Hair Edges** - Ultra quality retains more fine foreground detail and suppresses neutral or bright background spill around head hair, beards, and other soft replacement boundaries without recoloring the solid subject
 - **Low-Latency Virtual Microphone** - Power Save now pauses only camera capture. Microphone capture stays active so Discord and other Pulse/PipeWire clients cannot retain a multi-second buffer after opening an idle virtual microphone ([Issue #44](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/44))
 - **Compatible Protobuf Resolution** - Source and packaged installs stay on patched Protobuf 5.29.6 through 6.x, avoiding conflicts with current OpenTelemetry packages exposed through system-site Python environments
-- **Safe Optional Runtime Ownership** - Snap, DEB, and RPM installations no longer attempt to modify their immutable or installer-owned Python environments from the GUI. User-owned source environments retain optional installs, bundled runtimes remain usable, and Snap artifacts require patched `pip` 26.1.2 or newer
+- **Safe Optional Runtime Ownership** - Snap, DEB, and RPM installations no longer attempt to modify their immutable or installer-owned Python environments from the GUI. User-owned source environments retain optional installs, bundled runtimes remain usable, and Snap artifacts omit the build-time `pip` installer entirely
 - **Quieter, Consistent Diagnostics** - GTK image baseline warnings are removed and audio/video runtime logs use a consistent NV Broadcast prefix
 - **Community Release** - Live camera switching, safer profile switching, GTK warning cleanup, and log harmonization were contributed by Cédric Prezelin ([`@Tenshock`](https://github.com/Tenshock))
 

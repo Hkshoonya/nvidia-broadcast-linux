@@ -88,9 +88,9 @@ switching and desktop diagnostics.
   CUDA, TensorRT, and meeting-runtime installation.
 - Runtimes already bundled by a package remain available even when the current
   environment cannot install or update them.
-- Snap builds require exactly one bundled `pip` distribution at version 26.1.2
-  or newer, and the built artifact is inspected before it can be uploaded or
-  published.
+- Snap builds remove the build-time `pip` module, metadata, and executables
+  from the final runtime. The compressed artifact is inspected for all three
+  before it can be uploaded or published.
 
 ## Community
 
@@ -107,11 +107,11 @@ switching and desktop diagnostics.
 
 ## Compatibility and release validation
 
-- The complete non-hardware test suite passed with 440 tests and 15 subtests.
-- The focused dependency, architecture, and packaging suite passed 76 tests.
+- The complete non-hardware test suite passed with 441 tests and 15 subtests.
+- The focused dependency, architecture, and packaging suite passed 77 tests.
 - The focused background, CUDA recovery, and mode-switch suite passed with
   95 tests and 9 subtests.
-- Release smoke passed 240 tests, built the wheel, and verified required
+- Release smoke passed 241 tests, built the wheel, and verified required
   desktop and package assets.
 - Linux package CI passed for amd64 and arm64, including Python 3.11, 3.13,
   and 3.14 coverage plus Debian and RPM artifacts.

@@ -73,7 +73,7 @@
           <li>Preserved more fine head-hair and facial-hair detail in Ultra quality while suppressing neutral or bright background spill on soft replacement edges</li>
           <li>Kept microphone capture active so Pulse/PipeWire clients do not retain multi-second latency after opening an idle virtual microphone</li>
           <li>Bound Protobuf to the patched 5.29.6 through 6.x range for compatibility with system-site Python packages</li>
-          <li>Prevented Snap, DEB, and RPM installs from modifying package-managed Python runtimes through the GUI and required a patched pip in Snap artifacts</li>
+          <li>Prevented Snap, DEB, and RPM installs from modifying package-managed Python runtimes through the GUI and removed pip from Snap runtime artifacts</li>
           <li>Removed GTK image baseline warnings and harmonized runtime log prefixes</li>
         </ul>
       </description>
