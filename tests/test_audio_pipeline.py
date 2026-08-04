@@ -118,7 +118,7 @@ class AudioPipelineLifecycleTests(unittest.TestCase):
         )
 
     def test_start_uses_helper_process_when_enabled(self):
-        pipeline = AudioPipeline()
+        pipeline = AudioPipeline(use_helper_process=True)
         pipeline._uses_loopback_virtual_mic = True
         pipeline._effects = mock.Mock()
 

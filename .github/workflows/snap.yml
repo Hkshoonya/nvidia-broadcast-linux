@@ -53,6 +53,31 @@ jobs:
         uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1
         id: snapcraft
 
+      - name: Verify bundled pip security floor
+        env:
+          SNAP_PATH: ${{ steps.snapcraft.outputs.snap }}
+        run: |
+          mapfile -t PIP_METADATA < <(
+            unsquashfs -l "$SNAP_PATH" |
+              sed -n 's#^squashfs-root/##p' |
+              grep -E '(^|/)pip-[^/]+\.dist-info/METADATA$'
+          )
+          if [ "${#PIP_METADATA[@]}" -ne 1 ]; then
+            echo "::error::Expected one bundled pip distribution, found ${#PIP_METADATA[@]}."
+            printf '%s\n' "${PIP_METADATA[@]}"
+            exit 1
+          fi
+
+          PIP_VERSION="$({
+            unsquashfs -cat "$SNAP_PATH" "${PIP_METADATA[0]}" |
+              sed -n 's/^Version: //p'
+          } | head -n1)"
+          if ! dpkg --compare-versions "$PIP_VERSION" ge 26.1.2; then
+            echo "::error::Bundled pip $PIP_VERSION is below the 26.1.2 security floor."
+            exit 1
+          fi
+          echo "Verified bundled pip $PIP_VERSION."
+
       - name: Upload snap artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

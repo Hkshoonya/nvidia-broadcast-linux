@@ -252,6 +252,7 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_release_workflow_actions_are_commit_pinned(self):
         for relative in (
             ".github/workflows/build-packages.yml",
+            ".github/workflows/pr-checks.yml",
             ".github/workflows/snap.yml",
         ):
             workflow = (REPO_ROOT / relative).read_text()
@@ -259,6 +260,22 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertTrue(refs, relative)
             for ref in refs:
                 self.assertRegex(ref, r"^[0-9a-f]{40}$", f"{relative}: {ref}")
+
+    def test_pull_request_checks_are_read_only_and_hardware_independent(self):
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "pr-checks.yml"
+        ).read_text()
+
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("pip_audit . --skip-editable", workflow)
+        self.assertIn("bandit -q -r src -ll", workflow)
+        self.assertIn("--ignore=tests/test_integration.py", workflow)
+        self.assertIn("scripts/release_smoke.py", workflow)
+        self.assertIn('- "3.11"', workflow)
+        self.assertIn('- "3.14"', workflow)
+        self.assertNotIn("secrets.", workflow)
 
     def test_snap_build_does_not_receive_release_write_permission(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
@@ -534,6 +551,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("- openai-whisper", snapcraft)
         self.assertIn("onnxruntime==1.24.4", snapcraft)
         self.assertIn("onnxruntime-gpu==1.24.4", snapcraft)
+        self.assertIn("- pip>=26.1.2,<27", snapcraft)
         self.assertIn("Installing amd64 CUDA mode runtime into Snap", snapcraft)
         self.assertIn("Skipping CUDA mode runtime", snapcraft)
         self.assertIn("arm64 Snap build stays portable and CPU-safe", snapcraft)
