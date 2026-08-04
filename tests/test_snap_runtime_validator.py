@@ -32,7 +32,9 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
         (metadata_dir / "METADATA").write_text("\n".join(lines) + "\n")
 
     def _add_valid_runtime(self) -> None:
+        self._add_distribution("numpy", "2.5.1")
         self._add_distribution("packaging", "26.3")
+        self._add_distribution("protobuf", "7.35.1")
         self._add_distribution("setuptools", "83.0.0")
         self._add_distribution("opencv-contrib-python", "4.14.0.94")
         self._add_distribution(
@@ -40,6 +42,8 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
             "1.4.0",
             (
                 "packaging>=26.0",
+                "numpy>=1.26",
+                "protobuf>=5.29.6",
                 "setuptools>=83.0.0",
                 "opencv-contrib-python>=4.8.1.78,<5",
                 'ignored-extra; extra == "meeting"',
@@ -55,7 +59,7 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
 
         count, problems = dependency_problems(self.snap_root, "arm64")
 
-        self.assertEqual(count, 4)
+        self.assertEqual(count, 6)
         self.assertEqual(problems, [])
 
     def test_rejects_missing_dependency_and_opencv_major_upgrade(self):
@@ -83,11 +87,15 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
         self.site_packages = self.snap_root / "usr/lib/python3/dist-packages"
         self.site_packages.mkdir(parents=True)
         self._add_distribution("packaging", "26.3")
+        self._add_distribution("protobuf", "7.35.1")
 
         _, problems = dependency_problems(self.snap_root, "amd64")
 
         self.assertTrue(
             any("packaging (26.3, 26.3)" in problem for problem in problems)
+        )
+        self.assertTrue(
+            any("protobuf (7.35.1, 7.35.1)" in problem for problem in problems)
         )
 
 

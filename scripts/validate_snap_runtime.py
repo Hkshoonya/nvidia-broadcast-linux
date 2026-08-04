@@ -18,7 +18,9 @@ from packaging.utils import canonicalize_name
 
 
 REQUIRED_RUNTIME = {
+    "numpy": SpecifierSet(">=1.26"),
     "packaging": SpecifierSet(">=26.0"),
+    "protobuf": SpecifierSet(">=5.29.6"),
     "setuptools": SpecifierSet(">=83.0.0"),
     "opencv-contrib-python": SpecifierSet(">=4.8.1.78,<5"),
 }
@@ -185,7 +187,7 @@ def main() -> int:
     print(
         f"Validated {count} Python distributions for "
         f"{ARCHITECTURES[args.platform_machine]}; packaging {packaging.__version__}, "
-        "setuptools and OpenCV runtime constraints are satisfied."
+        "single-owner core runtime constraints are satisfied."
     )
     return 0
 
