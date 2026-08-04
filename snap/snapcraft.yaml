@@ -118,7 +118,6 @@ parts:
     plugin: python
     source: .
     python-packages:
-      - pip>=26.1.2,<27
       - numpy
       - opencv-python-headless
       - protobuf>=5.29.6
@@ -179,6 +178,21 @@ parts:
           echo "Skipping CUDA mode runtime for ${CRAFT_ARCH_BUILD_FOR:-$(uname -m)} Snap build."
           ;;
       esac
+      # Optional runtime installation is disabled inside the immutable Snap.
+      # Remove the Python plugin's build-time package installer from the final
+      # runtime instead of carrying a second mutable package-management path.
+      rm -f -- \
+        "$CRAFT_PART_INSTALL/bin/pip" \
+        "$CRAFT_PART_INSTALL/bin/pip3" \
+        "$CRAFT_PART_INSTALL"/bin/pip3.*
+      for SNAP_SITE in \
+        "$CRAFT_PART_INSTALL"/lib/python*/site-packages \
+        "$CRAFT_PART_INSTALL"/lib/python*/dist-packages; do
+        [ -d "$SNAP_SITE" ] || continue
+        rm -rf -- "$SNAP_SITE/pip"
+        find "$SNAP_SITE" -maxdepth 1 -type d -name 'pip-*.dist-info' \
+          -exec rm -rf -- {} +
+      done
       # Create wrapper script
       mkdir -p $CRAFT_PART_INSTALL/bin
       cat > $CRAFT_PART_INSTALL/bin/nvbroadcast-wrapper << 'EOF'
