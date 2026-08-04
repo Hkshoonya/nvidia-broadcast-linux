@@ -207,7 +207,7 @@ jobs:
             --python-version 312 \
             --implementation cp \
             --abi cp312 \
-            numpy opencv-python-headless "protobuf>=5.29.6" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy Pillow requests psutil pyrnnoise "av>=16,<17" faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm
+            numpy "opencv-contrib-python>=4.8.1.78,<5" "protobuf>=5.29.6" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy Pillow requests psutil pyrnnoise "av>=16,<17" faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm packaging "setuptools>=83.0.0"
 
       - name: Install Linux project dependencies
         run: |

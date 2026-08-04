@@ -135,6 +135,12 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn("click>=8.3.3", content)
             self.assertIn("protobuf>=5.29.6", content)
 
+        for content in (pyproject, requirements, build_workflow):
+            self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
+        self.assertNotIn("opencv-python-headless", pyproject)
+        self.assertNotIn("opencv-python-headless", requirements)
+        self.assertIn("opencv-python-headless>=4.8,<5", snapcraft)
+
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn("pyvirtualcam>=0.14", requirements)
         self.assertIn(
@@ -562,6 +568,15 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("-name 'pip-*.dist-info'", snapcraft)
         self.assertIn("Verify Snap excludes runtime pip", workflow)
         self.assertIn("must not contain a runtime pip installer", workflow)
+
+    def test_snap_validates_runtime_dependency_closure(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+
+        self.assertIn("- packaging>=26.0", snapcraft)
+        self.assertIn("- setuptools>=83.0.0", snapcraft)
+        self.assertIn("Verify Snap runtime dependency closure", workflow)
+        self.assertIn("scripts/validate_snap_runtime.py", workflow)
 
     def test_packaged_backgrounds_include_bundled_default(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
