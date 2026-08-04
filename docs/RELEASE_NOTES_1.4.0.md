@@ -78,6 +78,20 @@ switching and desktop diagnostics.
   that expose host GTK packages do not conflict with current OpenTelemetry
   packages.
 
+## Managed runtime packaging
+
+- Strict Snap and installer-owned DEB/RPM environments are no longer modified
+  by the optional-runtime GUI. Missing package-managed runtimes now produce a
+  direct compatibility message instead of starting an install that cannot
+  succeed.
+- Writable, user-owned source and macOS virtual environments retain optional
+  CUDA, TensorRT, and meeting-runtime installation.
+- Runtimes already bundled by a package remain available even when the current
+  environment cannot install or update them.
+- Snap builds require exactly one bundled `pip` distribution at version 26.1.2
+  or newer, and the built artifact is inspected before it can be uploaded or
+  published.
+
 ## Community
 
 - Cédric Prezelin
@@ -93,10 +107,11 @@ switching and desktop diagnostics.
 
 ## Compatibility and release validation
 
-- The complete test suite passed with 445 tests and 15 subtests.
+- The complete non-hardware test suite passed with 440 tests and 15 subtests.
+- The focused dependency, architecture, and packaging suite passed 76 tests.
 - The focused background, CUDA recovery, and mode-switch suite passed with
   95 tests and 9 subtests.
-- Release smoke passed 235 tests, built the wheel, and verified required
+- Release smoke passed 240 tests, built the wheel, and verified required
   desktop and package assets.
 - Linux package CI passed for amd64 and arm64, including Python 3.11, 3.13,
   and 3.14 coverage plus Debian and RPM artifacts.

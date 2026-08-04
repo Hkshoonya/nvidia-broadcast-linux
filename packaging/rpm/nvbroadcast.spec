@@ -153,7 +153,7 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
-* Wed Jul 29 2026 doczeus <harshit@kshoonya.com> - 1.4.0-1
+* Tue Aug 04 2026 doczeus <harshit@kshoonya.com> - 1.4.0-1
 - Add rebindable global effect hotkeys and optional Eye Contact Gaze Lock
 - Switch physical cameras at runtime without restarting the application
 - Apply profiles safely with single-frame video backends
@@ -162,6 +162,8 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Preserve fine hair detail and reduce neutral or bright replacement halos
 - Keep microphone capture active to prevent delayed Pulse/PipeWire clients
 - Bound Protobuf to the patched 5.29.6 through 6.x compatibility range
+- Keep optional runtime mutation out of Snap, DEB, and RPM app sessions
+- Require patched pip 26.1.2 or newer in built Snap artifacts
 - Remove GTK image baseline warnings and harmonize runtime log prefixes
 - Refresh release, store, website, and package metadata
 

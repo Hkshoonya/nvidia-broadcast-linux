@@ -8,10 +8,12 @@ nvbroadcast (1.4.0-1) unstable; urgency=medium
   * Preserve fine hair detail and reduce neutral or bright replacement halos.
   * Keep microphone capture active to prevent delayed Pulse/PipeWire clients.
   * Bound Protobuf to the patched 5.29.6 through 6.x compatibility range.
+  * Keep optional runtime mutation out of Snap, DEB, and RPM app sessions.
+  * Require patched pip 26.1.2 or newer in built Snap artifacts.
   * Remove GTK image baseline warnings and harmonize runtime log prefixes.
   * Refresh release, store, website, and package metadata.
 
- -- DocZeus <harshit@kshoonya.com>  Wed, 29 Jul 2026 15:41:23 -0400
+ -- DocZeus <harshit@kshoonya.com>  Tue, 04 Aug 2026 16:00:26 -0400
 
 nvbroadcast (1.3.0-1) unstable; urgency=medium
 
