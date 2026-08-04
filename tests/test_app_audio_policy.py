@@ -36,6 +36,23 @@ class AppAudioPolicyTests(unittest.TestCase):
         fake = self._fake_app(noise_removal=True, voice_fx_enabled=False)
         self.assertTrue(NVBroadcastApp._audio_pipeline_should_run(fake))
 
+    @mock.patch("nvbroadcast.app.save_config")
+    def test_camera_power_save_toggle_does_not_restart_audio(self, save_config):
+        fake = SimpleNamespace(
+            config=SimpleNamespace(auto_idle=True),
+            _idle_active=False,
+            _idle_strikes=2,
+            _audio_pipeline=mock.Mock(),
+            _restart_audio_pipeline_for_live_settings=mock.Mock(),
+        )
+
+        NVBroadcastApp.set_auto_idle(fake, False)
+
+        self.assertFalse(fake.config.auto_idle)
+        self.assertEqual(fake._idle_strikes, 0)
+        save_config.assert_called_once_with(fake.config)
+        fake._restart_audio_pipeline_for_live_settings.assert_not_called()
+
     def test_transcriber_preload_waits_while_streaming(self):
         fake = SimpleNamespace(
             _meeting_active=False,
