@@ -78,6 +78,18 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
             any("exactly one OpenCV owner" in problem for problem in problems)
         )
 
+    def test_rejects_duplicate_required_runtime_owner(self):
+        self._add_valid_runtime()
+        self.site_packages = self.snap_root / "usr/lib/python3/dist-packages"
+        self.site_packages.mkdir(parents=True)
+        self._add_distribution("packaging", "26.3")
+
+        _, problems = dependency_problems(self.snap_root, "amd64")
+
+        self.assertTrue(
+            any("packaging (26.3, 26.3)" in problem for problem in problems)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

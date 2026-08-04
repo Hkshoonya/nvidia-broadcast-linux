@@ -570,9 +570,14 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_snap_validates_runtime_dependency_closure(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        cuda_install = snapcraft.split(
+            'echo "Installing amd64 CUDA mode runtime into Snap..."', 1
+        )[1].split("# nvImageCodec", 1)[0]
 
         self.assertIn("- packaging>=26.0", snapcraft)
         self.assertIn("- setuptools>=83.0.0", snapcraft)
+        self.assertIn("--no-deps", cuda_install)
+        self.assertIn('"cuda-pathfinder>=1.3.4,<2"', cuda_install)
         self.assertIn("Verify Snap runtime dependency closure", workflow)
         self.assertIn("scripts/validate_snap_runtime.py", workflow)
 
