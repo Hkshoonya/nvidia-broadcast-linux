@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Linux arm64 MediaPipe 1.0.0 support** - Linux arm64 now supports Auto Frame, Eye Contact, Face Relighting, and face-aware Video Enhancement
+- **Enforced Dependency Security Floors** - Release metadata and regression tests enforce OpenCV 4.8.1.78, Protobuf 6.33.5, and Pillow 12.3.0 as runtime minimums, plus pytest 9.0.3 for development to protect against known CVEs.
+
 ## v1.4.0 - Global Controls, Gaze Lock, and Live Video Reliability Update
 
 - **Rebindable Global Effect Hotkeys** - Linux users can toggle Background, Auto Frame, Eye Contact, Mirror, and Mic Noise Removal while another app has focus. Supported desktops use the XDG GlobalShortcuts portal; GNOME systems without that portal fall back to isolated custom keybindings with fixed application actions, duplicate and unsafe bindings are rejected, and recording actions remain excluded ([Issue #45](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/45))
