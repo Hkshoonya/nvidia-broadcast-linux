@@ -90,7 +90,7 @@ jobs:
 
       - name: Commit updated sponsor walls
         if: steps.sponsor-token.outputs.available == 'true'
-        uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5
+        uses: stefanzweifel/git-auto-commit-action@04702edda442b2e678b25b537cec683a1493fcb9 # v7
         with:
           commit_message: 'chore: refresh sponsor walls [skip ci]'
           file_pattern: 'README.md SPONSORS.md'
