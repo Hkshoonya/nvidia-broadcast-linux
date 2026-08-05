@@ -874,17 +874,12 @@ class NVBroadcastApp(Adw.Application):
         return True
 
     def set_auto_idle(self, enabled: bool):
-        """Toggle camera + mic power save from the UI."""
+        """Toggle camera power save from the UI."""
         self.config.auto_idle = bool(enabled)
         save_config(self.config)
         if not enabled and self._idle_active:
             self._exit_idle("power save disabled")
         self._idle_strikes = 0
-        # The audio helper reads auto_idle from its spawn state — restart
-        # it so the mic-side monitor follows the new setting.
-        if self._audio_pipeline is not None:
-            self._audio_pipeline.auto_idle = bool(enabled)
-            self._restart_audio_pipeline_for_live_settings()
 
     def _preload_effects(self):
         """Pre-initialize AI models in background to eliminate first-use delay."""
@@ -1075,7 +1070,6 @@ class NVBroadcastApp(Adw.Application):
 
         if self._audio_pipeline_should_publish() or c.audio.noise_removal or c.audio.voice_fx_enabled:
             audio_pipeline = self._ensure_audio_pipeline()
-            audio_pipeline.auto_idle = getattr(c, "auto_idle", True)
             audio_pipeline.effects.engine = c.audio.noise_engine
             audio_pipeline.effects.enabled = c.audio.noise_removal
             audio_pipeline.effects.intensity = c.audio.noise_intensity

@@ -302,6 +302,10 @@ class SetupWizard(Adw.Window):
         # If a CUDA mode is selected but the full runtime is missing, install it first.
         if mode["needs_cupy"] and not self._caps["has_cupy"]:
             self._install_key = "cupy"
+            block_reason = self._app.dependency_installer.install_block_reason(self._install_key)
+            if block_reason:
+                self._status_label.set_text(block_reason)
+                return
             self._prompt_install(
                 "Install CUDA mode runtime?",
                 "This mode needs CUDA compositing and ONNX GPU inference packages. The download runs in the background and you can keep using other parts of the app.",
@@ -339,7 +343,11 @@ class SetupWizard(Adw.Window):
             return
         self._start_btn.set_sensitive(False)
         self._skip_btn.set_sensitive(False)
-        self._app.dependency_installer.start_install(self._install_key)
+        if not self._app.dependency_installer.start_install(self._install_key):
+            self._start_btn.set_sensitive(True)
+            self._skip_btn.set_sensitive(True)
+            reason = self._app.dependency_installer.install_block_reason(self._install_key)
+            self._status_label.set_text(reason or "Another optional runtime install is already running.")
 
     def _on_install_started(self, _installer, key: str, text: str):
         if key != self._install_key:

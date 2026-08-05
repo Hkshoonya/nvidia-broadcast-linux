@@ -35,6 +35,7 @@ class ArchSupportTests(unittest.TestCase):
         with mock.patch.object(platform_mod, "IS_MACOS", False), \
              mock.patch.object(platform_mod, "IS_LINUX", True), \
              mock.patch.object(platform_mod, "IS_ARM64", True), \
+             mock.patch("os.cpu_count", return_value=8), \
              mock.patch.object(platform_mod, "supports_linux_gpu_stack", return_value=False):
             caps = detect_system_capabilities()
 

@@ -82,9 +82,10 @@ class AudioPipeline:
         self._output_buffer_queue: queue.Queue[np.ndarray | None] = queue.Queue(maxsize=64)
         self._output_worker: threading.Thread | None = None
         self._stop_output_worker = threading.Event()
-        # Mic power save: pause capture while nothing records from the
-        # virtual mic. Mirrors the video camera power save.
-        self.auto_idle = True
+        # Keep mic capture active by default. Some Pulse/PipeWire clients lock
+        # in a multi-second capture buffer when they open a dormant virtual
+        # source and do not renegotiate after the physical mic resumes.
+        self.auto_idle = False
         self._audio_idle = False
         self._idle_monitor: threading.Thread | None = None
         self._idle_monitor_stop = threading.Event()
@@ -595,7 +596,9 @@ class AudioPipeline:
             "noise_removal": self._effects.enabled,
             "noise_intensity": self._effects.intensity,
             "noise_engine": self._effects.engine,
-            "auto_idle": self.auto_idle,
+            # Camera power save must not suspend the microphone helper. Keeping
+            # this key makes the helper state compatible with older readers.
+            "auto_idle": False,
             "voice_fx_enabled": self.voice_fx.enabled,
             "voice_fx_use_gpu": self.voice_fx.use_gpu,
             "voice_fx_settings": {

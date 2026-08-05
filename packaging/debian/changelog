@@ -1,3 +1,23 @@
+nvbroadcast (1.4.0-1) unstable; urgency=medium
+
+  * Add rebindable global effect hotkeys and optional Eye Contact Gaze Lock.
+  * Switch physical cameras at runtime without restarting the application.
+  * Apply profiles safely with single-frame video backends.
+  * Rebuild RVM sessions safely during quality and processing-mode changes.
+  * Recover from CUDA allocation failures with clean provider and CPU fallback.
+  * Preserve fine hair detail and reduce neutral or bright replacement halos.
+  * Keep microphone capture active to prevent delayed Pulse/PipeWire clients.
+  * Bound Protobuf to the patched 5.29.6 through 6.x compatibility range.
+  * Keep optional runtime mutation out of Snap, DEB, and RPM app sessions.
+  * Use one bounded OpenCV owner and stage complete Snap Python dependencies.
+  * Reject missing, incompatible, or duplicate Snap dependencies before upload.
+  * Keep tag artifacts draft and require explicit Snap Store promotion.
+  * Remove the build-time pip installer from Snap runtime artifacts.
+  * Remove GTK image baseline warnings and harmonize runtime log prefixes.
+  * Refresh release, store, website, and package metadata.
+
+ -- DocZeus <harshit@kshoonya.com>  Tue, 04 Aug 2026 17:56:26 -0400
+
 nvbroadcast (1.3.0-1) unstable; urgency=medium
 
   * Add a device-resident NVIDIA video path with staged safe fallbacks.

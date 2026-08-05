@@ -20,7 +20,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.3.0"
+        current = "1.4.0"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -37,7 +37,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-07-24">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-08-04">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
         self.assertIn(f"nvbroadcast_{current}-1_all.deb", docs_index)
@@ -133,7 +133,11 @@ class PackagingMetadataTests(unittest.TestCase):
         for content in (pyproject, requirements, snapcraft, build_workflow):
             self.assertIn("onnx>=1.22.0", content)
             self.assertIn("click>=8.3.3", content)
-            self.assertIn("protobuf>=5.29.6", content)
+            self.assertIn("protobuf>=5.29.6,<7", content)
+
+        for content in (pyproject, requirements, snapcraft, build_workflow):
+            self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
+            self.assertNotIn("opencv-python-headless", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn("pyvirtualcam>=0.14", requirements)
@@ -252,6 +256,7 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_release_workflow_actions_are_commit_pinned(self):
         for relative in (
             ".github/workflows/build-packages.yml",
+            ".github/workflows/pr-checks.yml",
             ".github/workflows/snap.yml",
         ):
             workflow = (REPO_ROOT / relative).read_text()
@@ -259,6 +264,22 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertTrue(refs, relative)
             for ref in refs:
                 self.assertRegex(ref, r"^[0-9a-f]{40}$", f"{relative}: {ref}")
+
+    def test_pull_request_checks_are_read_only_and_hardware_independent(self):
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "pr-checks.yml"
+        ).read_text()
+
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("pip_audit . --skip-editable", workflow)
+        self.assertIn("bandit -q -r src -ll", workflow)
+        self.assertIn("--ignore=tests/test_integration.py", workflow)
+        self.assertIn("scripts/release_smoke.py", workflow)
+        self.assertIn('- "3.11"', workflow)
+        self.assertIn('- "3.14"', workflow)
+        self.assertNotIn("secrets.", workflow)
 
     def test_snap_build_does_not_receive_release_write_permission(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
@@ -271,8 +292,42 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("action-gh-release", build_job)
         self.assertIn("snapcraft upload-metadata", build_job)
         self.assertIn("matrix.arch == 'arm64'", build_job)
+        self.assertIn("inputs.candidate", build_job)
+        self.assertIn("inputs.review", build_job)
+        self.assertIn("steps.store-target.outputs.action == 'upload'", build_job)
+        self.assertIn('snapcraft upload "${{ steps.snapcraft.outputs.snap }}"', build_job)
+        self.assertIn("release: ${{ steps.store-target.outputs.channel }}", build_job)
+        self.assertIn("steps.store-target.outputs.channel == 'stable'", build_job)
+        self.assertIn("secrets.SNAP_TOKEN", build_job)
+        self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", build_job)
+        review_step = build_job.split(
+            "- name: Upload to Snap Store for review", 1
+        )[1].split("- name: Publish to Snap Store", 1)[0]
+        publish_step = build_job.split(
+            "- name: Publish to Snap Store", 1
+        )[1].split("- name: Update Snap Store metadata", 1)[0]
+        self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", review_step)
+        self.assertNotIn("secrets.SNAP_TOKEN", review_step)
+        self.assertIn("timeout-minutes: 30", review_step)
+        self.assertIn("timeout-minutes: 30", publish_step)
         self.assertIn("permissions:\n      contents: write", attach_job)
         self.assertIn("action-gh-release", attach_job)
+        self.assertNotIn("inputs.candidate", attach_job)
+        self.assertNotIn("inputs.review", attach_job)
+
+    def test_snap_tag_build_does_not_auto_publish_to_store(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+        store_target = workflow.split("- name: Resolve Snap Store target", 1)[1].split(
+            "- name: Resolve release target", 1
+        )[0]
+
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]', store_target)
+        self.assertNotIn("refs/tags", store_target)
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", workflow)
+        self.assertNotIn("published from Git tags", website)
+        self.assertNotIn("Tag pushes publish", website)
+        self.assertIn("released separately after artifact inspection", website)
 
     def test_release_workflows_reject_version_mismatched_tags(self):
         build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
@@ -280,6 +335,15 @@ class PackagingMetadataTests(unittest.TestCase):
 
         self.assertIn("Tag $GITHUB_REF_NAME does not match package version", build_workflow)
         self.assertIn("Release tag $RELEASE_TAG does not match Snap version", snap_workflow)
+
+    def test_tag_artifacts_remain_draft_until_inspected(self):
+        build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
+        snap_workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        package_release = build_workflow.split("- name: Create GitHub Release", 1)[1]
+        snap_release = snap_workflow.split("- name: Attach snaps to GitHub Release", 1)[1]
+
+        self.assertIn("draft: true", package_release)
+        self.assertIn("draft: ${{ github.event_name == 'push' }}", snap_release)
 
     def test_release_workflow_requires_rpm_and_installs_linux_dependencies(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
@@ -517,11 +581,16 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Installing amd64 CUDA mode runtime into Snap", snapcraft)
         self.assertIn("Skipping CUDA mode runtime", snapcraft)
         self.assertIn("arm64 Snap build stays portable and CPU-safe", snapcraft)
+        cuda_install = snapcraft.split(
+            "Installing amd64 CUDA mode runtime into Snap", 1
+        )[1].split("# nvImageCodec", 1)[0]
+        self.assertIn("- protobuf>=5.29.6,<7", snapcraft)
+        self.assertNotIn('"protobuf>=5.29.6,<7"', cuda_install)
         self.assertIn("onnxruntime==1.24.4", build_workflow)
         arm64_wheel_check = build_workflow.split(
             "- name: Validate arm64 Python wheel availability", 1
         )[1].split("- name: Install Linux project dependencies", 1)[0]
-        self.assertIn("protobuf>=5.29.6", arm64_wheel_check)
+        self.assertIn("protobuf>=5.29.6,<7", arm64_wheel_check)
         self.assertNotIn("mediapipe", arm64_wheel_check)
         for package in (
             "pyrnnoise",
@@ -535,6 +604,34 @@ class PackagingMetadataTests(unittest.TestCase):
             "tqdm",
         ):
             self.assertIn(package, build_workflow)
+
+    def test_snap_excludes_runtime_pip_installer(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+
+        self.assertNotRegex(snapcraft, r"(?m)^\s+- pip(?:[<>=].*)?$")
+        self.assertIn('"$CRAFT_PART_INSTALL/bin/pip"', snapcraft)
+        self.assertIn("-name 'pip-*.dist-info'", snapcraft)
+        self.assertIn("Verify Snap excludes runtime pip", workflow)
+        self.assertIn("must not contain a runtime pip installer", workflow)
+
+    def test_snap_validates_runtime_dependency_closure(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        cuda_install = snapcraft.split(
+            'echo "Installing amd64 CUDA mode runtime into Snap..."', 1
+        )[1].split("# nvImageCodec", 1)[0]
+
+        self.assertIn("- packaging>=26.0", snapcraft)
+        self.assertIn("- setuptools>=83.0.0", snapcraft)
+        self.assertIn("--no-deps", cuda_install)
+        self.assertIn('"cuda-pathfinder>=1.3.4,<2"', cuda_install)
+        self.assertNotRegex(
+            cuda_install,
+            r'(?m)^\s+"?(?:numpy|packaging|protobuf)(?:[<>=][^"]*)?"?\s+\\$',
+        )
+        self.assertIn("Verify Snap runtime dependency closure", workflow)
+        self.assertIn("scripts/validate_snap_runtime.py", workflow)
 
     def test_packaged_backgrounds_include_bundled_default(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
@@ -608,8 +705,14 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_snap_workflow_supports_manual_release_recovery(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
         self.assertIn("publish:", workflow)
+        self.assertIn("candidate:", workflow)
+        self.assertIn("review:", workflow)
         self.assertIn("release_tag:", workflow)
+        self.assertIn("id: store-target", workflow)
         self.assertIn("id: release-target", workflow)
+        self.assertIn('CHANNEL="candidate"', workflow)
+        self.assertIn('ACTION="upload"', workflow)
+        self.assertIn("publish, candidate, and review are mutually exclusive", workflow)
         self.assertIn("release_tag is required when publishing from workflow_dispatch", workflow)
         self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
 

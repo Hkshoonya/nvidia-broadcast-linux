@@ -28,7 +28,9 @@ def _build_pipeline(state: dict) -> AudioPipeline:
         mic_device=state.get("mic_device", ""),
         sample_rate=int(state.get("sample_rate", 48000)),
     )
-    pipeline.auto_idle = bool(state.get("auto_idle", True))
+    # Power Save is camera-only. A dormant virtual microphone can make some
+    # Pulse/PipeWire clients retain a multi-second capture buffer after resume.
+    pipeline.auto_idle = False
     # Engine preference must be set before `enabled` — enabling triggers
     # initialization, which chooses the engine.
     pipeline.effects.engine = str(state.get("noise_engine", "auto"))

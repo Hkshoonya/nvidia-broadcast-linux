@@ -1,32 +1,37 @@
 name: nvbroadcast
 title: NV Broadcast
 base: core24
-version: '1.3.0'
-summary: GPU video pipeline, stronger blur, and safe power saving
+version: '1.4.0'
+summary: Global hotkeys, Gaze Lock, and reliable mode switching
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.3.0:
-  - Adds a device-resident NVIDIA video path with pinned transfers, GPU matte
-    processing, CUDA color conversion, and optional nvImageCodec MJPEG decode
-    on source, Debian, and RPM CUDA installs.
-  - Makes background blur substantially stronger and adds separate Dim and
-    Desaturate controls, with matched GPU and CPU fallback behavior.
-  - Pauses camera and microphone capture when they are safely idle while
-    keeping virtual devices available and waking promptly for real consumers.
-  - Fixes physical-camera selection and capture negotiation on supported
-    Apple Silicon Macs.
-  - Removes saturated physical-background color from sunlit replacement edges
-    and fixes direct GPU virtual-camera negotiation on Linux.
-  - Keeps Linux arm64 on patched Protobuf; face-localized effects remain
-    unavailable there until upstream publishes a compatible MediaPipe wheel.
-  - Keeps automatic one-shot fallbacks for unavailable GPU decode, conversion,
-    or frame processing paths.
+  What's new in v1.4.0:
+  - Adds rebindable Linux global shortcuts for effect toggles through the XDG
+    GlobalShortcuts portal or a restricted GNOME fallback.
+  - Adds Natural and Gaze Lock Eye Contact modes with coordinated binocular
+    targeting, blink fallback, and smooth head-pose updates.
+  - Switches physical cameras at runtime and applies profiles safely when a
+    video backend can provide only one current frame.
+  - Rebuilds and atomically swaps RVM sessions during quality or processing
+    mode changes, with clean CUDA recovery and CPU fallback.
+  - Preserves more head-hair and facial-hair detail in Ultra quality while
+    suppressing neutral and bright background spill on soft edges.
+  - Keeps microphone capture active so Discord and other Pulse/PipeWire
+    clients do not retain multi-second latency after opening the virtual mic.
+  - Uses one bounded OpenCV 4 owner and validates packaged dependencies before
+    artifact upload.
+  - Keeps runtime installers out of immutable package environments and removes
+    pip from Snap.
+  - Removes GTK image baseline warnings and harmonizes runtime log prefixes.
 
   Recent quality updates:
+  - v1.3.0 adds a device-resident NVIDIA video path, stronger blur controls,
+    safe camera and microphone power saving, corrected Apple Silicon camera
+    selection, and cleaner sunlit replacement edges.
   - v1.2.3 stabilizes Quality and Ultra mattes in strongly backlit scenes
     without changing displayed camera colors.
   - v1.2.2 derives one shared binocular camera target, preserves natural iris
@@ -119,8 +124,10 @@ parts:
     source: .
     python-packages:
       - numpy
-      - opencv-python-headless
-      - protobuf>=5.29.6
+      - opencv-contrib-python>=4.8.1.78,<5
+      - packaging>=26.0
+      - setuptools>=83.0.0
+      - protobuf>=5.29.6,<7
       - onnxruntime==1.24.4
       - onnx>=1.22.0
       - click>=8.3.3
@@ -159,10 +166,14 @@ parts:
       case "${CRAFT_ARCH_BUILD_FOR:-$(uname -m)}" in
         amd64|x86_64)
           echo "Installing amd64 CUDA mode runtime into Snap..."
+          # The base site already owns shared Python dependencies; keep the
+          # higher-priority CUDA overlay limited to its explicit GPU payload.
           python3 -m pip install --no-cache-dir --upgrade \
+            --no-deps \
             --target "$SNAP_PYTHON_SITE" \
             onnxruntime-gpu==1.24.4 \
             "cupy-cuda12x>=14.1.1,<15" \
+            "cuda-pathfinder>=1.3.4,<2" \
             nvidia-cublas-cu12 \
             nvidia-cuda-runtime-cu12 \
             nvidia-cudnn-cu12 \
@@ -178,6 +189,21 @@ parts:
           echo "Skipping CUDA mode runtime for ${CRAFT_ARCH_BUILD_FOR:-$(uname -m)} Snap build."
           ;;
       esac
+      # Optional runtime installation is disabled inside the immutable Snap.
+      # Remove the Python plugin's build-time package installer from the final
+      # runtime instead of carrying a second mutable package-management path.
+      rm -f -- \
+        "$CRAFT_PART_INSTALL/bin/pip" \
+        "$CRAFT_PART_INSTALL/bin/pip3" \
+        "$CRAFT_PART_INSTALL"/bin/pip3.*
+      for SNAP_SITE in \
+        "$CRAFT_PART_INSTALL"/lib/python*/site-packages \
+        "$CRAFT_PART_INSTALL"/lib/python*/dist-packages; do
+        [ -d "$SNAP_SITE" ] || continue
+        rm -rf -- "$SNAP_SITE/pip"
+        find "$SNAP_SITE" -maxdepth 1 -type d -name 'pip-*.dist-info' \
+          -exec rm -rf -- {} +
+      done
       # Create wrapper script
       mkdir -p $CRAFT_PART_INSTALL/bin
       cat > $CRAFT_PART_INSTALL/bin/nvbroadcast-wrapper << 'EOF'

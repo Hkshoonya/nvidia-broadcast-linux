@@ -11,6 +11,16 @@ on:
         required: false
         type: boolean
         default: false
+      candidate:
+        description: Release the built snap to candidate without creating or attaching a GitHub release.
+        required: false
+        type: boolean
+        default: false
+      review:
+        description: Upload the built snap for Store review without releasing it to any channel.
+        required: false
+        type: boolean
+        default: false
       release_tag:
         description: Existing release tag to attach assets to when publish is enabled.
         required: false
@@ -43,11 +53,86 @@ jobs:
         uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1
         id: snapcraft
 
+      - name: Verify Snap excludes runtime pip
+        env:
+          SNAP_PATH: ${{ steps.snapcraft.outputs.snap }}
+        run: |
+          mapfile -t PIP_PATHS < <(
+            unsquashfs -l "$SNAP_PATH" |
+              sed -n 's#^squashfs-root/##p' |
+              grep -E '(^|/)bin/pip([0-9.]*)$|(^|/)lib/python[^/]+/(site|dist)-packages/pip($|/|-[^/]+\.dist-info($|/))'
+          )
+          if [ "${#PIP_PATHS[@]}" -ne 0 ]; then
+            echo "::error::The immutable Snap must not contain a runtime pip installer."
+            printf '%s\n' "${PIP_PATHS[@]}"
+            exit 1
+          fi
+          echo "Verified that the Snap contains no runtime pip installer."
+
+      - name: Verify Snap runtime dependency closure
+        env:
+          SNAP_PATH: ${{ steps.snapcraft.outputs.snap }}
+        run: |
+          SNAP_ROOT="$(mktemp -d)"
+          trap 'rm -rf "$SNAP_ROOT"' EXIT
+          unsquashfs -f -d "$SNAP_ROOT" "$SNAP_PATH" >/dev/null
+
+          mapfile -t SNAP_PYTHON_PATHS < <(
+            find "$SNAP_ROOT/lib" "$SNAP_ROOT/usr/lib" \
+              -type d \( -name site-packages -o -name dist-packages \) \
+              -print | sort
+          )
+          if [ "${#SNAP_PYTHON_PATHS[@]}" -eq 0 ]; then
+            echo "::error::The Snap contains no discoverable Python package roots."
+            exit 1
+          fi
+          SNAP_PYTHONPATH="$(IFS=:; printf '%s' "${SNAP_PYTHON_PATHS[*]}")"
+          PYTHONPATH="$SNAP_PYTHONPATH" python3 -S \
+            scripts/validate_snap_runtime.py "$SNAP_ROOT" \
+            --platform-machine "${{ matrix.arch }}"
+
       - name: Upload snap artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: snap-package-${{ matrix.arch }}
           path: ${{ steps.snapcraft.outputs.snap }}
+
+      - name: Resolve Snap Store target
+        id: store-target
+        env:
+          PUBLISH_CANDIDATE: ${{ inputs.candidate }}
+          PUBLISH_STABLE: ${{ inputs.publish }}
+          UPLOAD_FOR_REVIEW: ${{ inputs.review }}
+        run: |
+          ACTION=""
+          CHANNEL=""
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            REQUEST_COUNT=0
+            for REQUESTED in "$PUBLISH_STABLE" "$PUBLISH_CANDIDATE" "$UPLOAD_FOR_REVIEW"; do
+              if [ "$REQUESTED" = "true" ]; then
+                REQUEST_COUNT=$((REQUEST_COUNT + 1))
+              fi
+            done
+
+            if [ "$REQUEST_COUNT" -gt 1 ]; then
+              echo "::error::publish, candidate, and review are mutually exclusive."
+              exit 1
+            fi
+
+            if [ "$PUBLISH_STABLE" = "true" ]; then
+              ACTION="release"
+              CHANNEL="stable"
+            elif [ "$PUBLISH_CANDIDATE" = "true" ]; then
+              ACTION="release"
+              CHANNEL="candidate"
+            elif [ "$UPLOAD_FOR_REVIEW" = "true" ]; then
+              ACTION="upload"
+            fi
+          fi
+
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
 
       - name: Resolve release target
         id: release-target
@@ -68,7 +153,7 @@ jobs:
           case "$RELEASE_TAG" in
             v*) ;;
             *)
-              echo "::error::release_tag must be an existing version tag such as v1.3.0."
+              echo "::error::release_tag must be an existing version tag such as v1.4.0."
               exit 1
               ;;
           esac
@@ -82,9 +167,9 @@ jobs:
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Validate Snap Store registration
-        if: steps.release-target.outputs.tag != ''
+        if: steps.store-target.outputs.action != ''
         env:
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ steps.store-target.outputs.channel == 'stable' && secrets.SNAP_TOKEN || secrets.SNAP_CANDIDATE_TOKEN }}
         run: |
           SNAP_NAME="$(sed -n 's/^name:[[:space:]]*//p' snap/snapcraft.yaml | head -n1)"
           if [ -z "$SNAP_NAME" ]; then
@@ -102,20 +187,34 @@ jobs:
             exit 1
           fi
 
+      - name: Upload to Snap Store for review
+        if: steps.store-target.outputs.action == 'upload'
+        timeout-minutes: 30
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_CANDIDATE_TOKEN }}
+        run: snapcraft upload "${{ steps.snapcraft.outputs.snap }}"
+
       - name: Publish to Snap Store
-        if: steps.release-target.outputs.tag != ''
+        if: steps.store-target.outputs.action == 'release'
+        timeout-minutes: 30
         uses: snapcore/action-publish@214b86e5ca036ead1668c79afb81e550e6c54d40 # v1
         env:
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ steps.store-target.outputs.channel == 'stable' && secrets.SNAP_TOKEN || secrets.SNAP_CANDIDATE_TOKEN }}
         with:
           snap: ${{ steps.snapcraft.outputs.snap }}
-          release: stable
+          release: ${{ steps.store-target.outputs.channel }}
 
       - name: Update Snap Store metadata
-        if: steps.release-target.outputs.tag != '' && matrix.arch == 'arm64'
+        if: steps.store-target.outputs.channel == 'stable' && matrix.arch == 'arm64'
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
         run: snapcraft upload-metadata "${{ steps.snapcraft.outputs.snap }}" --force
+
+      - name: Show Snap Store revisions
+        if: always() && steps.store-target.outputs.action != ''
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ steps.store-target.outputs.channel == 'stable' && secrets.SNAP_TOKEN || secrets.SNAP_CANDIDATE_TOKEN }}
+        run: snapcraft revisions nvbroadcast --arch "${{ matrix.arch }}"
 
   attach-release:
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish == true)
@@ -163,7 +262,7 @@ jobs:
         if: steps.release-assets.outputs.attach == 'true'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          draft: false
+          draft: ${{ github.event_name == 'push' }}
           tag_name: ${{ steps.release-target.outputs.tag }}
           files: release-assets/*.snap
           fail_on_unmatched_files: true

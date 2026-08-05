@@ -62,6 +62,23 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.4.0" date="2026-08-04">
+      <description>
+        <p>Global controls, Gaze Lock, and live video reliability update</p>
+        <ul>
+          <li>Added rebindable Linux global shortcuts for background, Auto Frame, Eye Contact, Mirror, and microphone noise-removal toggles</li>
+          <li>Added Natural and Gaze Lock Eye Contact modes with coordinated binocular targeting and conservative blink fallback</li>
+          <li>Added live physical-camera switching and fixed profile changes for single-frame video backends</li>
+          <li>Rebuilt and atomically swapped RVM sessions during quality or processing-mode changes, with clean CUDA recovery and CPU fallback</li>
+          <li>Preserved more fine head-hair and facial-hair detail in Ultra quality while suppressing neutral or bright background spill on soft replacement edges</li>
+          <li>Kept microphone capture active so Pulse/PipeWire clients do not retain multi-second latency after opening an idle virtual microphone</li>
+          <li>Bound Protobuf to the patched 5.29.6 through 6.x range for compatibility with system-site Python packages</li>
+          <li>Used one bounded OpenCV 4 owner, staged complete Snap runtime dependencies, and validated dependency closure before artifact upload</li>
+          <li>Prevented Snap, DEB, and RPM installs from modifying package-managed Python runtimes through the GUI and removed pip from Snap runtime artifacts</li>
+          <li>Removed GTK image baseline warnings and harmonized runtime log prefixes</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.3.0" date="2026-07-24">
       <description>
         <p>GPU video, power save, and background quality update</p>

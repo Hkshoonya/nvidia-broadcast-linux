@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.3.0
+Version:        1.4.0
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -153,6 +153,23 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Tue Aug 04 2026 doczeus <harshit@kshoonya.com> - 1.4.0-1
+- Add rebindable global effect hotkeys and optional Eye Contact Gaze Lock
+- Switch physical cameras at runtime without restarting the application
+- Apply profiles safely with single-frame video backends
+- Rebuild RVM sessions safely during quality and processing-mode changes
+- Recover from CUDA allocation failures with clean provider and CPU fallback
+- Preserve fine hair detail and reduce neutral or bright replacement halos
+- Keep microphone capture active to prevent delayed Pulse/PipeWire clients
+- Bound Protobuf to the patched 5.29.6 through 6.x compatibility range
+- Keep optional runtime mutation out of Snap, DEB, and RPM app sessions
+- Use one bounded OpenCV owner and stage complete Snap Python dependencies
+- Reject missing, incompatible, or duplicate Snap dependencies before upload
+- Keep tag artifacts draft and require explicit Snap Store promotion
+- Remove the build-time pip installer from Snap runtime artifacts
+- Remove GTK image baseline warnings and harmonize runtime log prefixes
+- Refresh release, store, website, and package metadata
+
 * Fri Jul 24 2026 doczeus <harshit@kshoonya.com> - 1.3.0-1
 - Add a device-resident NVIDIA video path with staged safe fallbacks
 - Add stronger blur plus separate Dim and Desaturate controls
