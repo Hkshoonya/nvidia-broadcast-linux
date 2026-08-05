@@ -260,7 +260,7 @@ jobs:
 
       - name: Attach snaps to GitHub Release
         if: steps.release-assets.outputs.attach == 'true'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           draft: ${{ github.event_name == 'push' }}
           tag_name: ${{ steps.release-target.outputs.tag }}
