@@ -981,19 +981,15 @@ class NVBroadcastApp(Adw.Application):
     def _auto_start(self):
         """Auto-start broadcast with saved settings."""
         startup_trace.mark("auto-start begin")
-        # Respect the profile's saved broadcast state: a profile saved while
-        # stopped must not start the broadcast on launch. Legacy configs
-        # (broadcast_started is None) keep the previous always-start behavior.
-        if self.config.broadcast_started is False:
-            print("[NV Broadcast] Auto-start skipped: profile saved while stopped", flush=True)
-            if self._window:
-                self._window.set_status("Broadcast stopped (saved profile state)")
-            return False
+        # Only the application-level auto_start flag governs launch (callers
+        # gate on config.auto_start). Profile data never gates startup — the
+        # per-profile opt-in applies only when switching profiles at runtime.
         print(f"[NV Broadcast] Auto-start: streaming={self._streaming} vcam={self._vcam_available}", flush=True)
-        if not self._streaming:
-            camera = self.config.video.camera_device
-            fmt = self.config.video.output_format
-            self.start_pipeline(camera, fmt)
+        if self._streaming:
+            return False
+        camera = self.config.video.camera_device
+        fmt = self.config.video.output_format
+        if self.start_pipeline(camera, fmt):
             self._window._streaming = True
             self._window._stream_btn.set_label("Stop Broadcast")
             self._window._stream_btn.remove_css_class("suggested-action")
@@ -1213,9 +1209,10 @@ class NVBroadcastApp(Adw.Application):
                 self._window._stream_btn.add_css_class("suggested-action")
                 self._window.set_status("Restarting...")
             self._queue_pipeline_restart()
-            return
+            return False
 
         self._restart_after_stop()
+        return self._streaming
 
     def _restart_after_stop(self):
         """Restart after the previous pipeline has fully released devices."""
@@ -1361,7 +1358,7 @@ class NVBroadcastApp(Adw.Application):
             self._window.set_status(f"Pipeline error: {e}")
             print(f"[NV Broadcast] Pipeline failed: {e}")
 
-        return False  # Don't repeat (for GLib.timeout_add)
+        return self._streaming  # True on success, False on failure
 
     def stop_pipeline(self, clear_pending_start: bool = True):
         if clear_pending_start:

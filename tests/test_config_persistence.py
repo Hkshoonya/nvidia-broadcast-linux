@@ -259,9 +259,9 @@ voice_fx_gain = 0.05
         self.assertEqual(loaded.audio.voice_fx_preset, "Studio")
         self.assertEqual(loaded.audio.voice_fx_gate_threshold, expected.gate_threshold)
 
-    def test_roundtrip_persists_broadcast_started_true(self):
+    def test_roundtrip_persists_auto_start_on_select_true(self):
         config = AppConfig()
-        config.broadcast_started = True
+        config.auto_start_on_select = True
 
         import tempfile
         from pathlib import Path
@@ -271,11 +271,11 @@ voice_fx_gain = 0.05
             path.write_text(_config_to_toml(config))
             loaded = _load_from_toml(path)
 
-        self.assertIs(loaded.broadcast_started, True)
+        self.assertIs(loaded.auto_start_on_select, True)
 
-    def test_roundtrip_persists_broadcast_started_false(self):
+    def test_roundtrip_persists_auto_start_on_select_false(self):
         config = AppConfig()
-        config.broadcast_started = False
+        config.auto_start_on_select = False
 
         import tempfile
         from pathlib import Path
@@ -285,9 +285,11 @@ voice_fx_gain = 0.05
             path.write_text(_config_to_toml(config))
             loaded = _load_from_toml(path)
 
-        self.assertIs(loaded.broadcast_started, False)
+        self.assertIs(loaded.auto_start_on_select, False)
 
-    def test_legacy_profile_without_broadcast_started_is_none(self):
+    def test_legacy_profile_without_auto_start_on_select_defaults_false(self):
+        # Legacy profiles have no auto_start_on_select key; the opt-in must
+        # default off so selecting them never auto-starts the broadcast.
         legacy = """
 current_profile = "Meeting"
 """
@@ -300,9 +302,9 @@ current_profile = "Meeting"
             path.write_text(legacy)
             loaded = _load_from_toml(path)
 
-        self.assertIsNone(loaded.broadcast_started)
+        self.assertIs(loaded.auto_start_on_select, False)
 
-    def test_save_and_load_profile_preserves_broadcast_started(self):
+    def test_save_and_load_profile_preserves_auto_start_on_select(self):
         import tempfile
         from pathlib import Path
 
@@ -311,13 +313,21 @@ current_profile = "Meeting"
                 "nvbroadcast.core.config.PROFILES_DIR", Path(tmp)
             ):
                 config = AppConfig()
-                config.broadcast_started = True
+                config.auto_start_on_select = True
                 save_profile("My Stream", config)
 
                 loaded = load_profile("My Stream")
 
         self.assertIsNotNone(loaded)
-        self.assertIs(loaded.broadcast_started, True)
+        self.assertIs(loaded.auto_start_on_select, True)
+
+    def test_build_default_config_resets_auto_start_on_select_to_false(self):
+        existing = AppConfig()
+        existing.auto_start_on_select = True
+
+        reset = build_default_config(existing)
+
+        self.assertFalse(reset.auto_start_on_select)
 
 
 class ConfigCorruptionRecoveryTests(unittest.TestCase):

@@ -401,17 +401,20 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
 
 class AutoStartBroadcastStateTests(unittest.TestCase):
-    """_auto_start must respect the profile's saved broadcast state."""
+    """_auto_start is governed only by the app-level auto_start flag.
 
-    def _make_app(self, broadcast_started):
+    Profile data (auto_start_on_select) must never gate launch, and a failed
+    start must leave the window state aligned with app._streaming.
+    """
+
+    def _make_app(self, start_pipeline_return=True):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()
         app.config.video.camera_device = "/dev/video0"
         app.config.video.output_format = "YUY2"
-        app.config.broadcast_started = broadcast_started
         app._streaming = False
         app._vcam_available = True
-        app.start_pipeline = mock.Mock()
+        app.start_pipeline = mock.Mock(return_value=start_pipeline_return)
         app._window = SimpleNamespace(
             _streaming=False,
             set_status=mock.Mock(),
@@ -423,32 +426,44 @@ class AutoStartBroadcastStateTests(unittest.TestCase):
         )
         return app
 
-    def test_auto_start_skipped_when_profile_saved_stopped(self):
-        app = self._make_app(broadcast_started=False)
+    def test_auto_start_starts_when_not_streaming(self):
+        app = self._make_app()
+
+        NVBroadcastApp._auto_start(app)
+
+        app.start_pipeline.assert_called_once_with("/dev/video0", "YUY2")
+        self.assertTrue(app._window._streaming)
+        app._window._stream_btn.set_label.assert_called_with("Stop Broadcast")
+
+    def test_auto_start_ignores_profile_opt_in_flag(self):
+        # Profile data must not gate launch: auto_start_on_select applies only
+        # to runtime profile switching, so launch behaves identically for both
+        # flag values.
+        for flag in (True, False):
+            app = self._make_app()
+            app.config.auto_start_on_select = flag
+
+            NVBroadcastApp._auto_start(app)
+
+            app.start_pipeline.assert_called_once_with("/dev/video0", "YUY2")
+            self.assertTrue(app._window._streaming)
+
+    def test_auto_start_keeps_window_stopped_when_start_fails(self):
+        app = self._make_app(start_pipeline_return=False)
+
+        NVBroadcastApp._auto_start(app)
+
+        app.start_pipeline.assert_called_once_with("/dev/video0", "YUY2")
+        self.assertFalse(app._window._streaming)
+        app._window._stream_btn.set_label.assert_not_called()
+
+    def test_auto_start_skips_when_already_streaming(self):
+        app = self._make_app()
+        app._streaming = True
 
         NVBroadcastApp._auto_start(app)
 
         app.start_pipeline.assert_not_called()
-        app._window.set_status.assert_called_once()
-        self.assertFalse(app._window._streaming)
-
-    def test_auto_start_runs_when_profile_saved_running(self):
-        app = self._make_app(broadcast_started=True)
-
-        NVBroadcastApp._auto_start(app)
-
-        app.start_pipeline.assert_called_once_with("/dev/video0", "YUY2")
-        self.assertTrue(app._window._streaming)
-
-    def test_auto_start_preserves_legacy_behavior_when_state_unknown(self):
-        # Legacy configs have no broadcast_started key -> None; they keep the
-        # previous always-start behavior.
-        app = self._make_app(broadcast_started=None)
-
-        NVBroadcastApp._auto_start(app)
-
-        app.start_pipeline.assert_called_once_with("/dev/video0", "YUY2")
-        self.assertTrue(app._window._streaming)
 
 
 if __name__ == "__main__":

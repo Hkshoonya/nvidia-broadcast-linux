@@ -2,8 +2,7 @@
 
 ## Unreleased
 
-- **Profile Broadcast State** - Saving a profile now records whether the broadcast was running or stopped, and switching to that profile automatically starts or stops the broadcast to match. Auto-start on launch also honors the saved state, and profiles saved before this change leave the broadcast untouched when selected.
-- **Hidden Preview Without a Camera** - When no camera source is detected, the preview area is hidden instead of showing an empty/white screen.
+- **Profile Auto-Start Opt-In** - Selecting a saved profile now starts the broadcast only when that profile's explicit opt-in ("Start broadcast when this profile is selected") is enabled, which defaults off and is set with a visible checkbox when saving the profile; profiles saved before this change never auto-start on selection. Launch-time auto-start remains governed solely by the application-level Auto Start setting, and a failed start (busy or missing camera) now leaves the window state aligned with the app instead of showing a phantom "Stop Broadcast" state.
 - **Rebindable Global Effect Hotkeys** - Linux users can toggle Background, Auto Frame, Eye Contact, Mirror, and Mic Noise Removal while another app has focus. Supported desktops use the XDG GlobalShortcuts portal; GNOME systems without that portal fall back to isolated custom keybindings with fixed application actions, duplicate and unsafe bindings are rejected, and recording actions remain excluded ([Issue #45](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/45))
 - **Optional Gaze Lock** - Eye Contact now offers Natural and Gaze Lock modes. Gaze Lock holds small coordinated eye movements closer to the camera target while retaining blink fallback, binocular stability checks, and smooth head-pose updates ([Issue #38](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/38))
 

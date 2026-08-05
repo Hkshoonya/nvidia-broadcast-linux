@@ -197,46 +197,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Profile selector
         self._profile_btn = Gtk.MenuButton(label="Profile")
         self._profile_btn.set_tooltip_text("Switch profile")
-        profile_popover = Gtk.Popover()
-        profile_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        profile_box.set_margin_top(8)
-        profile_box.set_margin_bottom(8)
-        profile_box.set_margin_start(8)
-        profile_box.set_margin_end(8)
-
-        # Built-in profiles
-        from nvbroadcast.core.config import get_builtin_profiles, list_profiles
-        for name, info in get_builtin_profiles().items():
-            btn = Gtk.Button(label=f"{name}")
-            btn.set_tooltip_text(info["description"])
-            btn.add_css_class("flat")
-            btn.connect("clicked", self._on_profile_selected, name, profile_popover)
-            profile_box.append(btn)
-
-        # Separator
-        profile_box.append(Gtk.Separator())
-
-        # User profiles
-        for name in list_profiles():
-            btn = Gtk.Button(label=f"{name}")
-            btn.add_css_class("flat")
-            btn.connect("clicked", self._on_user_profile_selected, name, profile_popover)
-            profile_box.append(btn)
-
-        # Save current as profile
-        save_btn = Gtk.Button(label="Save Current as Profile...")
-        save_btn.add_css_class("flat")
-        save_btn.connect("clicked", self._on_save_profile, profile_popover)
-        reset_btn = Gtk.Button(label="Reset to Defaults")
-        reset_btn.add_css_class("flat")
-        reset_btn.connect("clicked", self._on_reset_defaults, profile_popover)
-        profile_box.append(Gtk.Separator())
-        profile_box.append(save_btn)
-        profile_box.append(reset_btn)
-
-        profile_popover.set_child(profile_box)
-        self._profile_btn.set_popover(profile_popover)
-        self._profile_popover_box = profile_box
+        self._profile_popover = Gtk.Popover()
+        self._profile_popover_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._profile_popover_box.set_margin_top(8)
+        self._profile_popover_box.set_margin_bottom(8)
+        self._profile_popover_box.set_margin_start(8)
+        self._profile_popover_box.set_margin_end(8)
+        self._profile_popover.set_child(self._profile_popover_box)
+        self._rebuild_profile_popover()
+        self._profile_btn.set_popover(self._profile_popover)
         header.pack_start(self._profile_btn)
 
         # Quit button
@@ -1096,11 +1065,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         else:
             fmt = self._format_selector.get_selected_device() or "YUY2"
             cam = self._camera_selector.get_selected_device() or "/dev/video0"
-            self._app.start_pipeline(cam, fmt)
-            self._streaming = True
-            btn.set_label("Stop Broadcast")
-            btn.remove_css_class("suggested-action")
-            btn.add_css_class("destructive-action")
+            # Only flip window state when the pipeline actually started, so a
+            # failed start (busy/missing camera) leaves window._streaming
+            # aligned with app._streaming.
+            if self._app.start_pipeline(cam, fmt):
+                self._streaming = True
+                btn.set_label("Stop Broadcast")
+                btn.remove_css_class("suggested-action")
+                btn.add_css_class("destructive-action")
 
     def _sync_background_controls(self, enabled=None, mode=None):
         """Keep background controls aligned with the active effect mode."""
@@ -1932,6 +1904,56 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self.set_status(f"Recording to {filepath}")
 
     # --- Profiles ---
+    def _rebuild_profile_popover(self):
+        """(Re)build the profile popover from built-in and saved profiles.
+
+        Called at startup and after saving a profile so a newly saved profile
+        appears immediately. Saved profiles with the auto-start opt-in enabled
+        are marked with a lightning indicator, keeping the opt-in visible per
+        profile.
+        """
+        from nvbroadcast.core.config import (
+            get_builtin_profiles,
+            list_profiles,
+            load_profile,
+        )
+
+        popover = self._profile_popover
+        box = self._profile_popover_box
+        while box.get_first_child() is not None:
+            box.remove(box.get_first_child())
+
+        # Built-in profiles
+        for name, info in get_builtin_profiles().items():
+            btn = Gtk.Button(label=f"{name}")
+            btn.set_tooltip_text(info["description"])
+            btn.add_css_class("flat")
+            btn.connect("clicked", self._on_profile_selected, name, popover)
+            box.append(btn)
+
+        # Separator
+        box.append(Gtk.Separator())
+
+        # User profiles
+        for name in list_profiles():
+            loaded = load_profile(name)
+            label = f"{name} ⚡" if (loaded and loaded.auto_start_on_select) else name
+            btn = Gtk.Button(label=label)
+            btn.add_css_class("flat")
+            btn.connect("clicked", self._on_user_profile_selected, name, popover)
+            box.append(btn)
+
+        # Save current as profile / Reset to Defaults
+        save_btn = Gtk.Button(label="Save Current as Profile...")
+        save_btn.add_css_class("flat")
+        save_btn.connect("clicked", self._on_save_profile, popover)
+        reset_btn = Gtk.Button(label="Reset to Defaults")
+        reset_btn.add_css_class("flat")
+        reset_btn.connect("clicked", self._on_reset_defaults, popover)
+        box.append(Gtk.Separator())
+        box.append(save_btn)
+        box.append(reset_btn)
+
     def _on_profile_selected(self, btn, name, popover):
         from nvbroadcast.core.config import apply_builtin_profile, save_config
         if not apply_builtin_profile(self._app.config, name):
@@ -1960,14 +1982,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._profile_btn.set_label(f"Profile: {name}")
             popover.popdown()
             self.set_status(f"Switched to {name} profile")
-            # Restore the broadcast start/stop state recorded in the profile.
-            # Legacy profiles (broadcast_started is None) leave the pipeline
-            # untouched. Reusing _on_stream_toggle keeps all pipeline logic in
-            # one place.
-            want_running = loaded.broadcast_started
-            if want_running is True and not self._streaming:
-                self._on_stream_toggle(self._stream_btn)
-            elif want_running is False and self._streaming:
+            # Start-only opt-in: the profile's explicit auto_start_on_select
+            # flag (default off). Legacy profiles load False -> no auto-start.
+            # Never force-stops an active broadcast.
+            if loaded.auto_start_on_select and not self._streaming:
                 self._on_stream_toggle(self._stream_btn)
 
     def _on_save_profile(self, btn, popover):
@@ -1984,22 +2002,28 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         entry = Gtk.Entry()
         entry.set_placeholder_text("e.g. My Meeting Setup")
         dialog.get_content_area().append(entry)
-        dialog.connect("response", self._on_save_profile_response, entry)
+        # Explicit per-profile opt-in (default off). Selecting this profile
+        # later starts the broadcast only when this is checked.
+        optin = Gtk.CheckButton(label="Start broadcast when this profile is selected")
+        optin.set_active(bool(self._app.config.auto_start_on_select))
+        dialog.get_content_area().append(optin)
+        dialog.connect("response", self._on_save_profile_response, entry, optin)
         dialog.present()
 
-    def _on_save_profile_response(self, dialog, response, entry):
+    def _on_save_profile_response(self, dialog, response, entry, optin):
         if response == Gtk.ResponseType.OK:
             name = entry.get_text().strip()
             if name:
                 from nvbroadcast.core.config import save_profile, save_config
-                # Capture whether the broadcast is currently running so the
-                # profile can restore it later.
-                self._app.config.broadcast_started = self._streaming
+                # Explicit opt-in chosen in the dialog; never inferred from
+                # transient runtime state (self._streaming is not consulted).
+                self._app.config.auto_start_on_select = optin.get_active()
                 save_profile(name, self._app.config)
                 self._app.config.current_profile = name
                 save_config(self._app.config)
                 self._profile_btn.set_label(f"Profile: {name}")
                 self.set_status(f"Profile saved: {name}")
+                self._rebuild_profile_popover()
         dialog.destroy()
 
     def _on_reset_defaults(self, btn, popover):
@@ -2128,8 +2152,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         cameras = list_camera_devices()
         if cameras:
             self._camera_selector.set_devices(cameras)
-        # No source: hide the preview so we don't show an empty/white screen.
-        self._preview_frame.set_visible(bool(cameras))
 
     def _update_gpu_info(self):
         gpus = detect_gpus()

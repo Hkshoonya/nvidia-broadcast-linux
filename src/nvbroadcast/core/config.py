@@ -181,9 +181,9 @@ class AppConfig:
     compositing: str = "cpu"  # cpu, gstreamer_gl, cupy
     mode_key: str = ""  # killer, zeus, doczeus, cuda_max, etc.
     auto_mode: bool = False
-    # Broadcast start/stop state captured in saved profiles; None = legacy
-    # profile without a recorded state.
-    broadcast_started: bool | None = None
+    # Explicit per-profile opt-in: start the broadcast when this profile is
+    # selected. Default off; never inferred from transient runtime state.
+    auto_start_on_select: bool = False
     premium_edge_refine: bool = True
     use_tensorrt: bool = False
     use_fused_kernel: bool = False
@@ -239,7 +239,7 @@ def _load_from_toml(filepath: Path) -> AppConfig:
     config = AppConfig()
     for k in ("compute_gpu", "compute_focus", "performance_profile", "compositing",
               "mode_key", "premium_edge_refine",
-              "auto_mode", "broadcast_started",
+              "auto_mode", "auto_start_on_select",
               "use_tensorrt", "use_fused_kernel", "use_nvdec",
               "auto_start", "auto_idle", "minimize_on_close", "check_for_updates",
               "last_update_check", "last_notified_version",
@@ -382,6 +382,7 @@ def _config_to_toml(config: AppConfig) -> str:
         f'compositing = "{config.compositing}"',
         f'mode_key = "{config.mode_key}"',
         f"auto_mode = {_bool(config.auto_mode)}",
+        f"auto_start_on_select = {_bool(config.auto_start_on_select)}",
         f"premium_edge_refine = {_bool(config.premium_edge_refine)}",
         f"use_tensorrt = {_bool(config.use_tensorrt)}",
         f"use_fused_kernel = {_bool(config.use_fused_kernel)}",
@@ -396,8 +397,6 @@ def _config_to_toml(config: AppConfig) -> str:
         f"first_run = {_bool(config.first_run)}",
         f'current_profile = "{config.current_profile}"',
     ]
-    if config.broadcast_started is not None:
-        lines.append(f"broadcast_started = {_bool(config.broadcast_started)}")
     lines.extend([
         "",
         "[video]",
