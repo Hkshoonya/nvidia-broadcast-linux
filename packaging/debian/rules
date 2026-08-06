@@ -8,6 +8,8 @@ override_dh_auto_install:
 	install -d $(CURDIR)/debian/nvbroadcast/opt/nvbroadcast
 	cp -r src pyproject.toml LICENSE README.md \
 		$(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/
+	install -Dm 755 scripts/install_runtime_variant.py \
+		$(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/scripts/install_runtime_variant.py
 
 	# Models directory (AI models downloaded on first run)
 	install -d $(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/models

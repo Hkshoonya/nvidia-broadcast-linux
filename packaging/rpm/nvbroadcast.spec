@@ -56,6 +56,8 @@ chmod 644 LICENSE README.md
 # Application
 install -d %{buildroot}/opt/nvbroadcast
 cp -r src pyproject.toml LICENSE README.md %{buildroot}/opt/nvbroadcast/
+install -Dm 755 scripts/install_runtime_variant.py \
+    %{buildroot}/opt/nvbroadcast/scripts/install_runtime_variant.py
 install -d %{buildroot}/opt/nvbroadcast/models
 cp -r data %{buildroot}/opt/nvbroadcast/
 cp -r configs %{buildroot}/opt/nvbroadcast/ 2>/dev/null || true
@@ -112,20 +114,35 @@ echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclus
 install -d %{buildroot}/etc/modules-load.d
 echo 'v4l2loopback' > %{buildroot}/etc/modules-load.d/nvbroadcast-v4l2loopback.conf
 
-%post
-# Setup Python venv and install pip deps
-if [ ! -d /opt/nvbroadcast/.venv ]; then
-    python3 -m venv /opt/nvbroadcast/.venv --system-site-packages
-fi
-/opt/nvbroadcast/.venv/bin/pip install --upgrade \
-    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
-/opt/nvbroadcast/.venv/bin/pip install /opt/nvbroadcast -q
-/opt/nvbroadcast/.venv/bin/pip install --no-deps faster-whisper -q 2>/dev/null && \
-    /opt/nvbroadcast/.venv/bin/pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm -q 2>/dev/null || true
+%pre
+pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |$)' 2>/dev/null || true
 
-# Install CUDA mode runtime if NVIDIA GPU present
-if command -v nvidia-smi &>/dev/null; then
-    /opt/nvbroadcast/.venv/bin/pip install --upgrade "/opt/nvbroadcast[cuda]" -q 2>/dev/null || true
+%post
+RUNTIME_VARIANT="cpu"
+case "$(uname -m)" in
+  x86_64|amd64)
+    if command -v nvidia-smi >/dev/null 2>&1; then
+      RUNTIME_VARIANT="cuda"
+    fi
+    ;;
+esac
+
+install_runtime() {
+  rm -rf -- /opt/nvbroadcast/.venv
+  python3 -m venv /opt/nvbroadcast/.venv --system-site-packages
+  /opt/nvbroadcast/.venv/bin/pip install --upgrade \
+    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
+  /opt/nvbroadcast/.venv/bin/python /opt/nvbroadcast/scripts/install_runtime_variant.py \
+    --project /opt/nvbroadcast --variant "$1" --meeting-backends faster
+}
+
+if ! install_runtime "$RUNTIME_VARIANT"; then
+  if [ "$RUNTIME_VARIANT" != "cuda" ]; then
+    exit 1
+  fi
+  echo "NV Broadcast: CUDA runtime failed; recreating clean CPU environment."
+  RUNTIME_VARIANT="cpu"
+  install_runtime "$RUNTIME_VARIANT"
 fi
 
 # Load v4l2loopback
@@ -137,7 +154,7 @@ fi
 modprobe v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4 2>/dev/null || true
 
 %preun
-pkill -f "nvbroadcast" 2>/dev/null || true
+pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |$)' 2>/dev/null || true
 
 %files
 /opt/nvbroadcast/

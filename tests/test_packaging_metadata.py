@@ -428,13 +428,20 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("nvidia-nvjpeg-cu12", snapcraft)
         self.assertIn("intentionally uses GStreamer's CPU MJPEG decoder", readme)
 
-    def test_linux_package_postinstalls_install_cuda_extra(self):
+    def test_linux_package_postinstalls_choose_one_runtime_before_resolution(self):
         deb_postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
         rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         rpm_postinst = rpm_spec.split("%post", 1)[1].split("%preun", 1)[0]
-        self.assertIn('pip" install --upgrade "${INSTALL_DIR}[cuda]"', deb_postinst)
-        self.assertIn('pip install --upgrade "/opt/nvbroadcast[cuda]"', rpm_postinst)
-        self.assertNotIn("pip\" install cupy-cuda12x nvidia-cuda-nvrtc-cu12", deb_postinst)
+        for postinst in (deb_postinst, rpm_postinst):
+            self.assertIn('RUNTIME_VARIANT="cpu"', postinst)
+            self.assertIn('RUNTIME_VARIANT="cuda"', postinst)
+            self.assertIn('rm -rf --', postinst)
+            self.assertIn('install_runtime_variant.py', postinst)
+            self.assertIn('--meeting-backends faster', postinst)
+            self.assertIn('recreating clean CPU environment', postinst)
+            self.assertNotIn('[cuda]"', postinst)
+        self.assertIn("pkill -f", rpm_spec.split("%pre", 1)[1].split("%post", 1)[0])
+        self.assertNotIn('pkill -f "nvbroadcast"', rpm_spec)
 
     def test_virtual_camera_label_is_nvbroadcast_everywhere(self):
         constants = (REPO_ROOT / "src" / "nvbroadcast" / "core" / "constants.py").read_text()
@@ -513,18 +520,16 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_debian_postinst_installs_meeting_runtime(self):
         postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
-        self.assertIn("pip\" install --no-deps faster-whisper", postinst)
-        self.assertIn("pip\" install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", postinst)
+        self.assertIn("install_runtime_variant.py", postinst)
+        self.assertIn("--meeting-backends faster", postinst)
         self.assertNotIn("openai-whisper", postinst)
-        self.assertNotIn("install --no-deps faster-whisper ctranslate2", postinst)
 
     def test_rpm_postinst_installs_meeting_runtime(self):
         spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         postinst = spec.split("%post", 1)[1].split("%preun", 1)[0]
-        self.assertIn("pip install --no-deps faster-whisper", postinst)
-        self.assertIn("pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", postinst)
+        self.assertIn("install_runtime_variant.py", postinst)
+        self.assertIn("--meeting-backends faster", postinst)
         self.assertNotIn("openai-whisper", postinst)
-        self.assertNotIn("install --no-deps faster-whisper ctranslate2", postinst)
 
     def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()

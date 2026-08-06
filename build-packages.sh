@@ -87,6 +87,8 @@ CTRL
     # Application files -> /opt/nvbroadcast
     install -d "$PKG_DIR/opt/nvbroadcast"
     cp -r src pyproject.toml LICENSE README.md "$PKG_DIR/opt/nvbroadcast/"
+    install -Dm 755 scripts/install_runtime_variant.py \
+        "$PKG_DIR/opt/nvbroadcast/scripts/install_runtime_variant.py"
     find "$PKG_DIR/opt/nvbroadcast/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
         -prune -exec rm -rf {} +
@@ -186,6 +188,8 @@ build_rpm() {
     local TAR_ROOT="$RPM_DIR/source"
     mkdir -p "$TAR_ROOT/$TAR_DIR"
     cp -r src pyproject.toml LICENSE README.md data "$TAR_ROOT/$TAR_DIR/"
+    install -Dm 755 scripts/install_runtime_variant.py \
+        "$TAR_ROOT/$TAR_DIR/scripts/install_runtime_variant.py"
     [ -d configs ] && cp -r configs "$TAR_ROOT/$TAR_DIR/" || true
     find "$TAR_ROOT/$TAR_DIR/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \

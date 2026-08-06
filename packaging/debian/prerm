@@ -5,13 +5,13 @@ set -e
 case "$1" in
     upgrade|deconfigure)
         # On package upgrade, stop the running app but preserve service state.
-        pkill -f "nvbroadcast" 2>/dev/null || true
+        pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |$)' 2>/dev/null || true
         if systemctl --user is-active nvbroadcast-vcam.service &>/dev/null; then
             systemctl --user stop nvbroadcast-vcam.service 2>/dev/null || true
         fi
         ;;
     remove|purge)
-        pkill -f "nvbroadcast" 2>/dev/null || true
+        pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |$)' 2>/dev/null || true
         if systemctl --user is-active nvbroadcast-vcam.service &>/dev/null; then
             systemctl --user stop nvbroadcast-vcam.service 2>/dev/null || true
         fi
