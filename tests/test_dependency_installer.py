@@ -66,6 +66,41 @@ class DependencyInstallerTests(unittest.TestCase):
              mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CUDA):
             self.assertTrue(dependency_installer._supports_cuda_runtime())
 
+    def test_cpu_source_runtime_directs_user_to_source_installer(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU), \
+             mock.patch.object(dependency_installer.sys, "prefix", "/home/user/project/.venv"):
+            reason = installer.install_block_reason("cupy")
+
+        self.assertIsNotNone(reason)
+        self.assertIn("./install.sh --runtime cuda", reason)
+        self.assertIn("user-owned source environment", reason)
+        self.assertNotIn("system package manager", reason)
+
+    def test_cpu_native_runtime_directs_user_to_package_manager(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU), \
+             mock.patch.object(dependency_installer.sys, "prefix", "/opt/nvbroadcast/.venv"):
+            reason = installer.install_block_reason("cupy")
+
+        self.assertIsNotNone(reason)
+        self.assertIn("system package manager", reason)
+        self.assertIn("nvidia-smi", reason)
+        self.assertNotIn("./install.sh", reason)
+
+    def test_cuda_runtime_reports_unsupported_platform_before_switch_guidance(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=False), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU):
+            reason = installer.install_block_reason("cupy")
+
+        self.assertEqual(
+            reason,
+            "CUDA modes are currently available only on Linux x86_64.",
+        )
+
     def test_cupy_verification_preloads_component_wheel_runtime(self):
         fake_array = mock.MagicMock()
         fake_array.__mul__.return_value.astype.return_value = object()

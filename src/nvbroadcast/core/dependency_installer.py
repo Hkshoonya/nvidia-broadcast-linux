@@ -93,6 +93,34 @@ def _running_in_snap() -> bool:
     return bool(os.environ.get("SNAP"))
 
 
+def _running_in_native_package() -> bool:
+    """Return whether Debian or RPM owns the current application environment."""
+    return Path(sys.prefix) == Path("/opt/nvbroadcast/.venv")
+
+
+def _cuda_runtime_unsupported_reason() -> str:
+    """Explain how this installation can change its ONNX Runtime owner."""
+    if not supports_linux_gpu_stack():
+        return "CUDA modes are currently available only on Linux x86_64."
+    if _running_in_native_package():
+        return (
+            "This package was installed with the CPU runtime variant. Stop "
+            "NVBroadcast, make sure nvidia-smi detects the NVIDIA GPU, then "
+            "reinstall or upgrade NVBroadcast through the system package manager "
+            "to recreate its managed environment as CUDA."
+        )
+    return (
+        "This environment uses the CPU runtime variant. Stop NVBroadcast and run "
+        "./install.sh --runtime cuda, or recreate a user-owned source environment "
+        "with .[cuda]."
+    )
+
+
+def _unsupported_reason(spec: dict, default: str) -> str:
+    reason = spec.get("unsupported_reason", default)
+    return reason() if callable(reason) else reason
+
+
 def _runtime_install_block_reason() -> str | None:
     if _running_in_snap():
         return (
@@ -154,11 +182,7 @@ PACKAGE_SPECS = {
         "check": _has_cuda_mode_runtime,
         "verify": _verify_cuda_mode_runtime,
         "help": "Retry later with: .venv/bin/pip install --upgrade " + " ".join(CUDA_RUNTIME_HELP_PACKAGES),
-        "unsupported_reason": (
-            "Stop NVBroadcast and change the runtime variant through the "
-            "installation method that owns this environment. CUDA modes require "
-            "Linux x86_64 and the CUDA ONNX Runtime variant."
-        ),
+        "unsupported_reason": _cuda_runtime_unsupported_reason,
     },
     "tensorrt": {
         "title": "TensorRT Runtime",
@@ -291,7 +315,9 @@ class DependencyInstaller(GObject.Object):
         if self.is_available(key):
             return None
         if not self.is_supported(key):
-            return spec.get("unsupported_reason", f"{spec['title']} is not supported on this system.")
+            return _unsupported_reason(
+                spec, f"{spec['title']} is not supported on this system."
+            )
         return _runtime_install_block_reason()
 
     def unsupported_reason_for_mode(self, mode_key: str) -> str | None:
