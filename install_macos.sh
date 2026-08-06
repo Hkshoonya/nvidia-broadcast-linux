@@ -103,9 +103,14 @@ mkdir -p "$INSTALL_DIR"
 
 # Copy source
 cp -r src pyproject.toml data models configs "$INSTALL_DIR/" 2>/dev/null || true
+mkdir -p "$INSTALL_DIR/scripts"
+cp scripts/install_runtime_variant.py "$INSTALL_DIR/scripts/"
 mkdir -p "$INSTALL_DIR/models"
 
-# Create venv
+# Stop old runtime before replacing installer-owned environment.
+pkill -f "^${INSTALL_DIR}/venv/bin/python -m nvbroadcast( |$)" 2>/dev/null || true
+# Recreate environment so CPU remains sole runtime owner.
+rm -rf -- "$INSTALL_DIR/venv"
 $PYTHON -m venv "$INSTALL_DIR/venv" --system-site-packages
 source "$INSTALL_DIR/venv/bin/activate"
 
@@ -116,10 +121,8 @@ pip install --upgrade "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
 echo ""
 echo -e "${GREEN}[4/7]${NC} Installing Python dependencies..."
 
-pip install -q "$INSTALL_DIR"
-pip install -q --no-deps faster-whisper 2>/dev/null && \
-    pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm 2>/dev/null || \
-    echo -e "${YELLOW}  faster-whisper install failed; meeting transcription may require in-app runtime install.${NC}"
+python "$INSTALL_DIR/scripts/install_runtime_variant.py" \
+    --project "$INSTALL_DIR" --variant cpu --meeting-backends faster
 
 if python - <<'PY'
 import sys

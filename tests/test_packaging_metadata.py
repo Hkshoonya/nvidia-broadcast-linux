@@ -533,17 +533,19 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()
-        self.assertIn("pip install -q --no-deps faster-whisper", script)
-        self.assertIn("pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", script)
-        self.assertNotIn("install -q --no-deps faster-whisper ctranslate2", script)
+        self.assertIn("install_runtime_variant.py", script)
+        self.assertIn("--variant cpu --meeting-backends faster", script)
+        self.assertIn('rm -rf -- "$INSTALL_DIR/.venv"', script)
+        self.assertIn('pkill -f "^${INSTALL_DIR}/.venv/bin/python -m nvbroadcast', script)
 
     def test_macos_source_installer_guards_openai_whisper(self):
         script = (REPO_ROOT / "install_macos.sh").read_text()
-        self.assertIn("pip install -q --no-deps faster-whisper", script)
-        self.assertIn("pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", script)
+        self.assertIn("install_runtime_variant.py", script)
+        self.assertIn("--variant cpu --meeting-backends faster", script)
+        self.assertIn('rm -rf -- "$INSTALL_DIR/venv"', script)
+        self.assertIn('pkill -f "^${INSTALL_DIR}/venv/bin/python -m nvbroadcast', script)
         self.assertIn("sys.version_info < (3, 14)", script)
-        self.assertIn('"openai-whisper>=20231117"', script)
-        self.assertNotIn("pip install -q openai-whisper\n", script)
+        self.assertIn('pip install -q "openai-whisper>=20231117"', script)
 
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()

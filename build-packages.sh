@@ -239,6 +239,8 @@ build_pkg() {
 
     # Application files -> /opt/nvbroadcast
     cp -r src pyproject.toml LICENSE README.md "$INSTALL_ROOT/opt/nvbroadcast/"
+    install -Dm 755 scripts/install_runtime_variant.py \
+        "$INSTALL_ROOT/opt/nvbroadcast/scripts/install_runtime_variant.py"
     find "$INSTALL_ROOT/opt/nvbroadcast/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
         -prune -exec rm -rf {} +
@@ -300,14 +302,16 @@ if [ -z "$PYTHON" ]; then
     exit 0
 fi
 
-# Create venv
+# Stop old runtime before replacing installer-owned environment.
+pkill -f "^${INSTALL_DIR}/.venv/bin/python -m nvbroadcast( |$)" 2>/dev/null || true
+# Recreate environment so CPU remains sole runtime owner.
+rm -rf -- "$INSTALL_DIR/.venv"
 $PYTHON -m venv "$INSTALL_DIR/.venv" --system-site-packages 2>/dev/null || true
 source "$INSTALL_DIR/.venv/bin/activate"
 pip install --upgrade \
     "pip>=26.1.2" "setuptools>=83.0.0" wheel -q 2>/dev/null || true
-pip install -q "$INSTALL_DIR" 2>/dev/null || true
-pip install -q --no-deps faster-whisper 2>/dev/null && \
-    pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm 2>/dev/null || true
+python "$INSTALL_DIR/scripts/install_runtime_variant.py" \
+    --project "$INSTALL_DIR" --variant cpu --meeting-backends faster
 
 # CoreML for Apple Silicon
 if [ "$(uname -m)" = "arm64" ]; then
