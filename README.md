@@ -621,11 +621,11 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 
 ## Sustain NV Broadcast
 
-I maintain NV Broadcast independently. As usage grows, so does the work required to test GPU runtimes, cameras, audio, packages, and releases across real systems.
+I created and lead NV Broadcast with help from community bug reports, testing, documentation, ideas, and code contributions. As usage grows, so does the work required to review that input and test GPU runtimes, cameras, audio, packages, and releases across real systems.
 
 The first sustainability goal is **10 monthly sponsors**. Reaching it will help reserve predictable maintenance time each month for bug triage, compatibility fixes, package testing, and reliable releases. Core features will remain open source.
 
-Sponsorship supports the project as a whole. It does not purchase issue priority, private support, guaranteed features, or control of the roadmap.
+Financial supporters make sustained maintainer time possible, while contributors strengthen the project through reports, testing, documentation, ideas, and code. Sponsorship funds maintenance for the whole community, and roadmap priorities remain based on security, impact, reproducibility, community needs, and what is technically right for the project.
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">

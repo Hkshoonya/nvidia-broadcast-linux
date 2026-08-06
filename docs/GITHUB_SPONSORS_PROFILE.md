@@ -10,42 +10,47 @@ profile, tiers, and public policy.
 
 ### Goal description
 
-I independently maintain NV Broadcast for Linux, and the work required to test
-GPU runtimes, cameras, audio, packaging, and releases is growing with the user
-base. My first goal is 10 monthly sponsors. Reaching it will help me reserve
-predictable maintenance time each month for bug triage, compatibility fixes,
-package testing, and reliable releases. The project will remain open source,
-and sponsorship does not buy issue priority or control of the roadmap.
+I lead and maintain NV Broadcast for Linux, strengthened by community bug
+reports, testing, documentation, ideas, and code. My first goal is 10 monthly
+sponsors. Reaching it will help me reserve predictable time for compatibility
+fixes, package testing, contribution review, and reliable releases. Core
+features remain open source, and roadmap priorities continue to be based on
+impact, reproducibility, security, and community needs.
 
 ## Short description
 
-I independently build NV Broadcast for Linux: an open-source virtual camera and
-audio application with GPU effects, background processing, noise removal, and
-local meeting tools. Sponsorship funds testing, packaging, compatibility work,
-and sustainable maintenance.
+I created and lead NV Broadcast for Linux, an open-source virtual camera and audio app. Community reports, testing, documentation, and code improve the project. Sponsorship funds dedicated time for compatibility, packaging, and reliable releases.
+
+Character count: **246/250**, including spaces.
 
 ## Full description
 
-I created NV Broadcast because Linux users deserve a polished alternative to
-NVIDIA Broadcast without returning to Windows.
+I created and lead NV Broadcast because Linux users deserve a polished
+alternative to NVIDIA Broadcast without returning to Windows.
 
-Maintaining it involves much more than adding features. Every release must be
-tested across NVIDIA drivers, CPU and CUDA runtimes, physical cameras,
-PipeWire and PulseAudio, browsers, meeting applications, Linux distributions,
-Snap, native packages, and macOS.
+The project has grown through community bug reports, hardware testing, ideas,
+documentation, and code contributions. I remain responsible for reviewing
+changes, investigating difficult system-specific problems, maintaining
+packages, and verifying releases.
 
-The project is growing, but so is the time required to investigate
-hardware-specific bugs, review contributions, maintain packages, and verify
-releases. I maintain this independently, and I want to continue improving it
-without burning out or putting core features behind a paywall.
+Every release must be tested across NVIDIA drivers, CPU and CUDA runtimes,
+physical cameras, PipeWire and PulseAudio, browsers, meeting applications,
+Linux distributions, Snap, native packages, and macOS. That maintenance
+requires substantial, recurring work.
 
-Recurring sponsorship gives me predictable support to reserve real time for
-maintenance, testing, and carefully selected improvements. If NV Broadcast
-improves your calls, supports your work, or helps you stay on Linux, even $5
-per month makes continued development more sustainable.
+Recurring sponsorship helps me reserve dedicated time for bug triage,
+compatibility fixes, package testing, contribution review, and reliable
+releases. It allows the project to keep improving without putting core
+features behind a paywall.
 
-Sponsorship supports the project as a whole. It does not purchase issue
-priority, private support, guaranteed features, or control of the roadmap.
+Financial supporters and project contributors help in different but equally
+valuable ways. Sponsors make sustained maintenance time possible, while
+contributors strengthen the project through reports, testing, documentation,
+ideas, and code.
+
+Sponsorship funds maintenance for the whole community. Roadmap and issue
+priority remain based on security, impact, reproducibility, community needs,
+and what is technically right for the project.
 
 ## Monthly tiers
 
@@ -56,8 +61,8 @@ Help keep maintenance, packaging, and releases active.
 - Public recognition on the project sponsor wall, unless the sponsorship is private.
 - Public development and maintenance updates.
 
-This tier supports the project as a whole. It does not purchase issue priority,
-private support, guaranteed features, or roadmap control.
+This tier supports maintenance for the whole community. Roadmap and issue
+priority remain based on security, impact, reproducibility, and project needs.
 
 ### $15 - Sustainer
 
@@ -109,5 +114,6 @@ SPONSORS.md. New sponsors use the sustainable tiers above.
 Thank you for supporting NV Broadcast. Your sponsorship helps fund maintenance,
 compatibility testing, packaging, and release verification. Public sponsors are
 added automatically to README.md and SPONSORS.md. Project updates are published
-in GitHub Discussions. Sponsorship supports the project as a whole and does not
-create an issue-priority or private-support agreement.
+in GitHub Discussions. Community reports, testing, documentation, ideas, and
+code remain central to the project. Roadmap and issue priority continue to be
+based on security, impact, reproducibility, and project needs.
