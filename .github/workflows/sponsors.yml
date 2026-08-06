@@ -43,7 +43,7 @@ jobs:
             echo "::notice::SPONSORS_TOKEN is not configured yet; skipping sponsor wall refresh."
           fi
 
-      # --- Featured tier: Creator+ ($50/mo+ = 5000 cents), bigger avatars ---
+      # --- Featured tier: Project Backer+ ($50/mo+ = 5000 cents), bigger avatars ---
       - name: Featured sponsors → README
         if: steps.sponsor-token.outputs.available == 'true'
         uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
@@ -52,7 +52,7 @@ jobs:
           file: README.md
           marker: featured
           minimum: 5000
-          fallback: '<em>No featured sponsors yet — <a href="https://github.com/sponsors/Hkshoonya">become a Creator-tier sponsor</a> and your logo appears here. 💎</em>'
+          fallback: '<em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">become a Project Backer</a> and your name appears here.</em>'
           template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="80" alt="{{ login }}"></a>&nbsp;'
 
       # --- All sponsors: every public backer, smaller avatars ---
@@ -63,7 +63,7 @@ jobs:
           token: ${{ secrets.SPONSORS_TOKEN }}
           file: README.md
           marker: sponsors
-          fallback: '<em>No public backers yet — <a href="https://github.com/sponsors/Hkshoonya">be the first</a>! ☕</em>'
+          fallback: '<em>No public backers yet - <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">be the first</a>.</em>'
           template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="55" alt="{{ login }}"></a>&nbsp;'
 
       # --- Same walls in the dedicated SPONSORS.md page ---
@@ -75,7 +75,7 @@ jobs:
           file: SPONSORS.md
           marker: featured
           minimum: 5000
-          fallback: '<em>No featured sponsors yet — <a href="https://github.com/sponsors/Hkshoonya">become a Creator-tier sponsor</a>. 💎</em>'
+          fallback: '<em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors">become a Project Backer</a>.</em>'
           template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="90" alt="{{ login }}"></a>&nbsp;'
 
       - name: All sponsors → SPONSORS.md
@@ -85,7 +85,7 @@ jobs:
           token: ${{ secrets.SPONSORS_TOKEN }}
           file: SPONSORS.md
           marker: sponsors
-          fallback: '<em>No public backers yet — <a href="https://github.com/sponsors/Hkshoonya">be the first</a>! ☕</em>'
+          fallback: '<em>No public backers yet - <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors">be the first</a>.</em>'
           template: '<a href="https://github.com/{{ login }}" title="{{ login }}"><img src="{{ avatarUrl }}" width="64" alt="{{ login }}"></a>&nbsp;'
 
       - name: Commit updated sponsor walls

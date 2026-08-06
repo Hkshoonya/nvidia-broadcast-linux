@@ -39,10 +39,28 @@ changing the sponsor walls.
 
 ## Tiers shown
 
-- **Featured** wall = sponsors at **$50/mo and up** (Creator / Studio / Company) — larger avatars.
+- **Featured** wall = sponsors at **$50/mo and up** (Project Backer / Organization Backer) — larger avatars.
 - **Backers** wall = every public sponsor — smaller avatars.
 - Thresholds are set with `minimum` (in **cents**) in `sponsors.yml`. Change `5000` to retune.
 - Only **public** sponsors render; private sponsors are hidden (set `include-private: true` to show a redacted count).
+
+The canonical profile, goal, tier descriptions, and sponsor policy live in
+[`docs/GITHUB_SPONSORS_PROFILE.md`](../docs/GITHUB_SPONSORS_PROFILE.md). Existing
+sponsors keep the benefits of the tier they joined, even when that tier is later
+retired. Record any permanent recognition before retiring a tier.
+
+## Campaign tracking
+
+Public sponsor links include GitHub's `metadata_campaign` query parameter so the
+source can be distinguished in Sponsors transaction exports:
+
+- `nvbroadcast_readme` for the repository README
+- `nvbroadcast_sponsors` for `SPONSORS.md`
+- `nvbroadcast_site` for the project website
+- `github_profile` for the account profile README
+- `nvbroadcast_goal` for goal announcements
+
+Keep these values stable so future results remain comparable.
 
 ## Reusing this in your other projects
 
