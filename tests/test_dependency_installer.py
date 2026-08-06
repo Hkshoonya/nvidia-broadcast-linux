@@ -45,17 +45,26 @@ class DependencyInstallerTests(unittest.TestCase):
              mock.patch.object(dependency_installer, "has_cuda_inference_runtime", return_value=True):
             self.assertTrue(dependency_installer._has_cuda_mode_runtime())
 
-    def test_cuda_runtime_install_spec_includes_gpu_inference_provider(self):
+    def test_cuda_support_install_spec_does_not_change_runtime_owner(self):
         spec = dependency_installer.PACKAGE_SPECS["cupy"]
         install_args = spec["install_args"]
         self.assertIn("--upgrade", install_args)
         self.assertIn("cupy-cuda12x>=14.1.1,<15", install_args)
-        self.assertIn("onnxruntime-gpu==1.24.4", install_args)
+        self.assertNotIn("onnxruntime-gpu==1.24.4", install_args)
+        self.assertNotIn("onnxruntime", install_args)
         self.assertIn("nvidia-cudnn-cu12", install_args)
         self.assertIn("nvidia-cuda-nvrtc-cu12", install_args)
-        self.assertIn("ONNX Runtime GPU", spec["summary"])
-        self.assertIn("onnxruntime-gpu==1.24.4", spec["help"])
-        self.assertNotIn("onnxruntime-gpu>=", spec["help"])
+        self.assertIn("already owned by the CUDA ONNX Runtime variant", spec["summary"])
+        self.assertNotIn("onnxruntime", spec["help"])
+
+    def test_cuda_support_requires_cuda_runtime_owner(self):
+        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU):
+            self.assertFalse(dependency_installer._supports_cuda_runtime())
+
+        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CUDA):
+            self.assertTrue(dependency_installer._supports_cuda_runtime())
 
     def test_cupy_verification_preloads_component_wheel_runtime(self):
         fake_array = mock.MagicMock()

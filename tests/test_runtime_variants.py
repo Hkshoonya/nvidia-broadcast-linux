@@ -1,4 +1,8 @@
 import unittest
+from pathlib import Path
+from unittest import mock
+
+from scripts import install_runtime_variant
 from nvbroadcast.runtime.variants import (
     RuntimeVariant,
     detect_runtime_variant,
@@ -61,6 +65,49 @@ class RuntimeVariantTests(unittest.TestCase):
                 {"onnxruntime": ("1.24.4",), "onnxruntime-gpu": ("1.24.4",)}
             )
         )
+
+    def test_installer_uses_support_extra_before_no_deps_backend(self):
+        with mock.patch.object(install_runtime_variant, "run_pip") as run_pip, \
+             mock.patch.object(install_runtime_variant.subprocess, "run") as run:
+            install_runtime_variant.install(Path("/project"), "cuda", "faster")
+
+        self.assertEqual(
+            run_pip.call_args_list,
+            [
+                mock.call(
+                    "install", "--upgrade", "/project[cuda,meeting-support]"
+                ),
+                mock.call("install", "--no-deps", "faster-whisper"),
+            ],
+        )
+        run.assert_called_once_with(
+            [
+                install_runtime_variant.sys.executable,
+                "-m",
+                "nvbroadcast.runtime",
+                "--variant",
+                "cuda",
+            ],
+            check=True,
+        )
+
+    def test_installer_all_policy_preserves_both_meeting_backends(self):
+        with mock.patch.object(install_runtime_variant, "run_pip") as run_pip, \
+             mock.patch.object(install_runtime_variant.subprocess, "run"):
+            install_runtime_variant.install(Path("/project"), "cpu", "all")
+
+        self.assertEqual(
+            run_pip.call_args_list,
+            [
+                mock.call(
+                    "install",
+                    "--upgrade",
+                    "/project[cpu,meeting-support,meeting]",
+                ),
+                mock.call("install", "--no-deps", "faster-whisper"),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

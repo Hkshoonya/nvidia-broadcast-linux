@@ -1,5 +1,6 @@
 import re
 import stat
+import tomllib
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -60,15 +61,18 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("preload_nvidia_runtime_libs; preload_nvidia_runtime_libs(); import cupy", install_script)
         self.assertIn("CuPy installed but verification failed.", install_script)
 
-    def test_source_installer_installs_cuda_extra_before_gpu_verification(self):
+    def test_source_installer_selects_and_validates_one_runtime_variant(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertIn('"$VENV_DIR/bin/pip" install --upgrade "${SCRIPT_DIR}[cuda]"', install_script)
+        self.assertIn("--runtime auto|cpu|cuda] [--with-meeting", install_script)
+        self.assertIn('--variant "$1"', install_script)
+        self.assertIn('--meeting-backends "$meeting_backends"', install_script)
         self.assertLess(
-            install_script.index('"$VENV_DIR/bin/pip" install --upgrade "${SCRIPT_DIR}[cuda]"'),
+            install_script.index('install_runtime_variant "$SELECTED_RUNTIME_VARIANT"'),
             install_script.index("Verifying GPU acceleration"),
         )
+        self.assertIn('rm -rf -- "$VENV_DIR"', install_script)
         self.assertIn("CUDA_ACCEL_AVAILABLE=true", install_script)
-        self.assertIn("CUDA runtime: $VENV_DIR/bin/pip install --upgrade", install_script)
+        self.assertIn("Runtime switch: stop NVBroadcast", install_script)
         self.assertIn("unavailable until CuPy installs", install_script)
         self.assertIn("CUDA modes still need GPU inference runtime", install_script)
 
@@ -318,7 +322,7 @@ class PackagingMetadataTests(unittest.TestCase):
         )[0]
 
         self.assertNotIn("continue-on-error", rpm_step)
-        self.assertIn('python -m pip install ".[dev]"', workflow)
+        self.assertIn('python -m pip install ".[dev,cpu]"', workflow)
         self.assertIn("python -m pip check", workflow)
         self.assertIn('"pip-audit>=2.9" "bandit>=1.8"', linux_test_job)
         self.assertIn(
@@ -369,7 +373,7 @@ class PackagingMetadataTests(unittest.TestCase):
             "  test-linux:", 1
         )[0]
 
-        self.assertIn('python3 -m pip install ".[dev]"', macos_job)
+        self.assertIn('python3 -m pip install ".[dev,cpu]"', macos_job)
         self.assertIn("python3 -m pip check", macos_job)
         self.assertIn("python3 -m pip_audit --skip-editable", macos_job)
         self.assertNotIn("--dry-run", macos_job)
@@ -387,7 +391,9 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_readme_documents_cuda_extra_for_source_gpu_installs(self):
         readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn('pip install -e ".[cuda]"', readme)
-        self.assertIn('.venv/bin/pip install --upgrade ".[cuda]"', readme)
+        self.assertIn('./install.sh --runtime cuda', readme)
+        self.assertIn('pip install -e ".[cpu]"', readme)
+        self.assertIn("Never overlay `.[cuda]`", readme)
         self.assertIn(
             'pip install "cupy-cuda12x>=14.1.1,<15" '
             "nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12",
@@ -400,6 +406,11 @@ class PackagingMetadataTests(unittest.TestCase):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn("cuda = [", pyproject)
+        base_dependencies = pyproject.split("dependencies = [", 1)[1].split(
+            "[project.urls]", 1
+        )[0]
+        self.assertNotIn("onnxruntime", base_dependencies)
+        self.assertIn("cpu = [", pyproject)
         self.assertIn('"cupy-cuda12x>=14.1.1,<15"', pyproject)
         self.assertIn('"cupy-cuda12x>=14.1.1,<15"', snapcraft)
         self.assertIn('export CUDA_PATH="$CUDA_RUNTIME"', snapcraft)
@@ -645,12 +656,35 @@ class PackagingMetadataTests(unittest.TestCase):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         self.assertIn("data/backgrounds/studio_bg.png", pyproject)
 
-    def test_python_meeting_extra_uses_faster_whisper_stack(self):
-        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
-        self.assertIn("faster-whisper", pyproject)
-        self.assertIn("ctranslate2", pyproject)
-        self.assertIn("httpx", pyproject)
-        self.assertIn('openai-whisper>=20231117; python_version < "3.14"', pyproject)
+    def test_python_meeting_support_extra_does_not_resolve_runtime_owner(self):
+        metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        installer = (REPO_ROOT / "scripts" / "install_runtime_variant.py").read_text()
+        support = metadata["project"]["optional-dependencies"]["meeting-support"]
+        self.assertIn("ctranslate2", support)
+        self.assertIn("httpx", support)
+        self.assertNotIn("faster-whisper", support)
+        self.assertFalse(any(item.startswith("openai-whisper") for item in support))
+        self.assertIn('extras.append("meeting-support")', installer)
+        self.assertIn('extras.append("meeting")', installer)
+        self.assertNotIn("MEETING_SUPPORT =", installer)
+
+    def test_meeting_extra_preserves_openai_whisper_compatibility(self):
+        metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        readme = (REPO_ROOT / "README.md").read_text()
+        extras = metadata["project"]["optional-dependencies"]
+        requirement = 'openai-whisper>=20231117; python_version < "3.14"'
+
+        self.assertIn(requirement, extras["meeting"])
+        for extra in ("cpu", "cuda"):
+            self.assertFalse(
+                any(item.startswith("openai-whisper") for item in extras[extra])
+            )
+        self.assertFalse(
+            any(item.startswith("faster-whisper") for item in extras["meeting"])
+        )
+        self.assertIn("`.[cpu,meeting]`", readme)
+        self.assertIn("`.[cuda,meeting]`", readme)
+        self.assertIn("./install.sh --runtime auto --with-meeting", readme)
 
     def test_macos_packages_require_the_runtime_wheel_baseline(self):
         installer = (REPO_ROOT / "install_macos.sh").read_text()

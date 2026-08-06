@@ -37,11 +37,11 @@ from nvbroadcast.core.platform import (
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
 )
+from nvbroadcast.runtime.variants import RuntimeVariant, detect_runtime_variant
 
 
 CUDA_RUNTIME_PACKAGES = [
     "cupy-cuda12x>=14.1.1,<15",
-    "onnxruntime-gpu==1.24.4",
     "nvidia-cublas-cu12",
     "nvidia-cuda-runtime-cu12",
     "nvidia-cudnn-cu12",
@@ -50,10 +50,7 @@ CUDA_RUNTIME_PACKAGES = [
     "nvidia-nvjitlink-cu12",
     "nvidia-cuda-nvrtc-cu12",
 ]
-CUDA_RUNTIME_HELP_PACKAGES = [
-    "onnxruntime-gpu==1.24.4" if package.startswith("onnxruntime-gpu") else package
-    for package in CUDA_RUNTIME_PACKAGES
-]
+CUDA_RUNTIME_HELP_PACKAGES = CUDA_RUNTIME_PACKAGES
 
 
 def _has_cupy() -> bool:
@@ -86,7 +83,10 @@ def _has_whisper() -> bool:
 
 
 def _supports_cuda_runtime() -> bool:
-    return supports_linux_gpu_stack()
+    return (
+        supports_linux_gpu_stack()
+        and detect_runtime_variant() is RuntimeVariant.CUDA
+    )
 
 
 def _running_in_snap() -> bool:
@@ -146,15 +146,19 @@ PACKAGE_SPECS = {
         "subtitle": "Needed for DocZeus and CUDA modes",
         "size": "~2.0 GB",
         "summary": (
-            "Installs CuPy, ONNX Runtime GPU, and CUDA runtime wheels so GPU "
-            "compositing and model inference can both run inside the app."
+            "Installs CuPy and CUDA support wheels for an environment already "
+            "owned by the CUDA ONNX Runtime variant."
         ),
         "install_args": ["install", "--upgrade", *CUDA_RUNTIME_PACKAGES],
         "supported": _supports_cuda_runtime,
         "check": _has_cuda_mode_runtime,
         "verify": _verify_cuda_mode_runtime,
         "help": "Retry later with: .venv/bin/pip install --upgrade " + " ".join(CUDA_RUNTIME_HELP_PACKAGES),
-        "unsupported_reason": "CUDA modes are currently available only on Linux x86_64 systems.",
+        "unsupported_reason": (
+            "Stop NVBroadcast and change the runtime variant through the "
+            "installation method that owns this environment. CUDA modes require "
+            "Linux x86_64 and the CUDA ONNX Runtime variant."
+        ),
     },
     "tensorrt": {
         "title": "TensorRT Runtime",
