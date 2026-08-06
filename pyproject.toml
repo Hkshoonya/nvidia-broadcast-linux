@@ -28,17 +28,13 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.26",
-    "Pillow>=10.0",
+    "Pillow>=12.3.0",
     "opencv-contrib-python>=4.8.1.78,<5",
-    # Current secure macOS wheels are Apple Silicon-only. Requiring 0.10.35
-    # prevents Intel Macs from silently resolving the vulnerable 0.10.21
+    # Current secure macOS wheels are Apple Silicon-only. Requiring 1.0.0
+    # prevents Intel Macs from silently resolving an older vulnerable
     # fallback; install_macos.sh reports the architecture requirement first.
-    "mediapipe>=0.10.35; sys_platform == 'darwin'",
-    # Linux arm64 currently resolves only MediaPipe 0.10.18, which requires a
-    # Protobuf branch affected by CVE-2026-0994. Face-localized effects degrade
-    # safely when MediaPipe is absent, so keep that architecture patched.
-    "mediapipe>=0.10; sys_platform != 'darwin' and platform_machine != 'aarch64' and platform_machine != 'arm64'",
-    "protobuf>=5.29.6,<7",
+    "mediapipe>=1.0.0",
+    "protobuf>=6.33.5,<7",
     # Version 1.23.2 keeps the supported Apple Silicon runtime on macOS 13+.
     "onnxruntime>=1.23.2,<1.24; sys_platform == 'darwin'",
     "onnxruntime>=1.24.4,<1.25; sys_platform != 'darwin'",
@@ -62,7 +58,7 @@ Repository = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
 Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "packaging>=26.0"]
+dev = ["pytest>=9.0.3", "packaging>=26.0"]
 cuda = [
     "cupy-cuda12x>=14.1.1,<15",
     "nvidia-cublas-cu12",
