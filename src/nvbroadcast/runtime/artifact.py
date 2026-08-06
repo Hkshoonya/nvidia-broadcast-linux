@@ -8,6 +8,7 @@ from importlib import metadata
 from pathlib import Path
 import re
 import sys
+from typing import Mapping
 
 from packaging.markers import default_environment
 from packaging.requirements import InvalidRequirement, Requirement
@@ -97,8 +98,11 @@ class ArtifactEnvironment:
             markers=_marker_environment(package_roots, platform_machine),
         )
 
-    def dependency_closure_problems(self) -> list[str]:
+    def dependency_closure_problems(
+        self, substitutions: Mapping[str, str] | None = None
+    ) -> list[str]:
         """Return unsatisfied or malformed active distribution requirements."""
+        substitutions = substitutions or {}
         problems: list[str] = []
         for distribution in self.distributions:
             owner = distribution.metadata.get("Name", "<unknown>")
@@ -113,7 +117,11 @@ class ArtifactEnvironment:
                 if requirement.marker and not requirement.marker.evaluate(self.markers):
                     continue
 
-                versions = self.installed.get(canonicalize_name(requirement.name), ())
+                requirement_name = canonicalize_name(requirement.name)
+                provided_name = canonicalize_name(
+                    substitutions.get(requirement_name, requirement_name)
+                )
+                versions = self.installed.get(provided_name, ())
                 if not versions:
                     problems.append(f"{owner} requires missing package {requirement}")
                 elif requirement.specifier and not any(
@@ -141,4 +149,3 @@ class ArtifactEnvironment:
                     f"{module_name} resolved outside the artifact: {module_path}"
                 )
         return problems
-
