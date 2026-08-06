@@ -55,7 +55,7 @@ chmod 644 LICENSE README.md
 %install
 # Application
 install -d %{buildroot}/opt/nvbroadcast
-cp -r src pyproject.toml requirements.txt LICENSE README.md %{buildroot}/opt/nvbroadcast/
+cp -r src pyproject.toml LICENSE README.md %{buildroot}/opt/nvbroadcast/
 install -d %{buildroot}/opt/nvbroadcast/models
 cp -r data %{buildroot}/opt/nvbroadcast/
 cp -r configs %{buildroot}/opt/nvbroadcast/ 2>/dev/null || true

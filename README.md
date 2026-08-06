@@ -571,7 +571,6 @@ nvidia-broadcast-linux/
 ├── install_macos.sh             # macOS installer
 ├── uninstall.sh                 # Clean removal
 ├── build-packages.sh            # Debian/RPM/macOS package builder
-├── requirements.txt             # Runtime dependency set
 ├── pyproject.toml               # Package config (v1.4.0)
 └── README.md
 ```

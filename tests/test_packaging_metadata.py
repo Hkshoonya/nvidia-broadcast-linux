@@ -98,7 +98,6 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_core_runtime_includes_audio_denoiser_import_dependencies(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
-        requirements = (REPO_ROOT / "requirements.txt").read_text()
         install_script = (REPO_ROOT / "install.sh").read_text()
         self.assertIn(
             '"pyrnnoise>=0.4; sys_platform == \'linux\'"', pyproject
@@ -106,10 +105,6 @@ class PackagingMetadataTests(unittest.TestCase):
         # av 17 removed av.option (needed by pyrnnoise->audiolab); av 14
         # added Codec.canonical_name. Only 16.x satisfies both.
         self.assertIn('"av>=16,<17"', pyproject)
-        self.assertIn(
-            'pyrnnoise>=0.4; sys_platform == "linux"', requirements
-        )
-        self.assertIn("av>=16,<17", requirements)
         self.assertIn("- pyrnnoise", snapcraft)
         self.assertIn("- av>=16,<17", snapcraft)
         self.assertIn("- gnome-settings-daemon-common", snapcraft)
@@ -122,34 +117,28 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_runtime_dependency_floors_include_security_fixes(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
-        requirements = (REPO_ROOT / "requirements.txt").read_text()
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
 
-        for content in (pyproject, requirements, snapcraft, build_workflow):
+        for content in (pyproject, snapcraft, build_workflow):
             self.assertIn("onnx>=1.22.0", content)
             self.assertIn("click>=8.3.3", content)
             self.assertIn("protobuf>=6.33.5,<7", content)
 
-        for content in (pyproject, requirements, snapcraft, build_workflow):
+        for content in (pyproject, snapcraft, build_workflow):
             self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
             self.assertNotIn("opencv-python-headless", content)
             self.assertIn("Pillow>=12.3.0", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
-        self.assertIn("pyvirtualcam>=0.14", requirements)
         self.assertIn('dev = ["pytest>=9.0.3", "packaging>=26.0"]', pyproject)
         self.assertIn('"mediapipe>=1.0.0"', pyproject)
-        self.assertIn("\nmediapipe>=1.0.0\n", requirements)
         self.assertNotIn("\n      - mediapipe\n", snapcraft)
         self.assertIn(
             '"onnxruntime>=1.23.2,<1.24; sys_platform == \'darwin\'"',
             pyproject,
         )
-        self.assertIn(
-            'onnxruntime>=1.23.2,<1.24; sys_platform == "darwin"',
-            requirements,
-        )
+        self.assertFalse((REPO_ROOT / "requirements.txt").exists())
 
         installers = (
             REPO_ROOT / "install.sh",
@@ -408,12 +397,10 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_cuda_extra_contains_onnxruntime_gpu_provider(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
-        requirements = (REPO_ROOT / "requirements.txt").read_text()
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn("cuda = [", pyproject)
         self.assertIn('"cupy-cuda12x>=14.1.1,<15"', pyproject)
-        self.assertIn('cupy-cuda12x>=14.1.1,<15; sys_platform == "linux"', requirements)
         self.assertIn('"cupy-cuda12x>=14.1.1,<15"', snapcraft)
         self.assertIn('export CUDA_PATH="$CUDA_RUNTIME"', snapcraft)
         self.assertIn('"onnxruntime-gpu==1.24.4"', pyproject)
@@ -664,17 +651,6 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("ctranslate2", pyproject)
         self.assertIn("httpx", pyproject)
         self.assertIn('openai-whisper>=20231117; python_version < "3.14"', pyproject)
-
-    def test_requirements_keep_meeting_runtime_python314_safe(self):
-        requirements = (REPO_ROOT / "requirements.txt").read_text()
-        self.assertIn("faster-whisper", requirements)
-        self.assertIn("ctranslate2", requirements)
-        self.assertIn("httpx", requirements)
-        self.assertIn('openai-whisper>=20231117; python_version < "3.14"', requirements)
-        self.assertIn("onnxruntime-gpu==1.24.4", requirements)
-        self.assertIn("onnxruntime>=1.23.2,<1.24", requirements)
-        self.assertNotIn("onnxruntime-gpu>=1.16", requirements)
-        self.assertNotIn("\nopenai-whisper>=20231117\n", requirements)
 
     def test_macos_packages_require_the_runtime_wheel_baseline(self):
         installer = (REPO_ROOT / "install_macos.sh").read_text()

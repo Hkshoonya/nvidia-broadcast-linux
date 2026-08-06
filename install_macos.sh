@@ -102,7 +102,7 @@ INSTALL_DIR="$HOME/.local/share/nvbroadcast"
 mkdir -p "$INSTALL_DIR"
 
 # Copy source
-cp -r src pyproject.toml requirements.txt data models configs "$INSTALL_DIR/" 2>/dev/null || true
+cp -r src pyproject.toml data models configs "$INSTALL_DIR/" 2>/dev/null || true
 mkdir -p "$INSTALL_DIR/models"
 
 # Create venv

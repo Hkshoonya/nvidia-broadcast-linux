@@ -86,7 +86,7 @@ CTRL
 
     # Application files -> /opt/nvbroadcast
     install -d "$PKG_DIR/opt/nvbroadcast"
-    cp -r src pyproject.toml requirements.txt LICENSE README.md "$PKG_DIR/opt/nvbroadcast/"
+    cp -r src pyproject.toml LICENSE README.md "$PKG_DIR/opt/nvbroadcast/"
     find "$PKG_DIR/opt/nvbroadcast/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
         -prune -exec rm -rf {} +
@@ -185,7 +185,7 @@ build_rpm() {
     local TAR_PATH="$RPM_DIR/SOURCES/${TAR_DIR}.tar.gz"
     local TAR_ROOT="$RPM_DIR/source"
     mkdir -p "$TAR_ROOT/$TAR_DIR"
-    cp -r src pyproject.toml requirements.txt LICENSE README.md data "$TAR_ROOT/$TAR_DIR/"
+    cp -r src pyproject.toml LICENSE README.md data "$TAR_ROOT/$TAR_DIR/"
     [ -d configs ] && cp -r configs "$TAR_ROOT/$TAR_DIR/" || true
     find "$TAR_ROOT/$TAR_DIR/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
@@ -234,7 +234,7 @@ build_pkg() {
     mkdir -p "$SCRIPTS_DIR"
 
     # Application files -> /opt/nvbroadcast
-    cp -r src pyproject.toml requirements.txt LICENSE README.md "$INSTALL_ROOT/opt/nvbroadcast/"
+    cp -r src pyproject.toml LICENSE README.md "$INSTALL_ROOT/opt/nvbroadcast/"
     find "$INSTALL_ROOT/opt/nvbroadcast/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
         -prune -exec rm -rf {} +
