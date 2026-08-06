@@ -20,7 +20,9 @@ The first goal is **10 monthly sponsors**. This milestone will help reserve pred
 
 [Support continued development](https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors)
 
-Sponsorship supports the project as a whole. It does not purchase issue priority, private support, guaranteed features, or control of the roadmap.
+Financial supporters make sustained maintainer time possible, while contributors strengthen the project through reports, testing, documentation, ideas, and code. Both are essential to keeping NV Broadcast healthy.
+
+Sponsorship funds maintenance for the whole community. Roadmap priorities remain based on security, impact, reproducibility, community needs, and what is technically right for the project.
 
 This page updates automatically from public [GitHub Sponsors](https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors) data once a day.
 
