@@ -550,18 +550,24 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
-        self.assertIn("- faster-whisper", snapcraft)
+        self.assertIn("        faster-whisper", snapcraft)
         self.assertIn("- ctranslate2", snapcraft)
         self.assertIn("- httpx", snapcraft)
         self.assertIn("- av", snapcraft)
+        self.assertIn("- sympy", snapcraft)
         self.assertNotIn("- openai-whisper", snapcraft)
         self.assertIn("onnxruntime==1.24.4", snapcraft)
         self.assertIn("onnxruntime-gpu==1.24.4", snapcraft)
-        self.assertIn("Installing amd64 CUDA mode runtime into Snap", snapcraft)
-        self.assertIn("Skipping CUDA mode runtime", snapcraft)
+        python_packages = snapcraft.split("python-packages:", 1)[1].split(
+            "stage-packages:", 1
+        )[0]
+        self.assertNotIn("onnxruntime", python_packages)
+        self.assertNotIn("faster-whisper", python_packages)
+        self.assertIn("Installing sole amd64 CUDA runtime owner", snapcraft)
+        self.assertIn("Installing sole arm64 CPU runtime owner", snapcraft)
         self.assertIn("arm64 Snap build stays portable and CPU-safe", snapcraft)
         cuda_install = snapcraft.split(
-            "Installing amd64 CUDA mode runtime into Snap", 1
+            "Installing sole amd64 CUDA runtime owner into Snap", 1
         )[1].split("# nvImageCodec", 1)[0]
         self.assertIn("- protobuf>=6.33.5,<7", snapcraft)
         self.assertNotIn('"protobuf>=6.33.5,<7"', cuda_install)
@@ -598,7 +604,7 @@ class PackagingMetadataTests(unittest.TestCase):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
         cuda_install = snapcraft.split(
-            'echo "Installing amd64 CUDA mode runtime into Snap..."', 1
+            'echo "Installing sole amd64 CUDA runtime owner into Snap..."', 1
         )[1].split("# nvImageCodec", 1)[0]
 
         self.assertIn("- packaging>=26.0", snapcraft)
@@ -611,6 +617,7 @@ class PackagingMetadataTests(unittest.TestCase):
         )
         self.assertIn("Verify Snap runtime dependency closure", workflow)
         self.assertIn("scripts/validate_snap_runtime.py", workflow)
+        self.assertIn('IMPORT_PROBES = ("packaging", "setuptools", "onnxruntime")', (REPO_ROOT / "scripts" / "validate_snap_runtime.py").read_text())
 
     def test_snap_relocates_python_venv_for_strict_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()

@@ -20,6 +20,11 @@ from nvbroadcast.runtime.artifact import (
     ArtifactEnvironment,
     discover_package_roots,
 )
+from nvbroadcast.runtime.variants import (
+    RUNTIME_CONTRACTS,
+    RuntimeVariant,
+    runtime_ownership_problems,
+)
 
 
 REQUIRED_RUNTIME = {
@@ -29,7 +34,18 @@ REQUIRED_RUNTIME = {
     "setuptools": SpecifierSet(">=83.0.0"),
     "opencv-contrib-python": SpecifierSet(">=4.8.1.78,<5"),
 }
-IMPORT_PROBES = ("packaging", "setuptools")
+IMPORT_PROBES = ("packaging", "setuptools", "onnxruntime")
+RUNTIME_VERSION = SpecifierSet("==1.24.4")
+
+
+def expected_variant(platform_machine: str) -> RuntimeVariant:
+    return (
+        RuntimeVariant.CUDA
+        if ARCHITECTURES[platform_machine] == "x86_64"
+        else RuntimeVariant.CPU
+    )
+
+
 FORBIDDEN_BUILD_PATH = re.compile(
     r"/build(?:/|$)|/snap/[^/\s]*-sdk(?:/|$)"
 )
@@ -41,6 +57,7 @@ GNOME_PLATFORM_SHADOWS = (
     "usr/lib/*/libgstreamer-1.0.so*",
     "usr/lib/*/librsvg-2.so*",
 )
+
 
 def python_runtime_problems(snap_root: Path) -> list[str]:
     """Validate that the packaged venv resolves only runtime-accessible paths."""
@@ -135,11 +152,11 @@ def desktop_launcher_problems(snap_root: Path) -> list[str]:
             problems.append(
                 f"Snap desktop launcher icon does not exist: {icon_value}"
             )
-
     return problems
 
+
 def dependency_problems(
-    snap_root: Path, platform_machine: str
+    snap_root: Path, platform_machine: str, providers: tuple[str, ...]
 ) -> tuple[int, list[str]]:
     environment = ArtifactEnvironment.inspect(snap_root, platform_machine)
     if not environment.package_roots:
@@ -173,7 +190,26 @@ def dependency_problems(
         )
         problems.append(f"Snap must have exactly one OpenCV owner; found: {rendered}")
 
-    problems.extend(environment.dependency_closure_problems())
+    variant = expected_variant(platform_machine)
+    contract = RUNTIME_CONTRACTS[variant]
+    problems.extend(
+        runtime_ownership_problems(variant, environment.installed, providers)
+    )
+    owner_versions = environment.installed.get(
+        canonicalize_name(contract.distribution), ()
+    )
+    if len(owner_versions) == 1 and owner_versions[0] not in RUNTIME_VERSION:
+        problems.append(
+            f"{contract.distribution} version {owner_versions[0]} "
+            f"does not satisfy {RUNTIME_VERSION}"
+        )
+
+    substitutions = (
+        {"onnxruntime": "onnxruntime-gpu"}
+        if variant is RuntimeVariant.CUDA
+        else {}
+    )
+    problems.extend(environment.dependency_closure_problems(substitutions))
     return len(environment.installed), sorted(set(problems))
 
 
@@ -202,7 +238,12 @@ def main() -> int:
 
     snap_root = args.snap_root.resolve()
     package_roots = discover_package_roots(snap_root)
-    count, problems = dependency_problems(snap_root, args.platform_machine)
+    import onnxruntime
+
+    providers = tuple(onnxruntime.get_available_providers())
+    count, problems = dependency_problems(
+        snap_root, args.platform_machine, providers
+    )
     problems.extend(python_runtime_problems(snap_root))
     problems.extend(platform_shadow_problems(snap_root))
     problems.extend(desktop_launcher_problems(snap_root))
