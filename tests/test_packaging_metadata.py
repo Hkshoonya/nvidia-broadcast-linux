@@ -1,12 +1,8 @@
 import re
 import stat
-import tomllib
 import unittest
 from datetime import datetime
 from pathlib import Path
-
-from packaging.markers import Marker, default_environment
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -133,22 +129,18 @@ class PackagingMetadataTests(unittest.TestCase):
         for content in (pyproject, requirements, snapcraft, build_workflow):
             self.assertIn("onnx>=1.22.0", content)
             self.assertIn("click>=8.3.3", content)
-            self.assertIn("protobuf>=5.29.6,<7", content)
+            self.assertIn("protobuf>=6.33.5,<7", content)
 
         for content in (pyproject, requirements, snapcraft, build_workflow):
             self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
             self.assertNotIn("opencv-python-headless", content)
+            self.assertIn("Pillow>=12.3.0", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn("pyvirtualcam>=0.14", requirements)
-        self.assertIn(
-            '"mediapipe>=0.10.35; sys_platform == \'darwin\'"', pyproject
-        )
-        self.assertIn(
-            'mediapipe>=0.10.35; sys_platform == "darwin"', requirements
-        )
-        self.assertIn("platform_machine != 'aarch64'", pyproject)
-        self.assertIn('platform_machine != "aarch64"', requirements)
+        self.assertIn('dev = ["pytest>=9.0.3", "packaging>=26.0"]', pyproject)
+        self.assertIn('"mediapipe>=1.0.0"', pyproject)
+        self.assertIn("\nmediapipe>=1.0.0\n", requirements)
         self.assertNotIn("\n      - mediapipe\n", snapcraft)
         self.assertIn(
             '"onnxruntime>=1.23.2,<1.24; sys_platform == \'darwin\'"',
@@ -175,29 +167,11 @@ class PackagingMetadataTests(unittest.TestCase):
 
         install_script = (REPO_ROOT / "install.sh").read_text()
         self.assertIn(
-            "mediapipe ... NOT INSTALLED (secure Linux arm64 wheel unavailable)",
+            "CORE_PY_MODULES=(numpy cv2 onnxruntime PIL psutil onnx mediapipe)",
             install_script,
         )
         self.assertIn('requires = ["setuptools>=83.0.0", "wheel"]', pyproject)
         self.assertIn("setuptools>=83.0.0", build_workflow)
-
-    def test_mediapipe_dependency_marker_excludes_only_linux_arm64(self):
-        with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
-            dependencies = tomllib.load(handle)["project"]["dependencies"]
-        requirement = next(
-            item
-            for item in dependencies
-            if item.startswith("mediapipe>=0.10;")
-        )
-        marker = Marker(requirement.split(";", 1)[1])
-        environment = default_environment()
-
-        environment.update(sys_platform="linux", platform_machine="x86_64")
-        self.assertTrue(marker.evaluate(environment))
-        environment["platform_machine"] = "aarch64"
-        self.assertFalse(marker.evaluate(environment))
-        environment.update(sys_platform="darwin", platform_machine="arm64")
-        self.assertFalse(marker.evaluate(environment))
 
     def test_native_package_payloads_use_safe_ownership_and_permissions(self):
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
@@ -584,14 +558,14 @@ class PackagingMetadataTests(unittest.TestCase):
         cuda_install = snapcraft.split(
             "Installing amd64 CUDA mode runtime into Snap", 1
         )[1].split("# nvImageCodec", 1)[0]
-        self.assertIn("- protobuf>=5.29.6,<7", snapcraft)
-        self.assertNotIn('"protobuf>=5.29.6,<7"', cuda_install)
+        self.assertIn("- protobuf>=6.33.5,<7", snapcraft)
+        self.assertNotIn('"protobuf>=6.33.5,<7"', cuda_install)
         self.assertIn("onnxruntime==1.24.4", build_workflow)
         arm64_wheel_check = build_workflow.split(
             "- name: Validate arm64 Python wheel availability", 1
         )[1].split("- name: Install Linux project dependencies", 1)[0]
-        self.assertIn("protobuf>=5.29.6,<7", arm64_wheel_check)
-        self.assertNotIn("mediapipe", arm64_wheel_check)
+        self.assertIn("protobuf>=6.33.5,<7", arm64_wheel_check)
+        self.assertIn("opencv-contrib-python>=4.8.1.78,<5", arm64_wheel_check)
         for package in (
             "pyrnnoise",
             "av>=16,<17",

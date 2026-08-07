@@ -17,7 +17,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
@@ -33,7 +33,7 @@ jobs:
         run: bash build-packages.sh rpm
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: linux-packages
           path: |
@@ -44,7 +44,7 @@ jobs:
   build-macos:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
@@ -72,7 +72,7 @@ jobs:
           find /tmp/nvbroadcast-pkg-expanded -name postinstall -type f -exec bash -n {} \;
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: macos-packages
           path: dist/pkg/*.pkg
@@ -86,12 +86,12 @@ jobs:
       matrix:
         python-version: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -144,7 +144,7 @@ jobs:
           import onnxruntime
           import pyvirtualcam
           from packaging.version import Version
-          assert Version(mediapipe.__version__) >= Version('0.10.35')
+          assert Version(mediapipe.__version__) >= Version('1.0.0')
           ort_version = Version(onnxruntime.__version__)
           assert Version('1.23.2') <= ort_version < Version('1.24')
           assert pyvirtualcam.PixelFormat.BGR.value == '24BG'
@@ -173,7 +173,7 @@ jobs:
           - name: arm64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
@@ -207,7 +207,7 @@ jobs:
             --python-version 312 \
             --implementation cp \
             --abi cp312 \
-            numpy "opencv-contrib-python>=4.8.1.78,<5" "protobuf>=5.29.6,<7" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy Pillow requests psutil pyrnnoise "av>=16,<17" faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm packaging "setuptools>=83.0.0"
+            numpy "opencv-contrib-python>=4.8.1.78,<5" "mediapipe==1.0.0" "protobuf>=6.33.5,<7" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy "Pillow>=12.3.0" requests psutil pyrnnoise "av>=16,<17" faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm packaging "setuptools>=83.0.0"
 
       - name: Install Linux project dependencies
         run: |
@@ -247,12 +247,12 @@ jobs:
       matrix:
         python-version: ['3.11', '3.13', '3.14']
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -285,7 +285,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
@@ -298,12 +298,12 @@ jobs:
           fi
 
       - name: Download all artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           draft: true
           generate_release_notes: true

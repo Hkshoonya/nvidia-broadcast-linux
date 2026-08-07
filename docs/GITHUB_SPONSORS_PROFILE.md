@@ -1,86 +1,119 @@
-# GitHub Sponsors Draft
+# GitHub Sponsors Profile
 
-This file is a ready-to-paste draft for the GitHub Sponsors profile and tiers for NV Broadcast.
+This document is the canonical copy for the NV Broadcast sponsorship goal,
+profile, tiers, and public policy.
 
-## Profile headline
+## Goal
 
-Help build the best NVIDIA Broadcast-style experience for Linux
+- Type: Number of monthly sponsors
+- Target: 10
 
-## Short profile description
+### Goal description
 
-I build NV Broadcast for Linux: a GPU-accelerated virtual camera and audio app with background effects, meeting tools, local transcription, and live quality fixes for real Linux users.
+I lead and maintain NV Broadcast for Linux, strengthened by community bug
+reports, testing, documentation, ideas, and code. My first goal is 10 monthly
+sponsors. Reaching it will help me reserve predictable time for compatibility
+fixes, package testing, contribution review, and reliable releases. Core
+features remain open source, and roadmap priorities continue to be based on
+impact, reproducibility, security, and community needs.
 
-Your sponsorship helps fund:
+## Short description
 
-- cross-distro bug fixes
-- GPU and TensorRT runtime testing
-- packaging for `.deb`, `.rpm`, Snap, and macOS
-- camera/audio compatibility work
-- meeting transcription and summary improvements
+I created and lead NV Broadcast for Linux, an open-source virtual camera and audio app. Community reports, testing, documentation, and code improve the project. Sponsorship funds dedicated time for compatibility, packaging, and reliable releases.
 
-Core features stay open source. Sponsorship keeps development moving faster and more reliably.
+Character count: **246/250**, including spaces.
 
-## Full profile description
+## Full description
 
-I built NV Broadcast because Linux users were still missing a polished, high-quality alternative to NVIDIA Broadcast on Windows.
+I created and lead NV Broadcast because Linux users deserve a polished
+alternative to NVIDIA Broadcast without returning to Windows.
 
-This project is not a toy wrapper. It is a real desktop app with GPU-accelerated background effects, virtual camera support, audio processing, meeting transcription, summaries, packaging, and a large amount of compatibility work across different Linux setups.
+The project has grown through community bug reports, hardware testing, ideas,
+documentation, and code contributions. I remain responsible for reviewing
+changes, investigating difficult system-specific problems, maintaining
+packages, and verifying releases.
 
-The hard part is not only building features. The hard part is keeping them working across:
+Every release must be tested across NVIDIA drivers, CPU and CUDA runtimes,
+physical cameras, PipeWire and PulseAudio, browsers, meeting applications,
+Linux distributions, Snap, native packages, and macOS. That maintenance
+requires substantial, recurring work.
 
-- different NVIDIA GPUs
-- different Linux distributions
-- PipeWire and PulseAudio setups
-- browser and meeting-app device behavior
-- packaging formats and dependency stacks
+Recurring sponsorship helps me reserve dedicated time for bug triage,
+compatibility fixes, package testing, contribution review, and reliable
+releases. It allows the project to keep improving without putting core
+features behind a paywall.
 
-Sponsorship helps pay for the time needed to keep shipping fixes, testing builds, and moving the app forward without turning it into adware or locking the main product behind a paywall.
+Financial supporters and project contributors help in different but equally
+valuable ways. Sponsors make sustained maintenance time possible, while
+contributors strengthen the project through reports, testing, documentation,
+ideas, and code.
 
-If NV Broadcast saves you time, improves your calls, or helps your team stay on Linux, sponsoring is the most direct way to support continued development.
+Sponsorship funds maintenance for the whole community. Roadmap and issue
+priority remain based on security, impact, reproducibility, community needs,
+and what is technically right for the project.
 
-## Suggested tiers
+## Monthly tiers
 
-### $5/month — Supporter
+### $5 - Supporter
 
-Help keep Linux development active.
+Help keep maintenance, packaging, and releases active.
 
-Good for:
+- Public recognition on the project sponsor wall, unless the sponsorship is private.
+- Public development and maintenance updates.
 
-- users who want to support ongoing maintenance
-- people who rely on the app and want it to keep improving
+This tier supports maintenance for the whole community. Roadmap and issue
+priority remain based on security, impact, reproducibility, and project needs.
 
-### $15/month — Power User
+### $15 - Sustainer
 
-Support faster bug fixes and better release quality.
+Provide steady support for camera and audio compatibility, GPU runtime
+maintenance, packaging, and release verification.
 
-Good for:
+- Everything in Supporter.
+- Recognition as a Sustainer in public sponsor updates.
 
-- regular users of background effects, audio cleanup, and meeting features
-- people who want to help fund packaging and runtime compatibility work
+### $50 - Project Backer
 
-### $50/month — Creator
+Fund larger blocks of compatibility testing and release-maintenance work.
 
-Support creator-grade polish and performance work.
+- Everything in Sustainer.
+- Featured name and link in the README and SPONSORS.md while active.
 
-Good for:
+### $200 - Organization Backer
 
-- streamers, podcasters, creators, and remote professionals
-- users who want their sponsorship to help fund quality, performance, and premium feature tuning
+Support reliable open-source Linux video tooling for teams and businesses.
 
-### $200/month — Company
+- Featured organization name, avatar, and link while active.
+- Recognition as an active organization backer in major project updates.
 
-Support business use and broader platform reliability.
+This is project sponsorship, not an SLA, consulting agreement, private support
+contract, or guaranteed feature commitment.
 
-Good for:
+## One-time tiers
 
-- companies using the app internally
-- teams that benefit from Linux meeting/video workflows
-- businesses that want to help fund packaging, compatibility, and reliability work
+### $10 - Thank You
 
-### Custom amount
+A one-time contribution toward maintenance, packaging, and release testing.
+Public recognition appears on the sponsor wall while GitHub marks the
+sponsorship as active, unless the sponsorship is private.
 
-For people or teams who want to contribute at any level that makes sense for them.
+### $50 - Release Backer
 
-## Suggested public note
+A one-time contribution toward a larger block of package and release
+verification. Public recognition appears on the sponsor wall while GitHub marks
+the sponsorship as active, unless the sponsorship is private.
 
-NV Broadcast stays open source. Sponsorship funds maintenance, testing, packaging, and the time required to keep improving it across real Linux systems.
+## Existing sponsor commitment
+
+Mattsky's existing $15 tier is grandfathered with its original benefits. The
+Founding Sponsor recognition promised by that tier is recorded in README.md and
+SPONSORS.md. New sponsors use the sustainable tiers above.
+
+## Welcome message
+
+Thank you for supporting NV Broadcast. Your sponsorship helps fund maintenance,
+compatibility testing, packaging, and release verification. Public sponsors are
+added automatically to README.md and SPONSORS.md. Project updates are published
+in GitHub Discussions. Community reports, testing, documentation, ideas, and
+code remain central to the project. Roadmap and issue priority continue to be
+based on security, impact, reproducibility, and project needs.

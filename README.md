@@ -13,7 +13,7 @@
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-76b900?style=for-the-badge&labelColor=1a1a1a" alt="License"></a>
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"><img src="https://img.shields.io/github/issues/Hkshoonya/nvidia-broadcast-linux?style=for-the-badge&color=76b900&labelColor=1a1a1a" alt="Issues"></a>
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/workflows/build-packages.yml"><img src="https://img.shields.io/github/actions/workflow/status/Hkshoonya/nvidia-broadcast-linux/build-packages.yml?style=for-the-badge&color=76b900&labelColor=1a1a1a&label=Build" alt="Build"></a>
-  <a href="https://github.com/sponsors/Hkshoonya"><img src="https://img.shields.io/badge/Sponsor-DocZeus-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor"></a>
+  <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme"><img src="https://img.shields.io/badge/Sponsor-DocZeus-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor"></a>
 </p>
 
 <p align="center">
@@ -117,7 +117,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for latest updates!
 >
 > Switch modes anytime from the **Mode** dropdown. No restart needed.
 >
-> CUDA modes require the CUDA mode runtime: CuPy for compositing plus ONNX Runtime with `CUDAExecutionProvider` for model inference. Source, `.deb`, `.rpm`, and amd64 Snap installs handle this automatically on NVIDIA systems. The arm64 Snap build stays CPU-safe because ONNX Runtime GPU wheels are not published for Linux arm64 yet. Linux arm64 also omits MediaPipe until upstream publishes a wheel compatible with patched Protobuf; Auto Frame, Eye Contact, Face Relighting, and face-aware Video Enhancement are temporarily unavailable there.
+> CUDA modes require the CUDA mode runtime: CuPy for compositing plus ONNX Runtime with `CUDAExecutionProvider` for model inference. Source, `.deb`, `.rpm`, and amd64 Snap installs handle this automatically on NVIDIA systems. The arm64 Snap build stays CPU-safe because ONNX Runtime GPU wheels are not published for Linux arm64 yet.
 
 ---
 
@@ -284,7 +284,7 @@ sudo snap install nvbroadcast
 
 Snap users typically receive background refreshes from `snapd`. When the app sees a newer stable release, the in-app update button opens the Snap Store listing so the user can move directly into the store-managed upgrade path.
 
-The amd64 Snap build includes the CUDA mode runtime for NVIDIA systems. The arm64 Snap build stays CPU-safe because the required ONNX Runtime GPU wheels are not available for Linux arm64 yet. It also excludes MediaPipe until a Linux arm64 wheel can use patched Protobuf, so Auto Frame, Eye Contact, Face Relighting, and face-aware Video Enhancement are temporarily unavailable on that architecture. Background effects, virtual camera and microphone output, recording, and local meeting tools remain available. If CUDA modes are still unavailable on amd64 Snap, use the source installer, `.deb`, or `.rpm` release package as the fallback.
+The amd64 Snap build includes the CUDA mode runtime for NVIDIA systems. The arm64 Snap build stays CPU-safe because the required ONNX Runtime GPU wheels are not available for Linux arm64 yet. Background effects, virtual camera and microphone output, recording, and local meeting tools remain available. If CUDA modes are still unavailable on amd64 Snap, use the source installer, `.deb`, or `.rpm` release package as the fallback.
 
 Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
 
@@ -619,32 +619,34 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 
 ---
 
-## Sponsor This Project
+## Sustain NV Broadcast
 
-If NV Broadcast saves you from going back to Windows, consider sponsoring.
+I created and lead NV Broadcast with help from community bug reports, testing, documentation, ideas, and code contributions. As usage grows, so does the work required to review that input and test GPU runtimes, cameras, audio, packages, and releases across real systems.
 
-This project takes ongoing work across GPU runtimes, packaging, camera/audio compatibility, meeting features, and cross-distro bug fixes. Sponsorship helps keep that work moving without turning the app into adware or locking core features behind a paywall.
+The first sustainability goal is **10 monthly sponsors**. Reaching it will help reserve predictable maintenance time each month for bug triage, compatibility fixes, package testing, and reliable releases. Core features will remain open source.
 
-- **Individual sponsors** help fund day-to-day fixes, release maintenance, and new features
-- **Creator and business sponsors** help cover hardware testing, distro support, packaging, and priority reliability work
-- **All sponsors** help keep the Linux version improving instead of stagnating behind Windows-only tools
+Financial supporters make sustained maintainer time possible, while contributors strengthen the project through reports, testing, documentation, ideas, and code. Sponsorship funds maintenance for the whole community, and roadmap priorities remain based on security, impact, reproducibility, community needs, and what is technically right for the project.
 
 <p align="center">
-  <a href="https://github.com/sponsors/Hkshoonya">
+  <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">
     <img src="https://img.shields.io/badge/Sponsor_DocZeus-Support_Development-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor">
   </a>
 </p>
 
+### Founding Sponsor
+
+- [@Mattsky](https://github.com/Mattsky) - supporting NV Broadcast while its sustainability program is being established
+
 ### 💎 Featured Sponsors
 
-<!-- featured --><em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya">become a Creator-tier sponsor</a> and your logo appears here.</em><!-- featured -->
+<!-- featured --><em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">become a Project Backer</a> and your name appears here.</em><!-- featured -->
 
 ### 💚 Backers &amp; Supporters
 
 <!-- sponsors --><a href="https://github.com/Mattsky" title="Mattsky"><img src="https://avatars.githubusercontent.com/u/2619664?u=a3e9b73765da4dd8f3472520e40c9588c65a7803&v=4" width="55" alt="Mattsky"></a>&nbsp;<!-- sponsors -->
 
 <p align="center">
-  <a href="https://github.com/sponsors/Hkshoonya">GitHub Sponsors</a> ·
+  <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">GitHub Sponsors</a> ·
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues">Report bugs</a> ·
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/discussions">Share ideas</a>
 </p>

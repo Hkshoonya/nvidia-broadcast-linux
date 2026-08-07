@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Linux arm64 MediaPipe 1.0.0 support** - Linux arm64 now supports Auto Frame, Eye Contact, Face Relighting, and face-aware Video Enhancement
+- **Enforced Dependency Security Floors** - Release metadata and regression tests enforce OpenCV 4.8.1.78, Protobuf 6.33.5, and Pillow 12.3.0 as runtime minimums, plus pytest 9.0.3 for development to protect against known CVEs.
 - **Profile Auto-Start Opt-In** - Selecting a saved profile now starts the broadcast only when that profile's explicit opt-in ("Start broadcast when this profile is selected") is enabled, which defaults off and is set with a visible checkbox when saving the profile; profiles saved before this change never auto-start on selection. Launch-time auto-start remains governed solely by the application-level Auto Start setting, and a failed start (busy or missing camera) now leaves the window state aligned with the app instead of showing a phantom "Stop Broadcast" state.
 
 ## v1.4.0 - Global Controls, Gaze Lock, and Live Video Reliability Update
