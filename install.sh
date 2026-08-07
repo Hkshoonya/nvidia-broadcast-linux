@@ -5,6 +5,7 @@
 # Supports: Ubuntu, Debian, Pop!_OS, Linux Mint, Fedora, RHEL, CentOS,
 #           Arch, Manjaro, EndeavourOS, openSUSE, Gentoo, Void, NixOS
 set -eE
+export PYTHONNOUSERSITE=1
 trap 'rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $rc)"; echo "Please report this issue with the output above."; exit $rc' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -832,6 +833,7 @@ rm -f "$INSTALL_PREFIX/bin/blucast" "$INSTALL_PREFIX/bin/blucast-vcam" 2>/dev/nu
 
 cat > "$INSTALL_PREFIX/bin/nvbroadcast" << 'LAUNCHER'
 #!/usr/bin/env bash
+export PYTHONNOUSERSITE=1
 NVBROADCAST_DIR="PLACEHOLDER_DIR"
 exec "$NVBROADCAST_DIR/.venv/bin/python" -m nvbroadcast "$@"
 LAUNCHER
@@ -840,6 +842,7 @@ chmod +x "$INSTALL_PREFIX/bin/nvbroadcast"
 
 cat > "$INSTALL_PREFIX/bin/nvbroadcast-vcam" << 'LAUNCHER'
 #!/usr/bin/env bash
+export PYTHONNOUSERSITE=1
 NVBROADCAST_DIR="PLACEHOLDER_DIR"
 exec "$NVBROADCAST_DIR/.venv/bin/python" -m nvbroadcast.vcam_service "$@"
 LAUNCHER
@@ -935,6 +938,7 @@ Type=simple
 ExecStart=$INSTALL_PREFIX/bin/nvbroadcast-vcam
 Restart=on-failure
 RestartSec=3
+Environment=PYTHONNOUSERSITE=1
 Environment=GST_PLUGIN_PATH=$GST_PLUGIN_PATH
 
 [Install]

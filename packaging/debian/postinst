@@ -1,6 +1,7 @@
 #!/bin/bash
 # NV Broadcast post-installation script
 set -e
+export PYTHONNOUSERSITE=1
 
 INSTALL_DIR="/opt/nvbroadcast"
 VENV_DIR="$INSTALL_DIR/.venv"

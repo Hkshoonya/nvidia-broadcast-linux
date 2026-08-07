@@ -2,6 +2,7 @@
 # Install system dependencies for NVIDIA Broadcast
 # by doczeus | AI Powered
 set -e
+export PYTHONNOUSERSITE=1
 
 echo "=== NVIDIA Broadcast Dependency Installer ==="
 
@@ -52,7 +53,7 @@ python3 -m venv .venv --system-site-packages
 echo ""
 echo "=== Done! ==="
 echo "Activate: source .venv/bin/activate"
-echo "Run GUI:  python -m nvbroadcast"
-echo "Run VCam: python -m nvbroadcast.vcam_service"
+echo "Run GUI:  PYTHONNOUSERSITE=1 python -m nvbroadcast"
+echo "Run VCam: PYTHONNOUSERSITE=1 python -m nvbroadcast.vcam_service"
 echo ""
 echo "AI models will be auto-downloaded on first use."

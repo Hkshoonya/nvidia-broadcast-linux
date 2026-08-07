@@ -3,6 +3,7 @@
 VENV := .venv
 PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
+export PYTHONNOUSERSITE := 1
 
 run:
 	$(PYTHON) -m nvbroadcast

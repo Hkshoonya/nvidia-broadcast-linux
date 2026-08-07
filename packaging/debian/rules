@@ -36,11 +36,13 @@ override_dh_auto_install:
 	# Launcher script
 	install -d $(CURDIR)/debian/nvbroadcast/usr/bin
 	echo '#!/bin/bash' > $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast
+	echo 'export PYTHONNOUSERSITE=1' >> $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast
 	echo 'exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast "$$@"' >> \
 		$(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast
 	chmod 755 $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast
 
 	echo '#!/bin/bash' > $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast-vcam
+	echo 'export PYTHONNOUSERSITE=1' >> $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast-vcam
 	echo 'exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.vcam_service "$$@"' >> \
 		$(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast-vcam
 	chmod 755 $(CURDIR)/debian/nvbroadcast/usr/bin/nvbroadcast-vcam
@@ -56,6 +58,7 @@ override_dh_auto_install:
 	@echo 'ExecStart=/usr/bin/nvbroadcast-vcam' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
 	@echo 'Restart=on-failure' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
 	@echo 'RestartSec=3' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo 'Environment=PYTHONNOUSERSITE=1' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
 	@echo '' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
 	@echo '[Install]' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
 	@echo 'WantedBy=graphical-session.target' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service

@@ -1,3 +1,8 @@
+import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -11,6 +16,84 @@ from nvbroadcast.runtime.variants import (
 
 
 class RuntimeVariantTests(unittest.TestCase):
+    def test_user_site_runtime_is_hidden_from_system_site_venv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            venv = root / "venv"
+            subprocess.run(
+                [sys.executable, "-m", "venv", "--system-site-packages", venv],
+                check=True,
+            )
+            python = venv / (
+                "Scripts/python.exe" if os.name == "nt" else "bin/python"
+            )
+            env = os.environ.copy()
+            env.pop("PYTHONNOUSERSITE", None)
+            env["PYTHONUSERBASE"] = str(root / "user-base")
+            env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+
+            paths = subprocess.run(
+                [
+                    python,
+                    "-c",
+                    (
+                        "import json, site, sysconfig; "
+                        "print(json.dumps([sysconfig.get_path('purelib'), "
+                        "site.getusersitepackages()]))"
+                    ),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            venv_site, user_site = map(Path, json.loads(paths.stdout))
+
+            for site_packages, version in (
+                (venv_site, "98.0"),
+                (user_site, "99.0"),
+            ):
+                dist_info = site_packages / f"onnxruntime-{version}.dist-info"
+                dist_info.mkdir(parents=True)
+                (dist_info / "METADATA").write_text(
+                    "Metadata-Version: 2.1\n"
+                    "Name: onnxruntime\n"
+                    f"Version: {version}\n"
+                )
+
+            inventory_command = [
+                python,
+                "-c",
+                (
+                    "import json; "
+                    "from nvbroadcast.runtime.variants import "
+                    "current_distribution_inventory; "
+                    "print(json.dumps(current_distribution_inventory()))"
+                ),
+            ]
+            contaminated = subprocess.run(
+                inventory_command,
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            contaminated_versions = json.loads(contaminated.stdout)["onnxruntime"]
+            self.assertIn("98.0", contaminated_versions)
+            self.assertIn("99.0", contaminated_versions)
+
+            env["PYTHONNOUSERSITE"] = "1"
+            isolated = subprocess.run(
+                inventory_command,
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            isolated_versions = json.loads(isolated.stdout)["onnxruntime"]
+            self.assertIn("98.0", isolated_versions)
+            self.assertNotIn("99.0", isolated_versions)
+
     def test_cpu_contract_accepts_single_cpu_owner(self):
         self.assertEqual(
             runtime_ownership_problems(

@@ -76,6 +76,48 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("unavailable until CuPy installs", install_script)
         self.assertIn("CUDA modes still need GPU inference runtime", install_script)
 
+    def test_managed_python_environments_disable_user_site_packages(self):
+        system_site_files = (
+            "README.md",
+            "Makefile",
+            "setup_deps.sh",
+            "install.sh",
+            "install_macos.sh",
+            "build-packages.sh",
+            "packaging/debian/postinst",
+            "packaging/rpm/nvbroadcast.spec",
+            ".github/workflows/pr-checks.yml",
+            ".github/workflows/build-packages.yml",
+        )
+        for relative in system_site_files:
+            content = (REPO_ROOT / relative).read_text()
+            self.assertIn("--system-site-packages", content, relative)
+            self.assertIn("PYTHONNOUSERSITE", content, relative)
+
+        install_script = (REPO_ROOT / "install.sh").read_text()
+        self.assertGreaterEqual(
+            install_script.count("export PYTHONNOUSERSITE=1"),
+            3,
+        )
+        self.assertIn("Environment=PYTHONNOUSERSITE=1", install_script)
+
+        build_script = (REPO_ROOT / "build-packages.sh").read_text()
+        self.assertGreaterEqual(
+            build_script.count("export PYTHONNOUSERSITE=1"),
+            4,
+        )
+        self.assertIn("Environment=PYTHONNOUSERSITE=1", build_script)
+
+        deb_rules = (REPO_ROOT / "packaging" / "debian" / "rules").read_text()
+        self.assertEqual(deb_rules.count("export PYTHONNOUSERSITE=1"), 2)
+        self.assertIn("Environment=PYTHONNOUSERSITE=1", deb_rules)
+
+        rpm_spec = (
+            REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec"
+        ).read_text()
+        self.assertEqual(rpm_spec.count("export PYTHONNOUSERSITE=1"), 3)
+        self.assertIn("Environment=PYTHONNOUSERSITE=1", rpm_spec)
+
     def test_source_installer_does_not_auto_enable_headless_vcam_service(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
         self.assertIn("NVBROADCAST_ENABLE_HEADLESS_SERVICE", install_script)

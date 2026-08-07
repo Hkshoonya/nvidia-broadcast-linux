@@ -119,12 +119,14 @@ CTRL
     install -d "$PKG_DIR/usr/bin"
     cat > "$PKG_DIR/usr/bin/nvbroadcast" << 'LAUNCHER'
 #!/bin/bash
+export PYTHONNOUSERSITE=1
 exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast "$@"
 LAUNCHER
     chmod 755 "$PKG_DIR/usr/bin/nvbroadcast"
 
     cat > "$PKG_DIR/usr/bin/nvbroadcast-vcam" << 'LAUNCHER'
 #!/bin/bash
+export PYTHONNOUSERSITE=1
 exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.vcam_service "$@"
 LAUNCHER
     chmod 755 "$PKG_DIR/usr/bin/nvbroadcast-vcam"
@@ -141,6 +143,7 @@ Type=simple
 ExecStart=/usr/bin/nvbroadcast-vcam
 Restart=on-failure
 RestartSec=3
+Environment=PYTHONNOUSERSITE=1
 
 [Install]
 WantedBy=graphical-session.target
@@ -252,6 +255,7 @@ build_pkg() {
     # Launcher script -> /usr/local/bin
     cat > "$INSTALL_ROOT/usr/local/bin/nvbroadcast" << 'LAUNCHER'
 #!/bin/bash
+export PYTHONNOUSERSITE=1
 INSTALL_DIR="/opt/nvbroadcast"
 if [ -d "$INSTALL_DIR/.venv" ]; then
     source "$INSTALL_DIR/.venv/bin/activate"
@@ -272,6 +276,7 @@ LAUNCHER
     cat > "$SCRIPTS_DIR/postinstall" << 'POSTINST'
 #!/bin/bash
 set -e
+export PYTHONNOUSERSITE=1
 INSTALL_DIR="/opt/nvbroadcast"
 
 echo "[NV Broadcast] Setting up Python environment..."

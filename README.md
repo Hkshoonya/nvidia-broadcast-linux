@@ -343,6 +343,7 @@ sudo apt install -y \
 # 2. Python venv
 python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
+export PYTHONNOUSERSITE=1
 
 # 3. Install exactly one ONNX Runtime variant
 pip install -e ".[cpu]"

@@ -80,12 +80,14 @@ install -Dm 644 data/icons/com.doczeus.NVBroadcast.svg \
 install -d %{buildroot}%{_bindir}
 cat > %{buildroot}%{_bindir}/nvbroadcast << 'EOF'
 #!/bin/bash
+export PYTHONNOUSERSITE=1
 exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast "$@"
 EOF
 chmod 755 %{buildroot}%{_bindir}/nvbroadcast
 
 cat > %{buildroot}%{_bindir}/nvbroadcast-vcam << 'EOF'
 #!/bin/bash
+export PYTHONNOUSERSITE=1
 exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.vcam_service "$@"
 EOF
 chmod 755 %{buildroot}%{_bindir}/nvbroadcast-vcam
@@ -102,6 +104,7 @@ Type=simple
 ExecStart=/usr/bin/nvbroadcast-vcam
 Restart=on-failure
 RestartSec=3
+Environment=PYTHONNOUSERSITE=1
 
 [Install]
 WantedBy=graphical-session.target
@@ -118,6 +121,7 @@ echo 'v4l2loopback' > %{buildroot}/etc/modules-load.d/nvbroadcast-v4l2loopback.c
 pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |$)' 2>/dev/null || true
 
 %post
+export PYTHONNOUSERSITE=1
 RUNTIME_VARIANT="cpu"
 case "$(uname -m)" in
   x86_64|amd64)

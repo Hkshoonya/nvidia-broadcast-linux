@@ -8,6 +8,7 @@
 # Virtual camera via pyvirtualcam + OBS Studio.
 
 set -euo pipefail
+export PYTHONNOUSERSITE=1
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -151,6 +152,7 @@ echo -e "${GREEN}[5/7]${NC} Creating launcher..."
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/nvbroadcast" << 'LAUNCHER'
 #!/usr/bin/env bash
+export PYTHONNOUSERSITE=1
 INSTALL_DIR="$HOME/.local/share/nvbroadcast"
 source "$INSTALL_DIR/venv/bin/activate"
 
