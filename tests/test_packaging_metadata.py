@@ -76,6 +76,35 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("unavailable until CuPy installs", install_script)
         self.assertIn("CUDA modes still need GPU inference runtime", install_script)
 
+    def test_source_installer_guards_live_environment_before_mutations(self):
+        install_script = (REPO_ROOT / "install.sh").read_text()
+        guard_calls = [
+            match.start()
+            for match in re.finditer(
+                r"^guard_source_environment$", install_script, flags=re.MULTILINE
+            )
+        ]
+
+        self.assertEqual(len(guard_calls), 2)
+        self.assertLess(guard_calls[0], install_script.index("# ─── Step 1:"))
+
+        environment_step = install_script.index("# ─── Step 3:")
+        first_environment_mutation = min(
+            install_script.index('rm -rf -- "$VENV_DIR"', environment_step),
+            install_script.index(
+                '"$VENV_DIR/bin/pip" install --upgrade', environment_step
+            ),
+        )
+        self.assertGreater(guard_calls[1], environment_step)
+        self.assertLess(guard_calls[1], first_environment_mutation)
+        self.assertIn("check_source_venv_processes.py", install_script)
+        self.assertIn(
+            "Stop NVBroadcast and the virtual-camera service", install_script
+        )
+        self.assertIn(
+            "systemctl --user stop nvbroadcast-vcam.service", install_script
+        )
+
     def test_managed_python_environments_disable_user_site_packages(self):
         system_site_files = (
             "README.md",

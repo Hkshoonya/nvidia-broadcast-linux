@@ -49,6 +49,35 @@ case "$RUNTIME_REQUEST" in
     auto|cpu|cuda) ;;
     *) echo "ERROR: Invalid runtime '$RUNTIME_REQUEST'; expected auto, cpu, or cuda."; exit 2 ;;
 esac
+
+guard_source_environment() {
+    if ! command -v python3 &>/dev/null; then
+        echo "ERROR: Python 3 is required to inspect the source environment safely."
+        exit 1
+    fi
+
+    local guard_status
+    if python3 "$SCRIPT_DIR/scripts/check_source_venv_processes.py" --venv "$VENV_DIR"; then
+        return
+    else
+        guard_status=$?
+    fi
+
+    if [ "$guard_status" -eq 1 ]; then
+        echo "Stop NVBroadcast and the virtual-camera service, then rerun this installer."
+        if command -v systemctl &>/dev/null; then
+            echo "For the user service: systemctl --user stop nvbroadcast-vcam.service"
+        fi
+    else
+        echo "Resolve the process-inspection error above, then rerun this installer."
+    fi
+    exit 1
+}
+
+# Refuse before system or environment mutations while an existing source
+# process can still import code from the installer-owned environment.
+guard_source_environment
+
 APP_VERSION="$(SCRIPT_DIR="$SCRIPT_DIR" python3 - <<'PY' 2>/dev/null || echo unknown
 from pathlib import Path
 import os
@@ -541,6 +570,11 @@ PY
 }
 
 CURRENT_RUNTIME_VARIANT="$(installed_runtime_variant)"
+
+# Recheck immediately before removing or upgrading the environment. This
+# narrows the window in which a source process could start during preflight.
+guard_source_environment
+
 if [ "$CURRENT_RUNTIME_VARIANT" != "none" ] && [ "$CURRENT_RUNTIME_VARIANT" != "$SELECTED_RUNTIME_VARIANT" ]; then
     echo "Replacing ${CURRENT_RUNTIME_VARIANT} environment with ${SELECTED_RUNTIME_VARIANT} runtime variant..."
     rm -rf -- "$VENV_DIR"
