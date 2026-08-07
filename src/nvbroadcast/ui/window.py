@@ -1989,7 +1989,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             # Start-only opt-in: the profile's explicit auto_start_on_select
             # flag (default off). Legacy profiles load False -> no auto-start.
             # Never force-stops an active broadcast.
-            if loaded.auto_start_on_select and not self._streaming:
+            if loaded.auto_start_on_select and not self._app._streaming:
                 self._on_stream_toggle(self._stream_btn)
 
     def _on_save_profile(self, btn, popover):
@@ -2009,7 +2009,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Explicit per-profile opt-in (default off). Selecting this profile
         # later starts the broadcast only when this is checked.
         optin = Gtk.CheckButton(label="Start broadcast when this profile is selected")
-        optin.set_active(bool(self._app.config.auto_start_on_select))
+        # New profiles always default off; never inherit the current config's
+        # opt-in (prefill only when explicitly editing an existing profile).
+        optin.set_active(False)
         dialog.get_content_area().append(optin)
         dialog.connect("response", self._on_save_profile_response, entry, optin)
         dialog.present()
