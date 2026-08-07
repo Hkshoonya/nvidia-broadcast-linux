@@ -10,12 +10,19 @@ from unittest import mock
 from scripts import install_runtime_variant
 from nvbroadcast.runtime.variants import (
     RuntimeVariant,
+    current_distribution_inventory,
     detect_runtime_variant,
     runtime_ownership_problems,
 )
 
 
 class RuntimeVariantTests(unittest.TestCase):
+    def test_supported_meeting_backend_version_is_pinned(self):
+        self.assertEqual(
+            install_runtime_variant.FASTER_WHISPER_REQUIREMENT,
+            "faster-whisper==1.2.1",
+        )
+
     def test_user_site_runtime_is_hidden_from_system_site_venv(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -94,6 +101,29 @@ class RuntimeVariantTests(unittest.TestCase):
             self.assertIn("98.0", isolated_versions)
             self.assertNotIn("99.0", isolated_versions)
 
+    def test_inventory_deduplicates_symlinked_python_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            site_packages = root / "lib/python3.13/site-packages"
+            dist_info = site_packages / "onnxruntime-1.24.4.dist-info"
+            dist_info.mkdir(parents=True)
+            (dist_info / "METADATA").write_text(
+                "Metadata-Version: 2.1\n"
+                "Name: onnxruntime\n"
+                "Version: 1.24.4\n"
+            )
+            alias = root / "lib64"
+            alias.symlink_to(root / "lib", target_is_directory=True)
+
+            with mock.patch.object(
+                sys,
+                "path",
+                [str(site_packages), str(alias / "python3.13/site-packages")],
+            ):
+                inventory = current_distribution_inventory()
+
+        self.assertEqual(inventory, {"onnxruntime": ("1.24.4",)})
+
     def test_cpu_contract_accepts_single_cpu_owner(self):
         self.assertEqual(
             runtime_ownership_problems(
@@ -151,6 +181,9 @@ class RuntimeVariantTests(unittest.TestCase):
 
     def test_installer_uses_support_extra_before_no_deps_backend(self):
         with mock.patch.object(install_runtime_variant, "run_pip") as run_pip, \
+             mock.patch.object(
+                 install_runtime_variant, "validate_meeting_dependencies"
+             ) as validate_meeting_dependencies, \
              mock.patch.object(install_runtime_variant.subprocess, "run") as run:
             install_runtime_variant.install(Path("/project"), "cuda", "faster")
 
@@ -160,9 +193,14 @@ class RuntimeVariantTests(unittest.TestCase):
                 mock.call(
                     "install", "--upgrade", "/project[cuda,meeting-support]"
                 ),
-                mock.call("install", "--no-deps", "faster-whisper"),
+                mock.call(
+                    "install",
+                    "--no-deps",
+                    install_runtime_variant.FASTER_WHISPER_REQUIREMENT,
+                ),
             ],
         )
+        validate_meeting_dependencies.assert_called_once_with("cuda")
         run.assert_called_once_with(
             [
                 install_runtime_variant.sys.executable,
@@ -176,6 +214,9 @@ class RuntimeVariantTests(unittest.TestCase):
 
     def test_installer_all_policy_preserves_both_meeting_backends(self):
         with mock.patch.object(install_runtime_variant, "run_pip") as run_pip, \
+             mock.patch.object(
+                 install_runtime_variant, "validate_meeting_dependencies"
+             ) as validate_meeting_dependencies, \
              mock.patch.object(install_runtime_variant.subprocess, "run"):
             install_runtime_variant.install(Path("/project"), "cpu", "all")
 
@@ -187,9 +228,80 @@ class RuntimeVariantTests(unittest.TestCase):
                     "--upgrade",
                     "/project[cpu,meeting-support,meeting]",
                 ),
-                mock.call("install", "--no-deps", "faster-whisper"),
+                mock.call(
+                    "install",
+                    "--no-deps",
+                    install_runtime_variant.FASTER_WHISPER_REQUIREMENT,
+                ),
             ],
         )
+        validate_meeting_dependencies.assert_called_once_with("cpu")
+
+    def test_cuda_meeting_closure_substitutes_gpu_runtime(self):
+        environment = mock.Mock(
+            installed={
+                "faster-whisper": (
+                    install_runtime_variant.FASTER_WHISPER_VERSION,
+                )
+            }
+        )
+        environment.dependency_closure_problems.return_value = []
+
+        with mock.patch(
+            "nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+            return_value=environment,
+        ):
+            install_runtime_variant.validate_meeting_dependencies("cuda")
+
+        environment.dependency_closure_problems.assert_called_once_with(
+            {"onnxruntime": "onnxruntime-gpu"}
+        )
+
+    def test_cpu_meeting_closure_uses_standard_runtime_requirement(self):
+        environment = mock.Mock(
+            installed={
+                "faster-whisper": (
+                    install_runtime_variant.FASTER_WHISPER_VERSION,
+                )
+            }
+        )
+        environment.dependency_closure_problems.return_value = []
+
+        with mock.patch(
+            "nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+            return_value=environment,
+        ):
+            install_runtime_variant.validate_meeting_dependencies("cpu")
+
+        environment.dependency_closure_problems.assert_called_once_with(None)
+
+    def test_meeting_closure_rejects_unresolved_backend_dependency(self):
+        environment = mock.Mock(
+            installed={
+                "faster-whisper": (
+                    install_runtime_variant.FASTER_WHISPER_VERSION,
+                )
+            }
+        )
+        environment.dependency_closure_problems.return_value = [
+            "faster-whisper requires missing package future-dependency"
+        ]
+
+        with mock.patch(
+            "nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+            return_value=environment,
+        ), self.assertRaisesRegex(RuntimeError, "future-dependency"):
+            install_runtime_variant.validate_meeting_dependencies("cuda")
+
+    def test_meeting_closure_rejects_unsupported_backend_version(self):
+        environment = mock.Mock(installed={"faster-whisper": ("9.9.9",)})
+        environment.dependency_closure_problems.return_value = []
+
+        with mock.patch(
+            "nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+            return_value=environment,
+        ), self.assertRaisesRegex(RuntimeError, "must be 1.2.1, found 9.9.9"):
+            install_runtime_variant.validate_meeting_dependencies("cpu")
 
 
 if __name__ == "__main__":

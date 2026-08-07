@@ -1,6 +1,8 @@
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from nvbroadcast.runtime.artifact import ArtifactEnvironment
 
@@ -65,6 +67,22 @@ class ArtifactDependencySubstitutionTests(unittest.TestCase):
         problems = self._problems()
 
         self.assertTrue(any("found 2.0.0" in item for item in problems))
+
+    def test_current_deduplicates_symlinked_python_paths(self):
+        self._add_distribution("faster-whisper", "1.2.1")
+        alias = self.artifact_root / "lib64"
+        alias.symlink_to(self.artifact_root / "lib", target_is_directory=True)
+        aliased_site_packages = alias / "python3.12/site-packages"
+
+        with mock.patch.object(
+            sys,
+            "path",
+            [str(self.site_packages), str(aliased_site_packages)],
+        ):
+            environment = ArtifactEnvironment.current()
+
+        self.assertEqual(len(environment.distributions), 1)
+        self.assertEqual(environment.installed, {"faster-whisper": ("1.2.1",)})
 
 
 if __name__ == "__main__":

@@ -9,11 +9,33 @@ import subprocess
 import sys
 
 
+FASTER_WHISPER_VERSION = "1.2.1"
+FASTER_WHISPER_REQUIREMENT = f"faster-whisper=={FASTER_WHISPER_VERSION}"
+
+
 def run_pip(*arguments: str) -> None:
     subprocess.run(
         [sys.executable, "-m", "pip", *arguments],
         check=True,
     )
+
+
+def validate_meeting_dependencies(variant: str) -> None:
+    from nvbroadcast.runtime.artifact import ArtifactEnvironment
+
+    environment = ArtifactEnvironment.current()
+    problems = environment.dependency_closure_problems(
+        {"onnxruntime": "onnxruntime-gpu"} if variant == "cuda" else None
+    )
+    backend_versions = environment.installed.get("faster-whisper", ())
+    if backend_versions != (FASTER_WHISPER_VERSION,):
+        found = ", ".join(backend_versions) if backend_versions else "none"
+        problems.append(
+            f"faster-whisper must be {FASTER_WHISPER_VERSION}, found {found}"
+        )
+    if problems:
+        details = "\n".join(f"- {problem}" for problem in sorted(set(problems)))
+        raise RuntimeError(f"Meeting backend dependency check failed:\n{details}")
 
 
 def install(project: Path, variant: str, meeting_backends: str) -> None:
@@ -28,7 +50,8 @@ def install(project: Path, variant: str, meeting_backends: str) -> None:
     if meeting_backends != "none":
         # Keep backend installation outside dependency resolution so its
         # onnxruntime requirement cannot replace the selected runtime owner.
-        run_pip("install", "--no-deps", "faster-whisper")
+        run_pip("install", "--no-deps", FASTER_WHISPER_REQUIREMENT)
+        validate_meeting_dependencies(variant)
     subprocess.run(
         [sys.executable, "-m", "nvbroadcast.runtime", "--variant", variant],
         check=True,

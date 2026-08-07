@@ -206,7 +206,8 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn("Pillow>=12.3.0", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
-        self.assertIn('dev = ["pytest>=9.0.3", "packaging>=26.0"]', pyproject)
+        self.assertIn('"packaging>=26.0"', pyproject)
+        self.assertIn('dev = ["pytest>=9.0.3"]', pyproject)
         self.assertIn('"mediapipe>=1.0.0"', pyproject)
         self.assertNotIn("\n      - mediapipe\n", snapcraft)
         self.assertIn(

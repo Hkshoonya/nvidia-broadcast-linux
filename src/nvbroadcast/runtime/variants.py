@@ -5,7 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from importlib import metadata
+from pathlib import Path
+import sys
 from typing import Iterable, Mapping
+
+
+def canonical_distribution_paths(paths: Iterable[str]) -> list[str]:
+    """Return unique metadata search paths after resolving filesystem aliases."""
+    return list(dict.fromkeys(str(Path(path or ".").resolve()) for path in paths))
+
 
 class RuntimeVariant(StrEnum):
     """Supported ONNX Runtime ownership choices."""
@@ -50,7 +58,9 @@ RUNTIME_DISTRIBUTIONS = frozenset(
 def current_distribution_inventory() -> dict[str, tuple[str, ...]]:
     """Return installed versions of runtime-owning distributions."""
     installed: dict[str, list[str]] = {}
-    for distribution in metadata.distributions():
+    for distribution in metadata.distributions(
+        path=canonical_distribution_paths(sys.path)
+    ):
         name = distribution.metadata.get("Name")
         canonical_name = _canonicalize_name(name) if name else ""
         if canonical_name in RUNTIME_DISTRIBUTIONS:

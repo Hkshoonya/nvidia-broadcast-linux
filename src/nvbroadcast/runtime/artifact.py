@@ -14,6 +14,8 @@ from packaging.markers import default_environment
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
+from nvbroadcast.runtime.variants import canonical_distribution_paths
+
 
 ARCHITECTURES = {
     "amd64": "x86_64",
@@ -21,6 +23,19 @@ ARCHITECTURES = {
     "arm64": "aarch64",
     "aarch64": "aarch64",
 }
+
+
+def _installed_versions(
+    distributions: tuple[metadata.Distribution, ...],
+) -> dict[str, tuple[str, ...]]:
+    installed: dict[str, list[str]] = {}
+    for distribution in distributions:
+        name = distribution.metadata.get("Name")
+        if name:
+            installed.setdefault(canonicalize_name(name), []).append(
+                distribution.version
+            )
+    return {name: tuple(versions) for name, versions in installed.items()}
 
 
 def discover_package_roots(artifact_root: Path) -> list[Path]:
@@ -69,12 +84,27 @@ def _marker_environment(
 
 @dataclass(frozen=True)
 class ArtifactEnvironment:
-    """Installed-distribution view of one extracted Python artifact."""
+    """Installed-distribution view of a current or extracted environment."""
 
     package_roots: tuple[Path, ...]
     distributions: tuple[metadata.Distribution, ...]
     installed: dict[str, tuple[str, ...]]
     markers: dict[str, str]
+
+    @classmethod
+    def current(cls) -> "ArtifactEnvironment":
+        """Inspect distributions visible to the running interpreter."""
+        distributions = tuple(
+            metadata.distributions(path=canonical_distribution_paths(sys.path))
+        )
+        markers = default_environment()
+        markers["extra"] = ""
+        return cls(
+            package_roots=(),
+            distributions=distributions,
+            installed=_installed_versions(distributions),
+            markers=markers,
+        )
 
     @classmethod
     def inspect(
@@ -84,17 +114,10 @@ class ArtifactEnvironment:
         distributions = tuple(
             metadata.distributions(path=[str(path) for path in package_roots])
         )
-        installed: dict[str, list[str]] = {}
-        for distribution in distributions:
-            name = distribution.metadata.get("Name")
-            if name:
-                installed.setdefault(canonicalize_name(name), []).append(
-                    distribution.version
-                )
         return cls(
             package_roots=tuple(package_roots),
             distributions=distributions,
-            installed={name: tuple(versions) for name, versions in installed.items()},
+            installed=_installed_versions(distributions),
             markers=_marker_environment(package_roots, platform_machine),
         )
 
