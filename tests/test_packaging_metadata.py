@@ -603,6 +603,11 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--meeting-backends faster", postinst)
         self.assertNotIn("openai-whisper", postinst)
 
+    def test_rpm_uses_fedora_cairo_package_name(self):
+        spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        self.assertIn("Requires:       python3-cairo", spec)
+        self.assertNotIn("python3-gobject-cairo", spec)
+
     def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()
         self.assertIn("install_runtime_variant.py", script)

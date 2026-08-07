@@ -11,7 +11,7 @@ BuildRequires:  python3-devel
 
 Requires:       python3 >= 3.11
 Requires:       python3-gobject
-Requires:       python3-gobject-cairo
+Requires:       python3-cairo
 Requires:       gtk4
 Requires:       libadwaita
 Requires:       gstreamer1-plugins-base
