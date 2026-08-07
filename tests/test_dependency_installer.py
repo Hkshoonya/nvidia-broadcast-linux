@@ -68,7 +68,8 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_cpu_source_runtime_directs_user_to_source_installer(self):
         installer = dependency_installer.DependencyInstaller()
-        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
              mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU), \
              mock.patch.object(dependency_installer.sys, "prefix", "/home/user/project/.venv"):
             reason = installer.install_block_reason("cupy")
@@ -80,7 +81,8 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_cpu_native_runtime_directs_user_to_package_manager(self):
         installer = dependency_installer.DependencyInstaller()
-        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
              mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU), \
              mock.patch.object(dependency_installer.sys, "prefix", "/opt/nvbroadcast/.venv"):
             reason = installer.install_block_reason("cupy")
@@ -92,7 +94,8 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_cuda_runtime_reports_unsupported_platform_before_switch_guidance(self):
         installer = dependency_installer.DependencyInstaller()
-        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=False), \
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=False), \
              mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU):
             reason = installer.install_block_reason("cupy")
 
