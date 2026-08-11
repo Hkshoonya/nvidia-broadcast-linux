@@ -210,6 +210,23 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
             any("exactly one OpenCV owner" in problem for problem in problems)
         )
 
+    def test_full_artifact_validation_rejects_unrelated_broken_distribution(self):
+        self._add_valid_runtime()
+        self._add_distribution(
+            "unrelated-package", "1.0", ("missing-development-package",)
+        )
+
+        _, problems = dependency_problems(
+            self.snap_root, "arm64", ("CPUExecutionProvider",)
+        )
+
+        self.assertTrue(
+            any(
+                "unrelated-package requires missing package" in problem
+                for problem in problems
+            )
+        )
+
     def test_rejects_duplicate_required_runtime_owner(self):
         self._add_valid_runtime()
         self.site_packages = self.snap_root / "usr/lib/python3/dist-packages"

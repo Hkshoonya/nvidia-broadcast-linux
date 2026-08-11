@@ -35,10 +35,10 @@ class ArtifactDependencySubstitutionTests(unittest.TestCase):
         lines.extend(f"Requires-Dist: {requirement}" for requirement in requirements)
         (metadata_dir / "METADATA").write_text("\n".join(lines) + "\n")
 
-    def _problems(self) -> list[str]:
+    def _problems(self, roots: tuple[str, ...] | None = None) -> list[str]:
         environment = ArtifactEnvironment.inspect(self.artifact_root, "amd64")
         return environment.dependency_closure_problems(
-            {"onnxruntime": "onnxruntime-gpu"}
+            {"onnxruntime": "onnxruntime-gpu"}, roots=roots
         )
 
     def test_substitute_distribution_satisfies_dependency(self):
@@ -67,6 +67,35 @@ class ArtifactDependencySubstitutionTests(unittest.TestCase):
         problems = self._problems()
 
         self.assertTrue(any("found 2.0.0" in item for item in problems))
+
+    def test_rooted_validation_ignores_unrelated_broken_distribution(self):
+        self._add_distribution(
+            "faster-whisper", "1.2.1", ("ctranslate2>=4.0",)
+        )
+        self._add_distribution("ctranslate2", "4.6.0")
+        self._add_distribution(
+            "unrelated-package", "1.0", ("missing-development-package",)
+        )
+
+        self.assertEqual(self._problems(("faster-whisper",)), [])
+
+    def test_rooted_validation_rejects_missing_transitive_dependency(self):
+        self._add_distribution(
+            "faster-whisper", "1.2.1", ("ctranslate2>=4.0",)
+        )
+        self._add_distribution(
+            "ctranslate2", "4.6.0", ("future-backend-dependency>=1",)
+        )
+
+        problems = self._problems(("faster-whisper",))
+
+        self.assertTrue(
+            any(
+                "ctranslate2 requires missing package future-backend-dependency"
+                in item
+                for item in problems
+            )
+        )
 
     def test_current_deduplicates_symlinked_python_paths(self):
         self._add_distribution("faster-whisper", "1.2.1")

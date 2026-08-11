@@ -8,7 +8,7 @@ from importlib import metadata
 from pathlib import Path
 import re
 import sys
-from typing import Mapping
+from typing import Iterable, Mapping
 
 from packaging.markers import default_environment
 from packaging.requirements import InvalidRequirement, Requirement
@@ -122,12 +122,65 @@ class ArtifactEnvironment:
         )
 
     def dependency_closure_problems(
-        self, substitutions: Mapping[str, str] | None = None
+        self,
+        substitutions: Mapping[str, str] | None = None,
+        *,
+        roots: Iterable[str] | None = None,
     ) -> list[str]:
         """Return unsatisfied or malformed active distribution requirements."""
-        substitutions = substitutions or {}
+        substitutions = {
+            canonicalize_name(name): canonicalize_name(provider)
+            for name, provider in (substitutions or {}).items()
+        }
         problems: list[str] = []
+
+        distributions_by_name: dict[str, list[metadata.Distribution]] = {}
         for distribution in self.distributions:
+            name = distribution.metadata.get("Name")
+            if name:
+                distributions_by_name.setdefault(
+                    canonicalize_name(name), []
+                ).append(distribution)
+
+        if roots is None:
+            selected_distributions = self.distributions
+        else:
+            selected: list[metadata.Distribution] = []
+            pending = {canonicalize_name(root) for root in roots}
+            missing_roots = sorted(
+                root for root in pending if root not in distributions_by_name
+            )
+            problems.extend(
+                f"required dependency root is missing: {root}"
+                for root in missing_roots
+            )
+            visited: set[str] = set()
+            while pending:
+                distribution_name = pending.pop()
+                if distribution_name in visited:
+                    continue
+                visited.add(distribution_name)
+                distributions = distributions_by_name.get(distribution_name, ())
+                selected.extend(distributions)
+                for distribution in distributions:
+                    for raw_requirement in distribution.requires or ():
+                        try:
+                            requirement = Requirement(raw_requirement)
+                        except InvalidRequirement:
+                            continue
+                        if requirement.marker and not requirement.marker.evaluate(
+                            self.markers
+                        ):
+                            continue
+                        requirement_name = canonicalize_name(requirement.name)
+                        provided_name = substitutions.get(
+                            requirement_name, requirement_name
+                        )
+                        if self.installed.get(provided_name):
+                            pending.add(provided_name)
+            selected_distributions = tuple(selected)
+
+        for distribution in selected_distributions:
             owner = distribution.metadata.get("Name", "<unknown>")
             for raw_requirement in distribution.requires or ():
                 try:
@@ -141,8 +194,8 @@ class ArtifactEnvironment:
                     continue
 
                 requirement_name = canonicalize_name(requirement.name)
-                provided_name = canonicalize_name(
-                    substitutions.get(requirement_name, requirement_name)
+                provided_name = substitutions.get(
+                    requirement_name, requirement_name
                 )
                 versions = self.installed.get(provided_name, ())
                 if not versions:

@@ -20,12 +20,16 @@ def run_pip(*arguments: str) -> None:
     )
 
 
-def validate_meeting_dependencies(variant: str) -> None:
+def validate_meeting_dependencies(variant: str, meeting_backends: str) -> None:
     from nvbroadcast.runtime.artifact import ArtifactEnvironment
 
     environment = ArtifactEnvironment.current()
+    roots = {"nvbroadcast", "faster-whisper"}
+    if meeting_backends == "all" and sys.version_info < (3, 14):
+        roots.add("openai-whisper")
     problems = environment.dependency_closure_problems(
-        {"onnxruntime": "onnxruntime-gpu"} if variant == "cuda" else None
+        {"onnxruntime": "onnxruntime-gpu"} if variant == "cuda" else None,
+        roots=roots,
     )
     backend_versions = environment.installed.get("faster-whisper", ())
     if backend_versions != (FASTER_WHISPER_VERSION,):
@@ -51,7 +55,7 @@ def install(project: Path, variant: str, meeting_backends: str) -> None:
         # Keep backend installation outside dependency resolution so its
         # onnxruntime requirement cannot replace the selected runtime owner.
         run_pip("install", "--no-deps", FASTER_WHISPER_REQUIREMENT)
-        validate_meeting_dependencies(variant)
+        validate_meeting_dependencies(variant, meeting_backends)
     subprocess.run(
         [sys.executable, "-m", "nvbroadcast.runtime", "--variant", variant],
         check=True,

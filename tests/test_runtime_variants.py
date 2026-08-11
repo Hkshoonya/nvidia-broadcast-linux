@@ -200,7 +200,7 @@ class RuntimeVariantTests(unittest.TestCase):
                 ),
             ],
         )
-        validate_meeting_dependencies.assert_called_once_with("cuda")
+        validate_meeting_dependencies.assert_called_once_with("cuda", "faster")
         run.assert_called_once_with(
             [
                 install_runtime_variant.sys.executable,
@@ -235,7 +235,7 @@ class RuntimeVariantTests(unittest.TestCase):
                 ),
             ],
         )
-        validate_meeting_dependencies.assert_called_once_with("cpu")
+        validate_meeting_dependencies.assert_called_once_with("cpu", "all")
 
     def test_cuda_meeting_closure_substitutes_gpu_runtime(self):
         environment = mock.Mock(
@@ -251,10 +251,13 @@ class RuntimeVariantTests(unittest.TestCase):
             "nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
             return_value=environment,
         ):
-            install_runtime_variant.validate_meeting_dependencies("cuda")
+            install_runtime_variant.validate_meeting_dependencies(
+                "cuda", "faster"
+            )
 
         environment.dependency_closure_problems.assert_called_once_with(
-            {"onnxruntime": "onnxruntime-gpu"}
+            {"onnxruntime": "onnxruntime-gpu"},
+            roots={"nvbroadcast", "faster-whisper"},
         )
 
     def test_cpu_meeting_closure_uses_standard_runtime_requirement(self):
@@ -271,9 +274,36 @@ class RuntimeVariantTests(unittest.TestCase):
             "nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
             return_value=environment,
         ):
-            install_runtime_variant.validate_meeting_dependencies("cpu")
+            install_runtime_variant.validate_meeting_dependencies(
+                "cpu", "faster"
+            )
 
-        environment.dependency_closure_problems.assert_called_once_with(None)
+        environment.dependency_closure_problems.assert_called_once_with(
+            None, roots={"nvbroadcast", "faster-whisper"}
+        )
+
+    def test_all_meeting_closure_includes_supported_openai_whisper_root(self):
+        environment = mock.Mock(
+            installed={
+                "faster-whisper": (
+                    install_runtime_variant.FASTER_WHISPER_VERSION,
+                )
+            }
+        )
+        environment.dependency_closure_problems.return_value = []
+
+        with mock.patch(
+            "nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+            return_value=environment,
+        ), mock.patch.object(
+            install_runtime_variant.sys, "version_info", (3, 13)
+        ):
+            install_runtime_variant.validate_meeting_dependencies("cpu", "all")
+
+        environment.dependency_closure_problems.assert_called_once_with(
+            None,
+            roots={"nvbroadcast", "faster-whisper", "openai-whisper"},
+        )
 
     def test_meeting_closure_rejects_unresolved_backend_dependency(self):
         environment = mock.Mock(
@@ -291,7 +321,9 @@ class RuntimeVariantTests(unittest.TestCase):
             "nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
             return_value=environment,
         ), self.assertRaisesRegex(RuntimeError, "future-dependency"):
-            install_runtime_variant.validate_meeting_dependencies("cuda")
+            install_runtime_variant.validate_meeting_dependencies(
+                "cuda", "faster"
+            )
 
     def test_meeting_closure_rejects_unsupported_backend_version(self):
         environment = mock.Mock(installed={"faster-whisper": ("9.9.9",)})
@@ -301,7 +333,9 @@ class RuntimeVariantTests(unittest.TestCase):
             "nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
             return_value=environment,
         ), self.assertRaisesRegex(RuntimeError, "must be 1.2.1, found 9.9.9"):
-            install_runtime_variant.validate_meeting_dependencies("cpu")
+            install_runtime_variant.validate_meeting_dependencies(
+                "cpu", "faster"
+            )
 
 
 if __name__ == "__main__":
