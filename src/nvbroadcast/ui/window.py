@@ -1670,13 +1670,22 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         try:
             mics = self._app.list_microphones()
             self._mic_selector.set_devices(mics)
-            # Select saved mic
+            if not mics:
+                return
+
             saved = self._app.config.audio.mic_device
-            if saved:
-                for i, m in enumerate(mics):
-                    if m["device"] == saved:
-                        self._mic_selector.set_selected_index(i)
-                        break
+            selected_index = next(
+                (i for i, mic in enumerate(mics) if mic["device"] == saved),
+                0,
+            )
+            selected_device = mics[selected_index]["device"]
+            self._mic_selector.set_selected_index(selected_index)
+
+            # Gtk selects the first row while the dropdown model is installed,
+            # before DeviceSelector can observe a change. Keep the persisted and
+            # runtime device aligned with what the user sees in that case.
+            if selected_device != saved:
+                self._app.set_microphone(selected_device)
         except Exception as e:
             print(f"[NV Broadcast] Mic enumeration failed: {e}")
 
