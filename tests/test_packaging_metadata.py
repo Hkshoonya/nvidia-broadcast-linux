@@ -610,10 +610,32 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()
+        pkg_builder = script.split("build_pkg() {", 1)[1]
         self.assertIn("install_runtime_variant.py", script)
         self.assertIn("--variant cpu --meeting-backends faster", script)
         self.assertIn('rm -rf -- "$INSTALL_DIR/.venv"', script)
         self.assertIn('pkill -f "^${INSTALL_DIR}/.venv/bin/python -m nvbroadcast', script)
+        self.assertIn(
+            'mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/scripts"', pkg_builder
+        )
+        self.assertIn(
+            "install -m 755 scripts/install_runtime_variant.py", pkg_builder
+        )
+        self.assertNotIn(
+            "install -Dm 755 scripts/install_runtime_variant.py", pkg_builder
+        )
+
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+        macos_builder = workflow.split("  build-macos:", 1)[1].split(
+            "  test-macos:", 1
+        )[0]
+        self.assertIn("run: bash build-packages.sh pkg", macos_builder)
+        self.assertIn(
+            "opt/nvbroadcast/scripts/install_runtime_variant.py", macos_builder
+        )
+        self.assertIn('test -x "$runtime_installer"', macos_builder)
 
     def test_macos_source_installer_guards_openai_whisper(self):
         script = (REPO_ROOT / "install_macos.sh").read_text()

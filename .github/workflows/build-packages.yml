@@ -66,6 +66,8 @@ jobs:
           pkgutil --expand-full "$package" /tmp/nvbroadcast-pkg-expanded
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/src/nvbroadcast/__init__.py' -print -quit)"
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/usr/local/bin/nvbroadcast' -print -quit)"
+          runtime_installer="$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/scripts/install_runtime_variant.py' -print -quit)"
+          test -x "$runtime_installer"
           distribution="$(find /tmp/nvbroadcast-pkg-expanded -name Distribution -type f -print -quit)"
           test -n "$distribution"
           grep -q 'hostArchitectures="arm64"' "$distribution"

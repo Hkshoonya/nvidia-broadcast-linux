@@ -236,13 +236,13 @@ build_pkg() {
     BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/nvbroadcast-pkg-build.XXXXXX")
     local INSTALL_ROOT="${BUILD_DIR}/root"
     local SCRIPTS_DIR="${BUILD_DIR}/scripts"
-    mkdir -p "$INSTALL_ROOT/opt/nvbroadcast"
+    mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/scripts"
     mkdir -p "$INSTALL_ROOT/usr/local/bin"
     mkdir -p "$SCRIPTS_DIR"
 
     # Application files -> /opt/nvbroadcast
     cp -r src pyproject.toml LICENSE README.md "$INSTALL_ROOT/opt/nvbroadcast/"
-    install -Dm 755 scripts/install_runtime_variant.py \
+    install -m 755 scripts/install_runtime_variant.py \
         "$INSTALL_ROOT/opt/nvbroadcast/scripts/install_runtime_variant.py"
     find "$INSTALL_ROOT/opt/nvbroadcast/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
@@ -330,7 +330,10 @@ POSTINST
     # Keep the package payload independent of the builder's local umask.
     find "$INSTALL_ROOT" -type d -exec chmod 755 {} +
     find "$INSTALL_ROOT" -type f -exec chmod 644 {} +
-    chmod 755 "$INSTALL_ROOT/usr/local/bin/nvbroadcast" "$SCRIPTS_DIR/postinstall"
+    chmod 755 \
+        "$INSTALL_ROOT/usr/local/bin/nvbroadcast" \
+        "$INSTALL_ROOT/opt/nvbroadcast/scripts/install_runtime_variant.py" \
+        "$SCRIPTS_DIR/postinstall"
 
     # Build component package
     mkdir -p dist/pkg
