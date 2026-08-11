@@ -71,6 +71,30 @@ class CameraSwitchTests(unittest.TestCase):
 
         window._app.switch_camera.assert_not_called()
 
+    @mock.patch(
+        "nvbroadcast.video.virtual_camera.resolve_camera_device",
+        return_value="",
+    )
+    def test_missing_camera_stops_before_pipeline_construction(
+        self, resolve_camera_device
+    ):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app._video_pipeline = None
+        app._pipeline_teardown = None
+        app._streaming = False
+        app._window = mock.Mock()
+        app._clear_finished_teardown = mock.Mock()
+
+        app._do_start_pipeline("/dev/video0", "YUY2")
+
+        resolve_camera_device.assert_called_once_with("/dev/video0")
+        self.assertIsNone(app._video_pipeline)
+        self.assertFalse(app._streaming)
+        app._window.set_status.assert_called_once_with(
+            "No usable camera found. Connect a camera and try again."
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
