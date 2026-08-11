@@ -71,6 +71,46 @@ class CameraSwitchTests(unittest.TestCase):
 
         window._app.switch_camera.assert_not_called()
 
+    def test_stream_button_waits_for_application_start_result(self):
+        window = NVBroadcastWindow.__new__(NVBroadcastWindow)
+        window._streaming = False
+        window._app = SimpleNamespace(start_pipeline=mock.Mock())
+        window._format_selector = mock.Mock()
+        window._format_selector.get_selected_device.return_value = "YUY2"
+        window._camera_selector = mock.Mock()
+        window._camera_selector.get_selected_device.return_value = "/dev/video2"
+        button = mock.Mock()
+
+        window._on_stream_toggle(button)
+
+        window._app.start_pipeline.assert_called_once_with("/dev/video2", "YUY2")
+        self.assertFalse(window._streaming)
+        button.set_label.assert_not_called()
+
+    def test_failed_start_restores_stopped_button_state(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app._video_pipeline = None
+        app._pipeline_teardown = None
+        app._pending_start = ("/dev/video0", "YUY2")
+        app._restart_source_id = 1
+        app._streaming = False
+        app._window = mock.Mock()
+        app._clear_finished_teardown = mock.Mock()
+        app._do_start_pipeline = mock.Mock()
+
+        app._restart_after_stop()
+
+        self.assertFalse(app._window._streaming)
+        app._window._stream_btn.set_label.assert_called_once_with(
+            "Start Broadcast"
+        )
+        app._window._stream_btn.remove_css_class.assert_called_once_with(
+            "destructive-action"
+        )
+        app._window._stream_btn.add_css_class.assert_called_once_with(
+            "suggested-action"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

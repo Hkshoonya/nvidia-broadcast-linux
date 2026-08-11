@@ -1097,10 +1097,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             fmt = self._format_selector.get_selected_device() or "YUY2"
             cam = self._camera_selector.get_selected_device() or "/dev/video0"
             self._app.start_pipeline(cam, fmt)
-            self._streaming = True
-            btn.set_label("Stop Broadcast")
-            btn.remove_css_class("suggested-action")
-            btn.add_css_class("destructive-action")
 
     def _sync_background_controls(self, enabled=None, mode=None):
         """Keep background controls aligned with the active effect mode."""

@@ -985,10 +985,6 @@ class NVBroadcastApp(Adw.Application):
             camera = self.config.video.camera_device
             fmt = self.config.video.output_format
             self.start_pipeline(camera, fmt)
-            self._window._streaming = True
-            self._window._stream_btn.set_label("Stop Broadcast")
-            self._window._stream_btn.remove_css_class("suggested-action")
-            self._window._stream_btn.add_css_class("destructive-action")
         return False  # Don't repeat
 
     def _restore_settings(self):
@@ -1220,11 +1216,16 @@ class NVBroadcastApp(Adw.Application):
         cam, fmt = self._pending_start
         self._pending_start = None
         self._do_start_pipeline(cam, fmt)
-        if self._streaming and self._window:
-            self._window._streaming = True
-            self._window._stream_btn.set_label("Stop Broadcast")
-            self._window._stream_btn.remove_css_class("suggested-action")
-            self._window._stream_btn.add_css_class("destructive-action")
+        if self._window:
+            self._window._streaming = self._streaming
+            if self._streaming:
+                self._window._stream_btn.set_label("Stop Broadcast")
+                self._window._stream_btn.remove_css_class("suggested-action")
+                self._window._stream_btn.add_css_class("destructive-action")
+            else:
+                self._window._stream_btn.set_label("Start Broadcast")
+                self._window._stream_btn.remove_css_class("destructive-action")
+                self._window._stream_btn.add_css_class("suggested-action")
         return False
 
     def _do_start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
