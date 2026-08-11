@@ -1237,6 +1237,13 @@ class NVBroadcastApp(Adw.Application):
         resolved_camera = resolve_camera_device(
             camera_device or self.config.video.camera_device
         )
+        if not resolved_camera:
+            self._streaming = False
+            message = "No usable camera found. Connect a camera and try again."
+            if self._window:
+                self._window.set_status(message)
+            print(f"[NV Broadcast] {message}", flush=True)
+            return False
         if resolved_camera != camera_device:
             print(
                 f"[NV Broadcast] Camera changed: {camera_device} -> {resolved_camera}",
