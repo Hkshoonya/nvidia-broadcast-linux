@@ -9,6 +9,8 @@ from unittest import mock
 
 from scripts import install_runtime_variant
 from nvbroadcast.runtime.variants import (
+    FASTER_WHISPER_REQUIREMENT,
+    FASTER_WHISPER_VERSION,
     RuntimeVariant,
     current_distribution_inventory,
     detect_runtime_variant,
@@ -19,7 +21,7 @@ from nvbroadcast.runtime.variants import (
 class RuntimeVariantTests(unittest.TestCase):
     def test_supported_meeting_backend_version_is_pinned(self):
         self.assertEqual(
-            install_runtime_variant.FASTER_WHISPER_REQUIREMENT,
+            FASTER_WHISPER_REQUIREMENT,
             "faster-whisper==1.2.1",
         )
 
@@ -196,7 +198,7 @@ class RuntimeVariantTests(unittest.TestCase):
                 mock.call(
                     "install",
                     "--no-deps",
-                    install_runtime_variant.FASTER_WHISPER_REQUIREMENT,
+                    FASTER_WHISPER_REQUIREMENT,
                 ),
             ],
         )
@@ -231,7 +233,7 @@ class RuntimeVariantTests(unittest.TestCase):
                 mock.call(
                     "install",
                     "--no-deps",
-                    install_runtime_variant.FASTER_WHISPER_REQUIREMENT,
+                    FASTER_WHISPER_REQUIREMENT,
                 ),
             ],
         )
@@ -241,7 +243,7 @@ class RuntimeVariantTests(unittest.TestCase):
         environment = mock.Mock(
             installed={
                 "faster-whisper": (
-                    install_runtime_variant.FASTER_WHISPER_VERSION,
+                    FASTER_WHISPER_VERSION,
                 )
             }
         )
@@ -264,7 +266,7 @@ class RuntimeVariantTests(unittest.TestCase):
         environment = mock.Mock(
             installed={
                 "faster-whisper": (
-                    install_runtime_variant.FASTER_WHISPER_VERSION,
+                    FASTER_WHISPER_VERSION,
                 )
             }
         )
@@ -286,7 +288,7 @@ class RuntimeVariantTests(unittest.TestCase):
         environment = mock.Mock(
             installed={
                 "faster-whisper": (
-                    install_runtime_variant.FASTER_WHISPER_VERSION,
+                    FASTER_WHISPER_VERSION,
                 )
             }
         )
@@ -309,7 +311,7 @@ class RuntimeVariantTests(unittest.TestCase):
         environment = mock.Mock(
             installed={
                 "faster-whisper": (
-                    install_runtime_variant.FASTER_WHISPER_VERSION,
+                    FASTER_WHISPER_VERSION,
                 )
             }
         )

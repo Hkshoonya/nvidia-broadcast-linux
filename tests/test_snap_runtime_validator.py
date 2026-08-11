@@ -37,7 +37,11 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
         lines.extend(f"Requires-Dist: {requirement}" for requirement in requirements)
         (metadata_dir / "METADATA").write_text("\n".join(lines) + "\n")
 
-    def _add_valid_runtime(self, variant: str = "cpu") -> None:
+    def _add_valid_runtime(
+        self,
+        variant: str = "cpu",
+        faster_whisper_version: str = "1.2.1",
+    ) -> None:
         self._add_distribution("numpy", "2.5.1")
         self._add_distribution("packaging", "26.3")
         self._add_distribution("protobuf", "7.35.1")
@@ -55,6 +59,11 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
                 'ignored-extra; extra == "meeting"',
                 'ignored-platform; sys_platform == "darwin"',
             ),
+        )
+        self._add_distribution(
+            "faster-whisper",
+            faster_whisper_version,
+            ("onnxruntime>=1.14,<2",),
         )
         runtime_owner = "onnxruntime-gpu" if variant == "cuda" else "onnxruntime"
         self._add_distribution(runtime_owner, "1.24.4")
@@ -91,7 +100,7 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
             self.snap_root, "arm64", ("CPUExecutionProvider",)
         )
 
-        self.assertEqual(count, 7)
+        self.assertEqual(count, 8)
         self.assertEqual(problems, [])
 
     def test_accepts_core24_python_runtime_layout(self):
@@ -249,9 +258,6 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
 
     def test_cuda_owner_satisfies_faster_whisper_cpu_distribution_metadata(self):
         self._add_valid_runtime("cuda")
-        self._add_distribution(
-            "faster-whisper", "1.2.1", ("onnxruntime>=1.14,<2",)
-        )
 
         _, problems = dependency_problems(
             self.snap_root,
@@ -260,6 +266,21 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
         )
 
         self.assertEqual(problems, [])
+
+    def test_rejects_unsupported_faster_whisper_version(self):
+        self._add_valid_runtime(faster_whisper_version="1.3.0")
+
+        _, problems = dependency_problems(
+            self.snap_root, "arm64", ("CPUExecutionProvider",)
+        )
+
+        self.assertTrue(
+            any(
+                "faster-whisper versions 1.3.0 do not satisfy ==1.2.1"
+                in problem
+                for problem in problems
+            )
+        )
 
     def test_rejects_wrong_runtime_owner_for_architecture(self):
         self._add_valid_runtime("cpu")

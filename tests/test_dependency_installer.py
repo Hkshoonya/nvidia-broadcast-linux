@@ -229,10 +229,21 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_whisper_package_spec_installs_httpx(self):
         install_steps = dependency_installer.PACKAGE_SPECS["whisper"]["install_steps"]
-        self.assertEqual(install_steps[0], ["install", "--no-deps", "faster-whisper"])
+        self.assertEqual(
+            install_steps[0],
+            [
+                "install",
+                "--no-deps",
+                dependency_installer.FASTER_WHISPER_REQUIREMENT,
+            ],
+        )
         self.assertIn("httpx", install_steps[1])
         self.assertIn("av", install_steps[1])
         self.assertIn("tqdm", install_steps[1])
+        self.assertIn(
+            dependency_installer.FASTER_WHISPER_REQUIREMENT,
+            dependency_installer.PACKAGE_SPECS["whisper"]["help"],
+        )
 
     def test_whisper_install_runs_two_pip_steps(self):
         installer = dependency_installer.DependencyInstaller()
@@ -255,7 +266,8 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertEqual(first_cmd[:3], [dependency_installer.sys.executable, "-m", "pip"])
         self.assertEqual(second_cmd[:3], [dependency_installer.sys.executable, "-m", "pip"])
         self.assertIn("--no-deps", first_cmd)
-        self.assertIn("faster-whisper", first_cmd)
+        self.assertIn(dependency_installer.FASTER_WHISPER_REQUIREMENT, first_cmd)
+        self.assertNotIn("faster-whisper", first_cmd)
         self.assertNotIn("ctranslate2", first_cmd)
         self.assertNotIn("--no-deps", second_cmd)
         self.assertIn("ctranslate2", second_cmd)

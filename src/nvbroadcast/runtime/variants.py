@@ -10,6 +10,10 @@ import sys
 from typing import Iterable, Mapping
 
 
+FASTER_WHISPER_VERSION = "1.2.1"
+FASTER_WHISPER_REQUIREMENT = f"faster-whisper=={FASTER_WHISPER_VERSION}"
+
+
 def canonical_distribution_paths(paths: Iterable[str]) -> list[str]:
     """Return unique metadata search paths after resolving filesystem aliases."""
     return list(dict.fromkeys(str(Path(path or ".").resolve()) for path in paths))

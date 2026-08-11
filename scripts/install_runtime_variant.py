@@ -9,10 +9,6 @@ import subprocess
 import sys
 
 
-FASTER_WHISPER_VERSION = "1.2.1"
-FASTER_WHISPER_REQUIREMENT = f"faster-whisper=={FASTER_WHISPER_VERSION}"
-
-
 def run_pip(*arguments: str) -> None:
     subprocess.run(
         [sys.executable, "-m", "pip", *arguments],
@@ -22,6 +18,7 @@ def run_pip(*arguments: str) -> None:
 
 def validate_meeting_dependencies(variant: str, meeting_backends: str) -> None:
     from nvbroadcast.runtime.artifact import ArtifactEnvironment
+    from nvbroadcast.runtime.variants import FASTER_WHISPER_VERSION
 
     environment = ArtifactEnvironment.current()
     roots = {"nvbroadcast", "faster-whisper"}
@@ -52,6 +49,8 @@ def install(project: Path, variant: str, meeting_backends: str) -> None:
     selected_extras = ",".join(extras)
     run_pip("install", "--upgrade", f"{project}[{selected_extras}]")
     if meeting_backends != "none":
+        from nvbroadcast.runtime.variants import FASTER_WHISPER_REQUIREMENT
+
         # Keep backend installation outside dependency resolution so its
         # onnxruntime requirement cannot replace the selected runtime owner.
         run_pip("install", "--no-deps", FASTER_WHISPER_REQUIREMENT)

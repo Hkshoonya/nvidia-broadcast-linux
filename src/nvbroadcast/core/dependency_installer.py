@@ -37,7 +37,11 @@ from nvbroadcast.core.platform import (
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
 )
-from nvbroadcast.runtime.variants import RuntimeVariant, detect_runtime_variant
+from nvbroadcast.runtime.variants import (
+    FASTER_WHISPER_REQUIREMENT,
+    RuntimeVariant,
+    detect_runtime_variant,
+)
 
 
 CUDA_RUNTIME_PACKAGES = [
@@ -215,7 +219,7 @@ PACKAGE_SPECS = {
         # Install the rest normally so dependencies like av/httpcore/anyio are
         # resolved instead of being skipped by a broad --no-deps install.
         "install_steps": [
-            ["install", "--no-deps", "faster-whisper"],
+            ["install", "--no-deps", FASTER_WHISPER_REQUIREMENT],
             [
                 "install",
                 "ctranslate2",
@@ -231,7 +235,8 @@ PACKAGE_SPECS = {
         "check": _has_whisper,
         "verify": _has_whisper,
         "help": (
-            "Retry later with: .venv/bin/pip install --no-deps faster-whisper && "
+            "Retry later with: .venv/bin/pip install --no-deps "
+            f"{FASTER_WHISPER_REQUIREMENT} && "
             ".venv/bin/pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm"
         ),
     },

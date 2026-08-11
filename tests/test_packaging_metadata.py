@@ -649,7 +649,7 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
-        self.assertIn("        faster-whisper", snapcraft)
+        self.assertIn("        faster-whisper==1.2.1", snapcraft)
         self.assertIn("- ctranslate2", snapcraft)
         self.assertIn("- httpx", snapcraft)
         self.assertIn("- av", snapcraft)
@@ -679,7 +679,7 @@ class PackagingMetadataTests(unittest.TestCase):
         for package in (
             "pyrnnoise",
             "av>=16,<17",
-            "faster-whisper",
+            "faster-whisper==1.2.1",
             "ctranslate2",
             "huggingface-hub",
             "httpx",

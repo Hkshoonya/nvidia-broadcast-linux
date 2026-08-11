@@ -21,6 +21,7 @@ from nvbroadcast.runtime.artifact import (
     discover_package_roots,
 )
 from nvbroadcast.runtime.variants import (
+    FASTER_WHISPER_VERSION,
     RUNTIME_CONTRACTS,
     RuntimeVariant,
     runtime_ownership_problems,
@@ -33,6 +34,7 @@ REQUIRED_RUNTIME = {
     "protobuf": SpecifierSet(">=5.29.6"),
     "setuptools": SpecifierSet(">=83.0.0"),
     "opencv-contrib-python": SpecifierSet(">=4.8.1.78,<5"),
+    "faster-whisper": SpecifierSet(f"=={FASTER_WHISPER_VERSION}"),
 }
 IMPORT_PROBES = ("packaging", "setuptools", "onnxruntime")
 RUNTIME_VERSION = SpecifierSet("==1.24.4")
