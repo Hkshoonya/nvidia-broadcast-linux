@@ -282,8 +282,8 @@ class PackagingMetadataTests(unittest.TestCase):
         )[1].split("- name: Update Snap Store metadata", 1)[0]
         self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", review_step)
         self.assertNotIn("secrets.SNAP_TOKEN", review_step)
-        self.assertIn("timeout-minutes: 30", review_step)
-        self.assertIn("timeout-minutes: 30", publish_step)
+        self.assertIn("timeout-minutes: 60", review_step)
+        self.assertIn("timeout-minutes: 60", publish_step)
         self.assertIn("permissions:\n      contents: write", attach_job)
         self.assertIn("action-gh-release", attach_job)
         self.assertNotIn("inputs.candidate", attach_job)
@@ -736,6 +736,30 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("publish, candidate, and review are mutually exclusive", workflow)
         self.assertIn("release_tag is required when publishing from workflow_dispatch", workflow)
         self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
+
+    def test_snap_promotion_workflow_validates_exact_revisions_and_rolls_back(self):
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "snap-promote.yml"
+        ).read_text()
+
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("\n  push:", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertIn("group: snap-store-promotion", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
+        self.assertIn("amd64_revision:", workflow)
+        self.assertIn("arm64_revision:", workflow)
+        self.assertIn("validate_revision amd64", workflow)
+        self.assertIn("validate_revision arm64", workflow)
+        self.assertIn("rollback_candidate", workflow)
+        self.assertIn('snapcraft release "$SNAP_NAME" "$ARM64_REVISION" candidate', workflow)
+        self.assertIn('snapcraft release "$SNAP_NAME" "$AMD64_REVISION" candidate', workflow)
+        self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", workflow)
+        self.assertIn("secrets.SNAP_TOKEN", workflow)
+        self.assertIn("--from-channel=candidate", workflow)
+        self.assertIn("--to-channel=stable", workflow)
+        self.assertIn("Stable channel verification does not match", workflow)
+        self.assertNotIn('if [ -n "${{ inputs.', workflow)
 
     def test_about_window_separates_authorship_sponsors_and_contributors(self):
         window = (REPO_ROOT / "src" / "nvbroadcast" / "ui" / "window.py").read_text()
