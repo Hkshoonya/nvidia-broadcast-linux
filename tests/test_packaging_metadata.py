@@ -759,6 +759,9 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--from-channel=candidate", workflow)
         self.assertIn("--to-channel=stable", workflow)
         self.assertIn("Stable channel verification does not match", workflow)
+        self.assertIn('snap download "$SNAP_NAME"', workflow)
+        self.assertIn('--revision="$CANDIDATE_ARM64"', workflow)
+        self.assertIn('snapcraft upload-metadata "$METADATA_SNAP" --force', workflow)
         self.assertNotIn('if [ -n "${{ inputs.', workflow)
 
     def test_about_window_separates_authorship_sponsors_and_contributors(self):

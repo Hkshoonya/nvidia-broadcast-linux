@@ -195,6 +195,17 @@ jobs:
           CANDIDATE_AMD64="$(validate_candidate amd64 "$AMD64_TABLE")"
           CANDIDATE_ARM64="$(validate_candidate arm64 "$ARM64_TABLE")"
 
+          METADATA_DIR="$RUNNER_TEMP/snap-store-metadata"
+          mkdir -p "$METADATA_DIR"
+          snap download "$SNAP_NAME" \
+            --revision="$CANDIDATE_ARM64" \
+            --target-directory="$METADATA_DIR"
+          METADATA_SNAP="$METADATA_DIR/${SNAP_NAME}_${CANDIDATE_ARM64}.snap"
+          if [ ! -f "$METADATA_SNAP" ]; then
+            echo "::error::Could not download the signed ARM64 candidate for metadata upload."
+            exit 1
+          fi
+
           snapcraft promote "$SNAP_NAME" \
             --from-channel=candidate \
             --to-channel=stable \
@@ -207,6 +218,8 @@ jobs:
             echo "::error::Stable channel verification does not match the tested candidate build set."
             exit 1
           fi
+
+          snapcraft upload-metadata "$METADATA_SNAP" --force
 
           printf 'Stable now matches candidate: amd64 revision %s, arm64 revision %s.\n' \
             "$CANDIDATE_AMD64" "$CANDIDATE_ARM64"
