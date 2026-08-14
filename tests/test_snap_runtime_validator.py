@@ -2,7 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.validate_snap_runtime import dependency_problems, discover_package_roots
+from scripts.validate_snap_runtime import (
+    desktop_launcher_problems,
+    dependency_problems,
+    discover_package_roots,
+    platform_shadow_problems,
+    python_runtime_problems,
+)
 
 
 class SnapRuntimeValidatorTests(unittest.TestCase):
@@ -51,6 +57,28 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
             ),
         )
 
+    def _add_valid_python_runtime(self) -> None:
+        (self.snap_root / "pyvenv.cfg").write_text(
+            "home = /usr/bin\n"
+            "include-system-site-packages = false\n"
+            "version = 3.12.3\n"
+        )
+        bin_dir = self.snap_root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "python3").symlink_to("/usr/bin/python3.12")
+
+    def _add_valid_desktop_launcher(self) -> None:
+        gui_dir = self.snap_root / "meta/gui"
+        gui_dir.mkdir(parents=True)
+        (gui_dir / "icon.svg").write_text("<svg/>")
+        (gui_dir / "nvbroadcast.desktop").write_text(
+            "[Desktop Entry]\n"
+            "Name=NV Broadcast\n"
+            "Exec=nvbroadcast\n"
+            "Icon=${SNAP}/meta/gui/icon.svg\n"
+            "Type=Application\n"
+        )
+
     def test_discovers_snap_python_roots(self):
         self.assertEqual(discover_package_roots(self.snap_root), [self.site_packages])
 
@@ -61,6 +89,96 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
 
         self.assertEqual(count, 6)
         self.assertEqual(problems, [])
+
+    def test_accepts_core24_python_runtime_layout(self):
+        self._add_valid_python_runtime()
+
+        self.assertEqual(python_runtime_problems(self.snap_root), [])
+
+    def test_rejects_build_sdk_python_runtime_layout(self):
+        (self.snap_root / "pyvenv.cfg").write_text(
+            "home = /snap/gnome-46-2404-sdk/current/usr/bin\n"
+            "include-system-site-packages = false\n"
+            "version = 3.12.3\n"
+            "executable = /snap/gnome-46-2404-sdk/187/usr/bin/python3.12\n"
+            "command = /snap/gnome-46-2404-sdk/current/usr/bin/python3 "
+            "-m venv /build/nvbroadcast/parts/nvbroadcast/install\n"
+        )
+        bin_dir = self.snap_root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "python3").symlink_to("/usr/bin/python3.12")
+
+        problems = python_runtime_problems(self.snap_root)
+
+        self.assertTrue(any("build-only path" in problem for problem in problems))
+        self.assertTrue(any("core24 Python home" in problem for problem in problems))
+
+    def test_rejects_python_runtime_outside_core24(self):
+        self._add_valid_python_runtime()
+        (self.snap_root / "bin/python3").unlink()
+        (self.snap_root / "bin/python3").symlink_to(
+            "/snap/gnome-46-2404-sdk/current/usr/bin/python3.12"
+        )
+
+        problems = python_runtime_problems(self.snap_root)
+
+        self.assertTrue(
+            any("must target core24 Python" in problem for problem in problems)
+        )
+
+    def test_rejects_libraries_owned_by_gnome_platform(self):
+        shadow = self.snap_root / "usr/lib/x86_64-linux-gnu/libgtk-4.so.1"
+        shadow.parent.mkdir(parents=True)
+        shadow.touch()
+
+        self.assertEqual(
+            platform_shadow_problems(self.snap_root),
+            [
+                "Snap shadows a GNOME platform library: "
+                "usr/lib/x86_64-linux-gnu/libgtk-4.so.1"
+            ],
+        )
+
+    def test_accepts_packaged_desktop_launcher(self):
+        self._add_valid_desktop_launcher()
+
+        self.assertEqual(desktop_launcher_problems(self.snap_root), [])
+
+    def test_rejects_missing_desktop_launcher(self):
+        self.assertEqual(
+            desktop_launcher_problems(self.snap_root),
+            ["Snap is missing meta/gui/nvbroadcast.desktop"],
+        )
+
+    def test_rejects_desktop_launcher_outside_snap_payload(self):
+        self._add_valid_desktop_launcher()
+        launcher = self.snap_root / "meta/gui/nvbroadcast.desktop"
+        launcher.write_text(
+            "[Desktop Entry]\n"
+            "Name=NV Broadcast\n"
+            "Exec=/opt/nvbroadcast/bin/nvbroadcast\n"
+            "Icon=com.doczeus.NVBroadcast\n"
+            "Type=Application\n"
+        )
+
+        problems = desktop_launcher_problems(self.snap_root)
+
+        self.assertTrue(any("Exec must start" in problem for problem in problems))
+        self.assertTrue(any("Icon must be ${SNAP}" in problem for problem in problems))
+
+    def test_rejects_missing_desktop_launcher_icon(self):
+        self._add_valid_desktop_launcher()
+        (self.snap_root / "meta/gui/icon.svg").unlink()
+
+        problems = desktop_launcher_problems(self.snap_root)
+
+        self.assertEqual(
+            problems,
+            [
+                "Snap desktop launcher icon does not exist: "
+                "${SNAP}/meta/gui/icon.svg"
+            ],
+        )
 
     def test_rejects_missing_dependency_and_opencv_major_upgrade(self):
         self._add_distribution("setuptools", "83.0.0")

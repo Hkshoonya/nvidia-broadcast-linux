@@ -269,6 +269,10 @@ class NVBroadcastApp(Adw.Application):
         """
         if not IS_LINUX:
             return False
+        if os.environ.get("SNAP"):
+            # Strict snaps cannot execute the host's systemctl. Continue with
+            # virtual-camera setup instead of aborting application startup.
+            return False
 
         service = "nvbroadcast-vcam.service"
         try:
@@ -277,7 +281,7 @@ class NVBroadcastApp(Adw.Application):
                 check=False,
                 timeout=1,
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired):
             return False
 
         if active.returncode != 0:
@@ -296,7 +300,7 @@ class NVBroadcastApp(Adw.Application):
                 flush=True,
             )
             return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired):
             return False
 
     def do_activate(self):

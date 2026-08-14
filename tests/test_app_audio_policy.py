@@ -100,6 +100,26 @@ class AppAudioPolicyTests(unittest.TestCase):
         self.assertFalse(NVBroadcastApp._stop_headless_vcam_service(app))
         run.assert_called_once()
 
+    @mock.patch("nvbroadcast.app.subprocess.run")
+    @mock.patch("nvbroadcast.app.IS_LINUX", True)
+    @mock.patch.dict("nvbroadcast.app.os.environ", {"SNAP": "/snap/nvbroadcast/1"})
+    def test_snap_startup_skips_host_headless_service(self, run):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+
+        self.assertFalse(NVBroadcastApp._stop_headless_vcam_service(app))
+        run.assert_not_called()
+
+    @mock.patch(
+        "nvbroadcast.app.subprocess.run",
+        side_effect=PermissionError("strict confinement"),
+    )
+    @mock.patch("nvbroadcast.app.IS_LINUX", True)
+    def test_gui_startup_tolerates_denied_systemctl(self, run):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+
+        self.assertFalse(NVBroadcastApp._stop_headless_vcam_service(app))
+        run.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

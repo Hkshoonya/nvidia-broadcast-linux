@@ -607,6 +607,53 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Verify Snap runtime dependency closure", workflow)
         self.assertIn("scripts/validate_snap_runtime.py", workflow)
 
+    def test_snap_relocates_python_venv_for_strict_runtime(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        validator = (
+            REPO_ROOT / "scripts" / "validate_snap_runtime.py"
+        ).read_text()
+
+        self.assertIn('PYVENV_CFG="$CRAFT_PART_INSTALL/pyvenv.cfg"', snapcraft)
+        self.assertIn("'s|^home = .*|home = /usr/bin|'", snapcraft)
+        self.assertIn("'/^executable = /d'", snapcraft)
+        self.assertIn("'/^command = /d'", snapcraft)
+        self.assertIn("python_runtime_problems", validator)
+        self.assertIn("pyvenv.cfg contains build-only path", validator)
+
+    def test_snap_uses_gnome_content_runtime_without_shadowing_it(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        validator = (
+            REPO_ROOT / "scripts" / "validate_snap_runtime.py"
+        ).read_text()
+
+        for package in (
+            "python3-gi",
+            "gir1.2-gtk-4.0",
+            "gir1.2-adw-1",
+            "gstreamer1.0-plugins-base",
+            "libayatana-appindicator3-1",
+        ):
+            self.assertNotIn(f"      - {package}\n", snapcraft)
+        self.assertIn(
+            'PLATFORM_LIB="$SNAP/gnome-platform/usr/lib/$TRIPLET"', snapcraft
+        )
+        self.assertIn("platform_shadow_problems", validator)
+        self.assertIn("--timeout 120", snapcraft)
+        self.assertIn("--retries 5", snapcraft)
+
+    def test_snap_packages_a_registered_desktop_launcher(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        validator = (
+            REPO_ROOT / "scripts" / "validate_snap_runtime.py"
+        ).read_text()
+
+        self.assertIn(
+            "desktop: share/applications/com.doczeus.NVBroadcast.desktop",
+            snapcraft,
+        )
+        self.assertIn("desktop_launcher_problems", validator)
+        self.assertIn("meta/gui/nvbroadcast.desktop", validator)
+
     def test_packaged_backgrounds_include_bundled_default(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         self.assertIn("data/backgrounds/studio_bg.png", pyproject)
