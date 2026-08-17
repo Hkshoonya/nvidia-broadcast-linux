@@ -2,6 +2,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import gi
+
+gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 from nvbroadcast.core.config import AppConfig
@@ -109,7 +112,16 @@ class ProfileSelectionAutoStartTests(unittest.TestCase):
 
         app.start_pipeline.assert_not_called()   # no restart of an active pipeline
         app.stop_pipeline.assert_not_called()    # never force-stops either
-        self.assertFalse(win._streaming)         # window flag left untouched
+        self.assertTrue(win._streaming)
+        win._stream_btn.set_label.assert_called_with("Stop Broadcast")
+        win._stream_btn.remove_css_class.assert_called_with("suggested-action")
+        win._stream_btn.add_css_class.assert_called_with("destructive-action")
+
+        win._on_stream_toggle(win._stream_btn)
+
+        app.start_pipeline.assert_not_called()
+        app.stop_pipeline.assert_called_once_with()
+        self.assertFalse(win._streaming)
 
 
 class ProfileSaveOptInTests(unittest.TestCase):

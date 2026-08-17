@@ -1995,10 +1995,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._profile_btn.set_label(f"Profile: {name}")
             popover.popdown()
             self.set_status(f"Switched to {name} profile")
-            # Start-only opt-in: the profile's explicit auto_start_on_select
-            # flag (default off). Legacy profiles load False -> no auto-start.
-            # Never force-stops an active broadcast.
-            if loaded.auto_start_on_select and not self._app._streaming:
+            # The application owns pipeline state. Keep the controls aligned
+            # before deciding whether this profile should start a stopped app.
+            if self._app._streaming:
+                self._streaming = True
+                self._stream_btn.set_label("Stop Broadcast")
+                self._stream_btn.remove_css_class("suggested-action")
+                self._stream_btn.add_css_class("destructive-action")
+            elif loaded.auto_start_on_select:
                 self._on_stream_toggle(self._stream_btn)
 
     def _on_save_profile(self, btn, popover):
