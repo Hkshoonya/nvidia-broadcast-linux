@@ -1,3 +1,5 @@
+import io
+import sys
 import unittest
 from unittest import mock
 
@@ -8,11 +10,39 @@ from gi.repository import Gst
 from nvbroadcast.vcam_service import (
     _strict_vcam_preference,
     build_pipeline,
+    main,
     start_pipeline_with_fallback,
 )
 
 
 class VCamServicePipelineTests(unittest.TestCase):
+    def test_main_stops_before_vcam_setup_when_no_camera_exists(self):
+        config = mock.Mock()
+        config.video.camera_device = "/dev/video0"
+        config.video.width = 1280
+        config.video.height = 720
+        config.video.fps = 30
+        config.video.vcam_device = "/dev/video10"
+
+        with mock.patch.object(sys, "argv", ["nvbroadcast-vcam"]), mock.patch(
+            "nvbroadcast.vcam_service.Gst.init"
+        ), mock.patch(
+            "nvbroadcast.vcam_service.load_config", return_value=config
+        ), mock.patch(
+            "nvbroadcast.vcam_service.resolve_camera_device",
+            return_value=None,
+        ) as resolve_camera_device, mock.patch(
+            "nvbroadcast.vcam_service.ensure_virtual_camera"
+        ) as ensure_virtual_camera, mock.patch(
+            "sys.stderr", new_callable=io.StringIO
+        ) as stderr:
+            with self.assertRaisesRegex(SystemExit, "1"):
+                main()
+
+        resolve_camera_device.assert_called_once_with("/dev/video0")
+        ensure_virtual_camera.assert_not_called()
+        self.assertIn("no usable physical camera found", stderr.getvalue())
+
     def test_strict_vcam_preference_only_for_explicit_or_non_default_device(self):
         self.assertIsNone(_strict_vcam_preference("/dev/video10"))
         self.assertEqual(_strict_vcam_preference("/dev/video11"), "/dev/video11")

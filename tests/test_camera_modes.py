@@ -7,6 +7,7 @@ from nvbroadcast.video.virtual_camera import (
     list_camera_devices,
     list_camera_format_modes,
     list_camera_modes,
+    resolve_camera_device,
     select_camera_mode,
     select_camera_capture_format,
 )
@@ -28,6 +29,18 @@ class CameraModesTests(unittest.TestCase):
     def test_list_camera_modes_returns_empty_on_timeout(self):
         with mock.patch("nvbroadcast.video.virtual_camera.subprocess.run", side_effect=subprocess.TimeoutExpired("v4l2-ctl", 3)):
             self.assertEqual(list_camera_modes("/dev/video99"), [])
+
+    def test_resolve_camera_device_returns_empty_when_none_are_usable(self):
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.IS_MACOS", False
+        ), mock.patch(
+            "nvbroadcast.video.virtual_camera.is_usable_camera_device",
+            return_value=False,
+        ), mock.patch(
+            "nvbroadcast.video.virtual_camera.list_camera_devices",
+            return_value=[],
+        ):
+            self.assertIsNone(resolve_camera_device("/dev/video0"))
 
     def test_list_camera_modes_is_cached(self):
         output = """

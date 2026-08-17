@@ -664,7 +664,7 @@ def is_usable_camera_device(device: str, name: str = "") -> bool:
     return bool(list_camera_modes(device)) or has_capture_info
 
 
-def resolve_camera_device(saved_device: str | None = None) -> str:
+def resolve_camera_device(saved_device: str | None = None) -> str | None:
     """Return the saved camera if valid, otherwise the first usable camera."""
     if IS_MACOS:
         device = saved_device or ""
@@ -680,7 +680,7 @@ def resolve_camera_device(saved_device: str | None = None) -> str:
             for camera in cameras:
                 if camera.get("legacy_device") == device:
                     return camera["device"]
-        return cameras[0]["device"] if cameras else ""
+        return cameras[0]["device"] if cameras else None
 
     device = saved_device or ""
     if device and is_usable_camera_device(device):
@@ -689,7 +689,7 @@ def resolve_camera_device(saved_device: str | None = None) -> str:
     cameras = list_camera_devices()
     if cameras:
         return cameras[0]["device"]
-    return device or "/dev/video0"
+    return None
 
 
 def list_camera_devices() -> list[dict[str, str]]:

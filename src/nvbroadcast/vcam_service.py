@@ -36,7 +36,6 @@ from nvbroadcast.core.platform import get_gst_camera_caps
 from nvbroadcast.video.virtual_camera import (
     camera_mode_candidates,
     ensure_virtual_camera,
-    list_camera_devices,
     resolve_camera_device,
     select_camera_mode,
 )
@@ -333,14 +332,12 @@ def main():
     fps = args.fps or config.video.fps
     requested_vcam = args.vcam or config.video.vcam_device
 
-    # Auto-detect camera if not specified
-    if not source_device or source_device == "/dev/video0":
-        cameras = list_camera_devices()
-        if cameras:
-            source_device = cameras[0]["device"]
-            print(f"[NVIDIA Broadcast VCam] Auto-detected camera: {cameras[0]['name']} ({source_device})")
-        else:
-            source_device = "/dev/video0"
+    if not source_device:
+        print(
+            "[NVIDIA Broadcast VCam] Error: no usable physical camera found",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Ensure virtual camera device exists
     try:
