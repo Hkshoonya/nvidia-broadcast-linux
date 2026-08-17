@@ -182,11 +182,22 @@ class RuntimeVariantTests(unittest.TestCase):
         )
 
     def test_installer_uses_support_extra_before_no_deps_backend(self):
-        with mock.patch.object(install_runtime_variant, "run_pip") as run_pip, \
-             mock.patch.object(
-                 install_runtime_variant, "validate_meeting_dependencies"
-             ) as validate_meeting_dependencies, \
-             mock.patch.object(install_runtime_variant.subprocess, "run") as run:
+        with (
+            mock.patch.object(
+                install_runtime_variant,
+                "runtime_owner_inventory",
+                side_effect=[{}, {"onnxruntime-gpu": ("1.24.4",)}],
+            ),
+            mock.patch.object(
+                install_runtime_variant, "run_pip"
+            ) as run_pip,
+            mock.patch.object(
+                install_runtime_variant, "validate_meeting_dependencies"
+            ) as validate_meeting_dependencies,
+            mock.patch.object(
+                install_runtime_variant.subprocess, "run"
+            ) as run,
+        ):
             install_runtime_variant.install(Path("/project"), "cuda", "faster")
 
         self.assertEqual(
@@ -215,11 +226,20 @@ class RuntimeVariantTests(unittest.TestCase):
         )
 
     def test_installer_all_policy_preserves_both_meeting_backends(self):
-        with mock.patch.object(install_runtime_variant, "run_pip") as run_pip, \
-             mock.patch.object(
-                 install_runtime_variant, "validate_meeting_dependencies"
-             ) as validate_meeting_dependencies, \
-             mock.patch.object(install_runtime_variant.subprocess, "run"):
+        with (
+            mock.patch.object(
+                install_runtime_variant,
+                "runtime_owner_inventory",
+                side_effect=[{}, {"onnxruntime": ("1.24.4",)}],
+            ),
+            mock.patch.object(
+                install_runtime_variant, "run_pip"
+            ) as run_pip,
+            mock.patch.object(
+                install_runtime_variant, "validate_meeting_dependencies"
+            ) as validate_meeting_dependencies,
+            mock.patch.object(install_runtime_variant.subprocess, "run"),
+        ):
             install_runtime_variant.install(Path("/project"), "cpu", "all")
 
         self.assertEqual(
@@ -238,6 +258,173 @@ class RuntimeVariantTests(unittest.TestCase):
             ],
         )
         validate_meeting_dependencies.assert_called_once_with("cpu", "all")
+
+    def test_refuses_cpu_to_cuda_before_mutation(self):
+        self._assert_owner_transition_is_refused(
+            "cuda", {"onnxruntime": ("1.24.4",)}, "onnxruntime-gpu"
+        )
+
+    def test_refuses_cuda_to_cpu_before_mutation(self):
+        self._assert_owner_transition_is_refused(
+            "cpu", {"onnxruntime-gpu": ("1.24.4",)}, "onnxruntime"
+        )
+
+    def test_refuses_mixed_owners_before_mutation(self):
+        self._assert_owner_transition_is_refused(
+            "cpu",
+            {
+                "onnxruntime": ("1.24.4",),
+                "onnxruntime-gpu": ("1.24.4",),
+            },
+            "onnxruntime",
+        )
+
+    def test_refuses_duplicate_owner_before_mutation(self):
+        self._assert_owner_transition_is_refused(
+            "cpu",
+            {"onnxruntime": ("1.24.4", "1.24.4")},
+            "onnxruntime",
+        )
+
+    def _assert_owner_transition_is_refused(
+        self,
+        variant: str,
+        inventory: dict[str, tuple[str, ...]],
+        selected_owner: str,
+    ) -> None:
+        with (
+            mock.patch.object(
+                install_runtime_variant,
+                "runtime_owner_inventory",
+                return_value=inventory,
+            ),
+            mock.patch.object(
+                install_runtime_variant, "run_pip"
+            ) as run_pip,
+            mock.patch.object(
+                install_runtime_variant, "guard_source_environment"
+            ) as guard,
+            mock.patch.object(
+                install_runtime_variant.subprocess, "run"
+            ) as run,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                rf"Refusing runtime-owner transition.*{selected_owner}.*remove /project/.venv",
+            ):
+                install_runtime_variant.install(
+                    Path("/project"),
+                    variant,
+                    "none",
+                    source_venv=Path("/project/.venv"),
+                )
+
+        run_pip.assert_not_called()
+        guard.assert_not_called()
+        run.assert_not_called()
+
+    def test_source_guard_runs_before_runtime_installation(self):
+        events = []
+
+        def guard(*_args):
+            events.append("guard")
+
+        def run_pip(*_args):
+            events.append("pip")
+
+        with (
+            mock.patch.object(
+                install_runtime_variant,
+                "runtime_owner_inventory",
+                side_effect=[
+                    {"onnxruntime": ("1.24.4",)},
+                    {"onnxruntime": ("1.24.4",)},
+                ],
+            ),
+            mock.patch.object(
+                install_runtime_variant,
+                "guard_source_environment",
+                side_effect=guard,
+            ),
+            mock.patch.object(
+                install_runtime_variant, "run_pip", side_effect=run_pip
+            ),
+            mock.patch.object(install_runtime_variant.subprocess, "run"),
+        ):
+            install_runtime_variant.install(
+                Path("/project"),
+                "cpu",
+                "none",
+                editable=True,
+                source_venv=Path("/project/.venv"),
+            )
+
+        self.assertEqual(events, ["guard", "pip"])
+
+    def test_preflight_only_guards_source_environment(self):
+        project = Path("/project")
+        source_venv = project / ".venv"
+        with (
+            mock.patch.object(
+                install_runtime_variant,
+                "preflight_runtime_owner",
+            ) as preflight_runtime_owner,
+            mock.patch.object(
+                install_runtime_variant,
+                "guard_source_environment",
+            ) as guard_source_environment,
+            mock.patch.object(
+                install_runtime_variant.sys,
+                "argv",
+                [
+                    "install_runtime_variant.py",
+                    "--project",
+                    str(project),
+                    "--variant",
+                    "cpu",
+                    "--source-venv",
+                    str(source_venv),
+                    "--preflight-only",
+                ],
+            ),
+        ):
+            self.assertEqual(install_runtime_variant.main(), 0)
+
+        preflight_runtime_owner.assert_called_once_with(
+            project, "cpu", source_venv
+        )
+        guard_source_environment.assert_called_once_with(project, source_venv)
+
+    def test_installer_rejects_mixed_owners_after_installation(self):
+        mixed_inventory = {
+            "onnxruntime": ("1.24.4",),
+            "onnxruntime-gpu": ("1.24.4",),
+        }
+        with (
+            mock.patch.object(
+                install_runtime_variant,
+                "runtime_owner_inventory",
+                side_effect=[{}, mixed_inventory],
+            ),
+            mock.patch.object(
+                install_runtime_variant, "run_pip"
+            ) as run_pip,
+            mock.patch.object(
+                install_runtime_variant.subprocess, "run"
+            ) as run,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "expected exactly one onnxruntime-gpu distribution",
+            ):
+                install_runtime_variant.install(
+                    Path("/project"), "cuda", "none"
+                )
+
+        run_pip.assert_called_once_with(
+            "install", "--upgrade", "/project[cuda]"
+        )
+        run.assert_not_called()
 
     def test_cuda_meeting_closure_substitutes_gpu_runtime(self):
         environment = mock.Mock(

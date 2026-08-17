@@ -76,6 +76,45 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("unavailable until CuPy installs", install_script)
         self.assertIn("CUDA modes still need GPU inference runtime", install_script)
 
+    def test_source_setup_targets_select_one_runtime_owner(self):
+        setup_script = (REPO_ROOT / "setup_deps.sh").read_text()
+        makefile = (REPO_ROOT / "Makefile").read_text()
+
+        preflight = (
+            ".venv/bin/python scripts/install_runtime_variant.py \\\n"
+            "        --project . --variant cpu --meeting-backends none \\\n"
+            "        --source-venv .venv --preflight-only"
+        )
+        runtime_install = (
+            ".venv/bin/python scripts/install_runtime_variant.py \\\n"
+            "    --project . --variant cpu --meeting-backends none \\\n"
+            "    --source-venv .venv --editable"
+        )
+        self.assertIn(preflight, setup_script)
+        self.assertIn(runtime_install, setup_script)
+        self.assertLess(
+            setup_script.index(preflight),
+            setup_script.index("python3 -m venv .venv"),
+        )
+        self.assertLess(
+            setup_script.index(preflight),
+            setup_script.index(".venv/bin/pip install --upgrade"),
+        )
+
+        setup_targets = {
+            "install": "$(RUNTIME_INSTALLER) --variant cpu",
+            "install-gpu": "$(RUNTIME_INSTALLER) --variant cuda",
+            "dev": "$(RUNTIME_INSTALLER) --variant cpu --development",
+            "dev-gpu": "$(RUNTIME_INSTALLER) --variant cuda --development",
+        }
+        for target, command in setup_targets.items():
+            recipe = f"{target}: $(VENV)\n\t{command}"
+            self.assertIn(recipe, makefile)
+
+        self.assertNotIn("\t$(PIP) install -e .\n", makefile)
+        self.assertNotIn('\t$(PIP) install -e ".[dev]"', makefile)
+        self.assertIn("--source-venv $(VENV) --editable", makefile)
+
     def test_source_installer_guards_live_environment_before_mutations(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
         guard_calls = [

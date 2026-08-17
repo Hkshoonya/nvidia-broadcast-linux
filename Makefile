@@ -1,18 +1,25 @@
-.PHONY: run install dev clean native test release-smoke
+.PHONY: run install install-gpu dev dev-gpu clean native test release-smoke
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
+RUNTIME_INSTALLER := $(PYTHON) scripts/install_runtime_variant.py --project . --meeting-backends none --source-venv $(VENV) --editable
 export PYTHONNOUSERSITE := 1
 
 run:
 	$(PYTHON) -m nvbroadcast
 
 install: $(VENV)
-	$(PIP) install -e .
+	$(RUNTIME_INSTALLER) --variant cpu
+
+install-gpu: $(VENV)
+	$(RUNTIME_INSTALLER) --variant cuda
 
 dev: $(VENV)
-	$(PIP) install -e ".[dev]"
+	$(RUNTIME_INSTALLER) --variant cpu --development
+
+dev-gpu: $(VENV)
+	$(RUNTIME_INSTALLER) --variant cuda --development
 
 $(VENV):
 	python3 -m venv $(VENV) --system-site-packages
