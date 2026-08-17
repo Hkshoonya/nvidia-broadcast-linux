@@ -369,8 +369,9 @@ class SniTray:
             else:
                 cam = app.config.video.camera_device
                 fmt = app.config.video.output_format
-                app.start_pipeline(cam, fmt)
-                if app._window:
+                # Only flip window state when the pipeline actually started, so
+                # a failed start keeps window state aligned with app._streaming.
+                if app.start_pipeline(cam, fmt) and app._window:
                     app._window._streaming = True
                     app._window._stream_btn.set_label("Stop Broadcast")
         elif item_id == _ID_QUIT:
