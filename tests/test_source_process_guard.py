@@ -99,6 +99,88 @@ class SourceProcessGuardTests(unittest.TestCase):
                 ],
             )
 
+    def test_detects_exact_venv_console_scripts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            proc_root = root / "proc"
+            proc_root.mkdir()
+            project = root / "project"
+            venv = project / ".venv"
+            (venv / "bin").mkdir(parents=True)
+
+            self._write_process(
+                proc_root,
+                107,
+                [str(venv / "bin/python"), str(venv / "bin/nvbroadcast")],
+            )
+            self._write_process(
+                proc_root,
+                108,
+                [
+                    str(venv / "bin/python"),
+                    ".venv/bin/nvbroadcast-vcam",
+                    "--format",
+                    "i420",
+                ],
+                cwd=project,
+            )
+
+            self.assertEqual(
+                find_source_processes(venv, proc_root=proc_root),
+                [
+                    SourceProcess(107, "nvbroadcast"),
+                    SourceProcess(108, "nvbroadcast.vcam_service"),
+                ],
+            )
+
+    def test_detects_modules_after_python_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            proc_root = root / "proc"
+            proc_root.mkdir()
+            venv = root / "project/.venv"
+            (venv / "bin").mkdir(parents=True)
+
+            cases = (
+                (109, [str(venv / "bin/python"), "-s", "-m", "nvbroadcast"]),
+                (
+                    110,
+                    [
+                        str(venv / "bin/python"),
+                        "-EsOO",
+                        "-W",
+                        "ignore",
+                        "-Xdev",
+                        "--check-hash-based-pycs",
+                        "always",
+                        "-m",
+                        "nvbroadcast.vcam_service",
+                    ],
+                ),
+                (
+                    111,
+                    ["python3.14t", "-mnvbroadcast"],
+                    {"VIRTUAL_ENV": str(venv)},
+                ),
+            )
+            for case in cases:
+                pid, arguments, *environment = case
+                self._write_process(
+                    proc_root,
+                    pid,
+                    arguments,
+                    environment=environment[0] if environment else None,
+                )
+
+            self.assertEqual(
+                find_source_processes(venv, proc_root=proc_root),
+                [
+                    SourceProcess(109, "nvbroadcast"),
+                    SourceProcess(110, "nvbroadcast.vcam_service"),
+                    SourceProcess(111, "nvbroadcast"),
+                ],
+            )
+
     def test_ignores_foreign_environments_unrelated_modules_and_lookalikes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -115,6 +197,47 @@ class SourceProcessGuardTests(unittest.TestCase):
                 (203, [str(venv / "bin/python"), "-m", "nvbroadcast.vcam_service.extra"]),
                 (204, [str(venv / "bin/python"), "-c", "import nvbroadcast"]),
                 (205, [str(venv / "bin/not-python"), "-m", "nvbroadcast"]),
+                (
+                    207,
+                    [
+                        str(foreign_venv / "bin/python"),
+                        str(venv / "bin/nvbroadcast"),
+                    ],
+                ),
+                (
+                    208,
+                    [str(venv / "bin/python"), str(root / "bin/nvbroadcast")],
+                ),
+                (
+                    209,
+                    [
+                        str(venv / "bin/python"),
+                        str(venv / "bin/nvbroadcast-extra"),
+                    ],
+                ),
+                (
+                    210,
+                    [str(venv / "bin/python"), "-c", "pass", "-m", "nvbroadcast"],
+                ),
+                (
+                    211,
+                    [str(venv / "bin/python"), "script.py", "-m", "nvbroadcast"],
+                ),
+                (
+                    212,
+                    [str(venv / "bin/python"), "--unknown", "-m", "nvbroadcast"],
+                ),
+                (213, [str(venv / "bin/python"), "-W"]),
+                (
+                    214,
+                    [
+                        str(venv / "bin/python"),
+                        "--check-hash-based-pycs",
+                        "sometimes",
+                        "-m",
+                        "nvbroadcast",
+                    ],
+                ),
             )
             for pid, arguments in cases:
                 self._write_process(proc_root, pid, arguments)

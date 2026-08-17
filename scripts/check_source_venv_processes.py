@@ -13,7 +13,15 @@ from typing import Mapping, Sequence
 
 
 TARGET_MODULES = frozenset(("nvbroadcast", "nvbroadcast.vcam_service"))
+TARGET_CONSOLE_SCRIPTS = {
+    "nvbroadcast": "nvbroadcast",
+    "nvbroadcast-vcam": "nvbroadcast.vcam_service",
+}
 PYTHON_EXECUTABLE = re.compile(r"python(?:\d+(?:\.\d+)?[a-z]*)?")
+PYTHON_FLAG_OPTIONS = frozenset("bBdEiIOPqRsSuvx")
+PYTHON_EXIT_OPTIONS = frozenset("h?V")
+PYTHON_VALUE_OPTIONS = frozenset("WX")
+HASH_PYC_MODES = frozenset(("always", "default", "never"))
 
 
 class ProcessInspectionError(RuntimeError):
@@ -43,6 +51,61 @@ def _normalized_path(path: Path) -> Path:
     return Path(os.path.abspath(os.path.normpath(path)))
 
 
+def _target_invocation(arguments: Sequence[str]) -> tuple[str, Path | None] | None:
+    if len(arguments) < 2:
+        return None
+    if not PYTHON_EXECUTABLE.fullmatch(Path(arguments[0]).name):
+        return None
+
+    index = 1
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--check-hash-based-pycs":
+            if index + 1 >= len(arguments):
+                return None
+            if arguments[index + 1] not in HASH_PYC_MODES:
+                return None
+            index += 2
+            continue
+        if argument == "--" or argument == "-":
+            return None
+        if argument.startswith("--"):
+            return None
+        if not argument.startswith("-"):
+            script = Path(argument)
+            module = TARGET_CONSOLE_SCRIPTS.get(script.name)
+            return (module, script) if module is not None else None
+
+        options = argument[1:]
+        if not options:
+            return None
+        option_index = 0
+        while option_index < len(options):
+            option = options[option_index]
+            remainder = options[option_index + 1 :]
+            if option in PYTHON_EXIT_OPTIONS or option == "c":
+                return None
+            if option == "m":
+                if remainder:
+                    module = remainder
+                elif index + 1 < len(arguments):
+                    module = arguments[index + 1]
+                else:
+                    return None
+                return (module, None) if module in TARGET_MODULES else None
+            if option in PYTHON_VALUE_OPTIONS:
+                if not remainder:
+                    if index + 1 >= len(arguments):
+                        return None
+                    index += 1
+                break
+            if option not in PYTHON_FLAG_OPTIONS:
+                return None
+            option_index += 1
+        index += 1
+    return None
+
+
 def _source_module(
     arguments: Sequence[str],
     *,
@@ -50,34 +113,42 @@ def _source_module(
     cwd: Path | None = None,
     environment: Mapping[str, str] | None = None,
 ) -> str | None:
-    if len(arguments) < 3 or arguments[1] != "-m":
+    invocation = _target_invocation(arguments)
+    if invocation is None:
         return None
-
-    module = arguments[2]
-    if module not in TARGET_MODULES:
-        return None
+    module, console_script = invocation
 
     executable = Path(arguments[0])
-    if not PYTHON_EXECUTABLE.fullmatch(executable.name):
-        return None
-
     expected_venv = _normalized_path(venv)
     if executable.is_absolute():
         executable = _normalized_path(executable)
-        return module if executable.parent == expected_venv / "bin" else None
-
-    if executable.parent != Path("."):
+        if executable.parent != expected_venv / "bin":
+            return None
+    elif executable.parent != Path("."):
         if cwd is None:
             raise ProcessInspectionError(
                 "cannot resolve a relative Python executable without process cwd"
             )
         executable = _normalized_path(cwd / executable)
-        return module if executable.parent == expected_venv / "bin" else None
+        if executable.parent != expected_venv / "bin":
+            return None
+    else:
+        virtual_env = (environment or {}).get("VIRTUAL_ENV")
+        if not virtual_env or _normalized_path(Path(virtual_env)) != expected_venv:
+            return None
 
-    virtual_env = (environment or {}).get("VIRTUAL_ENV")
-    if virtual_env and _normalized_path(Path(virtual_env)) == expected_venv:
-        return module
-    return None
+    if console_script is not None:
+        if console_script.is_absolute():
+            console_script = _normalized_path(console_script)
+        else:
+            if cwd is None:
+                raise ProcessInspectionError(
+                    "cannot resolve a relative console script without process cwd"
+                )
+            console_script = _normalized_path(cwd / console_script)
+        if console_script.parent != expected_venv / "bin":
+            return None
+    return module
 
 
 def _read_process_file(path: Path, description: str) -> bytes:
@@ -130,18 +201,21 @@ def find_source_processes(
             )
         except FileNotFoundError:
             continue
-        if len(arguments) < 3 or arguments[1] != "-m":
-            continue
-        if arguments[2] not in TARGET_MODULES:
+        invocation = _target_invocation(arguments)
+        if invocation is None:
             continue
 
         executable = Path(arguments[0])
+        console_script = invocation[1]
         cwd = None
         environment = None
         try:
-            if not executable.is_absolute() and executable.parent != Path("."):
+            if (
+                not executable.is_absolute()
+                and executable.parent != Path(".")
+            ) or (console_script is not None and not console_script.is_absolute()):
                 cwd = (process_dir / "cwd").resolve(strict=True)
-            elif not executable.is_absolute():
+            if not executable.is_absolute() and executable.parent == Path("."):
                 environment = _decode_environment(
                     _read_process_file(
                         process_dir / "environ", "process environment"
