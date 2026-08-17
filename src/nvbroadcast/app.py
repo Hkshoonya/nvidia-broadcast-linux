@@ -269,6 +269,10 @@ class NVBroadcastApp(Adw.Application):
         """
         if not IS_LINUX:
             return False
+        if os.environ.get("SNAP"):
+            # Strict snaps cannot execute the host's systemctl. Continue with
+            # virtual-camera setup instead of aborting application startup.
+            return False
 
         service = "nvbroadcast-vcam.service"
         try:
@@ -277,7 +281,7 @@ class NVBroadcastApp(Adw.Application):
                 check=False,
                 timeout=1,
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired):
             return False
 
         if active.returncode != 0:
@@ -296,7 +300,7 @@ class NVBroadcastApp(Adw.Application):
                 flush=True,
             )
             return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired):
             return False
 
     def do_activate(self):
@@ -1242,6 +1246,13 @@ class NVBroadcastApp(Adw.Application):
         resolved_camera = resolve_camera_device(
             camera_device or self.config.video.camera_device
         )
+        if not resolved_camera:
+            self._streaming = False
+            message = "No usable camera found. Connect a camera and try again."
+            if self._window:
+                self._window.set_status(message)
+            print(f"[NV Broadcast] {message}", flush=True)
+            return False
         if resolved_camera != camera_device:
             print(
                 f"[NV Broadcast] Camera changed: {camera_device} -> {resolved_camera}",

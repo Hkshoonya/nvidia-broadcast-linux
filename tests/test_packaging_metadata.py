@@ -282,8 +282,8 @@ class PackagingMetadataTests(unittest.TestCase):
         )[1].split("- name: Update Snap Store metadata", 1)[0]
         self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", review_step)
         self.assertNotIn("secrets.SNAP_TOKEN", review_step)
-        self.assertIn("timeout-minutes: 30", review_step)
-        self.assertIn("timeout-minutes: 30", publish_step)
+        self.assertIn("timeout-minutes: 60", review_step)
+        self.assertIn("timeout-minutes: 60", publish_step)
         self.assertIn("permissions:\n      contents: write", attach_job)
         self.assertIn("action-gh-release", attach_job)
         self.assertNotIn("inputs.candidate", attach_job)
@@ -607,6 +607,53 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Verify Snap runtime dependency closure", workflow)
         self.assertIn("scripts/validate_snap_runtime.py", workflow)
 
+    def test_snap_relocates_python_venv_for_strict_runtime(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        validator = (
+            REPO_ROOT / "scripts" / "validate_snap_runtime.py"
+        ).read_text()
+
+        self.assertIn('PYVENV_CFG="$CRAFT_PART_INSTALL/pyvenv.cfg"', snapcraft)
+        self.assertIn("'s|^home = .*|home = /usr/bin|'", snapcraft)
+        self.assertIn("'/^executable = /d'", snapcraft)
+        self.assertIn("'/^command = /d'", snapcraft)
+        self.assertIn("python_runtime_problems", validator)
+        self.assertIn("pyvenv.cfg contains build-only path", validator)
+
+    def test_snap_uses_gnome_content_runtime_without_shadowing_it(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        validator = (
+            REPO_ROOT / "scripts" / "validate_snap_runtime.py"
+        ).read_text()
+
+        for package in (
+            "python3-gi",
+            "gir1.2-gtk-4.0",
+            "gir1.2-adw-1",
+            "gstreamer1.0-plugins-base",
+            "libayatana-appindicator3-1",
+        ):
+            self.assertNotIn(f"      - {package}\n", snapcraft)
+        self.assertIn(
+            'PLATFORM_LIB="$SNAP/gnome-platform/usr/lib/$TRIPLET"', snapcraft
+        )
+        self.assertIn("platform_shadow_problems", validator)
+        self.assertIn("--timeout 120", snapcraft)
+        self.assertIn("--retries 5", snapcraft)
+
+    def test_snap_packages_a_registered_desktop_launcher(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        validator = (
+            REPO_ROOT / "scripts" / "validate_snap_runtime.py"
+        ).read_text()
+
+        self.assertIn(
+            "desktop: share/applications/com.doczeus.NVBroadcast.desktop",
+            snapcraft,
+        )
+        self.assertIn("desktop_launcher_problems", validator)
+        self.assertIn("meta/gui/nvbroadcast.desktop", validator)
+
     def test_packaged_backgrounds_include_bundled_default(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         self.assertIn("data/backgrounds/studio_bg.png", pyproject)
@@ -689,6 +736,33 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("publish, candidate, and review are mutually exclusive", workflow)
         self.assertIn("release_tag is required when publishing from workflow_dispatch", workflow)
         self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
+
+    def test_snap_promotion_workflow_validates_exact_revisions_and_rolls_back(self):
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "snap-promote.yml"
+        ).read_text()
+
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("\n  push:", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertIn("group: snap-store-promotion", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
+        self.assertIn("amd64_revision:", workflow)
+        self.assertIn("arm64_revision:", workflow)
+        self.assertIn("validate_revision amd64", workflow)
+        self.assertIn("validate_revision arm64", workflow)
+        self.assertIn("rollback_candidate", workflow)
+        self.assertIn('snapcraft release "$SNAP_NAME" "$ARM64_REVISION" candidate', workflow)
+        self.assertIn('snapcraft release "$SNAP_NAME" "$AMD64_REVISION" candidate', workflow)
+        self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", workflow)
+        self.assertIn("secrets.SNAP_TOKEN", workflow)
+        self.assertIn("--from-channel=candidate", workflow)
+        self.assertIn("--to-channel=stable", workflow)
+        self.assertIn("Stable channel verification does not match", workflow)
+        self.assertIn('snap download "$SNAP_NAME"', workflow)
+        self.assertIn('--revision="$CANDIDATE_ARM64"', workflow)
+        self.assertIn('snapcraft upload-metadata "$METADATA_SNAP" --force', workflow)
+        self.assertNotIn('if [ -n "${{ inputs.', workflow)
 
     def test_about_window_separates_authorship_sponsors_and_contributors(self):
         window = (REPO_ROOT / "src" / "nvbroadcast" / "ui" / "window.py").read_text()
