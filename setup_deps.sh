@@ -6,6 +6,17 @@ export PYTHONNOUSERSITE=1
 
 echo "=== NVIDIA Broadcast Dependency Installer ==="
 
+preflight_python_environment() {
+    if [ -x .venv/bin/python ]; then
+        .venv/bin/python scripts/install_runtime_variant.py \
+            --project . --variant cpu --meeting-backends none \
+            --source-venv .venv --preflight-only
+    fi
+}
+
+# Refuse incompatible or active source environments before any package mutation.
+preflight_python_environment
+
 # GStreamer packages
 echo "[1/5] Installing GStreamer packages..."
 sudo apt install -y \
@@ -45,11 +56,8 @@ fi
 
 # Python venv + packages
 echo "[5/5] Setting up Python environment..."
-if [ -x .venv/bin/python ]; then
-    .venv/bin/python scripts/install_runtime_variant.py \
-        --project . --variant cpu --meeting-backends none \
-        --source-venv .venv --preflight-only
-fi
+# Recheck immediately before Python mutations to narrow the race window.
+preflight_python_environment
 python3 -m venv .venv --system-site-packages
 .venv/bin/pip install --upgrade \
     "pip>=26.1.2" "setuptools>=83.0.0" wheel

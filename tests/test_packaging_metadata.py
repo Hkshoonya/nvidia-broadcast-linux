@@ -82,8 +82,8 @@ class PackagingMetadataTests(unittest.TestCase):
 
         preflight = (
             ".venv/bin/python scripts/install_runtime_variant.py \\\n"
-            "        --project . --variant cpu --meeting-backends none \\\n"
-            "        --source-venv .venv --preflight-only"
+            "            --project . --variant cpu --meeting-backends none \\\n"
+            "            --source-venv .venv --preflight-only"
         )
         runtime_install = (
             ".venv/bin/python scripts/install_runtime_variant.py \\\n"
@@ -92,12 +92,27 @@ class PackagingMetadataTests(unittest.TestCase):
         )
         self.assertIn(preflight, setup_script)
         self.assertIn(runtime_install, setup_script)
+        preflight_calls = [
+            match.start()
+            for match in re.finditer(
+                r"^preflight_python_environment$", setup_script, flags=re.MULTILINE
+            )
+        ]
+        self.assertEqual(len(preflight_calls), 2)
         self.assertLess(
-            setup_script.index(preflight),
+            preflight_calls[0],
+            setup_script.index("sudo apt install"),
+        )
+        self.assertLess(
+            setup_script.index("sudo apt install"),
+            preflight_calls[1],
+        )
+        self.assertLess(
+            preflight_calls[1],
             setup_script.index("python3 -m venv .venv"),
         )
         self.assertLess(
-            setup_script.index(preflight),
+            preflight_calls[1],
             setup_script.index(".venv/bin/pip install --upgrade"),
         )
 
