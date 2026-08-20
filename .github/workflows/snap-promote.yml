@@ -22,6 +22,7 @@ on:
         default: ''
 
 permissions:
+  attestations: read
   contents: read
 
 concurrency:
@@ -151,6 +152,7 @@ jobs:
         env:
           AMD64_REVISION: ${{ inputs.amd64_revision }}
           ARM64_REVISION: ${{ inputs.arm64_revision }}
+          GH_TOKEN: ${{ github.token }}
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
         run: |
           set -euo pipefail
@@ -175,15 +177,18 @@ jobs:
           validate_candidate() {
             local architecture="$1"
             local table="$2"
-            local revision line found_revision uploaded found_architecture found_version channels
+            local revision line found_revision _uploaded found_architecture found_version channels
             revision="$(current_revision "$table" candidate)"
             line="$(awk -v revision="$revision" '$1 == revision { print; exit }' <<<"$table")"
             if [ -z "$revision" ] || [ -z "$line" ]; then
               echo "::error::Current $architecture candidate revision could not be identified." >&2
               return 1
             fi
-            read -r found_revision uploaded found_architecture found_version channels <<<"$line"
-            if [ "$found_architecture" != "$architecture" ] || [ "$found_version" != "$EXPECTED_VERSION" ]; then
+            read -r found_revision _uploaded found_architecture found_version channels <<<"$line"
+            if [ "$found_revision" != "$revision" ] || \
+               [ "$found_architecture" != "$architecture" ] || \
+               [ "$found_version" != "$EXPECTED_VERSION" ] || \
+               [[ "$channels" != *"latest/candidate*"* ]]; then
               echo "::error::Current $architecture candidate is not a complete $EXPECTED_VERSION revision." >&2
               return 1
             fi
@@ -195,16 +200,45 @@ jobs:
           CANDIDATE_AMD64="$(validate_candidate amd64 "$AMD64_TABLE")"
           CANDIDATE_ARM64="$(validate_candidate arm64 "$ARM64_TABLE")"
 
-          METADATA_DIR="$RUNNER_TEMP/snap-store-metadata"
-          mkdir -p "$METADATA_DIR"
-          snap download "$SNAP_NAME" \
-            --revision="$CANDIDATE_ARM64" \
-            --target-directory="$METADATA_DIR"
-          METADATA_SNAP="$METADATA_DIR/${SNAP_NAME}_${CANDIDATE_ARM64}.snap"
-          if [ ! -f "$METADATA_SNAP" ]; then
-            echo "::error::Could not download the signed ARM64 candidate for metadata upload."
-            exit 1
-          fi
+          RELEASE_TAG="v$EXPECTED_VERSION"
+          git fetch --no-tags origin \
+            "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          RELEASE_COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")"
+
+          download_and_verify_candidate() {
+            local architecture="$1"
+            local revision="$2"
+            local target_directory="$RUNNER_TEMP/snap-store-$architecture"
+            local snap_path="$target_directory/${SNAP_NAME}_${revision}.snap"
+
+            mkdir -p "$target_directory"
+            if ! snap download "$SNAP_NAME" \
+              --revision="$revision" \
+              --target-directory="$target_directory" >&2; then
+              echo "::error::Could not download $architecture candidate revision $revision." >&2
+              return 1
+            fi
+            if [ ! -f "$snap_path" ]; then
+              echo "::error::Could not download $architecture candidate revision $revision." >&2
+              return 1
+            fi
+
+            if ! gh attestation verify "$snap_path" \
+              --repo Hkshoonya/nvidia-broadcast-linux \
+              --signer-workflow Hkshoonya/nvidia-broadcast-linux/.github/workflows/snap.yml \
+              --source-ref "refs/tags/$RELEASE_TAG" \
+              --source-digest "$RELEASE_COMMIT" \
+              --deny-self-hosted-runners >&2; then
+              echo "::error::Attestation verification failed for $architecture candidate revision $revision." >&2
+              return 1
+            fi
+            printf '%s\n' "$snap_path"
+          }
+
+          download_and_verify_candidate amd64 "$CANDIDATE_AMD64" >/dev/null
+          CANDIDATE_ARM64_SNAP="$(
+            download_and_verify_candidate arm64 "$CANDIDATE_ARM64"
+          )"
 
           snapcraft promote "$SNAP_NAME" \
             --from-channel=candidate \
@@ -219,7 +253,7 @@ jobs:
             exit 1
           fi
 
-          snapcraft upload-metadata "$METADATA_SNAP" --force
+          snapcraft upload-metadata "$CANDIDATE_ARM64_SNAP" --force
 
           printf 'Stable now matches candidate: amd64 revision %s, arm64 revision %s.\n' \
             "$CANDIDATE_AMD64" "$CANDIDATE_ARM64"

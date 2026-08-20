@@ -306,6 +306,15 @@ The installer:
 - **macOS package installs** — the app prefers the latest `.pkg` release asset when one is published; the package updates an installation whose Homebrew, Python, GStreamer, GTK, and OBS prerequisites are already configured by `install_macos.sh`
 - **Snap installs** — the app opens the Snap Store listing; stable refreshes are normally handled by `snapd`
 
+### Verify Release Downloads
+
+New release workflows publish SHA-256 manifests and Sigstore-backed GitHub
+provenance for DEB, RPM, PKG, and attached Snap artifacts. Verify both the
+checksum and the expected signer workflow before installing a manually
+downloaded package. See [Verifying Release Artifacts](docs/RELEASE_VERIFICATION.md)
+for the exact Linux, macOS, and GitHub CLI commands and the remaining
+reproducibility limits.
+
 ### Optional: TensorRT (for Zeus/Killer modes)
 
 ```bash
