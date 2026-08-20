@@ -32,10 +32,11 @@ DEFAULT_PROBE_TIMEOUT_SECONDS = 30.0
 _RESULT_PREFIX = "NVBROADCAST_RUNTIME_PROBE_RESULT="
 _MAX_DIAGNOSTIC_CHARS = 65_536
 _CHILD_BOOTSTRAP = (
-    "import runpy, sys; "
+    "import json, runpy, sys; "
     "package_root = sys.argv.pop(1); "
     "probe_path = sys.argv.pop(1); "
-    "sys.path.insert(0, package_root); "
+    "trusted_roots = json.loads(sys.argv.pop(1)); "
+    "sys.path[:0] = [package_root, *trusted_roots]; "
     "runpy.run_path(probe_path, run_name='__main__')"
 )
 
@@ -460,6 +461,51 @@ def _parse_child_result(
     return result
 
 
+def _path_is_within(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def _trusted_child_import_roots(package_root: Path) -> tuple[str, ...]:
+    """Forward installed package roots without trusting arbitrary PYTHONPATH."""
+    anchors = [package_root.resolve()]
+    for attribute in ("prefix", "exec_prefix", "base_prefix", "base_exec_prefix"):
+        value = getattr(sys, attribute, "")
+        if not value:
+            continue
+        root = Path(value).resolve()
+        if root != root.parent and root not in anchors:
+            anchors.append(root)
+
+    # Nix wrappers expose propagated Python dependencies as separate immutable
+    # store entries on sys.path. Trust that shared store only when this package
+    # or interpreter is itself running from Nix.
+    nix_store = Path("/nix/store")
+    executable = Path(sys.executable).resolve()
+    if any(
+        _path_is_within(candidate, nix_store)
+        for candidate in (*anchors, executable)
+    ):
+        anchors.append(nix_store)
+
+    roots: list[str] = []
+    seen = {str(package_root.resolve())}
+    for entry in sys.path:
+        if not entry:
+            continue
+        try:
+            resolved = Path(entry).resolve()
+        except (OSError, RuntimeError):
+            continue
+        value = str(resolved)
+        if value in seen or not any(
+            _path_is_within(resolved, anchor) for anchor in anchors
+        ):
+            continue
+        seen.add(value)
+        roots.append(value)
+    return tuple(roots)
+
+
 def _run_provider_probe(
     provider: ProbeProvider,
     device_id: int,
@@ -473,6 +519,7 @@ def _run_provider_probe(
     environment["PYTHONUNBUFFERED"] = "1"
     probe_path = Path(__file__).resolve()
     package_root = probe_path.parents[2]
+    trusted_import_roots = _trusted_child_import_roots(package_root)
     command = [
         executable,
         "-I",
@@ -480,6 +527,7 @@ def _run_provider_probe(
         _CHILD_BOOTSTRAP,
         str(package_root),
         str(probe_path),
+        json.dumps(trusted_import_roots),
         "--provider",
         provider.value,
         "--device-id",

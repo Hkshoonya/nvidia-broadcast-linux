@@ -86,7 +86,17 @@ class RuntimeProbeTests(unittest.TestCase):
             ),
             stderr="",
         )
-        with mock.patch.object(probe.subprocess, "run", return_value=completed) as run:
+        trusted_roots = (
+            "/nix/store/numpy/lib/python/site-packages",
+            "/nix/store/onnxruntime/lib/python/site-packages",
+        )
+        with mock.patch.object(
+            probe,
+            "_trusted_child_import_roots",
+            return_value=trusted_roots,
+        ), mock.patch.object(
+            probe.subprocess, "run", return_value=completed
+        ) as run:
             result = probe_execution_provider(
                 ProbeProvider.CUDA, use_cache=False
             )
@@ -98,12 +108,62 @@ class RuntimeProbeTests(unittest.TestCase):
         self.assertIn("runpy.run_path", command[3])
         self.assertEqual(command[4], str(probe_path.parents[2]))
         self.assertEqual(command[5], str(probe_path))
+        self.assertEqual(tuple(json.loads(command[6])), trusted_roots)
         self.assertNotIn("PYTHONPATH", run.call_args.kwargs["env"])
         self.assertNotIn("PYTHONHOME", run.call_args.kwargs["env"])
         self.assertEqual(run.call_args.kwargs["env"]["PYTHONNOUSERSITE"], "1")
         self.assertTrue(run.call_args.kwargs["capture_output"])
         self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
         self.assertEqual(run.call_args.kwargs["timeout"], 30.0)
+
+    def test_trusted_import_roots_support_nix_without_forwarding_arbitrary_paths(self):
+        package_root = Path("/nix/store/nvbroadcast/lib/python/site-packages")
+        nix_numpy = "/nix/store/numpy/lib/python/site-packages"
+        nix_ort = "/nix/store/onnxruntime/lib/python/site-packages"
+        with mock.patch.object(
+            probe.sys,
+            "path",
+            ["", "/tmp/shadow", str(package_root), nix_numpy, nix_ort],
+        ), mock.patch.object(
+            probe.sys, "prefix", "/nix/store/python"
+        ), mock.patch.object(
+            probe.sys, "exec_prefix", "/nix/store/python"
+        ), mock.patch.object(
+            probe.sys, "base_prefix", "/nix/store/python"
+        ), mock.patch.object(
+            probe.sys, "base_exec_prefix", "/nix/store/python"
+        ), mock.patch.object(
+            probe.sys, "executable", "/nix/store/python/bin/python"
+        ):
+            roots = probe._trusted_child_import_roots(package_root)
+
+        self.assertEqual(roots, (nix_numpy, nix_ort))
+        self.assertNotIn("/tmp/shadow", roots)
+
+    def test_nix_store_is_not_trusted_by_a_non_nix_interpreter(self):
+        package_root = Path("/opt/nvbroadcast/lib/python/site-packages")
+        with mock.patch.object(
+            probe.sys,
+            "path",
+            [
+                str(package_root),
+                "/nix/store/untrusted/lib/python/site-packages",
+                "/opt/python/lib/python/site-packages",
+            ],
+        ), mock.patch.object(
+            probe.sys, "prefix", "/opt/python"
+        ), mock.patch.object(
+            probe.sys, "exec_prefix", "/opt/python"
+        ), mock.patch.object(
+            probe.sys, "base_prefix", "/opt/python"
+        ), mock.patch.object(
+            probe.sys, "base_exec_prefix", "/opt/python"
+        ), mock.patch.object(
+            probe.sys, "executable", "/opt/python/bin/python"
+        ):
+            roots = probe._trusted_child_import_roots(package_root)
+
+        self.assertEqual(roots, ("/opt/python/lib/python/site-packages",))
 
     def test_native_stderr_and_child_error_are_retained(self):
         child_result = RuntimeProbeResult.failure(
