@@ -72,9 +72,34 @@ class PackagingMetadataTests(unittest.TestCase):
         )
         self.assertIn('rm -rf -- "$VENV_DIR"', install_script)
         self.assertIn("CUDA_ACCEL_AVAILABLE=true", install_script)
+        self.assertIn("CUDA execution probe ... OK", install_script)
+        self.assertNotIn("get_available_providers", install_script)
         self.assertIn("Runtime switch: stop NVBroadcast", install_script)
         self.assertIn("unavailable until CuPy installs", install_script)
         self.assertIn("CUDA modes still need GPU inference runtime", install_script)
+
+    def test_runtime_readiness_requires_fresh_process_model_execution(self):
+        runtime_cli = (
+            REPO_ROOT / "src" / "nvbroadcast" / "runtime" / "__main__.py"
+        ).read_text()
+        probe = (
+            REPO_ROOT / "src" / "nvbroadcast" / "runtime" / "probe.py"
+        ).read_text()
+        readme = (REPO_ROOT / "README.md").read_text()
+
+        self.assertIn("probe_execution_provider(provider, use_cache=False)", runtime_cli)
+        self.assertIn('"session.disable_cpu_ep_fallback", "1"', probe)
+        self.assertIn("session.disable_fallback()", probe)
+        self.assertIn("_profile_execution_providers", probe)
+        self.assertIn("PROBE_MODEL_SHA256", probe)
+        self.assertIn(
+            ".venv/bin/python -m nvbroadcast.runtime --variant cuda",
+            readme,
+        )
+        self.assertNotIn(
+            'import onnxruntime as ort; print(ort.get_available_providers())',
+            readme,
+        )
 
     def test_source_setup_targets_select_one_runtime_owner(self):
         setup_script = (REPO_ROOT / "setup_deps.sh").read_text()

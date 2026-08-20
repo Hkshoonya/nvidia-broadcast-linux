@@ -100,6 +100,7 @@ jobs:
             tests/test_eye_contact.py \
             tests/test_model_download.py \
             tests/test_packaging_metadata.py \
+            tests/test_runtime_probe.py \
             tests/test_summarizer.py \
             tests/test_tensorrt_rvm.py \
             tests/test_training_bundle.py \

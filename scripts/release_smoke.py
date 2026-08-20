@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import zipfile
 from pathlib import Path
 
@@ -15,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
 DIST_DIR = REPO_ROOT / "dist" / "release-smoke"
 REQUIRED_WHEEL_PATHS = [
+    "nvbroadcast/runtime/probe.py",
     "nvbroadcast/ui/style.css",
     ".data/data/share/applications/com.doczeus.NVBroadcast.desktop",
     ".data/data/share/metainfo/com.doczeus.NVBroadcast.metainfo.xml",
@@ -58,6 +58,7 @@ def main() -> int:
             str(PYTHON), "-m", "unittest", "-v",
             "tests.test_updates",
             "tests.test_audio_devices",
+            "tests.test_arch_support",
             "tests.test_dependency_installer",
             "tests.test_background_overlay",
             "tests.test_gpu_frame_path",
@@ -71,6 +72,8 @@ def main() -> int:
             "tests.test_macos_camera",
             "tests.test_meeting_store",
             "tests.test_packaging_metadata",
+            "tests.test_runtime_probe",
+            "tests.test_runtime_install_activation",
             "tests.test_snap_runtime_validator",
             "tests.test_summarizer",
             "tests.test_tensorrt_rvm",

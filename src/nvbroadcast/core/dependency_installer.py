@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import threading
+import traceback
 from pathlib import Path
 
 import gi
@@ -29,14 +30,17 @@ from gi.repository import GObject, GLib
 from nvbroadcast.core.platform import (
     IS_ARM64,
     IS_LINUX,
+    cuda_inference_probe_result,
     has_cuda_inference_runtime,
     has_tensorrt_runtime,
     preload_nvidia_runtime_libs,
     supports_openai_whisper_python,
     supports_linux_gpu_stack,
     supports_tensorrt_python,
+    tensorrt_inference_probe_result,
     tensorrt_python_unsupported_reason,
 )
+from nvbroadcast.runtime.probe import clear_runtime_probe_cache
 from nvbroadcast.runtime.variants import (
     FASTER_WHISPER_REQUIREMENT,
     RuntimeVariant,
@@ -156,20 +160,58 @@ def _supports_tensorrt_runtime() -> bool:
     return supports_linux_gpu_stack() and supports_tensorrt_python()
 
 
-def _verify_cupy() -> bool:
+def _verify_cupy_result() -> tuple[bool, str]:
     try:
         preload_nvidia_runtime_libs()
         import cupy
         import numpy as np
         arr = cupy.asarray(np.ones((8, 8), dtype=np.float32))
         _ = (arr * 2.0).astype(cupy.float32)
-        return True
-    except Exception:
-        return False
+        return True, ""
+    except Exception as error:
+        return (
+            False,
+            f"CuPy execution failed: {type(error).__name__}: {error}\n"
+            f"{traceback.format_exc()}",
+        )
+
+
+def _verify_cupy() -> bool:
+    return _verify_cupy_result()[0]
+
+
+def _verify_cuda_mode_runtime_result() -> tuple[bool, str]:
+    cupy_ok, cupy_detail = _verify_cupy_result()
+    if not cupy_ok:
+        return False, cupy_detail
+    probe = cuda_inference_probe_result()
+    return probe.success, probe.failure_detail
 
 
 def _verify_cuda_mode_runtime() -> bool:
-    return _verify_cupy() and has_cuda_inference_runtime()
+    return _verify_cuda_mode_runtime_result()[0]
+
+
+def _verify_tensorrt_runtime_result() -> tuple[bool, str]:
+    probe = tensorrt_inference_probe_result()
+    return probe.success, probe.failure_detail
+
+
+def _runtime_probe_failure_detail(package_id: str) -> str:
+    if package_id == "cupy":
+        probe = cuda_inference_probe_result()
+    elif package_id == "tensorrt":
+        probe = tensorrt_inference_probe_result()
+    else:
+        return ""
+    return "" if probe.success else probe.failure_detail
+
+
+def _with_probe_failure(message: str, package_id: str) -> str:
+    detail = _runtime_probe_failure_detail(package_id).strip()
+    if not detail:
+        return message
+    return f"{message}\n\nProvider probe details:\n{detail}"
 
 
 PACKAGE_SPECS = {
@@ -184,7 +226,8 @@ PACKAGE_SPECS = {
         "install_args": ["install", "--upgrade", *CUDA_RUNTIME_PACKAGES],
         "supported": _supports_cuda_runtime,
         "check": _has_cuda_mode_runtime,
-        "verify": _verify_cuda_mode_runtime,
+        "verify": _verify_cuda_mode_runtime_result,
+        "requires_restart": True,
         "help": "Retry later with: .venv/bin/pip install --upgrade " + " ".join(CUDA_RUNTIME_HELP_PACKAGES),
         "unsupported_reason": _cuda_runtime_unsupported_reason,
     },
@@ -199,7 +242,8 @@ PACKAGE_SPECS = {
         "install_args": ["install", "tensorrt-cu12"],
         "supported": _supports_tensorrt_runtime,
         "check": lambda: has_tensorrt_runtime(),
-        "verify": lambda: has_tensorrt_runtime(),
+        "verify": _verify_tensorrt_runtime_result,
+        "requires_restart": True,
         "help": "Retry later with: .venv/bin/pip install tensorrt-cu12",
         "unsupported_reason": (
             "TensorRT premium modes are currently available only on Linux x86_64 "
@@ -270,6 +314,7 @@ class DependencyInstaller(GObject.Object):
         self._lock = threading.Lock()
         self._active_job_id = ""
         self._active_thread = None
+        self._restart_pending_packages: set[str] = set()
 
     @property
     def busy(self) -> bool:
@@ -306,7 +351,34 @@ class DependencyInstaller(GObject.Object):
             return PACKAGE_BUNDLES[key]
         return PACKAGE_SPECS[key]
 
+    def _package_ids(self, key: str) -> tuple[str, ...]:
+        if key in PACKAGE_BUNDLES:
+            return tuple(PACKAGE_BUNDLES[key]["packages"])
+        return (key,) if key in PACKAGE_SPECS else ()
+
+    def restart_pending(self, key: str) -> bool:
+        with self._lock:
+            return any(
+                package_id in self._restart_pending_packages
+                for package_id in self._package_ids(key)
+            )
+
+    def _mark_restart_pending(self, package_id: str) -> None:
+        if PACKAGE_SPECS[package_id].get("requires_restart"):
+            with self._lock:
+                self._restart_pending_packages.add(package_id)
+
+    def _restart_pending_message(self, key: str) -> str:
+        title = self.describe(key)["title"]
+        return (
+            f"The current app process cannot safely use {title} after an "
+            "installation attempt. Restart NVBroadcast before selecting a mode "
+            "that uses it."
+        )
+
     def install_block_reason(self, key: str) -> str | None:
+        if self.restart_pending(key):
+            return self._restart_pending_message(key)
         if key in PACKAGE_BUNDLES:
             for package_id in PACKAGE_BUNDLES[key]["packages"]:
                 reason = self.install_block_reason(package_id)
@@ -326,6 +398,20 @@ class DependencyInstaller(GObject.Object):
         return _runtime_install_block_reason()
 
     def unsupported_reason_for_mode(self, mode_key: str) -> str | None:
+        pending_runtime = None
+        if mode_key in (
+            "doczeus",
+            "cuda_max",
+            "cuda_balanced",
+            "cuda_perf",
+            "zeus",
+            "killer",
+        ) and self.restart_pending("cupy"):
+            pending_runtime = "cupy"
+        if mode_key in ("zeus", "killer") and self.restart_pending("tensorrt"):
+            pending_runtime = "tensorrt"
+        if pending_runtime:
+            return self._restart_pending_message(pending_runtime)
         if (
             IS_LINUX
             and IS_ARM64
@@ -337,10 +423,13 @@ class DependencyInstaller(GObject.Object):
             and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
             and not _has_cuda_mode_runtime()
         ):
-            return (
-                "This Snap build cannot load the CUDA mode runtime on this system. "
-                "On amd64, refresh to the latest Snap; otherwise use the .deb, "
-                ".rpm, or source installer for CUDA GPU modes."
+            return _with_probe_failure(
+                (
+                    "This Snap build cannot load the CUDA mode runtime on this "
+                    "system. On amd64, refresh to the latest Snap; otherwise use "
+                    "the .deb, .rpm, or source installer for CUDA GPU modes."
+                ),
+                "cupy",
             )
         if (
             mode_key in ("zeus", "killer")
@@ -356,10 +445,13 @@ class DependencyInstaller(GObject.Object):
             and mode_key in ("zeus", "killer")
             and not has_tensorrt_runtime()
         ):
-            return (
-                "TensorRT is not included in this Snap build, and strict Snaps "
-                "cannot install runtimes after deployment. Use DocZeus or a CUDA "
-                "mode instead."
+            return _with_probe_failure(
+                (
+                    "TensorRT is unavailable in this Snap build, and strict Snaps "
+                    "cannot install runtimes after deployment. Use DocZeus or a "
+                    "CUDA mode instead."
+                ),
+                "tensorrt",
             )
         required_runtimes: list[str] = []
         if mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer"):
@@ -371,7 +463,10 @@ class DependencyInstaller(GObject.Object):
                 continue
             block_reason = self.install_block_reason(package_id)
             if block_reason:
-                return f"{block_reason} Use a mode whose runtime is already installed."
+                return _with_probe_failure(
+                    f"{block_reason} Use a mode whose runtime is already installed.",
+                    package_id,
+                )
         return None
 
     def missing_for_mode(self, mode_key: str) -> list[str]:
@@ -440,7 +535,14 @@ class DependencyInstaller(GObject.Object):
                     final_msg = message
                     break
             if ok:
-                final_msg = f"{bundle['title']} installed and ready."
+                if self.restart_pending(key):
+                    final_msg = (
+                        f"{bundle['title']} installed; provider execution was "
+                        "verified in fresh processes. Restart NVBroadcast to "
+                        "activate it."
+                    )
+                else:
+                    final_msg = f"{bundle['title']} installed and ready."
             self._finish_job(key, ok, final_msg)
             return
 
@@ -454,6 +556,11 @@ class DependencyInstaller(GObject.Object):
         self._finish_job(key, success, message)
 
     def _finish_job(self, key: str, success: bool, message: str):
+        if self.restart_pending(key) and "Restart NVBroadcast" not in message:
+            message += (
+                "\n\nA runtime installation was attempted. Restart NVBroadcast "
+                "before retrying or selecting a GPU mode."
+            )
         with self._lock:
             self._active_job_id = ""
             self._active_thread = None
@@ -493,6 +600,8 @@ class DependencyInstaller(GObject.Object):
             except Exception as exc:
                 return False, f"{spec['title']} could not start: {exc}"
 
+            # A failed pip run can still leave a partially changed runtime.
+            self._mark_restart_pending(package_id)
             if proc.stdout is not None:
                 for raw in proc.stdout:
                     line = raw.strip()
@@ -514,13 +623,38 @@ class DependencyInstaller(GObject.Object):
                     msg += f" Last output: {last_line[:160]}"
                 return False, msg
 
+        clear_runtime_probe_cache()
+        verification_detail = ""
         try:
-            verified = bool(spec["verify"]())
-        except Exception:
+            verification = spec["verify"]()
+            if (
+                isinstance(verification, tuple)
+                and len(verification) == 2
+            ):
+                verified = bool(verification[0])
+                verification_detail = str(verification[1] or "")
+            else:
+                verified = bool(verification)
+        except Exception as error:
             verified = False
+            verification_detail = (
+                f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
+            )
 
         if not verified:
-            return False, f"{spec['title']} installed but verification failed. {spec['help']}"
+            message = (
+                f"{spec['title']} installed but verification failed. "
+                f"{spec['help']}"
+            )
+            if verification_detail.strip():
+                message += f"\n\nProbe details:\n{verification_detail.strip()}"
+            return False, message
+        if spec.get("requires_restart"):
+            return (
+                True,
+                f"{spec['title']} installed; provider execution was verified in "
+                "a fresh process. Restart NVBroadcast to activate it.",
+            )
         return True, f"{spec['title']} installed successfully."
 
     @staticmethod

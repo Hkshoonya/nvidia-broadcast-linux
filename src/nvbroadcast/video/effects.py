@@ -23,7 +23,6 @@ import time
 if _platform.system() != "Darwin":
     os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 
-import ctypes
 import threading
 from pathlib import Path
 
@@ -31,7 +30,11 @@ import numpy as np
 import cv2
 
 from nvbroadcast.core.constants import CONFIG_DIR
-from nvbroadcast.core.platform import get_tensorrt_lib_dirs, get_trt_cache_dir, preload_nvidia_runtime_libs
+from nvbroadcast.core.platform import (
+    get_trt_cache_dir,
+    preload_nvidia_runtime_libs,
+    preload_tensorrt_runtime_libs,
+)
 
 
 def _preload_cuda_libs():
@@ -43,16 +46,7 @@ def _preload_cuda_libs():
         return
     try:
         preload_nvidia_runtime_libs()
-        # TensorRT libs (Zeus/Killer modes)
-        for lib_dir in get_tensorrt_lib_dirs():
-            # Load main libs first, then builders
-            for pattern in ("libnvinfer.so*", "libnvinfer_plugin.so*",
-                            "libnvonnxparser.so*", "libnvinfer_builder*.so*"):
-                for so in sorted(lib_dir.glob(pattern)):
-                    try:
-                        ctypes.CDLL(str(so), mode=ctypes.RTLD_GLOBAL)
-                    except OSError:
-                        pass
+        preload_tensorrt_runtime_libs()
     except Exception:
         pass
 

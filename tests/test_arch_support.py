@@ -15,11 +15,13 @@ from nvbroadcast.core.platform import (
     legacy_tray_enabled,
     linux_multiarch_triplet,
     preload_nvidia_runtime_libs,
+    preload_tensorrt_runtime_libs,
     python_runtime_advisory,
     supports_openai_whisper_python,
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
 )
+from nvbroadcast.runtime.probe import ProbeProvider, RuntimeProbeResult
 
 
 class ArchSupportTests(unittest.TestCase):
@@ -104,40 +106,58 @@ class ArchSupportTests(unittest.TestCase):
 
         self.assertEqual(dirs, [root, lib_dir])
 
-    def test_has_tensorrt_runtime_accepts_current_cu12_lib_package(self):
+    def test_preload_tensorrt_runtime_accepts_current_cu12_lib_package(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "libnvinfer.so.10").touch()
-
-            fake_ort = SimpleNamespace(
-                get_available_providers=lambda: ["TensorrtExecutionProvider"]
-            )
 
             def fake_find_spec(name: str):
                 if name == "tensorrt_cu12_libs":
                     return SimpleNamespace(submodule_search_locations=[str(root)])
                 return None
 
-            with mock.patch.dict("sys.modules", {"onnxruntime": fake_ort}), \
-                 mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True), \
-                 mock.patch("nvbroadcast.core.platform.ctypes.util.find_library", return_value=None), \
-                 mock.patch("nvbroadcast.core.platform.ctypes.CDLL", return_value=object()), \
-                 mock.patch("importlib.util.find_spec", side_effect=fake_find_spec):
-                self.assertTrue(has_tensorrt_runtime())
+            with mock.patch(
+                "nvbroadcast.core.platform.ctypes.CDLL", return_value=object()
+            ) as cdll, mock.patch(
+                "importlib.util.find_spec", side_effect=fake_find_spec
+            ):
+                errors = preload_tensorrt_runtime_libs()
 
-    def test_has_cuda_inference_runtime_requires_cuda_provider(self):
-        fake_ort = SimpleNamespace(
-            get_available_providers=lambda: ["CPUExecutionProvider"]
+        self.assertEqual(errors, [])
+        cdll.assert_called_once_with(
+            str(root / "libnvinfer.so.10"), mode=mock.ANY
         )
-        with mock.patch.dict("sys.modules", {"onnxruntime": fake_ort}), \
-             mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True):
+
+    def test_has_tensorrt_runtime_requires_successful_execution_probe(self):
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.TENSORRT, "provider load failed"
+        )
+        passed = RuntimeProbeResult(
+            provider=ProbeProvider.TENSORRT, success=True
+        )
+        with mock.patch(
+            "nvbroadcast.core.platform.supports_linux_gpu_stack",
+            return_value=True,
+        ), mock.patch(
+            "nvbroadcast.runtime.probe.probe_execution_provider",
+            side_effect=[failed, passed],
+        ):
+            self.assertFalse(has_tensorrt_runtime())
+            self.assertTrue(has_tensorrt_runtime())
+
+    def test_has_cuda_inference_runtime_requires_successful_execution_probe(self):
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA, "provider load failed"
+        )
+        passed = RuntimeProbeResult(provider=ProbeProvider.CUDA, success=True)
+        with mock.patch(
+            "nvbroadcast.core.platform.supports_linux_gpu_stack",
+            return_value=True,
+        ), mock.patch(
+            "nvbroadcast.runtime.probe.probe_execution_provider",
+            side_effect=[failed, passed],
+        ):
             self.assertFalse(has_cuda_inference_runtime())
-
-        fake_ort = SimpleNamespace(
-            get_available_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        )
-        with mock.patch.dict("sys.modules", {"onnxruntime": fake_ort}), \
-             mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True):
             self.assertTrue(has_cuda_inference_runtime())
 
     def test_preload_exposes_component_wheel_headers_to_cupy(self):

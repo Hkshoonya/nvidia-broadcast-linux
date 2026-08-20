@@ -366,6 +366,9 @@ class SetupWizard(Adw.Window):
         self._skip_btn.set_sensitive(True)
         self._status_label.set_text(text)
         if success:
+            if _installer.restart_pending(key):
+                self._caps["has_cupy"] = False
+                return
             self._caps["has_cupy"] = True
             mode = next(m for m in SETUP_MODES if m["key"] == self._selected_mode_key)
             self._finish(mode)

@@ -2554,7 +2554,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self.set_status(text)
         self.rebuild_mode_selector(self._app.config.compositing, self._app.config.performance_profile)
 
-        if success and self._pending_mode_key:
+        restart_pending = success and _installer.restart_pending(_key)
+        if restart_pending:
+            self._pending_mode_key = ""
+        elif success and self._pending_mode_key:
             pending_mode = self._pending_mode_key
             self._pending_mode_key = ""
             for i, d in enumerate(self._mode_devices):
@@ -2565,7 +2568,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         else:
             self._pending_mode_key = ""
 
-        if success and self._pending_meeting_start:
+        if success and not restart_pending and self._pending_meeting_start:
             self._pending_meeting_start = False
             filepath = self._app.start_meeting()
             if not filepath:

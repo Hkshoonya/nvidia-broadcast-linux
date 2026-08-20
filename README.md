@@ -496,12 +496,23 @@ install `.[cuda]`. Never overlay `.[cuda]` on an existing `.[cpu]` environment.
 Bare `pip install .` is runtime-neutral and intended for downstream packagers
 that provide exactly one ONNX Runtime owner themselves.
 
-Verify that ONNX Runtime can see the GPU provider:
+Verify ownership and execute the pinned probe model in a fresh process with CPU
+fallback disabled:
 ```bash
-.venv/bin/python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+.venv/bin/python -m nvbroadcast.runtime --variant cuda
 ```
 
-The output should include `CUDAExecutionProvider`. On Python `3.14+`, TensorRT may still be unavailable, but CUDA modes can run when the CUDA extra installs successfully.
+The command succeeds only when `CUDAExecutionProvider` creates a session,
+executes the probe graph on CUDA, and returns the expected output. Provider
+enumeration by itself is not treated as GPU readiness. To verify TensorRT in a
+CUDA-owned environment, run:
+
+```bash
+.venv/bin/python -m nvbroadcast.runtime --variant cuda --provider tensorrt
+```
+
+On Python `3.14+`, TensorRT may still be unavailable, but CUDA modes can run
+when the default CUDA probe succeeds.
 
 The amd64 Snap includes CUDA inference, compositing, and frame conversion, but
 intentionally uses GStreamer's CPU MJPEG decoder. Bundling the optional
@@ -547,6 +558,10 @@ nvidia-broadcast-linux/
 │   │   ├── platform.py          # OS/runtime feature detection
 │   │   ├── resources.py         # Packaged resource lookup
 │   │   └── updates.py           # GitHub release/update helpers
+│   ├── runtime/
+│   │   ├── artifact.py          # Installed dependency and artifact inspection
+│   │   ├── probe.py             # Fresh-process provider execution probe
+│   │   └── variants.py          # CPU/CUDA runtime ownership contracts
 │   ├── video/
 │   │   ├── effects.py           # Multi-model engine, fused CUDA kernel, edge refiner
 │   │   ├── pipeline.py          # GStreamer pipeline, async effects, frame throttling
