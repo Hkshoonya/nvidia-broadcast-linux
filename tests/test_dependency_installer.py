@@ -33,6 +33,7 @@ except Exception:
     sys.modules["gi.repository"] = repository
 
 from nvbroadcast.core import dependency_installer
+from nvbroadcast.runtime.probe import ProbeProvider, RuntimeProbeResult
 
 
 class DependencyInstallerTests(unittest.TestCase):
@@ -120,6 +121,144 @@ class DependencyInstallerTests(unittest.TestCase):
 
         preload.assert_called_once_with()
 
+    def test_cuda_verification_retains_provider_probe_error(self):
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA,
+            "CUDA session creation failed",
+            diagnostics="libcudnn.so.9 could not be loaded",
+        )
+        with mock.patch.object(
+            dependency_installer, "_verify_cupy_result", return_value=(True, "")
+        ), mock.patch.object(
+            dependency_installer,
+            "cuda_inference_probe_result",
+            return_value=failed,
+        ):
+            success, detail = dependency_installer._verify_cuda_mode_runtime_result()
+
+        self.assertFalse(success)
+        self.assertIn("CUDA session creation failed", detail)
+        self.assertIn("libcudnn.so.9", detail)
+
+    def test_tensorrt_verification_retains_native_loader_error(self):
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.TENSORRT,
+            "TensorRT provider did not execute",
+            diagnostics="libnvinfer.so.10 could not be loaded",
+        )
+        with mock.patch.object(
+            dependency_installer,
+            "tensorrt_inference_probe_result",
+            return_value=failed,
+        ):
+            success, detail = dependency_installer._verify_tensorrt_runtime_result()
+
+        self.assertFalse(success)
+        self.assertIn("TensorRT provider did not execute", detail)
+        self.assertIn("libnvinfer.so.10", detail)
+
+    def test_gpu_runtime_install_requires_fresh_app_process(self):
+        installer = dependency_installer.DependencyInstaller()
+        installer._mark_restart_pending("tensorrt")
+        with mock.patch.object(installer, "_emit_completed"):
+            installer._finish_job("tensorrt", True, "installed")
+
+        self.assertTrue(installer.restart_pending("tensorrt"))
+        self.assertIn(
+            "Restart NVBroadcast",
+            installer.install_block_reason("tensorrt"),
+        )
+        self.assertIn(
+            "Restart NVBroadcast",
+            installer.unsupported_reason_for_mode("zeus"),
+        )
+        self.assertFalse(installer.restart_pending("whisper"))
+
+    def test_noop_bundle_does_not_require_restart(self):
+        installer = dependency_installer.DependencyInstaller()
+        completed = []
+        with mock.patch.object(
+            installer, "is_available", return_value=True
+        ), mock.patch.object(
+            installer, "_emit_completed", side_effect=lambda *args: completed.append(args)
+        ), mock.patch.object(
+            dependency_installer.GLib,
+            "idle_add",
+            side_effect=lambda callback, *args: callback(*args),
+        ):
+            installer._run_install("premium_gpu_stack")
+
+        self.assertFalse(installer.restart_pending("premium_gpu_stack"))
+        self.assertIn("installed and ready", completed[0][2])
+
+    def test_failed_verification_requires_restart_after_runtime_mutation(self):
+        installer = dependency_installer.DependencyInstaller()
+        proc = mock.Mock(stdout=[], wait=mock.Mock(return_value=0))
+        completed = []
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(installer, "is_supported", return_value=True), \
+             mock.patch.object(dependency_installer, "_runtime_install_block_reason", return_value=None), \
+             mock.patch.object(installer, "_emit_progress", return_value=False), \
+             mock.patch.dict(
+                 dependency_installer.PACKAGE_SPECS["tensorrt"],
+                 {"verify": lambda: (False, "provider load failed")},
+             ), \
+             mock.patch.object(dependency_installer.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(
+                 installer,
+                 "_emit_completed",
+                 side_effect=lambda *args: completed.append(args),
+             ), \
+             mock.patch.object(
+                 dependency_installer.GLib,
+                 "idle_add",
+                 side_effect=lambda callback, *args: callback(*args),
+             ):
+            installer._run_install("tensorrt")
+
+        self.assertTrue(installer.restart_pending("tensorrt"))
+        self.assertFalse(completed[0][1])
+        self.assertIn("Restart NVBroadcast", completed[0][2])
+
+    def test_failed_gpu_pip_attempt_requires_restart(self):
+        installer = dependency_installer.DependencyInstaller()
+        proc = mock.Mock(
+            stdout=["ERROR: install failed\n"],
+            wait=mock.Mock(return_value=1),
+        )
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(installer, "is_supported", return_value=True), \
+             mock.patch.object(dependency_installer, "_runtime_install_block_reason", return_value=None), \
+             mock.patch.object(installer, "_emit_progress", return_value=False), \
+             mock.patch.object(dependency_installer.subprocess, "Popen", return_value=proc):
+            success, _message = installer._install_single(
+                "tensorrt", "tensorrt"
+            )
+
+        self.assertFalse(success)
+        self.assertTrue(installer.restart_pending("tensorrt"))
+
+    def test_failed_probe_detail_reaches_install_completion_message(self):
+        installer = dependency_installer.DependencyInstaller()
+        proc = mock.Mock(stdout=[], wait=mock.Mock(return_value=0))
+        detail = "Failed to load TensorRT provider: libnvinfer.so.10"
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(installer, "is_supported", return_value=True), \
+             mock.patch.object(dependency_installer, "_runtime_install_block_reason", return_value=None), \
+             mock.patch.object(installer, "_emit_progress", return_value=False), \
+             mock.patch.dict(
+                 dependency_installer.PACKAGE_SPECS["tensorrt"],
+                 {"verify": lambda: (False, detail)},
+             ), \
+             mock.patch.object(dependency_installer.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(dependency_installer, "clear_runtime_probe_cache") as clear_cache:
+            success, message = installer._install_single("tensorrt", "tensorrt")
+
+        self.assertFalse(success)
+        self.assertIn("Probe details", message)
+        self.assertIn("libnvinfer.so.10", message)
+        clear_cache.assert_called_once_with()
+
     def test_snap_cuda_modes_report_package_limitation_when_runtime_missing(self):
         installer = dependency_installer.DependencyInstaller()
         with mock.patch.dict(dependency_installer.os.environ, {"SNAP": "/snap/nvbroadcast/current"}, clear=False), \
@@ -133,6 +272,34 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertIn("latest Snap", reason)
         self.assertIn(".deb", reason)
 
+    def test_immutable_runtime_error_includes_provider_probe_diagnostic(self):
+        installer = dependency_installer.DependencyInstaller()
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA,
+            "CUDA provider session creation failed",
+            diagnostics="libcudnn.so.9 could not be loaded",
+        )
+        with mock.patch.dict(
+            dependency_installer.os.environ,
+            {"SNAP": "/snap/nvbroadcast/current"},
+            clear=False,
+        ), mock.patch.object(
+            dependency_installer, "_has_cuda_mode_runtime", return_value=False
+        ), mock.patch.object(
+            dependency_installer,
+            "cuda_inference_probe_result",
+            return_value=failed,
+        ), mock.patch.object(
+            dependency_installer, "IS_LINUX", True
+        ), mock.patch.object(
+            dependency_installer, "IS_ARM64", False
+        ):
+            reason = installer.unsupported_reason_for_mode("doczeus")
+
+        self.assertIn("Provider probe details", reason)
+        self.assertIn("CUDA provider session creation failed", reason)
+        self.assertIn("libcudnn.so.9", reason)
+
     def test_snap_tensorrt_mode_does_not_offer_runtime_install(self):
         installer = dependency_installer.DependencyInstaller()
         with mock.patch.dict(dependency_installer.os.environ, {"SNAP": "/snap/nvbroadcast/current"}, clear=False), \
@@ -145,7 +312,7 @@ class DependencyInstallerTests(unittest.TestCase):
             install_key = installer.install_key_for_mode("zeus")
 
         self.assertIsNotNone(reason)
-        self.assertIn("not included in this Snap", reason)
+        self.assertIn("unavailable in this Snap", reason)
         self.assertIsNone(install_key)
 
     def test_snap_installer_rejects_direct_runtime_mutation(self):

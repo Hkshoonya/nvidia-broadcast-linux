@@ -662,22 +662,13 @@ fi
 # Verify GPU acceleration
 echo ""
 echo "Verifying GPU acceleration..."
-GPU_RESULT=$("$VENV_DIR/bin/python" -c "
-import onnxruntime as ort
-providers = ort.get_available_providers()
-if 'CUDAExecutionProvider' in providers:
-    print('CUDA_OK')
-elif 'TensorrtExecutionProvider' in providers:
-    print('TRT_OK')
-else:
-    print('CPU_ONLY')
-" 2>/dev/null)
-
-if [ "$GPU_RESULT" = "CUDA_OK" ] || [ "$GPU_RESULT" = "TRT_OK" ]; then
-    echo "  CUDA acceleration ... OK"
+if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
+    # The shared runtime installer has already required a successful fresh-
+    # process session and pinned-model inference on CUDA.
+    echo "  CUDA execution probe ... OK"
     CUDA_ACCEL_AVAILABLE=true
 else
-    echo "  WARNING: CUDA not available, will run on CPU (slower)"
+    echo "  CPU execution probe ... OK"
 fi
 
 # ─── Optional Packages ────────────────────────────────────────────────────

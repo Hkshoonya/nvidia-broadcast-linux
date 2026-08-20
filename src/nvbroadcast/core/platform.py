@@ -10,7 +10,6 @@ import platform
 import shutil
 import sys
 import ctypes
-import ctypes.util
 import importlib.metadata
 from functools import lru_cache
 from pathlib import Path
@@ -242,6 +241,29 @@ def get_tensorrt_lib_dirs() -> list:
     return dirs
 
 
+def preload_tensorrt_runtime_libs() -> list[str]:
+    """Preload packaged TensorRT libraries and return any loader errors."""
+    errors: list[str] = []
+    seen: set[str] = set()
+    for lib_dir in get_tensorrt_lib_dirs():
+        for pattern in (
+            "libnvinfer.so*",
+            "libnvinfer_plugin.so*",
+            "libnvonnxparser.so*",
+            "libnvinfer_builder*.so*",
+        ):
+            for shared_object in sorted(lib_dir.glob(pattern)):
+                key = str(shared_object.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    ctypes.CDLL(str(shared_object), mode=ctypes.RTLD_GLOBAL)
+                except OSError as error:
+                    errors.append(f"{shared_object}: {error}")
+    return errors
+
+
 def get_trt_cache_dir(gpu_index: int) -> Path:
     """Return a per-GPU TensorRT cache directory under user config."""
     from nvbroadcast.core.constants import CONFIG_DIR
@@ -251,35 +273,25 @@ def get_trt_cache_dir(gpu_index: int) -> Path:
     return cache_dir
 
 
-def has_tensorrt_runtime() -> bool:
-    """Check whether TensorRT EP is actually runnable on this system."""
+def tensorrt_inference_probe_result():
+    """Return fresh-process TensorRT execution evidence for this system."""
+    from nvbroadcast.runtime.probe import (
+        ProbeProvider,
+        RuntimeProbeResult,
+        probe_execution_provider,
+    )
+
     if not supports_linux_gpu_stack():
-        return False
-    try:
-        import onnxruntime as ort
-    except Exception:
-        return False
+        return RuntimeProbeResult.failure(
+            ProbeProvider.TENSORRT,
+            "TensorRT execution is supported only on Linux x86_64.",
+        )
+    return probe_execution_provider(ProbeProvider.TENSORRT)
 
-    if "TensorrtExecutionProvider" not in ort.get_available_providers():
-        return False
 
-    # Main runtime library must be loadable, otherwise ORT will advertise TRT
-    # but still fail at session creation with a provider load error.
-    if ctypes.util.find_library("nvinfer"):
-        return True
-
-    try:
-        for lib_dir in get_tensorrt_lib_dirs():
-            for so in sorted(lib_dir.glob("libnvinfer.so*")):
-                try:
-                    ctypes.CDLL(str(so))
-                    return True
-                except OSError:
-                    continue
-    except Exception:
-        return False
-
-    return False
+def has_tensorrt_runtime() -> bool:
+    """Return whether a fresh process executed the pinned model on TensorRT."""
+    return tensorrt_inference_probe_result().success
 
 
 def preload_nvidia_runtime_libs() -> None:
@@ -314,19 +326,25 @@ def preload_nvidia_runtime_libs() -> None:
         pass
 
 
-def has_cuda_inference_runtime() -> bool:
-    """Return True when ONNX Runtime can run model inference on CUDA."""
+def cuda_inference_probe_result():
+    """Return fresh-process CUDA execution evidence for this system."""
+    from nvbroadcast.runtime.probe import (
+        ProbeProvider,
+        RuntimeProbeResult,
+        probe_execution_provider,
+    )
+
     if not supports_linux_gpu_stack():
-        return False
-    preload_nvidia_runtime_libs()
-    try:
-        import onnxruntime as ort
-    except Exception:
-        return False
-    try:
-        return "CUDAExecutionProvider" in ort.get_available_providers()
-    except Exception:
-        return False
+        return RuntimeProbeResult.failure(
+            ProbeProvider.CUDA,
+            "CUDA execution is supported only on Linux x86_64.",
+        )
+    return probe_execution_provider(ProbeProvider.CUDA)
+
+
+def has_cuda_inference_runtime() -> bool:
+    """Return whether a fresh process executed the pinned model on CUDA."""
+    return cuda_inference_probe_result().success
 
 
 def get_default_camera_device() -> str:

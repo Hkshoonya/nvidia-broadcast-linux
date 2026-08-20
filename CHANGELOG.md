@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Execution-Proven Runtime Ownership** - Source, native, macOS, and Snap environments enforce exactly one CPU or CUDA ONNX Runtime owner. Runtime readiness now executes a checksum-pinned model in a fresh process, rejects silent CPU fallback, verifies CUDA/TensorRT node placement and output, preserves provider-load diagnostics, and requires an app restart after optional GPU runtime installation ([Issue #53](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/53), [PR #62](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/62))
 - **Strict Snap Startup and Launcher Recovery** - Snap builds now use Core 24's runtime Python instead of a build-only GNOME SDK path, consume GTK and GStreamer from the GNOME content snap without shadow copies, and register a validated desktop launcher before artifact upload ([Issue #48](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/48))
 - **Microphone Selection Persistence** - The microphone shown in the dropdown is now saved and applied on first launch, unavailable saved devices fall back to the visible source, and changing devices rebuilds a running audio pipeline ([Issue #66](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/66))
 - **Linux arm64 MediaPipe 1.0.0 support** - Linux arm64 now supports Auto Frame, Eye Contact, Face Relighting, and face-aware Video Enhancement
