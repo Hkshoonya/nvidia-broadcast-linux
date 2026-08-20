@@ -45,17 +45,64 @@ class DependencyInstallerTests(unittest.TestCase):
              mock.patch.object(dependency_installer, "has_cuda_inference_runtime", return_value=True):
             self.assertTrue(dependency_installer._has_cuda_mode_runtime())
 
-    def test_cuda_runtime_install_spec_includes_gpu_inference_provider(self):
+    def test_cuda_support_install_spec_does_not_change_runtime_owner(self):
         spec = dependency_installer.PACKAGE_SPECS["cupy"]
         install_args = spec["install_args"]
         self.assertIn("--upgrade", install_args)
         self.assertIn("cupy-cuda12x>=14.1.1,<15", install_args)
-        self.assertIn("onnxruntime-gpu==1.24.4", install_args)
+        self.assertNotIn("onnxruntime-gpu==1.24.4", install_args)
+        self.assertNotIn("onnxruntime", install_args)
         self.assertIn("nvidia-cudnn-cu12", install_args)
         self.assertIn("nvidia-cuda-nvrtc-cu12", install_args)
-        self.assertIn("ONNX Runtime GPU", spec["summary"])
-        self.assertIn("onnxruntime-gpu==1.24.4", spec["help"])
-        self.assertNotIn("onnxruntime-gpu>=", spec["help"])
+        self.assertIn("already owned by the CUDA ONNX Runtime variant", spec["summary"])
+        self.assertNotIn("onnxruntime", spec["help"])
+
+    def test_cuda_support_requires_cuda_runtime_owner(self):
+        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU):
+            self.assertFalse(dependency_installer._supports_cuda_runtime())
+
+        with mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CUDA):
+            self.assertTrue(dependency_installer._supports_cuda_runtime())
+
+    def test_cpu_source_runtime_directs_user_to_source_installer(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU), \
+             mock.patch.object(dependency_installer.sys, "prefix", "/home/user/project/.venv"):
+            reason = installer.install_block_reason("cupy")
+
+        self.assertIsNotNone(reason)
+        self.assertIn("./install.sh --runtime cuda", reason)
+        self.assertIn("user-owned source environment", reason)
+        self.assertNotIn("system package manager", reason)
+
+    def test_cpu_native_runtime_directs_user_to_package_manager(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU), \
+             mock.patch.object(dependency_installer.sys, "prefix", "/opt/nvbroadcast/.venv"):
+            reason = installer.install_block_reason("cupy")
+
+        self.assertIsNotNone(reason)
+        self.assertIn("system package manager", reason)
+        self.assertIn("nvidia-smi", reason)
+        self.assertNotIn("./install.sh", reason)
+
+    def test_cuda_runtime_reports_unsupported_platform_before_switch_guidance(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=False), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU):
+            reason = installer.install_block_reason("cupy")
+
+        self.assertEqual(
+            reason,
+            "CUDA modes are currently available only on Linux x86_64.",
+        )
 
     def test_cupy_verification_preloads_component_wheel_runtime(self):
         fake_array = mock.MagicMock()
@@ -182,10 +229,21 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_whisper_package_spec_installs_httpx(self):
         install_steps = dependency_installer.PACKAGE_SPECS["whisper"]["install_steps"]
-        self.assertEqual(install_steps[0], ["install", "--no-deps", "faster-whisper"])
+        self.assertEqual(
+            install_steps[0],
+            [
+                "install",
+                "--no-deps",
+                dependency_installer.FASTER_WHISPER_REQUIREMENT,
+            ],
+        )
         self.assertIn("httpx", install_steps[1])
         self.assertIn("av", install_steps[1])
         self.assertIn("tqdm", install_steps[1])
+        self.assertIn(
+            dependency_installer.FASTER_WHISPER_REQUIREMENT,
+            dependency_installer.PACKAGE_SPECS["whisper"]["help"],
+        )
 
     def test_whisper_install_runs_two_pip_steps(self):
         installer = dependency_installer.DependencyInstaller()
@@ -208,7 +266,8 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertEqual(first_cmd[:3], [dependency_installer.sys.executable, "-m", "pip"])
         self.assertEqual(second_cmd[:3], [dependency_installer.sys.executable, "-m", "pip"])
         self.assertIn("--no-deps", first_cmd)
-        self.assertIn("faster-whisper", first_cmd)
+        self.assertIn(dependency_installer.FASTER_WHISPER_REQUIREMENT, first_cmd)
+        self.assertNotIn("faster-whisper", first_cmd)
         self.assertNotIn("ctranslate2", first_cmd)
         self.assertNotIn("--no-deps", second_cmd)
         self.assertIn("ctranslate2", second_cmd)

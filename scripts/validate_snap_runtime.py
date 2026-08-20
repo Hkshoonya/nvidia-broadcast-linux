@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import argparse
 import configparser
-import importlib
-from importlib import metadata
 import os
 from pathlib import Path
 import re
@@ -14,10 +12,20 @@ import shlex
 import sys
 
 import packaging
-from packaging.markers import default_environment
-from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
+
+from nvbroadcast.runtime.artifact import (
+    ARCHITECTURES,
+    ArtifactEnvironment,
+    discover_package_roots,
+)
+from nvbroadcast.runtime.variants import (
+    FASTER_WHISPER_VERSION,
+    RUNTIME_CONTRACTS,
+    RuntimeVariant,
+    runtime_ownership_problems,
+)
 
 
 REQUIRED_RUNTIME = {
@@ -26,14 +34,20 @@ REQUIRED_RUNTIME = {
     "protobuf": SpecifierSet(">=5.29.6"),
     "setuptools": SpecifierSet(">=83.0.0"),
     "opencv-contrib-python": SpecifierSet(">=4.8.1.78,<5"),
+    "faster-whisper": SpecifierSet(f"=={FASTER_WHISPER_VERSION}"),
 }
-IMPORT_PROBES = ("packaging", "setuptools")
-ARCHITECTURES = {
-    "amd64": "x86_64",
-    "x86_64": "x86_64",
-    "arm64": "aarch64",
-    "aarch64": "aarch64",
-}
+IMPORT_PROBES = ("packaging", "setuptools", "onnxruntime")
+RUNTIME_VERSION = SpecifierSet("==1.24.4")
+
+
+def expected_variant(platform_machine: str) -> RuntimeVariant:
+    return (
+        RuntimeVariant.CUDA
+        if ARCHITECTURES[platform_machine] == "x86_64"
+        else RuntimeVariant.CPU
+    )
+
+
 FORBIDDEN_BUILD_PATH = re.compile(
     r"/build(?:/|$)|/snap/[^/\s]*-sdk(?:/|$)"
 )
@@ -45,24 +59,6 @@ GNOME_PLATFORM_SHADOWS = (
     "usr/lib/*/libgstreamer-1.0.so*",
     "usr/lib/*/librsvg-2.so*",
 )
-
-
-def discover_package_roots(snap_root: Path) -> list[Path]:
-    patterns = (
-        "lib/python*/site-packages",
-        "lib/python*/dist-packages",
-        "usr/lib/python*/site-packages",
-        "usr/lib/python*/dist-packages",
-        "usr/local/lib/python*/site-packages",
-        "usr/local/lib/python*/dist-packages",
-    )
-    roots = {
-        path.resolve()
-        for pattern in patterns
-        for path in snap_root.glob(pattern)
-        if path.is_dir()
-    }
-    return sorted(roots)
 
 
 def python_runtime_problems(snap_root: Path) -> list[str]:
@@ -158,63 +154,20 @@ def desktop_launcher_problems(snap_root: Path) -> list[str]:
             problems.append(
                 f"Snap desktop launcher icon does not exist: {icon_value}"
             )
-
     return problems
 
 
-def _python_environment(
-    package_roots: list[Path], platform_machine: str
-) -> dict[str, str]:
-    environment = default_environment()
-    environment.update(
-        os_name="posix",
-        platform_machine=ARCHITECTURES[platform_machine],
-        platform_system="Linux",
-        sys_platform="linux",
-        extra="",
-    )
-
-    versions = {
-        match.groups()
-        for root in package_roots
-        if (match := re.search(r"python(\d+)\.(\d+)", str(root)))
-    }
-    if len(versions) == 1:
-        major, minor = versions.pop()
-        environment["python_version"] = f"{major}.{minor}"
-        if (int(major), int(minor)) != sys.version_info[:2]:
-            environment["python_full_version"] = f"{major}.{minor}.0"
-    return environment
-
-
-def _distribution_index(
-    package_roots: list[Path],
-) -> tuple[list[metadata.Distribution], dict[str, list[str]]]:
-    distributions = list(
-        metadata.distributions(path=[str(path) for path in package_roots])
-    )
-    installed: dict[str, list[str]] = {}
-    for distribution in distributions:
-        name = distribution.metadata.get("Name")
-        if not name:
-            continue
-        installed.setdefault(canonicalize_name(name), []).append(distribution.version)
-    return distributions, installed
-
-
 def dependency_problems(
-    snap_root: Path, platform_machine: str
+    snap_root: Path, platform_machine: str, providers: tuple[str, ...]
 ) -> tuple[int, list[str]]:
-    package_roots = discover_package_roots(snap_root)
-    if not package_roots:
+    environment = ArtifactEnvironment.inspect(snap_root, platform_machine)
+    if not environment.package_roots:
         return 0, ["no Python package roots were found"]
 
-    distributions, installed = _distribution_index(package_roots)
-    environment = _python_environment(package_roots, platform_machine)
     problems: list[str] = []
 
     for package_name, specifier in REQUIRED_RUNTIME.items():
-        versions = installed.get(canonicalize_name(package_name), [])
+        versions = environment.installed.get(canonicalize_name(package_name), ())
         if not versions:
             problems.append(f"required runtime package is missing: {package_name}{specifier}")
         elif len(versions) != 1:
@@ -228,7 +181,9 @@ def dependency_problems(
             )
 
     opencv_owners = {
-        name: versions for name, versions in installed.items() if name.startswith("opencv-")
+        name: versions
+        for name, versions in environment.installed.items()
+        if name.startswith("opencv-")
     }
     if set(opencv_owners) != {"opencv-contrib-python"}:
         rendered = ", ".join(
@@ -237,42 +192,40 @@ def dependency_problems(
         )
         problems.append(f"Snap must have exactly one OpenCV owner; found: {rendered}")
 
-    for distribution in distributions:
-        owner = distribution.metadata.get("Name", "<unknown>")
-        for raw_requirement in distribution.requires or ():
-            try:
-                requirement = Requirement(raw_requirement)
-            except InvalidRequirement as error:
-                problems.append(f"{owner} has invalid requirement {raw_requirement!r}: {error}")
-                continue
-            if requirement.marker and not requirement.marker.evaluate(environment):
-                continue
+    variant = expected_variant(platform_machine)
+    contract = RUNTIME_CONTRACTS[variant]
+    problems.extend(
+        runtime_ownership_problems(variant, environment.installed, providers)
+    )
+    owner_versions = environment.installed.get(
+        canonicalize_name(contract.distribution), ()
+    )
+    if len(owner_versions) == 1 and owner_versions[0] not in RUNTIME_VERSION:
+        problems.append(
+            f"{contract.distribution} version {owner_versions[0]} "
+            f"does not satisfy {RUNTIME_VERSION}"
+        )
 
-            versions = installed.get(canonicalize_name(requirement.name), [])
-            if not versions:
-                problems.append(f"{owner} requires missing package {requirement}")
-            elif requirement.specifier and not any(
-                version in requirement.specifier for version in versions
-            ):
-                problems.append(
-                    f"{owner} requires {requirement}, found {', '.join(versions)}"
-                )
-
-    return len(installed), sorted(set(problems))
+    substitutions = (
+        {"onnxruntime": "onnxruntime-gpu"}
+        if variant is RuntimeVariant.CUDA
+        else {}
+    )
+    problems.extend(environment.dependency_closure_problems(substitutions))
+    return len(environment.installed), sorted(set(problems))
 
 
 def import_problems(package_roots: list[Path]) -> list[str]:
-    problems = []
-    for module_name in IMPORT_PROBES:
-        try:
-            module = importlib.import_module(module_name)
-        except Exception as error:  # pragma: no cover - reported by artifact CI
-            problems.append(f"cannot import {module_name}: {error}")
-            continue
-        module_path = Path(module.__file__).resolve()
-        if not any(module_path.is_relative_to(root) for root in package_roots):
-            problems.append(f"{module_name} resolved outside the Snap: {module_path}")
-    return problems
+    environment = ArtifactEnvironment(
+        package_roots=tuple(package_roots),
+        distributions=(),
+        installed={},
+        markers={},
+    )
+    return [
+        problem.replace("outside the artifact", "outside the Snap")
+        for problem in environment.import_problems(IMPORT_PROBES)
+    ]
 
 
 def main() -> int:
@@ -287,7 +240,12 @@ def main() -> int:
 
     snap_root = args.snap_root.resolve()
     package_roots = discover_package_roots(snap_root)
-    count, problems = dependency_problems(snap_root, args.platform_machine)
+    import onnxruntime
+
+    providers = tuple(onnxruntime.get_available_providers())
+    count, problems = dependency_problems(
+        snap_root, args.platform_machine, providers
+    )
     problems.extend(python_runtime_problems(snap_root))
     problems.extend(platform_shadow_problems(snap_root))
     problems.extend(desktop_launcher_problems(snap_root))

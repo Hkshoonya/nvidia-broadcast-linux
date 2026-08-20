@@ -37,11 +37,15 @@ from nvbroadcast.core.platform import (
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
 )
+from nvbroadcast.runtime.variants import (
+    FASTER_WHISPER_REQUIREMENT,
+    RuntimeVariant,
+    detect_runtime_variant,
+)
 
 
 CUDA_RUNTIME_PACKAGES = [
     "cupy-cuda12x>=14.1.1,<15",
-    "onnxruntime-gpu==1.24.4",
     "nvidia-cublas-cu12",
     "nvidia-cuda-runtime-cu12",
     "nvidia-cudnn-cu12",
@@ -50,10 +54,7 @@ CUDA_RUNTIME_PACKAGES = [
     "nvidia-nvjitlink-cu12",
     "nvidia-cuda-nvrtc-cu12",
 ]
-CUDA_RUNTIME_HELP_PACKAGES = [
-    "onnxruntime-gpu==1.24.4" if package.startswith("onnxruntime-gpu") else package
-    for package in CUDA_RUNTIME_PACKAGES
-]
+CUDA_RUNTIME_HELP_PACKAGES = CUDA_RUNTIME_PACKAGES
 
 
 def _has_cupy() -> bool:
@@ -86,11 +87,42 @@ def _has_whisper() -> bool:
 
 
 def _supports_cuda_runtime() -> bool:
-    return supports_linux_gpu_stack()
+    return (
+        supports_linux_gpu_stack()
+        and detect_runtime_variant() is RuntimeVariant.CUDA
+    )
 
 
 def _running_in_snap() -> bool:
     return bool(os.environ.get("SNAP"))
+
+
+def _running_in_native_package() -> bool:
+    """Return whether Debian or RPM owns the current application environment."""
+    return Path(sys.prefix) == Path("/opt/nvbroadcast/.venv")
+
+
+def _cuda_runtime_unsupported_reason() -> str:
+    """Explain how this installation can change its ONNX Runtime owner."""
+    if not supports_linux_gpu_stack():
+        return "CUDA modes are currently available only on Linux x86_64."
+    if _running_in_native_package():
+        return (
+            "This package was installed with the CPU runtime variant. Stop "
+            "NVBroadcast, make sure nvidia-smi detects the NVIDIA GPU, then "
+            "reinstall or upgrade NVBroadcast through the system package manager "
+            "to recreate its managed environment as CUDA."
+        )
+    return (
+        "This environment uses the CPU runtime variant. Stop NVBroadcast and run "
+        "./install.sh --runtime cuda, or recreate a user-owned source environment "
+        "with .[cuda]."
+    )
+
+
+def _unsupported_reason(spec: dict, default: str) -> str:
+    reason = spec.get("unsupported_reason", default)
+    return reason() if callable(reason) else reason
 
 
 def _runtime_install_block_reason() -> str | None:
@@ -146,15 +178,15 @@ PACKAGE_SPECS = {
         "subtitle": "Needed for DocZeus and CUDA modes",
         "size": "~2.0 GB",
         "summary": (
-            "Installs CuPy, ONNX Runtime GPU, and CUDA runtime wheels so GPU "
-            "compositing and model inference can both run inside the app."
+            "Installs CuPy and CUDA support wheels for an environment already "
+            "owned by the CUDA ONNX Runtime variant."
         ),
         "install_args": ["install", "--upgrade", *CUDA_RUNTIME_PACKAGES],
         "supported": _supports_cuda_runtime,
         "check": _has_cuda_mode_runtime,
         "verify": _verify_cuda_mode_runtime,
         "help": "Retry later with: .venv/bin/pip install --upgrade " + " ".join(CUDA_RUNTIME_HELP_PACKAGES),
-        "unsupported_reason": "CUDA modes are currently available only on Linux x86_64 systems.",
+        "unsupported_reason": _cuda_runtime_unsupported_reason,
     },
     "tensorrt": {
         "title": "TensorRT Runtime",
@@ -187,7 +219,7 @@ PACKAGE_SPECS = {
         # Install the rest normally so dependencies like av/httpcore/anyio are
         # resolved instead of being skipped by a broad --no-deps install.
         "install_steps": [
-            ["install", "--no-deps", "faster-whisper"],
+            ["install", "--no-deps", FASTER_WHISPER_REQUIREMENT],
             [
                 "install",
                 "ctranslate2",
@@ -203,7 +235,8 @@ PACKAGE_SPECS = {
         "check": _has_whisper,
         "verify": _has_whisper,
         "help": (
-            "Retry later with: .venv/bin/pip install --no-deps faster-whisper && "
+            "Retry later with: .venv/bin/pip install --no-deps "
+            f"{FASTER_WHISPER_REQUIREMENT} && "
             ".venv/bin/pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm"
         ),
     },
@@ -287,7 +320,9 @@ class DependencyInstaller(GObject.Object):
         if self.is_available(key):
             return None
         if not self.is_supported(key):
-            return spec.get("unsupported_reason", f"{spec['title']} is not supported on this system.")
+            return _unsupported_reason(
+                spec, f"{spec['title']} is not supported on this system."
+            )
         return _runtime_install_block_reason()
 
     def unsupported_reason_for_mode(self, mode_key: str) -> str | None:

@@ -86,7 +86,9 @@ CTRL
 
     # Application files -> /opt/nvbroadcast
     install -d "$PKG_DIR/opt/nvbroadcast"
-    cp -r src pyproject.toml requirements.txt LICENSE README.md "$PKG_DIR/opt/nvbroadcast/"
+    cp -r src pyproject.toml LICENSE README.md "$PKG_DIR/opt/nvbroadcast/"
+    install -Dm 755 scripts/install_runtime_variant.py \
+        "$PKG_DIR/opt/nvbroadcast/scripts/install_runtime_variant.py"
     find "$PKG_DIR/opt/nvbroadcast/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
         -prune -exec rm -rf {} +
@@ -117,12 +119,14 @@ CTRL
     install -d "$PKG_DIR/usr/bin"
     cat > "$PKG_DIR/usr/bin/nvbroadcast" << 'LAUNCHER'
 #!/bin/bash
+export PYTHONNOUSERSITE=1
 exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast "$@"
 LAUNCHER
     chmod 755 "$PKG_DIR/usr/bin/nvbroadcast"
 
     cat > "$PKG_DIR/usr/bin/nvbroadcast-vcam" << 'LAUNCHER'
 #!/bin/bash
+export PYTHONNOUSERSITE=1
 exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.vcam_service "$@"
 LAUNCHER
     chmod 755 "$PKG_DIR/usr/bin/nvbroadcast-vcam"
@@ -139,6 +143,7 @@ Type=simple
 ExecStart=/usr/bin/nvbroadcast-vcam
 Restart=on-failure
 RestartSec=3
+Environment=PYTHONNOUSERSITE=1
 
 [Install]
 WantedBy=graphical-session.target
@@ -185,7 +190,9 @@ build_rpm() {
     local TAR_PATH="$RPM_DIR/SOURCES/${TAR_DIR}.tar.gz"
     local TAR_ROOT="$RPM_DIR/source"
     mkdir -p "$TAR_ROOT/$TAR_DIR"
-    cp -r src pyproject.toml requirements.txt LICENSE README.md data "$TAR_ROOT/$TAR_DIR/"
+    cp -r src pyproject.toml LICENSE README.md data "$TAR_ROOT/$TAR_DIR/"
+    install -Dm 755 scripts/install_runtime_variant.py \
+        "$TAR_ROOT/$TAR_DIR/scripts/install_runtime_variant.py"
     [ -d configs ] && cp -r configs "$TAR_ROOT/$TAR_DIR/" || true
     find "$TAR_ROOT/$TAR_DIR/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
@@ -229,12 +236,14 @@ build_pkg() {
     BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/nvbroadcast-pkg-build.XXXXXX")
     local INSTALL_ROOT="${BUILD_DIR}/root"
     local SCRIPTS_DIR="${BUILD_DIR}/scripts"
-    mkdir -p "$INSTALL_ROOT/opt/nvbroadcast"
+    mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/scripts"
     mkdir -p "$INSTALL_ROOT/usr/local/bin"
     mkdir -p "$SCRIPTS_DIR"
 
     # Application files -> /opt/nvbroadcast
-    cp -r src pyproject.toml requirements.txt LICENSE README.md "$INSTALL_ROOT/opt/nvbroadcast/"
+    cp -r src pyproject.toml LICENSE README.md "$INSTALL_ROOT/opt/nvbroadcast/"
+    install -m 755 scripts/install_runtime_variant.py \
+        "$INSTALL_ROOT/opt/nvbroadcast/scripts/install_runtime_variant.py"
     find "$INSTALL_ROOT/opt/nvbroadcast/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
         -prune -exec rm -rf {} +
@@ -246,6 +255,7 @@ build_pkg() {
     # Launcher script -> /usr/local/bin
     cat > "$INSTALL_ROOT/usr/local/bin/nvbroadcast" << 'LAUNCHER'
 #!/bin/bash
+export PYTHONNOUSERSITE=1
 INSTALL_DIR="/opt/nvbroadcast"
 if [ -d "$INSTALL_DIR/.venv" ]; then
     source "$INSTALL_DIR/.venv/bin/activate"
@@ -266,6 +276,7 @@ LAUNCHER
     cat > "$SCRIPTS_DIR/postinstall" << 'POSTINST'
 #!/bin/bash
 set -e
+export PYTHONNOUSERSITE=1
 INSTALL_DIR="/opt/nvbroadcast"
 
 echo "[NV Broadcast] Setting up Python environment..."
@@ -296,14 +307,16 @@ if [ -z "$PYTHON" ]; then
     exit 0
 fi
 
-# Create venv
+# Stop old runtime before replacing installer-owned environment.
+pkill -f "^${INSTALL_DIR}/.venv/bin/python -m nvbroadcast( |$)" 2>/dev/null || true
+# Recreate environment so CPU remains sole runtime owner.
+rm -rf -- "$INSTALL_DIR/.venv"
 $PYTHON -m venv "$INSTALL_DIR/.venv" --system-site-packages 2>/dev/null || true
 source "$INSTALL_DIR/.venv/bin/activate"
 pip install --upgrade \
     "pip>=26.1.2" "setuptools>=83.0.0" wheel -q 2>/dev/null || true
-pip install -q "$INSTALL_DIR" 2>/dev/null || true
-pip install -q --no-deps faster-whisper 2>/dev/null && \
-    pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm 2>/dev/null || true
+python "$INSTALL_DIR/scripts/install_runtime_variant.py" \
+    --project "$INSTALL_DIR" --variant cpu --meeting-backends faster
 
 # CoreML for Apple Silicon
 if [ "$(uname -m)" = "arm64" ]; then
@@ -317,7 +330,10 @@ POSTINST
     # Keep the package payload independent of the builder's local umask.
     find "$INSTALL_ROOT" -type d -exec chmod 755 {} +
     find "$INSTALL_ROOT" -type f -exec chmod 644 {} +
-    chmod 755 "$INSTALL_ROOT/usr/local/bin/nvbroadcast" "$SCRIPTS_DIR/postinstall"
+    chmod 755 \
+        "$INSTALL_ROOT/usr/local/bin/nvbroadcast" \
+        "$INSTALL_ROOT/opt/nvbroadcast/scripts/install_runtime_variant.py" \
+        "$SCRIPTS_DIR/postinstall"
 
     # Build component package
     mkdir -p dist/pkg

@@ -1,5 +1,6 @@
 import re
 import stat
+import tomllib
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -60,17 +61,145 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("preload_nvidia_runtime_libs; preload_nvidia_runtime_libs(); import cupy", install_script)
         self.assertIn("CuPy installed but verification failed.", install_script)
 
-    def test_source_installer_installs_cuda_extra_before_gpu_verification(self):
+    def test_source_installer_selects_and_validates_one_runtime_variant(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertIn('"$VENV_DIR/bin/pip" install --upgrade "${SCRIPT_DIR}[cuda]"', install_script)
+        self.assertIn("--runtime auto|cpu|cuda] [--with-meeting", install_script)
+        self.assertIn('--variant "$1"', install_script)
+        self.assertIn('--meeting-backends "$meeting_backends"', install_script)
         self.assertLess(
-            install_script.index('"$VENV_DIR/bin/pip" install --upgrade "${SCRIPT_DIR}[cuda]"'),
+            install_script.index('install_runtime_variant "$SELECTED_RUNTIME_VARIANT"'),
             install_script.index("Verifying GPU acceleration"),
         )
+        self.assertIn('rm -rf -- "$VENV_DIR"', install_script)
         self.assertIn("CUDA_ACCEL_AVAILABLE=true", install_script)
-        self.assertIn("CUDA runtime: $VENV_DIR/bin/pip install --upgrade", install_script)
+        self.assertIn("Runtime switch: stop NVBroadcast", install_script)
         self.assertIn("unavailable until CuPy installs", install_script)
         self.assertIn("CUDA modes still need GPU inference runtime", install_script)
+
+    def test_source_setup_targets_select_one_runtime_owner(self):
+        setup_script = (REPO_ROOT / "setup_deps.sh").read_text()
+        makefile = (REPO_ROOT / "Makefile").read_text()
+
+        preflight = (
+            ".venv/bin/python scripts/install_runtime_variant.py \\\n"
+            "            --project . --variant cpu --meeting-backends none \\\n"
+            "            --source-venv .venv --preflight-only"
+        )
+        runtime_install = (
+            ".venv/bin/python scripts/install_runtime_variant.py \\\n"
+            "    --project . --variant cpu --meeting-backends none \\\n"
+            "    --source-venv .venv --editable"
+        )
+        self.assertIn(preflight, setup_script)
+        self.assertIn(runtime_install, setup_script)
+        preflight_calls = [
+            match.start()
+            for match in re.finditer(
+                r"^preflight_python_environment$", setup_script, flags=re.MULTILINE
+            )
+        ]
+        self.assertEqual(len(preflight_calls), 2)
+        self.assertLess(
+            preflight_calls[0],
+            setup_script.index("sudo apt install"),
+        )
+        self.assertLess(
+            setup_script.index("sudo apt install"),
+            preflight_calls[1],
+        )
+        self.assertLess(
+            preflight_calls[1],
+            setup_script.index("python3 -m venv .venv"),
+        )
+        self.assertLess(
+            preflight_calls[1],
+            setup_script.index(".venv/bin/pip install --upgrade"),
+        )
+
+        setup_targets = {
+            "install": "$(RUNTIME_INSTALLER) --variant cpu",
+            "install-gpu": "$(RUNTIME_INSTALLER) --variant cuda",
+            "dev": "$(RUNTIME_INSTALLER) --variant cpu --development",
+            "dev-gpu": "$(RUNTIME_INSTALLER) --variant cuda --development",
+        }
+        for target, command in setup_targets.items():
+            recipe = f"{target}: $(VENV)\n\t{command}"
+            self.assertIn(recipe, makefile)
+
+        self.assertNotIn("\t$(PIP) install -e .\n", makefile)
+        self.assertNotIn('\t$(PIP) install -e ".[dev]"', makefile)
+        self.assertIn("--source-venv $(VENV) --editable", makefile)
+
+    def test_source_installer_guards_live_environment_before_mutations(self):
+        install_script = (REPO_ROOT / "install.sh").read_text()
+        guard_calls = [
+            match.start()
+            for match in re.finditer(
+                r"^guard_source_environment$", install_script, flags=re.MULTILINE
+            )
+        ]
+
+        self.assertEqual(len(guard_calls), 2)
+        self.assertLess(guard_calls[0], install_script.index("# ─── Step 1:"))
+
+        environment_step = install_script.index("# ─── Step 3:")
+        first_environment_mutation = min(
+            install_script.index('rm -rf -- "$VENV_DIR"', environment_step),
+            install_script.index(
+                '"$VENV_DIR/bin/pip" install --upgrade', environment_step
+            ),
+        )
+        self.assertGreater(guard_calls[1], environment_step)
+        self.assertLess(guard_calls[1], first_environment_mutation)
+        self.assertIn("check_source_venv_processes.py", install_script)
+        self.assertIn(
+            "Stop NVBroadcast and the virtual-camera service", install_script
+        )
+        self.assertIn(
+            "systemctl --user stop nvbroadcast-vcam.service", install_script
+        )
+
+    def test_managed_python_environments_disable_user_site_packages(self):
+        system_site_files = (
+            "README.md",
+            "Makefile",
+            "setup_deps.sh",
+            "install.sh",
+            "install_macos.sh",
+            "build-packages.sh",
+            "packaging/debian/postinst",
+            "packaging/rpm/nvbroadcast.spec",
+            ".github/workflows/pr-checks.yml",
+            ".github/workflows/build-packages.yml",
+        )
+        for relative in system_site_files:
+            content = (REPO_ROOT / relative).read_text()
+            self.assertIn("--system-site-packages", content, relative)
+            self.assertIn("PYTHONNOUSERSITE", content, relative)
+
+        install_script = (REPO_ROOT / "install.sh").read_text()
+        self.assertGreaterEqual(
+            install_script.count("export PYTHONNOUSERSITE=1"),
+            3,
+        )
+        self.assertIn("Environment=PYTHONNOUSERSITE=1", install_script)
+
+        build_script = (REPO_ROOT / "build-packages.sh").read_text()
+        self.assertGreaterEqual(
+            build_script.count("export PYTHONNOUSERSITE=1"),
+            4,
+        )
+        self.assertIn("Environment=PYTHONNOUSERSITE=1", build_script)
+
+        deb_rules = (REPO_ROOT / "packaging" / "debian" / "rules").read_text()
+        self.assertEqual(deb_rules.count("export PYTHONNOUSERSITE=1"), 2)
+        self.assertIn("Environment=PYTHONNOUSERSITE=1", deb_rules)
+
+        rpm_spec = (
+            REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec"
+        ).read_text()
+        self.assertEqual(rpm_spec.count("export PYTHONNOUSERSITE=1"), 3)
+        self.assertIn("Environment=PYTHONNOUSERSITE=1", rpm_spec)
 
     def test_source_installer_does_not_auto_enable_headless_vcam_service(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
@@ -98,7 +227,6 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_core_runtime_includes_audio_denoiser_import_dependencies(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
-        requirements = (REPO_ROOT / "requirements.txt").read_text()
         install_script = (REPO_ROOT / "install.sh").read_text()
         self.assertIn(
             '"pyrnnoise>=0.4; sys_platform == \'linux\'"', pyproject
@@ -106,10 +234,6 @@ class PackagingMetadataTests(unittest.TestCase):
         # av 17 removed av.option (needed by pyrnnoise->audiolab); av 14
         # added Codec.canonical_name. Only 16.x satisfies both.
         self.assertIn('"av>=16,<17"', pyproject)
-        self.assertIn(
-            'pyrnnoise>=0.4; sys_platform == "linux"', requirements
-        )
-        self.assertIn("av>=16,<17", requirements)
         self.assertIn("- pyrnnoise", snapcraft)
         self.assertIn("- av>=16,<17", snapcraft)
         self.assertIn("- gnome-settings-daemon-common", snapcraft)
@@ -122,34 +246,29 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_runtime_dependency_floors_include_security_fixes(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
-        requirements = (REPO_ROOT / "requirements.txt").read_text()
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
 
-        for content in (pyproject, requirements, snapcraft, build_workflow):
+        for content in (pyproject, snapcraft, build_workflow):
             self.assertIn("onnx>=1.22.0", content)
             self.assertIn("click>=8.3.3", content)
             self.assertIn("protobuf>=6.33.5,<7", content)
 
-        for content in (pyproject, requirements, snapcraft, build_workflow):
+        for content in (pyproject, snapcraft, build_workflow):
             self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
             self.assertNotIn("opencv-python-headless", content)
             self.assertIn("Pillow>=12.3.0", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
-        self.assertIn("pyvirtualcam>=0.14", requirements)
-        self.assertIn('dev = ["pytest>=9.0.3", "packaging>=26.0"]', pyproject)
+        self.assertIn('"packaging>=26.0"', pyproject)
+        self.assertIn('dev = ["pytest>=9.0.3"]', pyproject)
         self.assertIn('"mediapipe>=1.0.0"', pyproject)
-        self.assertIn("\nmediapipe>=1.0.0\n", requirements)
         self.assertNotIn("\n      - mediapipe\n", snapcraft)
         self.assertIn(
             '"onnxruntime>=1.23.2,<1.24; sys_platform == \'darwin\'"',
             pyproject,
         )
-        self.assertIn(
-            'onnxruntime>=1.23.2,<1.24; sys_platform == "darwin"',
-            requirements,
-        )
+        self.assertFalse((REPO_ROOT / "requirements.txt").exists())
 
         installers = (
             REPO_ROOT / "install.sh",
@@ -329,7 +448,7 @@ class PackagingMetadataTests(unittest.TestCase):
         )[0]
 
         self.assertNotIn("continue-on-error", rpm_step)
-        self.assertIn('python -m pip install ".[dev]"', workflow)
+        self.assertIn('python -m pip install ".[dev,cpu]"', workflow)
         self.assertIn("python -m pip check", workflow)
         self.assertIn('"pip-audit>=2.9" "bandit>=1.8"', linux_test_job)
         self.assertIn(
@@ -380,7 +499,7 @@ class PackagingMetadataTests(unittest.TestCase):
             "  test-linux:", 1
         )[0]
 
-        self.assertIn('python3 -m pip install ".[dev]"', macos_job)
+        self.assertIn('python3 -m pip install ".[dev,cpu]"', macos_job)
         self.assertIn("python3 -m pip check", macos_job)
         self.assertIn("python3 -m pip_audit --skip-editable", macos_job)
         self.assertNotIn("--dry-run", macos_job)
@@ -398,7 +517,9 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_readme_documents_cuda_extra_for_source_gpu_installs(self):
         readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn('pip install -e ".[cuda]"', readme)
-        self.assertIn('.venv/bin/pip install --upgrade ".[cuda]"', readme)
+        self.assertIn('./install.sh --runtime cuda', readme)
+        self.assertIn('pip install -e ".[cpu]"', readme)
+        self.assertIn("Never overlay `.[cuda]`", readme)
         self.assertIn(
             'pip install "cupy-cuda12x>=14.1.1,<15" '
             "nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12",
@@ -408,12 +529,15 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_cuda_extra_contains_onnxruntime_gpu_provider(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
-        requirements = (REPO_ROOT / "requirements.txt").read_text()
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
         self.assertIn("cuda = [", pyproject)
+        base_dependencies = pyproject.split("dependencies = [", 1)[1].split(
+            "[project.urls]", 1
+        )[0]
+        self.assertNotIn("onnxruntime", base_dependencies)
+        self.assertIn("cpu = [", pyproject)
         self.assertIn('"cupy-cuda12x>=14.1.1,<15"', pyproject)
-        self.assertIn('cupy-cuda12x>=14.1.1,<15; sys_platform == "linux"', requirements)
         self.assertIn('"cupy-cuda12x>=14.1.1,<15"', snapcraft)
         self.assertIn('export CUDA_PATH="$CUDA_RUNTIME"', snapcraft)
         self.assertIn('"onnxruntime-gpu==1.24.4"', pyproject)
@@ -430,13 +554,20 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("nvidia-nvjpeg-cu12", snapcraft)
         self.assertIn("intentionally uses GStreamer's CPU MJPEG decoder", readme)
 
-    def test_linux_package_postinstalls_install_cuda_extra(self):
+    def test_linux_package_postinstalls_choose_one_runtime_before_resolution(self):
         deb_postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
         rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         rpm_postinst = rpm_spec.split("%post", 1)[1].split("%preun", 1)[0]
-        self.assertIn('pip" install --upgrade "${INSTALL_DIR}[cuda]"', deb_postinst)
-        self.assertIn('pip install --upgrade "/opt/nvbroadcast[cuda]"', rpm_postinst)
-        self.assertNotIn("pip\" install cupy-cuda12x nvidia-cuda-nvrtc-cu12", deb_postinst)
+        for postinst in (deb_postinst, rpm_postinst):
+            self.assertIn('RUNTIME_VARIANT="cpu"', postinst)
+            self.assertIn('RUNTIME_VARIANT="cuda"', postinst)
+            self.assertIn('rm -rf --', postinst)
+            self.assertIn('install_runtime_variant.py', postinst)
+            self.assertIn('--meeting-backends faster', postinst)
+            self.assertIn('recreating clean CPU environment', postinst)
+            self.assertNotIn('[cuda]"', postinst)
+        self.assertIn("pkill -f", rpm_spec.split("%pre", 1)[1].split("%post", 1)[0])
+        self.assertNotIn('pkill -f "nvbroadcast"', rpm_spec)
 
     def test_virtual_camera_label_is_nvbroadcast_everywhere(self):
         constants = (REPO_ROOT / "src" / "nvbroadcast" / "core" / "constants.py").read_text()
@@ -515,48 +646,81 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_debian_postinst_installs_meeting_runtime(self):
         postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
-        self.assertIn("pip\" install --no-deps faster-whisper", postinst)
-        self.assertIn("pip\" install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", postinst)
+        self.assertIn("install_runtime_variant.py", postinst)
+        self.assertIn("--meeting-backends faster", postinst)
         self.assertNotIn("openai-whisper", postinst)
-        self.assertNotIn("install --no-deps faster-whisper ctranslate2", postinst)
 
     def test_rpm_postinst_installs_meeting_runtime(self):
         spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         postinst = spec.split("%post", 1)[1].split("%preun", 1)[0]
-        self.assertIn("pip install --no-deps faster-whisper", postinst)
-        self.assertIn("pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", postinst)
+        self.assertIn("install_runtime_variant.py", postinst)
+        self.assertIn("--meeting-backends faster", postinst)
         self.assertNotIn("openai-whisper", postinst)
-        self.assertNotIn("install --no-deps faster-whisper ctranslate2", postinst)
+
+    def test_rpm_uses_fedora_cairo_package_name(self):
+        spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        self.assertIn("Requires:       python3-cairo", spec)
+        self.assertNotIn("python3-gobject-cairo", spec)
 
     def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()
-        self.assertIn("pip install -q --no-deps faster-whisper", script)
-        self.assertIn("pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", script)
-        self.assertNotIn("install -q --no-deps faster-whisper ctranslate2", script)
+        pkg_builder = script.split("build_pkg() {", 1)[1]
+        self.assertIn("install_runtime_variant.py", script)
+        self.assertIn("--variant cpu --meeting-backends faster", script)
+        self.assertIn('rm -rf -- "$INSTALL_DIR/.venv"', script)
+        self.assertIn('pkill -f "^${INSTALL_DIR}/.venv/bin/python -m nvbroadcast', script)
+        self.assertIn(
+            'mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/scripts"', pkg_builder
+        )
+        self.assertIn(
+            "install -m 755 scripts/install_runtime_variant.py", pkg_builder
+        )
+        self.assertNotIn(
+            "install -Dm 755 scripts/install_runtime_variant.py", pkg_builder
+        )
+
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+        macos_builder = workflow.split("  build-macos:", 1)[1].split(
+            "  test-macos:", 1
+        )[0]
+        self.assertIn("run: bash build-packages.sh pkg", macos_builder)
+        self.assertIn(
+            "opt/nvbroadcast/scripts/install_runtime_variant.py", macos_builder
+        )
+        self.assertIn('test -x "$runtime_installer"', macos_builder)
 
     def test_macos_source_installer_guards_openai_whisper(self):
         script = (REPO_ROOT / "install_macos.sh").read_text()
-        self.assertIn("pip install -q --no-deps faster-whisper", script)
-        self.assertIn("pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", script)
+        self.assertIn("install_runtime_variant.py", script)
+        self.assertIn("--variant cpu --meeting-backends faster", script)
+        self.assertIn('rm -rf -- "$INSTALL_DIR/venv"', script)
+        self.assertIn('pkill -f "^${INSTALL_DIR}/venv/bin/python -m nvbroadcast', script)
         self.assertIn("sys.version_info < (3, 14)", script)
-        self.assertIn('"openai-whisper>=20231117"', script)
-        self.assertNotIn("pip install -q openai-whisper\n", script)
+        self.assertIn('pip install -q "openai-whisper>=20231117"', script)
 
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         build_workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
-        self.assertIn("- faster-whisper", snapcraft)
+        self.assertIn("        faster-whisper==1.2.1", snapcraft)
         self.assertIn("- ctranslate2", snapcraft)
         self.assertIn("- httpx", snapcraft)
         self.assertIn("- av", snapcraft)
+        self.assertIn("- sympy", snapcraft)
         self.assertNotIn("- openai-whisper", snapcraft)
         self.assertIn("onnxruntime==1.24.4", snapcraft)
         self.assertIn("onnxruntime-gpu==1.24.4", snapcraft)
-        self.assertIn("Installing amd64 CUDA mode runtime into Snap", snapcraft)
-        self.assertIn("Skipping CUDA mode runtime", snapcraft)
+        python_packages = snapcraft.split("python-packages:", 1)[1].split(
+            "stage-packages:", 1
+        )[0]
+        self.assertNotIn("onnxruntime", python_packages)
+        self.assertNotIn("faster-whisper", python_packages)
+        self.assertIn("Installing sole amd64 CUDA runtime owner", snapcraft)
+        self.assertIn("Installing sole arm64 CPU runtime owner", snapcraft)
         self.assertIn("arm64 Snap build stays portable and CPU-safe", snapcraft)
         cuda_install = snapcraft.split(
-            "Installing amd64 CUDA mode runtime into Snap", 1
+            "Installing sole amd64 CUDA runtime owner into Snap", 1
         )[1].split("# nvImageCodec", 1)[0]
         self.assertIn("- protobuf>=6.33.5,<7", snapcraft)
         self.assertNotIn('"protobuf>=6.33.5,<7"', cuda_install)
@@ -569,7 +733,7 @@ class PackagingMetadataTests(unittest.TestCase):
         for package in (
             "pyrnnoise",
             "av>=16,<17",
-            "faster-whisper",
+            "faster-whisper==1.2.1",
             "ctranslate2",
             "huggingface-hub",
             "httpx",
@@ -593,7 +757,7 @@ class PackagingMetadataTests(unittest.TestCase):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
         cuda_install = snapcraft.split(
-            'echo "Installing amd64 CUDA mode runtime into Snap..."', 1
+            'echo "Installing sole amd64 CUDA runtime owner into Snap..."', 1
         )[1].split("# nvImageCodec", 1)[0]
 
         self.assertIn("- packaging>=26.0", snapcraft)
@@ -606,6 +770,7 @@ class PackagingMetadataTests(unittest.TestCase):
         )
         self.assertIn("Verify Snap runtime dependency closure", workflow)
         self.assertIn("scripts/validate_snap_runtime.py", workflow)
+        self.assertIn('IMPORT_PROBES = ("packaging", "setuptools", "onnxruntime")', (REPO_ROOT / "scripts" / "validate_snap_runtime.py").read_text())
 
     def test_snap_relocates_python_venv_for_strict_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
@@ -658,23 +823,35 @@ class PackagingMetadataTests(unittest.TestCase):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         self.assertIn("data/backgrounds/studio_bg.png", pyproject)
 
-    def test_python_meeting_extra_uses_faster_whisper_stack(self):
-        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
-        self.assertIn("faster-whisper", pyproject)
-        self.assertIn("ctranslate2", pyproject)
-        self.assertIn("httpx", pyproject)
-        self.assertIn('openai-whisper>=20231117; python_version < "3.14"', pyproject)
+    def test_python_meeting_support_extra_does_not_resolve_runtime_owner(self):
+        metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        installer = (REPO_ROOT / "scripts" / "install_runtime_variant.py").read_text()
+        support = metadata["project"]["optional-dependencies"]["meeting-support"]
+        self.assertIn("ctranslate2", support)
+        self.assertIn("httpx", support)
+        self.assertNotIn("faster-whisper", support)
+        self.assertFalse(any(item.startswith("openai-whisper") for item in support))
+        self.assertIn('extras.append("meeting-support")', installer)
+        self.assertIn('extras.append("meeting")', installer)
+        self.assertNotIn("MEETING_SUPPORT =", installer)
 
-    def test_requirements_keep_meeting_runtime_python314_safe(self):
-        requirements = (REPO_ROOT / "requirements.txt").read_text()
-        self.assertIn("faster-whisper", requirements)
-        self.assertIn("ctranslate2", requirements)
-        self.assertIn("httpx", requirements)
-        self.assertIn('openai-whisper>=20231117; python_version < "3.14"', requirements)
-        self.assertIn("onnxruntime-gpu==1.24.4", requirements)
-        self.assertIn("onnxruntime>=1.23.2,<1.24", requirements)
-        self.assertNotIn("onnxruntime-gpu>=1.16", requirements)
-        self.assertNotIn("\nopenai-whisper>=20231117\n", requirements)
+    def test_meeting_extra_preserves_openai_whisper_compatibility(self):
+        metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        readme = (REPO_ROOT / "README.md").read_text()
+        extras = metadata["project"]["optional-dependencies"]
+        requirement = 'openai-whisper>=20231117; python_version < "3.14"'
+
+        self.assertIn(requirement, extras["meeting"])
+        for extra in ("cpu", "cuda"):
+            self.assertFalse(
+                any(item.startswith("openai-whisper") for item in extras[extra])
+            )
+        self.assertFalse(
+            any(item.startswith("faster-whisper") for item in extras["meeting"])
+        )
+        self.assertIn("`.[cpu,meeting]`", readme)
+        self.assertIn("`.[cuda,meeting]`", readme)
+        self.assertIn("./install.sh --runtime auto --with-meeting", readme)
 
     def test_macos_packages_require_the_runtime_wheel_baseline(self):
         installer = (REPO_ROOT / "install_macos.sh").read_text()

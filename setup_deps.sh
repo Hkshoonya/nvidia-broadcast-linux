@@ -2,8 +2,20 @@
 # Install system dependencies for NVIDIA Broadcast
 # by doczeus | AI Powered
 set -e
+export PYTHONNOUSERSITE=1
 
 echo "=== NVIDIA Broadcast Dependency Installer ==="
+
+preflight_python_environment() {
+    if [ -x .venv/bin/python ]; then
+        .venv/bin/python scripts/install_runtime_variant.py \
+            --project . --variant cpu --meeting-backends none \
+            --source-venv .venv --preflight-only
+    fi
+}
+
+# Refuse incompatible or active source environments before any package mutation.
+preflight_python_environment
 
 # GStreamer packages
 echo "[1/5] Installing GStreamer packages..."
@@ -44,15 +56,19 @@ fi
 
 # Python venv + packages
 echo "[5/5] Setting up Python environment..."
+# Recheck immediately before Python mutations to narrow the race window.
+preflight_python_environment
 python3 -m venv .venv --system-site-packages
 .venv/bin/pip install --upgrade \
     "pip>=26.1.2" "setuptools>=83.0.0" wheel
-.venv/bin/pip install -e .
+.venv/bin/python scripts/install_runtime_variant.py \
+    --project . --variant cpu --meeting-backends none \
+    --source-venv .venv --editable
 
 echo ""
 echo "=== Done! ==="
 echo "Activate: source .venv/bin/activate"
-echo "Run GUI:  python -m nvbroadcast"
-echo "Run VCam: python -m nvbroadcast.vcam_service"
+echo "Run GUI:  PYTHONNOUSERSITE=1 python -m nvbroadcast"
+echo "Run VCam: PYTHONNOUSERSITE=1 python -m nvbroadcast.vcam_service"
 echo ""
 echo "AI models will be auto-downloaded on first use."

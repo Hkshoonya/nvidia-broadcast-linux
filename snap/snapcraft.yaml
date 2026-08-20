@@ -127,10 +127,8 @@ parts:
       - packaging>=26.0
       - setuptools>=83.0.0
       - protobuf>=6.33.5,<7
-      - onnxruntime==1.24.4
       - onnx>=1.22.0
       - click>=8.3.3
-      - faster-whisper
       - ctranslate2
       - huggingface-hub
       - httpx
@@ -138,6 +136,9 @@ parts:
       - soundfile
       - av>=16,<17
       - scipy
+      # Required by both ONNX Runtime distributions. Declare it outside the
+      # architecture-owned runtime install because those installs use --no-deps.
+      - sympy
       - pyrnnoise
       - psutil
       - Pillow>=12.3.0
@@ -172,9 +173,7 @@ parts:
       mkdir -p "$SNAP_PYTHON_SITE"
       case "${CRAFT_ARCH_BUILD_FOR:-$(uname -m)}" in
         amd64|x86_64)
-          echo "Installing amd64 CUDA mode runtime into Snap..."
-          # The base site already owns shared Python dependencies; keep the
-          # higher-priority CUDA overlay limited to its explicit GPU payload.
+          echo "Installing sole amd64 CUDA runtime owner into Snap..."
           python3 -m pip install --no-cache-dir --upgrade \
             --timeout 120 \
             --retries 5 \
@@ -195,9 +194,19 @@ parts:
           # compositing, colorspace conversion, and virtual-camera output.
           ;;
         *)
-          echo "Skipping CUDA mode runtime for ${CRAFT_ARCH_BUILD_FOR:-$(uname -m)} Snap build."
+          echo "Installing sole arm64 CPU runtime owner into Snap..."
+          python3 -m pip install --no-cache-dir --upgrade \
+            --no-deps \
+            --target "$SNAP_PYTHON_SITE" \
+            onnxruntime==1.24.4
           ;;
       esac
+      # faster-whisper declares the CPU distribution name. Install its code
+      # without dependencies so amd64 keeps onnxruntime-gpu as sole owner.
+      python3 -m pip install --no-cache-dir --upgrade \
+        --no-deps \
+        --target "$SNAP_PYTHON_SITE" \
+        faster-whisper==1.2.1
       # Optional runtime installation is disabled inside the immutable Snap.
       # Remove the Python plugin's build-time package installer from the final
       # runtime instead of carrying a second mutable package-management path.

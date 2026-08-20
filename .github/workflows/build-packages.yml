@@ -8,6 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONNOUSERSITE: "1"
 
 permissions:
   contents: read
@@ -65,6 +66,8 @@ jobs:
           pkgutil --expand-full "$package" /tmp/nvbroadcast-pkg-expanded
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/src/nvbroadcast/__init__.py' -print -quit)"
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/usr/local/bin/nvbroadcast' -print -quit)"
+          runtime_installer="$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/scripts/install_runtime_variant.py' -print -quit)"
+          test -x "$runtime_installer"
           distribution="$(find /tmp/nvbroadcast-pkg-expanded -name Distribution -type f -print -quit)"
           test -n "$distribution"
           grep -q 'hostArchitectures="arm64"' "$distribution"
@@ -98,7 +101,7 @@ jobs:
       - name: Install project and test dependencies
         run: |
           python3 -m pip install --upgrade "pip>=26.1.2" "setuptools>=83.0.0" wheel
-          python3 -m pip install ".[dev]"
+          python3 -m pip install ".[dev,cpu]"
           python3 -m pip install "pip-audit>=2.9"
           python3 -m pip check
           python3 -m pip_audit --skip-editable
@@ -207,11 +210,11 @@ jobs:
             --python-version 312 \
             --implementation cp \
             --abi cp312 \
-            numpy "opencv-contrib-python>=4.8.1.78,<5" "mediapipe==1.0.0" "protobuf>=6.33.5,<7" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy "Pillow>=12.3.0" requests psutil pyrnnoise "av>=16,<17" faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm packaging "setuptools>=83.0.0"
+            numpy "opencv-contrib-python>=4.8.1.78,<5" "mediapipe==1.0.0" "protobuf>=6.33.5,<7" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy "Pillow>=12.3.0" requests psutil pyrnnoise "av>=16,<17" faster-whisper==1.2.1 ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm packaging "setuptools>=83.0.0"
 
       - name: Install Linux project dependencies
         run: |
-          .venv/bin/python -m pip install ".[dev]"
+          .venv/bin/python -m pip install ".[dev,cpu]"
           .venv/bin/python -m pip install "pip-audit>=2.9" "bandit>=1.8"
           .venv/bin/python -m pip check
           # Audit the project resolution, excluding unrelated Ubuntu packages
@@ -259,7 +262,7 @@ jobs:
       - name: Install project and test dependencies
         run: |
           python -m pip install --upgrade "pip>=26.1.2" "setuptools>=83.0.0" wheel
-          python -m pip install ".[dev]"
+          python -m pip install ".[dev,cpu]"
           python -m pip check
 
       - name: Run cross-version unit tests

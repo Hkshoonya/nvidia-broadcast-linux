@@ -5,11 +5,79 @@
 # Supports: Ubuntu, Debian, Pop!_OS, Linux Mint, Fedora, RHEL, CentOS,
 #           Arch, Manjaro, EndeavourOS, openSUSE, Gentoo, Void, NixOS
 set -eE
+export PYTHONNOUSERSITE=1
 trap 'rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $rc)"; echo "Please report this issue with the output above."; exit $rc' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_PREFIX="${HOME}/.local"
 VENV_DIR="${SCRIPT_DIR}/.venv"
+RUNTIME_REQUEST="auto"
+WITH_MEETING=false
+
+usage() {
+    echo "Usage: $0 [--runtime auto|cpu|cuda] [--with-meeting]"
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --runtime)
+            [ "$#" -ge 2 ] || { echo "ERROR: --runtime requires auto, cpu, or cuda."; exit 2; }
+            RUNTIME_REQUEST="$2"
+            shift 2
+            ;;
+        --runtime=*)
+            RUNTIME_REQUEST="${1#*=}"
+            shift
+            ;;
+        --with-meeting)
+            WITH_MEETING=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown argument: $1"
+            usage
+            exit 2
+            ;;
+    esac
+done
+
+case "$RUNTIME_REQUEST" in
+    auto|cpu|cuda) ;;
+    *) echo "ERROR: Invalid runtime '$RUNTIME_REQUEST'; expected auto, cpu, or cuda."; exit 2 ;;
+esac
+
+guard_source_environment() {
+    if ! command -v python3 &>/dev/null; then
+        echo "ERROR: Python 3 is required to inspect the source environment safely."
+        exit 1
+    fi
+
+    local guard_status
+    if python3 "$SCRIPT_DIR/scripts/check_source_venv_processes.py" --venv "$VENV_DIR"; then
+        return
+    else
+        guard_status=$?
+    fi
+
+    if [ "$guard_status" -eq 1 ]; then
+        echo "Stop NVBroadcast and the virtual-camera service, then rerun this installer."
+        if command -v systemctl &>/dev/null; then
+            echo "For the user service: systemctl --user stop nvbroadcast-vcam.service"
+        fi
+    else
+        echo "Resolve the process-inspection error above, then rerun this installer."
+    fi
+    exit 1
+}
+
+# Refuse before system or environment mutations while an existing source
+# process can still import code from the installer-owned environment.
+guard_source_environment
+
 APP_VERSION="$(SCRIPT_DIR="$SCRIPT_DIR" python3 - <<'PY' 2>/dev/null || echo unknown
 from pathlib import Path
 import os
@@ -365,6 +433,27 @@ if command -v gst-inspect-1.0 &>/dev/null; then
     fi
 fi
 
+MACHINE_ARCH="$(uname -m)"
+case "$RUNTIME_REQUEST" in
+    cpu) SELECTED_RUNTIME_VARIANT="cpu" ;;
+    cuda)
+        case "$MACHINE_ARCH" in
+            x86_64|amd64) SELECTED_RUNTIME_VARIANT="cuda" ;;
+            *)
+                echo "ERROR: CUDA runtime variant supports Linux x86_64 only; found ${MACHINE_ARCH}."
+                exit 1
+                ;;
+        esac
+        ;;
+    auto)
+        case "$MACHINE_ARCH:$HAS_NVIDIA" in
+            x86_64:true|amd64:true) SELECTED_RUNTIME_VARIANT="cuda" ;;
+            *) SELECTED_RUNTIME_VARIANT="cpu" ;;
+        esac
+        ;;
+esac
+echo "  Runtime variant: $SELECTED_RUNTIME_VARIANT (requested: $RUNTIME_REQUEST)"
+
 # ─── Step 2: v4l2loopback Configuration ─────────────────────────────────────
 
 echo ""
@@ -468,26 +557,73 @@ fi
 echo ""
 echo "[3/7] Setting up Python environment..."
 
-if [ ! -d "$VENV_DIR" ]; then
+installed_runtime_variant() {
+    if [ ! -x "$VENV_DIR/bin/python" ]; then
+        echo "none"
+        return
+    fi
+    "$VENV_DIR/bin/python" - <<'PY' 2>/dev/null || echo "unknown"
+from nvbroadcast.runtime.variants import detect_runtime_variant
+variant = detect_runtime_variant()
+print(variant.value if variant else "mixed-or-missing")
+PY
+}
+
+CURRENT_RUNTIME_VARIANT="$(installed_runtime_variant)"
+
+# Recheck immediately before removing or upgrading the environment. This
+# narrows the window in which a source process could start during preflight.
+guard_source_environment
+
+if [ "$CURRENT_RUNTIME_VARIANT" != "none" ] && [ "$CURRENT_RUNTIME_VARIANT" != "$SELECTED_RUNTIME_VARIANT" ]; then
+    echo "Replacing ${CURRENT_RUNTIME_VARIANT} environment with ${SELECTED_RUNTIME_VARIANT} runtime variant..."
+    rm -rf -- "$VENV_DIR"
+fi
+
+create_virtual_environment() {
     python3 -m venv "$VENV_DIR" --system-site-packages
     echo "Created virtual environment"
-fi
-"$VENV_DIR/bin/pip" install --upgrade \
-    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
-"$VENV_DIR/bin/pip" install "$SCRIPT_DIR" -q
-echo "Core packages installed."
+}
+
+prepare_virtual_environment() {
+    if [ ! -d "$VENV_DIR" ]; then
+        create_virtual_environment
+    fi
+    "$VENV_DIR/bin/pip" install --upgrade \
+        "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
+}
+
+prepare_virtual_environment
+
+install_runtime_variant() {
+    local meeting_backends="none"
+    if [ "$WITH_MEETING" = true ]; then
+        meeting_backends="all"
+    fi
+    "$VENV_DIR/bin/python" "$SCRIPT_DIR/scripts/install_runtime_variant.py" \
+        --project "$SCRIPT_DIR" --variant "$1" \
+        --meeting-backends "$meeting_backends"
+}
 
 CUDA_EXTRA_INSTALLED=false
 CUDA_ACCEL_AVAILABLE=false
-if [ "$HAS_NVIDIA" = true ]; then
-    echo "Installing NVIDIA CUDA inference/runtime packages..."
-    if "$VENV_DIR/bin/pip" install --upgrade "${SCRIPT_DIR}[cuda]" -q 2>&1; then
-        CUDA_EXTRA_INSTALLED=true
-        echo "CUDA runtime packages installed."
+if ! install_runtime_variant "$SELECTED_RUNTIME_VARIANT"; then
+    if [ "$RUNTIME_REQUEST" = "auto" ] && [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
+        echo "WARNING: CUDA runtime installation failed. Recreating clean CPU environment."
+        rm -rf -- "$VENV_DIR"
+        SELECTED_RUNTIME_VARIANT="cpu"
+        prepare_virtual_environment
+        install_runtime_variant "$SELECTED_RUNTIME_VARIANT"
     else
-        echo "WARNING: CUDA runtime package installation failed. Continuing with CPU fallback."
-        echo "  Retry later: $VENV_DIR/bin/pip install --upgrade \"${SCRIPT_DIR}[cuda]\""
+        echo "ERROR: Failed to install requested ${SELECTED_RUNTIME_VARIANT} runtime variant."
+        exit 1
     fi
+fi
+if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then CUDA_EXTRA_INSTALLED=true; fi
+if [ "$WITH_MEETING" = true ]; then
+    echo "Core packages, meeting backends, and ${SELECTED_RUNTIME_VARIANT} runtime installed."
+else
+    echo "Core packages and ${SELECTED_RUNTIME_VARIANT} runtime installed."
 fi
 
 # Verify critical Python packages
@@ -569,7 +705,7 @@ else
     echo "     - GPU alpha blending when CUDA inference is already available"
     echo "     - Lower CPU cost for background replacement"
     echo ""
-    if [ "$HAS_NVIDIA" = true ]; then
+    if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
         read -rp "  Install CuPy compositing runtime? [Y/n] " install_cupy
         install_cupy="${install_cupy:-Y}"
         if [[ "$install_cupy" =~ ^[Yy]$ ]]; then
@@ -616,7 +752,7 @@ else
     echo "     - Optimized model inference (future TRT engine support)"
     echo "     - Potential 2-5x inference speedup on supported models"
     echo ""
-    if [ "$HAS_NVIDIA" = true ]; then
+    if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
         if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 8 ] && [ "$PY_MINOR" -le 13 ]; then
             TRT_SUPPORTED=true
             read -rp "  Install TensorRT? [y/N] " install_trt
@@ -731,6 +867,7 @@ rm -f "$INSTALL_PREFIX/bin/blucast" "$INSTALL_PREFIX/bin/blucast-vcam" 2>/dev/nu
 
 cat > "$INSTALL_PREFIX/bin/nvbroadcast" << 'LAUNCHER'
 #!/usr/bin/env bash
+export PYTHONNOUSERSITE=1
 NVBROADCAST_DIR="PLACEHOLDER_DIR"
 exec "$NVBROADCAST_DIR/.venv/bin/python" -m nvbroadcast "$@"
 LAUNCHER
@@ -739,6 +876,7 @@ chmod +x "$INSTALL_PREFIX/bin/nvbroadcast"
 
 cat > "$INSTALL_PREFIX/bin/nvbroadcast-vcam" << 'LAUNCHER'
 #!/usr/bin/env bash
+export PYTHONNOUSERSITE=1
 NVBROADCAST_DIR="PLACEHOLDER_DIR"
 exec "$NVBROADCAST_DIR/.venv/bin/python" -m nvbroadcast.vcam_service "$@"
 LAUNCHER
@@ -834,6 +972,7 @@ Type=simple
 ExecStart=$INSTALL_PREFIX/bin/nvbroadcast-vcam
 Restart=on-failure
 RestartSec=3
+Environment=PYTHONNOUSERSITE=1
 Environment=GST_PLUGIN_PATH=$GST_PLUGIN_PATH
 
 [Install]
@@ -937,7 +1076,7 @@ echo "    Meeting Transcription    — faster startup and cleaner saved audio"
 echo "    Resolution Safety        — save changes without hanging the stream"
 echo ""
 echo "  To install optional packages later:"
-echo "    CUDA runtime: $VENV_DIR/bin/pip install --upgrade \"${SCRIPT_DIR}[cuda]\""
+echo "    Runtime switch: stop NVBroadcast, then run $SCRIPT_DIR/install.sh --runtime cpu|cuda"
 echo "    CuPy:     $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
 echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt-cu12"
 echo ""

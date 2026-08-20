@@ -35,9 +35,6 @@ dependencies = [
     # fallback; install_macos.sh reports the architecture requirement first.
     "mediapipe>=1.0.0",
     "protobuf>=6.33.5,<7",
-    # Version 1.23.2 keeps the supported Apple Silicon runtime on macOS 13+.
-    "onnxruntime>=1.23.2,<1.24; sys_platform == 'darwin'",
-    "onnxruntime>=1.24.4,<1.25; sys_platform != 'darwin'",
     # pyrnnoise publishes Linux wheels only. DeepFilterNet remains available
     # on macOS through ONNX Runtime without this fallback.
     "pyrnnoise>=0.4; sys_platform == 'linux'",
@@ -50,6 +47,7 @@ dependencies = [
     "psutil>=5.9",
     "scipy>=1.11",
     "pyvirtualcam>=0.14; sys_platform == 'darwin'",
+    "packaging>=26.0",
 ]
 
 [project.urls]
@@ -58,7 +56,12 @@ Repository = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
 Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0.3", "packaging>=26.0"]
+dev = ["pytest>=9.0.3"]
+cpu = [
+    # Version 1.23.2 keeps the supported Apple Silicon runtime on macOS 13+.
+    "onnxruntime>=1.23.2,<1.24; sys_platform == 'darwin'",
+    "onnxruntime>=1.24.4,<1.25; sys_platform != 'darwin'",
+]
 cuda = [
     "cupy-cuda12x>=14.1.1,<15",
     "nvidia-cublas-cu12",
@@ -76,14 +79,19 @@ cuda = [
     "nvidia-nvjpeg-cu12",
     "onnxruntime-gpu==1.24.4",
 ]
+# Preserve the public meeting extra without allowing faster-whisper's
+# onnxruntime requirement to select a runtime owner. Managed installers add
+# faster-whisper separately with --no-deps after choosing cpu or cuda.
 meeting = [
-    "faster-whisper",
+    'openai-whisper>=20231117; python_version < "3.14"',
+]
+meeting-support = [
     "ctranslate2",
     "huggingface-hub",
     "httpx",
     "tokenizers",
     "soundfile",
-    'openai-whisper>=20231117; python_version < "3.14"',
+    "tqdm",
 ]
 maxine = ["nvidia-vfx"]
 tensorrt = ["tensorrt", "tensorrt-cu12", "onnx"]

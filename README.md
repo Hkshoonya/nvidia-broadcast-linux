@@ -343,12 +343,16 @@ sudo apt install -y \
 # 2. Python venv
 python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
+export PYTHONNOUSERSITE=1
 
-# 3. Install
-pip install -e .
+# 3. Install exactly one ONNX Runtime variant
+pip install -e ".[cpu]"
 
-# For NVIDIA GPU acceleration, install the CUDA extra instead:
+# For NVIDIA GPU acceleration on Linux x86_64, choose CUDA instead:
 pip install -e ".[cuda]"
+
+# Optional: preserve the OpenAI Whisper compatibility backend:
+pip install -e ".[cpu,meeting]"  # or .[cuda,meeting]
 
 # 4. Optional: CuPy-only retry for GPU compositing
 pip install "cupy-cuda12x>=14.1.1,<15" nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12
@@ -363,6 +367,23 @@ NVBROADCAST_VCAM_DEVICE_NUM=11 ./scripts/setup_v4l2loopback.sh
 # 6. Run
 python -m nvbroadcast
 ```
+
+The `.[meeting]` compatibility extra retains the guarded `openai-whisper`
+backend on Python versions below 3.14 without selecting an ONNX Runtime owner.
+Combine it with exactly one runtime variant as `.[cpu,meeting]` or
+`.[cuda,meeting]`. Because `faster-whisper` declares `onnxruntime` directly,
+plain pip extras cannot safely install both meeting backends while preserving
+strict runtime ownership. Use the source installer for the complete meeting
+stack:
+
+```bash
+./install.sh --runtime auto --with-meeting
+```
+
+This installs support dependencies through project metadata, installs
+`faster-whisper` with `--no-deps`, and installs guarded OpenAI Whisper on Python
+versions below 3.14. Native packages keep their lighter `faster-whisper` policy;
+the macOS installer keeps its best-effort OpenAI Whisper fallback.
 
 </details>
 
@@ -465,10 +486,15 @@ fuser -k /dev/video0
 <details>
 <summary><strong>No GPU acceleration (running on CPU)</strong></summary>
 
-From the source checkout, install the CUDA extra. This installs the ONNX Runtime GPU provider and CUDA runtime libraries used by the CUDA modes:
+Stop NVBroadcast, then ask the source installer to recreate its environment as the CUDA variant:
 ```bash
-.venv/bin/pip install --upgrade ".[cuda]"
+./install.sh --runtime cuda
 ```
+
+For a manually managed source environment, recreate the virtual environment and
+install `.[cuda]`. Never overlay `.[cuda]` on an existing `.[cpu]` environment.
+Bare `pip install .` is runtime-neutral and intended for downstream packagers
+that provide exactly one ONNX Runtime owner themselves.
 
 Verify that ONNX Runtime can see the GPU provider:
 ```bash
@@ -571,7 +597,6 @@ nvidia-broadcast-linux/
 ├── install_macos.sh             # macOS installer
 ├── uninstall.sh                 # Clean removal
 ├── build-packages.sh            # Debian/RPM/macOS package builder
-├── requirements.txt             # Runtime dependency set
 ├── pyproject.toml               # Package config (v1.4.0)
 └── README.md
 ```
