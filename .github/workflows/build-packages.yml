@@ -280,10 +280,52 @@ jobs:
             tests/test_updates.py \
             tests/test_voice_fx.py
 
-  # ─── Release: Upload packages on tag push ──────────────────────────────────
-  release:
+  # ─── Attest: sign exact artifacts after every release gate passes ──────────
+  attest-release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-linux, build-macos, test-macos, test-linux, test-python]
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: artifacts/
+
+      - name: Generate native package checksums
+        run: |
+          python3 scripts/generate_release_checksums.py \
+            --output artifacts/SHA256SUMS.packages \
+            artifacts/linux-packages/deb/*.deb \
+            artifacts/linux-packages/rpm/*.rpm \
+            artifacts/macos-packages/*.pkg
+
+      - name: Attest release package provenance
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            artifacts/linux-packages/deb/*.deb
+            artifacts/linux-packages/rpm/*.rpm
+            artifacts/macos-packages/*.pkg
+            artifacts/SHA256SUMS.packages
+
+      - name: Upload release metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-metadata
+          path: artifacts/SHA256SUMS.packages
+
+  # ─── Release: Upload attested packages on tag push ──────────────────────────
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: attest-release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -314,4 +356,5 @@ jobs:
             artifacts/linux-packages/deb/*.deb
             artifacts/linux-packages/rpm/*.rpm
             artifacts/macos-packages/*.pkg
+            artifacts/release-metadata/SHA256SUMS.packages
           fail_on_unmatched_files: true

@@ -375,6 +375,7 @@ class PackagingMetadataTests(unittest.TestCase):
         for relative in (
             ".github/workflows/build-packages.yml",
             ".github/workflows/pr-checks.yml",
+            ".github/workflows/snap-promote.yml",
             ".github/workflows/snap.yml",
         ):
             workflow = (REPO_ROOT / relative).read_text()
@@ -382,6 +383,104 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertTrue(refs, relative)
             for ref in refs:
                 self.assertRegex(ref, r"^[0-9a-f]{40}$", f"{relative}: {ref}")
+
+    def test_release_builders_issue_pinned_provenance_attestations(self):
+        build_workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+        snap_workflow = (
+            REPO_ROOT / ".github" / "workflows" / "snap.yml"
+        ).read_text()
+        attest_action = (
+            "actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d"
+        )
+
+        attestation_job = build_workflow.split("  attest-release:", 1)[1].split(
+            "  release:", 1
+        )[0]
+        snap_builder = snap_workflow.split("  build-snap:", 1)[1].split(
+            "  attach-release:", 1
+        )[0]
+
+        for builder in (attestation_job, snap_builder):
+            self.assertIn("attestations: write", builder)
+            self.assertIn("contents: read", builder)
+            self.assertIn("id-token: write", builder)
+            self.assertNotIn("contents: write", builder)
+            self.assertIn(attest_action, builder)
+
+        self.assertIn(
+            "needs: [build-linux, build-macos, test-macos, test-linux, test-python]",
+            attestation_job,
+        )
+        self.assertIn("artifacts/linux-packages/deb/*.deb", attestation_job)
+        self.assertIn("artifacts/linux-packages/rpm/*.rpm", attestation_job)
+        self.assertIn("artifacts/macos-packages/*.pkg", attestation_job)
+        self.assertIn("artifacts/SHA256SUMS.packages", attestation_job)
+        self.assertIn("steps.snapcraft.outputs.snap", snap_builder)
+        self.assertEqual(build_workflow.count(attest_action), 1)
+        self.assertEqual(snap_workflow.count(attest_action), 1)
+
+    def test_release_workflows_publish_deterministic_checksum_manifests(self):
+        build_workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+        snap_workflow = (
+            REPO_ROOT / ".github" / "workflows" / "snap.yml"
+        ).read_text()
+        readme = (REPO_ROOT / "README.md").read_text()
+        verification = (
+            REPO_ROOT / "docs" / "RELEASE_VERIFICATION.md"
+        ).read_text()
+
+        for workflow in (build_workflow, snap_workflow):
+            self.assertIn("scripts/generate_release_checksums.py", workflow)
+
+        native_attestation = build_workflow.split("  attest-release:", 1)[1].split(
+            "  release:", 1
+        )[0]
+        native_release = build_workflow.split("  release:", 1)[1]
+        self.assertIn("--output artifacts/SHA256SUMS.packages", native_attestation)
+        self.assertIn("name: release-metadata", native_attestation)
+        self.assertIn(
+            "artifacts/release-metadata/SHA256SUMS.packages",
+            native_release,
+        )
+        self.assertIn("needs: attest-release", native_release)
+
+        snap_release = snap_workflow.split("  attach-release:", 1)[1]
+        self.assertIn("--output release-assets/SHA256SUMS.snap", snap_release)
+        self.assertIn("release-assets/SHA256SUMS.snap", snap_release)
+        self.assertIn("Duplicate Snap release asset name", snap_release)
+
+        self.assertIn("docs/RELEASE_VERIFICATION.md", readme)
+        self.assertIn("gh attestation verify", verification)
+        self.assertIn("--signer-workflow", verification)
+        self.assertIn('--source-ref "refs/tags/$TAG"', verification)
+        self.assertIn('--source-digest "$SOURCE_COMMIT"', verification)
+        self.assertIn("--deny-self-hosted-runners", verification)
+        self.assertIn("not yet hermetic or independently reproducible", verification)
+
+    def test_manual_stable_snap_build_is_pinned_to_the_release_tag(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        build_job = workflow.split("  build-snap:", 1)[1].split(
+            "  attach-release:", 1
+        )[0]
+        attach_job = workflow.split("  attach-release:", 1)[1]
+
+        self.assertIn("ref: ${{ github.ref }}", build_job)
+        self.assertIn('EXPECTED_REF="refs/tags/$RELEASE_TAG"', build_job)
+        self.assertIn('if [ "$GITHUB_REF" != "$EXPECTED_REF" ]', build_job)
+        self.assertIn("gh workflow run snap.yml --ref $RELEASE_TAG", build_job)
+        self.assertIn('TAG_COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")"', build_job)
+        self.assertIn('CHECKED_OUT_COMMIT="$(git rev-parse "HEAD^{commit}")"', build_job)
+        self.assertIn('"$CHECKED_OUT_COMMIT" != "$GITHUB_SHA"', build_job)
+        self.assertLess(
+            build_job.index("- name: Resolve release target"),
+            build_job.index("- name: Build snap"),
+        )
+        self.assertIn("- name: Checkout release source", attach_job)
+        self.assertIn("ref: ${{ steps.release-target.outputs.tag }}", attach_job)
 
     def test_pull_request_checks_are_read_only_and_hardware_independent(self):
         workflow = (
@@ -946,7 +1045,9 @@ class PackagingMetadataTests(unittest.TestCase):
 
         self.assertIn("workflow_dispatch:", workflow)
         self.assertNotIn("\n  push:", workflow)
-        self.assertIn("permissions:\n  contents: read", workflow)
+        permissions = workflow.split("permissions:", 1)[1].split("concurrency:", 1)[0]
+        self.assertIn("attestations: read", permissions)
+        self.assertIn("contents: read", permissions)
         self.assertIn("group: snap-store-promotion", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
         self.assertIn("amd64_revision:", workflow)
@@ -962,8 +1063,27 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--to-channel=stable", workflow)
         self.assertIn("Stable channel verification does not match", workflow)
         self.assertIn('snap download "$SNAP_NAME"', workflow)
-        self.assertIn('--revision="$CANDIDATE_ARM64"', workflow)
-        self.assertIn('snapcraft upload-metadata "$METADATA_SNAP" --force', workflow)
+        self.assertIn("download_and_verify_candidate amd64", workflow)
+        self.assertIn("download_and_verify_candidate arm64", workflow)
+        self.assertIn("gh attestation verify", workflow)
+        self.assertIn("--signer-workflow", workflow)
+        self.assertIn('--source-ref "refs/tags/$RELEASE_TAG"', workflow)
+        self.assertIn('--source-digest "$RELEASE_COMMIT"', workflow)
+        self.assertIn("--deny-self-hosted-runners", workflow)
+        verification_function = workflow.split(
+            "download_and_verify_candidate()", 1
+        )[1].split("download_and_verify_candidate amd64", 1)[0]
+        self.assertIn('if ! snap download "$SNAP_NAME"', verification_function)
+        self.assertIn("if ! gh attestation verify", verification_function)
+        self.assertIn("Attestation verification failed", verification_function)
+        self.assertLess(
+            workflow.index("gh attestation verify"),
+            workflow.index('snapcraft promote "$SNAP_NAME"'),
+        )
+        self.assertIn(
+            'snapcraft upload-metadata "$CANDIDATE_ARM64_SNAP" --force',
+            workflow,
+        )
         self.assertNotIn('if [ -n "${{ inputs.', workflow)
 
     def test_about_window_separates_authorship_sponsors_and_contributors(self):

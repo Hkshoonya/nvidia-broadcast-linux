@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       candidate:
-        description: Release the built snap to candidate without creating or attaching a GitHub release.
+        description: Release to candidate; dispatch from the release tag if this build may be promoted to stable.
         required: false
         type: boolean
         default: false
@@ -22,7 +22,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: Existing release tag to attach assets to when publish is enabled.
+        description: Existing release tag; stable publish must dispatch this workflow from the same tag ref.
         required: false
         type: string
         default: ''
@@ -36,6 +36,10 @@ permissions:
 jobs:
   build-snap:
     runs-on: ${{ matrix.runner }}
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -48,54 +52,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
-
-      - name: Build snap
-        uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1
-        id: snapcraft
-
-      - name: Verify Snap excludes runtime pip
-        env:
-          SNAP_PATH: ${{ steps.snapcraft.outputs.snap }}
-        run: |
-          mapfile -t PIP_PATHS < <(
-            unsquashfs -l "$SNAP_PATH" |
-              sed -n 's#^squashfs-root/##p' |
-              grep -E '(^|/)bin/pip([0-9.]*)$|(^|/)lib/python[^/]+/(site|dist)-packages/pip($|/|-[^/]+\.dist-info($|/))'
-          )
-          if [ "${#PIP_PATHS[@]}" -ne 0 ]; then
-            echo "::error::The immutable Snap must not contain a runtime pip installer."
-            printf '%s\n' "${PIP_PATHS[@]}"
-            exit 1
-          fi
-          echo "Verified that the Snap contains no runtime pip installer."
-
-      - name: Verify Snap runtime dependency closure
-        env:
-          SNAP_PATH: ${{ steps.snapcraft.outputs.snap }}
-        run: |
-          SNAP_ROOT="$(mktemp -d)"
-          trap 'rm -rf "$SNAP_ROOT"' EXIT
-          unsquashfs -f -d "$SNAP_ROOT" "$SNAP_PATH" >/dev/null
-
-          mapfile -t SNAP_PYTHON_PATHS < <(
-            find "$SNAP_ROOT/lib" "$SNAP_ROOT/usr/lib" \
-              -type d \( -name site-packages -o -name dist-packages \) \
-              -print | sort
-          )
-          if [ "${#SNAP_PYTHON_PATHS[@]}" -eq 0 ]; then
-            echo "::error::The Snap contains no discoverable Python package roots."
-            exit 1
-          fi
-          SNAP_PYTHONPATH="$(IFS=:; printf '%s' "${SNAP_PYTHON_PATHS[*]}")"
-          PYTHONPATH="$SNAP_PYTHONPATH" python3 -S \
-            scripts/validate_snap_runtime.py "$SNAP_ROOT" \
-            --platform-machine "${{ matrix.arch }}"
-
-      - name: Upload snap artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: snap-package-${{ matrix.arch }}
-          path: ${{ steps.snapcraft.outputs.snap }}
+          ref: ${{ github.ref }}
 
       - name: Resolve Snap Store target
         id: store-target
@@ -150,13 +107,24 @@ jobs:
             exit 1
           fi
 
-          case "$RELEASE_TAG" in
-            v*) ;;
-            *)
-              echo "::error::release_tag must be an existing version tag such as v1.4.0."
-              exit 1
-              ;;
-          esac
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::release_tag must be an existing version tag such as v1.4.0."
+            exit 1
+          fi
+
+          EXPECTED_REF="refs/tags/$RELEASE_TAG"
+          if [ "$GITHUB_REF" != "$EXPECTED_REF" ]; then
+            echo "::error::Stable publication must run from $EXPECTED_REF so provenance names the release source."
+            echo "Run: gh workflow run snap.yml --ref $RELEASE_TAG -f publish=true -f release_tag=$RELEASE_TAG"
+            exit 1
+          fi
+
+          TAG_COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          CHECKED_OUT_COMMIT="$(git rev-parse "HEAD^{commit}")"
+          if [ "$CHECKED_OUT_COMMIT" != "$TAG_COMMIT" ] || [ "$CHECKED_OUT_COMMIT" != "$GITHUB_SHA" ]; then
+            echo "::error::Checked-out commit, tag commit, and workflow source SHA must match."
+            exit 1
+          fi
 
           PACKAGE_VERSION="$(sed -n "s/^version:[[:space:]]*['\"]\([^'\"]*\)['\"]/\1/p" snap/snapcraft.yaml | head -n1)"
           if [ "$RELEASE_TAG" != "v$PACKAGE_VERSION" ]; then
@@ -165,6 +133,60 @@ jobs:
           fi
 
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build snap
+        uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1
+        id: snapcraft
+
+      - name: Verify Snap excludes runtime pip
+        env:
+          SNAP_PATH: ${{ steps.snapcraft.outputs.snap }}
+        run: |
+          mapfile -t PIP_PATHS < <(
+            unsquashfs -l "$SNAP_PATH" |
+              sed -n 's#^squashfs-root/##p' |
+              grep -E '(^|/)bin/pip([0-9.]*)$|(^|/)lib/python[^/]+/(site|dist)-packages/pip($|/|-[^/]+\.dist-info($|/))'
+          )
+          if [ "${#PIP_PATHS[@]}" -ne 0 ]; then
+            echo "::error::The immutable Snap must not contain a runtime pip installer."
+            printf '%s\n' "${PIP_PATHS[@]}"
+            exit 1
+          fi
+          echo "Verified that the Snap contains no runtime pip installer."
+
+      - name: Verify Snap runtime dependency closure
+        env:
+          SNAP_PATH: ${{ steps.snapcraft.outputs.snap }}
+        run: |
+          SNAP_ROOT="$(mktemp -d)"
+          trap 'rm -rf "$SNAP_ROOT"' EXIT
+          unsquashfs -f -d "$SNAP_ROOT" "$SNAP_PATH" >/dev/null
+
+          mapfile -t SNAP_PYTHON_PATHS < <(
+            find "$SNAP_ROOT/lib" "$SNAP_ROOT/usr/lib" \
+              -type d \( -name site-packages -o -name dist-packages \) \
+              -print | sort
+          )
+          if [ "${#SNAP_PYTHON_PATHS[@]}" -eq 0 ]; then
+            echo "::error::The Snap contains no discoverable Python package roots."
+            exit 1
+          fi
+          SNAP_PYTHONPATH="$(IFS=:; printf '%s' "${SNAP_PYTHON_PATHS[*]}")"
+          PYTHONPATH="$SNAP_PYTHONPATH" python3 -S \
+            scripts/validate_snap_runtime.py "$SNAP_ROOT" \
+            --platform-machine "${{ matrix.arch }}"
+
+      - name: Attest Snap provenance
+        if: startsWith(github.ref, 'refs/tags/v') || steps.store-target.outputs.action != ''
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ steps.snapcraft.outputs.snap }}
+
+      - name: Upload snap artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: snap-package-${{ matrix.arch }}
+          path: ${{ steps.snapcraft.outputs.snap }}
 
       - name: Validate Snap Store registration
         if: steps.store-target.outputs.action != ''
@@ -234,6 +256,12 @@ jobs:
           fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout release source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          ref: ${{ steps.release-target.outputs.tag }}
+
       - name: Download Snap artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -246,7 +274,12 @@ jobs:
           while IFS= read -r -d '' SNAP_PATH; do
             SNAP_SIZE="$(stat -c%s "$SNAP_PATH")"
             if [ "$SNAP_SIZE" -lt 2147483648 ]; then
-              cp "$SNAP_PATH" release-assets/
+              DESTINATION="release-assets/$(basename "$SNAP_PATH")"
+              if [ -e "$DESTINATION" ]; then
+                echo "::error::Duplicate Snap release asset name: $(basename "$SNAP_PATH")"
+                exit 1
+              fi
+              cp -- "$SNAP_PATH" "$DESTINATION"
             else
               echo "::warning::Skipping GitHub release upload for $SNAP_PATH because it exceeds GitHub's 2 GiB release-asset limit."
             fi
@@ -258,11 +291,20 @@ jobs:
             echo "::warning::No Snap artifacts fit the GitHub release-asset limit."
           fi
 
+      - name: Generate Snap checksums
+        if: steps.release-assets.outputs.attach == 'true'
+        run: |
+          python3 scripts/generate_release_checksums.py \
+            --output release-assets/SHA256SUMS.snap \
+            release-assets/*.snap
+
       - name: Attach snaps to GitHub Release
         if: steps.release-assets.outputs.attach == 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           draft: ${{ github.event_name == 'push' }}
           tag_name: ${{ steps.release-target.outputs.tag }}
-          files: release-assets/*.snap
+          files: |
+            release-assets/*.snap
+            release-assets/SHA256SUMS.snap
           fail_on_unmatched_files: true
