@@ -17,7 +17,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.4.0"
+        current = "1.5.0"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -34,12 +34,15 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-08-04">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-08-24">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
-        self.assertIn(f"nvbroadcast_{current}-1_all.deb", docs_index)
-        self.assertIn(f"nvbroadcast-{current}-1.noarch.rpm", docs_index)
-        self.assertIn(f"NVBroadcast-{current}-1.pkg", docs_index)
+        # Direct website downloads follow the latest published release until
+        # the candidate is promoted, so release preparation cannot create 404s.
+        published = "1.4.0"
+        self.assertIn(f"nvbroadcast_{published}-1_all.deb", docs_index)
+        self.assertIn(f"nvbroadcast-{published}-1.noarch.rpm", docs_index)
+        self.assertIn(f"NVBroadcast-{published}-1.pkg", docs_index)
         self.assertIn(f"such as v{current}", snap_workflow)
         self.assertIn(f"# NV Broadcast v{current}", release_notes)
 
@@ -785,6 +788,23 @@ class PackagingMetadataTests(unittest.TestCase):
         spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         self.assertIn("Requires:       python3-cairo", spec)
         self.assertNotIn("python3-gobject-cairo", spec)
+
+    def test_native_package_builders_preserve_runtime_installer_mode(self):
+        script = (REPO_ROOT / "build-packages.sh").read_text()
+        deb_builder = script.split("build_deb() {", 1)[1].split(
+            "build_rpm() {", 1
+        )[0]
+        self.assertIn(
+            '"$PKG_DIR/opt/nvbroadcast/scripts/install_runtime_variant.py"',
+            deb_builder.split("# Normalize the payload", 1)[1],
+        )
+
+        spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        self.assertIn(
+            "chmod 755 "
+            "%{buildroot}/opt/nvbroadcast/scripts/install_runtime_variant.py",
+            spec,
+        )
 
     def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()

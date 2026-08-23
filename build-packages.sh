@@ -156,6 +156,7 @@ SVC
         "$PKG_DIR/DEBIAN/postinst" \
         "$PKG_DIR/DEBIAN/prerm" \
         "$PKG_DIR/DEBIAN/postrm" \
+        "$PKG_DIR/opt/nvbroadcast/scripts/install_runtime_variant.py" \
         "$PKG_DIR/usr/bin/nvbroadcast" \
         "$PKG_DIR/usr/bin/nvbroadcast-vcam"
 
@@ -282,7 +283,7 @@ INSTALL_DIR="/opt/nvbroadcast"
 echo "[NV Broadcast] Setting up Python environment..."
 
 if [ "$(uname -m)" != "arm64" ]; then
-    echo "[NV Broadcast] ERROR: v1.4.0 supports Apple Silicon Macs only."
+    echo "[NV Broadcast] ERROR: v1.5.0 supports Apple Silicon Macs only."
     exit 1
 fi
 

@@ -62,6 +62,23 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.5.0" date="2026-08-24">
+      <description>
+        <p>Verified runtimes, safer packaging, and startup recovery</p>
+        <ul>
+          <li>Enforced exactly one CPU or CUDA ONNX Runtime distribution owner across source, native-package, macOS, and Snap environments</li>
+          <li>Verified CPU, CUDA, and TensorRT readiness through pinned fresh-process model execution and rejected silent provider fallback</li>
+          <li>Added explicit source runtime selection with clean CPU recovery for failed automatic CUDA setup and restart-gated runtime changes</li>
+          <li>Restored saved microphone selection, persisted a visible fallback, and rebuilt the active audio pipeline when the device changes</li>
+          <li>Stopped GUI and headless startup cleanly when no usable physical camera is available</li>
+          <li>Made profile auto-start an explicit per-profile opt-in and kept UI state aligned after failed starts</li>
+          <li>Added MediaPipe 1.0.0 face effects on Linux arm64 and raised dependency security floors</li>
+          <li>Strengthened strict Snap runtime validation, reviewed revision promotion, rollback, and Store metadata refresh</li>
+          <li>Published deterministic SHA-256 manifests for native packages and attached Snap assets, plus GitHub provenance for every tag-built package</li>
+          <li>Required exact-tag and commit provenance verification for both Snap architectures before stable promotion</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.4.0" date="2026-08-04">
       <description>
         <p>Global controls, Gaze Lock, and live video reliability update</p>

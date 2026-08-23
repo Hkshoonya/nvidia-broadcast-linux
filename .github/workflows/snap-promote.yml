@@ -72,13 +72,13 @@ jobs:
             local architecture="$1"
             local revision="$2"
             local table="$3"
-            local line found_revision uploaded found_architecture found_version channels
+            local line found_revision _uploaded found_architecture found_version channels
             line="$(awk -v revision="$revision" '$1 == revision { print; exit }' <<<"$table")"
             if [ -z "$line" ]; then
               echo "::error::Revision $revision does not exist for $architecture."
               return 1
             fi
-            read -r found_revision uploaded found_architecture found_version channels <<<"$line"
+            read -r found_revision _uploaded found_architecture found_version channels <<<"$line"
             if [ "$found_revision" != "$revision" ] || [ "$found_architecture" != "$architecture" ]; then
               echo "::error::Revision $revision does not belong to $architecture."
               return 1

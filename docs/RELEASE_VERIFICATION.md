@@ -102,3 +102,7 @@ Official references:
 
 - [GitHub artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
 - [`gh attestation verify`](https://cli.github.com/manual/gh_attestation_verify)
+
+Maintainers should use the [Release Checklist](RELEASE_CHECKLIST.md) to keep
+pre-tag validation, candidate testing, publication, and post-release metadata
+updates tied to the same release commit.
