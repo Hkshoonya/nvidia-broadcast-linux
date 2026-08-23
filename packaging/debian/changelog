@@ -12,7 +12,7 @@ nvbroadcast (1.5.0-1) unstable; urgency=medium
     refresh.
   * Publish deterministic checksums and GitHub release provenance attestations.
 
- -- DocZeus <harshit@kshoonya.com>  Mon, 24 Aug 2026 10:00:00 -0400
+ -- DocZeus <harshit@kshoonya.com>  Thu, 27 Aug 2026 10:00:00 -0400
 
 nvbroadcast (1.4.0-1) unstable; urgency=medium
 

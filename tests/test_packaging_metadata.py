@@ -34,7 +34,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-08-24">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-08-27">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
         # Direct website downloads follow the latest published release until

@@ -62,7 +62,7 @@
   <content_rating type="oars-1.1" />
 
   <releases>
-    <release version="1.5.0" date="2026-08-24">
+    <release version="1.5.0" date="2026-08-27">
       <description>
         <p>Verified runtimes, safer packaging, and startup recovery</p>
         <ul>

@@ -175,7 +175,7 @@ pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |
 %doc README.md
 
 %changelog
-* Mon Aug 24 2026 doczeus <harshit@kshoonya.com> - 1.5.0-1
+* Thu Aug 27 2026 doczeus <harshit@kshoonya.com> - 1.5.0-1
 - Enforce exactly one CPU or CUDA ONNX Runtime owner in every environment
 - Verify CPU, CUDA, and TensorRT readiness with fresh-process model execution
 - Reject silent GPU fallback and preserve provider diagnostics for recovery
