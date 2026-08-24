@@ -62,6 +62,9 @@ commit changes. Fix the release branch and restart affected gates.
   asset limit, also verify its `SHA256SUMS.snap` entry. A missing large Snap
   release asset is expected only when the workflow reports the size limit.
 - Upload the exact tag-built Snap revisions for Store review when required.
+  Dispatch every Store review, candidate, or stable action from that exact tag;
+  `release_tag` may be omitted only when the workflow ref is already the tag.
+  A branch dispatch must fail before building or uploading to the Store.
   After approval, promote the recorded amd64 and arm64 revisions together to
   `candidate`; do not substitute a rebuild from another ref.
 
