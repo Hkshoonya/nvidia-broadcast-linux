@@ -1,3 +1,12 @@
+nvbroadcast (1.5.1-1) unstable; urgency=high
+
+  * Add a hash-bound helper for upgrades from affected legacy DEB and RPM
+    maintainer scripts.
+  * Remove installer-generated runtime and build files on final uninstall.
+  * Prevent tagged Snap review builds from publishing draft GitHub releases.
+
+ -- DocZeus <harshit@kshoonya.com>  Fri, 28 Aug 2026 10:00:00 -0400
+
 nvbroadcast (1.5.0-1) unstable; urgency=medium
 
   * Enforce exactly one CPU or CUDA ONNX Runtime owner in every environment.

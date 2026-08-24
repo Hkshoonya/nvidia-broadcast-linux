@@ -17,7 +17,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.5.0"
+        current = "1.5.1"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -34,7 +34,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-08-27">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-08-28">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
         # Direct website downloads follow the latest published release until
@@ -346,6 +346,60 @@ class PackagingMetadataTests(unittest.TestCase):
                 relative,
             )
 
+    def test_native_package_upgrader_is_attested_with_exact_packages(self):
+        build_script = (REPO_ROOT / "build-packages.sh").read_text()
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+        renderer = (
+            REPO_ROOT / "scripts" / "render_native_upgrade_helper.py"
+        ).read_text()
+        template = (
+            REPO_ROOT / "scripts" / "native_package_upgrade.sh.in"
+        ).read_text()
+
+        self.assertIn("build_upgrade_helper()", build_script)
+        self.assertIn("render_native_upgrade_helper.py", build_script)
+        self.assertGreaterEqual(
+            workflow.count("artifacts/linux-packages/nvbroadcast-native-upgrade"),
+            3,
+        )
+        self.assertIn("dist/nvbroadcast-native-upgrade", workflow)
+        self.assertIn("O_NOFOLLOW", renderer)
+        self.assertIn("@DEB_SHA256@", template)
+        self.assertIn("@RPM_SHA256@", template)
+        self.assertIn("dpkg-deb --field", template)
+        self.assertIn("rpm -qp --qf", template)
+
+    def test_native_package_final_removal_cleans_generated_payloads(self):
+        deb_postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
+        deb_postrm = (REPO_ROOT / "packaging" / "debian" / "postrm").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        rpm_postun = rpm_spec.split("%postun", 1)[1].split("%files", 1)[0]
+
+        self.assertIn('"$INSTALL_DIR/build"', deb_postinst)
+        self.assertIn('"$INSTALL_DIR/src/nvbroadcast.egg-info"', deb_postinst)
+        self.assertEqual(deb_postrm.count("rm -rf -- /opt/nvbroadcast"), 2)
+        self.assertIn('if [ "$1" -eq 0 ]', rpm_postun)
+        self.assertIn("rm -rf -- /opt/nvbroadcast", rpm_postun)
+        self.assertIn("/opt/nvbroadcast/build", rpm_spec)
+        self.assertIn("/opt/nvbroadcast/src/nvbroadcast.egg-info", rpm_spec)
+
+    def test_snap_review_dispatch_cannot_publish_or_attach_a_release(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        attach_job = workflow.split("  attach-release:", 1)[1]
+
+        self.assertIn(
+            "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
+            attach_job,
+        )
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch' && inputs.publish == true",
+            attach_job,
+        )
+        self.assertNotIn("draft: ${{", attach_job)
+        self.assertIn("draft: true", attach_job)
+
     def test_rpm_changelog_weekdays_match_dates(self):
         rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         for line in rpm_spec.splitlines():
@@ -563,7 +617,8 @@ class PackagingMetadataTests(unittest.TestCase):
         snap_release = snap_workflow.split("- name: Attach snaps to GitHub Release", 1)[1]
 
         self.assertIn("draft: true", package_release)
-        self.assertIn("draft: ${{ github.event_name == 'push' }}", snap_release)
+        self.assertIn("draft: true", snap_release)
+        self.assertNotIn("draft: ${{", snap_release)
 
     def test_release_workflow_requires_rpm_and_installs_linux_dependencies(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()

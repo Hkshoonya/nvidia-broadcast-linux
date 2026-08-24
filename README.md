@@ -274,7 +274,7 @@ cd nvidia-broadcast-linux
 ```
 
 Requires an Apple Silicon Mac with macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio for virtual-camera output. The installer provisions GStreamer and GTK4 and can install OBS. After installing OBS, open it once, start and stop **Virtual Camera**, then close OBS so its camera backend is registered for NV Broadcast.
-CPU modes use CoreML acceleration. Intel macOS is not included in v1.5.0 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
+CPU modes use CoreML acceleration. Intel macOS is not included in v1.5.1 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
 
 ### Linux — Snap Package
 
@@ -285,6 +285,13 @@ sudo snap install nvbroadcast
 Snap users typically receive background refreshes from `snapd`. When the app sees a newer stable release, the in-app update button opens the Snap Store listing so the user can move directly into the store-managed upgrade path.
 
 The amd64 Snap build includes the CUDA mode runtime for NVIDIA systems. The arm64 Snap build stays CPU-safe because the required ONNX Runtime GPU wheels are not available for Linux arm64 yet. Background effects, virtual camera and microphone output, recording, and local meeting tools remain available. If CUDA modes are still unavailable on amd64 Snap, use the source installer, `.deb`, or `.rpm` release package as the fallback.
+
+Native `.deb` or `.rpm` users upgrading from v1.4.0 or older must use the
+`nvbroadcast-native-upgrade` asset shipped with v1.5.1 and later. Verify the
+helper and package against `SHA256SUMS.packages`, then follow
+[Verifying Release Artifacts](docs/RELEASE_VERIFICATION.md). The old package's
+pre-removal script runs before a newer package can replace it, so a direct
+package-manager upgrade is not safe on those versions.
 
 Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
 
@@ -549,7 +556,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.5.0)
+│   ├── __init__.py              # Package version (1.5.1)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── __main__.py              # CLI entry point
@@ -621,7 +628,7 @@ nvidia-broadcast-linux/
 ├── install_macos.sh             # macOS installer
 ├── uninstall.sh                 # Clean removal
 ├── build-packages.sh            # Debian/RPM/macOS package builder
-├── pyproject.toml               # Package config (v1.5.0)
+├── pyproject.toml               # Package config (v1.5.1)
 └── README.md
 ```
 

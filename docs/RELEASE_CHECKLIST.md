@@ -29,6 +29,9 @@ not evidence for the release candidate.
   clean resolution of the release tree.
 - Build and inspect the Debian and RPM packages locally or in disposable clean
   builders. Do not install build dependencies into a user's production system.
+- Render the native-package upgrade helper from those exact DEB/RPM files.
+  Verify its embedded hashes, executable syntax, package-identity checks,
+  fail-closed legacy-script handling, checksum entry, and attestation subject.
 - Open the release pull request and require all PR checks, supported Python
   jobs, and review requirements to pass on its current head.
 - Run the `Build Packages` and `Build & Publish Snap` workflows manually from
@@ -67,6 +70,10 @@ commit changes. Fix the release branch and restart affected gates.
 - Install or upgrade from the built DEB and RPM on clean supported Linux
   systems. Verify launch, camera selection, virtual camera output, microphone
   selection, audio output, recording, profiles, updates, and uninstall/upgrade.
+- Exercise the exact previous public DEB and RPM upgrade paths through the
+  release helper. Confirm normal direct clean install/reinstall, helper-based
+  legacy upgrade, package-manager failure recovery, and final removal leave no
+  installer-generated `/opt/nvbroadcast` residue.
 - Test the Apple Silicon PKG on supported macOS, including prerequisite checks,
   OBS Virtual Camera output, upgrade behavior, and clean failure paths.
 - Test both Snap architectures from `candidate`. On amd64, exercise CPU, CUDA,
@@ -96,6 +103,8 @@ in the release notes.
 - Publish the existing draft GitHub release for the same tag. Use the reviewed
   release notes and confirm all intended package and checksum assets are
   present before making it public.
+- Confirm a Store review dispatch from the release tag neither enters the Snap
+  attachment job nor changes the GitHub Release out of draft state.
 - Verify the public release page, package checksums, provenance instructions,
   and in-app update detection.
 

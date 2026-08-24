@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v1.5.1 - Native Upgrade and Release Gate Hotfix
+
+- **Safe Native Upgrades** - Release artifacts now include an attested `nvbroadcast-native-upgrade` helper bound to the exact v1.5.1 DEB and RPM hashes. It repairs only the byte-verified legacy Debian maintainer scripts, bypasses only the exact known legacy RPM pre-uninstall script, validates package identity and version, and refuses unfamiliar or modified scripts before installation.
+- **Clean Native Uninstall** - DEB and RPM post-install scripts remove temporary project-build metadata, and final package removal deletes the installer-generated `/opt/nvbroadcast` runtime instead of leaving virtual environments, build directories, egg metadata, or bytecode behind.
+- **Draft Release Isolation** - Tagged Snap review and candidate dispatches can no longer enter the GitHub release attachment job, and Snap attachment always preserves draft state. This closes the condition that briefly finalized the v1.5.0 draft during Store review.
+- **v1.5 Runtime and Recovery Work Included** - Deterministic CPU/CUDA ownership, fresh-process provider execution, microphone persistence, no-camera startup recovery, profile auto-start safety, Linux arm64 MediaPipe, and stricter artifact provenance remain included from v1.5.0.
+
+> Native-package users on `v1.4.0` or older must follow the v1.5.1 release-note upgrade procedure instead of invoking `apt`, `dpkg`, `dnf`, or `rpm` directly. Snap stable remains on v1.4.0 until the v1.5.1 candidate completes validation and soak.
+
 ## v1.5.0 - Verified Runtimes, Safer Packaging, and Startup Recovery
 
 - **Verifiable Release Provenance** - Tag-built DEB, RPM, PKG, and Snap artifacts receive Sigstore-backed GitHub build attestations; native packages and GitHub-attached Snap files also receive deterministic SHA-256 manifests. Manual stable Snap publication is pinned to the requested release tag, and Store promotion verifies both candidate architectures against that tag, commit, workflow, and a hosted runner. Verification instructions state what provenance proves and keep hermetic dependency locks, SBOMs, native signing, and reproducibility as explicit follow-up work ([Issue #60](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/60))
@@ -13,7 +22,7 @@
 - **No-Camera Startup Recovery** - GUI and headless starts now stop cleanly with a useful status when no physical camera is available, instead of constructing a broken pipeline or virtual-camera session ([PR #70](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/70))
 - **Profile Auto-Start Opt-In** - Selecting a saved profile now starts the broadcast only when that profile's explicit opt-in ("Start broadcast when this profile is selected") is enabled, which defaults off and is set with a visible checkbox when saving the profile; profiles saved before this change never auto-start on selection. Launch-time auto-start remains governed solely by the application-level Auto Start setting, and a failed start (busy or missing camera) now leaves the window state aligned with the app instead of showing a phantom "Stop Broadcast" state.
 
-> If you are on `v1.4.0` or older, update to `v1.5.0`. This is the recommended stable release for deterministic CPU/CUDA runtime ownership, execution-proven acceleration, safer package promotion, persistent microphone selection, and clean startup recovery.
+> v1.5.0 was withdrawn before Snap stable rollout after native-package lifecycle testing found a legacy upgrade blocker and incomplete uninstall cleanup. Use v1.5.1 after it is published.
 
 ## v1.4.0 - Global Controls, Gaze Lock, and Live Video Reliability Update
 

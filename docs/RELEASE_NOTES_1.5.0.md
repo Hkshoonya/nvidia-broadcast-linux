@@ -1,5 +1,10 @@
 # NV Broadcast v1.5.0
 
+> **Superseded before stable rollout:** native-package lifecycle testing found
+> an upgrade blocker in older DEB/RPM maintainer scripts and incomplete final
+> uninstall cleanup. The GitHub release was returned to draft, Snap stable was
+> not promoted, and v1.5.1 supersedes these artifacts.
+
 NV Broadcast v1.5.0 makes runtime selection deterministic and verifies that
 the selected inference provider can execute real model work before the app
 describes it as ready. It also strengthens package and Snap validation, adds

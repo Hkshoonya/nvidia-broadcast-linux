@@ -33,6 +33,15 @@ jobs:
       - name: Build .rpm package
         run: bash build-packages.sh rpm
 
+      - name: Build verified native-package upgrader
+        run: |
+          bash build-packages.sh upgrade-helper
+          test -x dist/nvbroadcast-native-upgrade
+          if grep -Eq '@(TARGET_(VERSION|REVISION)|DEB_SHA256|RPM_SHA256)@' dist/nvbroadcast-native-upgrade; then
+            echo "::error::Native-package upgrader contains unresolved release placeholders."
+            exit 1
+          fi
+
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -40,6 +49,7 @@ jobs:
           path: |
             dist/deb/*.deb
             dist/rpm/*.rpm
+            dist/nvbroadcast-native-upgrade
 
   # ─── macOS: .pkg ───────────────────────────────────────────────────────────
   build-macos:
@@ -305,6 +315,7 @@ jobs:
             --output artifacts/SHA256SUMS.packages \
             artifacts/linux-packages/deb/*.deb \
             artifacts/linux-packages/rpm/*.rpm \
+            artifacts/linux-packages/nvbroadcast-native-upgrade \
             artifacts/macos-packages/*.pkg
 
       - name: Attest release package provenance
@@ -313,6 +324,7 @@ jobs:
           subject-path: |
             artifacts/linux-packages/deb/*.deb
             artifacts/linux-packages/rpm/*.rpm
+            artifacts/linux-packages/nvbroadcast-native-upgrade
             artifacts/macos-packages/*.pkg
             artifacts/SHA256SUMS.packages
 
@@ -355,6 +367,7 @@ jobs:
           files: |
             artifacts/linux-packages/deb/*.deb
             artifacts/linux-packages/rpm/*.rpm
+            artifacts/linux-packages/nvbroadcast-native-upgrade
             artifacts/macos-packages/*.pkg
             artifacts/release-metadata/SHA256SUMS.packages
           fail_on_unmatched_files: true
