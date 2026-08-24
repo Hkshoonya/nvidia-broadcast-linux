@@ -518,17 +518,28 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--deny-self-hosted-runners", verification)
         self.assertIn("not yet hermetic or independently reproducible", verification)
 
-    def test_manual_stable_snap_build_is_pinned_to_the_release_tag(self):
+    def test_snap_store_actions_are_pinned_to_the_release_tag(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
         build_job = workflow.split("  build-snap:", 1)[1].split(
             "  attach-release:", 1
         )[0]
         attach_job = workflow.split("  attach-release:", 1)[1]
+        release_target = build_job.split(
+            "- name: Resolve release target", 1
+        )[1].split("- name: Build snap", 1)[0]
 
         self.assertIn("ref: ${{ github.ref }}", build_job)
+        self.assertIn("steps.store-target.outputs.action != ''", release_target)
+        self.assertIn('RELEASE_TAG=""', release_target)
+        self.assertIn('if [ -n "$DISPATCH_RELEASE_TAG" ]', release_target)
+        self.assertIn('[[ "$GITHUB_REF" == refs/tags/v* ]]', release_target)
+        self.assertIn(
+            "release_tag is required for a Store action unless workflow_dispatch runs from the release tag",
+            release_target,
+        )
         self.assertIn('EXPECTED_REF="refs/tags/$RELEASE_TAG"', build_job)
         self.assertIn('if [ "$GITHUB_REF" != "$EXPECTED_REF" ]', build_job)
-        self.assertIn("gh workflow run snap.yml --ref $RELEASE_TAG", build_job)
+        self.assertIn("Snap Store actions must run from $EXPECTED_REF", build_job)
         self.assertIn('TAG_COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")"', build_job)
         self.assertIn('CHECKED_OUT_COMMIT="$(git rev-parse "HEAD^{commit}")"', build_job)
         self.assertIn('"$CHECKED_OUT_COMMIT" != "$GITHUB_SHA"', build_job)
@@ -537,7 +548,8 @@ class PackagingMetadataTests(unittest.TestCase):
             build_job.index("- name: Build snap"),
         )
         self.assertIn("- name: Checkout release source", attach_job)
-        self.assertIn("ref: ${{ steps.release-target.outputs.tag }}", attach_job)
+        self.assertIn("Release attachment must run from $EXPECTED_REF", attach_job)
+        self.assertIn("ref: ${{ github.sha }}", attach_job)
 
     def test_pull_request_checks_are_read_only_and_hardware_independent(self):
         workflow = (
@@ -1110,7 +1122,10 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('CHANNEL="candidate"', workflow)
         self.assertIn('ACTION="upload"', workflow)
         self.assertIn("publish, candidate, and review are mutually exclusive", workflow)
-        self.assertIn("release_tag is required when publishing from workflow_dispatch", workflow)
+        self.assertIn(
+            "release_tag is required for a Store action unless workflow_dispatch runs from the release tag",
+            workflow,
+        )
         self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
 
     def test_snap_promotion_workflow_validates_exact_revisions_and_rolls_back(self):

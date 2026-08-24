@@ -22,7 +22,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: Existing release tag; stable publish must dispatch this workflow from the same tag ref.
+        description: Existing release tag; every Store action must dispatch this workflow from the same tag ref.
         required: false
         type: string
         default: ''
@@ -93,17 +93,23 @@ jobs:
 
       - name: Resolve release target
         id: release-target
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish == true)
+        if: startsWith(github.ref, 'refs/tags/v') || steps.store-target.outputs.action != ''
         env:
           DISPATCH_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          RELEASE_TAG="$GITHUB_REF_NAME"
+          RELEASE_TAG=""
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            RELEASE_TAG="$DISPATCH_RELEASE_TAG"
+            if [ -n "$DISPATCH_RELEASE_TAG" ]; then
+              RELEASE_TAG="$DISPATCH_RELEASE_TAG"
+            elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              RELEASE_TAG="$GITHUB_REF_NAME"
+            fi
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            RELEASE_TAG="$GITHUB_REF_NAME"
           fi
 
           if [ -z "$RELEASE_TAG" ]; then
-            echo "::error::release_tag is required when publishing from workflow_dispatch."
+            echo "::error::release_tag is required for a Store action unless workflow_dispatch runs from the release tag."
             exit 1
           fi
 
@@ -114,8 +120,8 @@ jobs:
 
           EXPECTED_REF="refs/tags/$RELEASE_TAG"
           if [ "$GITHUB_REF" != "$EXPECTED_REF" ]; then
-            echo "::error::Stable publication must run from $EXPECTED_REF so provenance names the release source."
-            echo "Run: gh workflow run snap.yml --ref $RELEASE_TAG -f publish=true -f release_tag=$RELEASE_TAG"
+            echo "::error::Snap Store actions must run from $EXPECTED_REF so provenance names the release source."
+            echo "Dispatch the requested Store action from --ref $RELEASE_TAG and pass release_tag=$RELEASE_TAG."
             exit 1
           fi
 
@@ -251,8 +257,14 @@ jobs:
           DISPATCH_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           RELEASE_TAG="$GITHUB_REF_NAME"
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$DISPATCH_RELEASE_TAG" ]; then
             RELEASE_TAG="$DISPATCH_RELEASE_TAG"
+          fi
+
+          EXPECTED_REF="refs/tags/$RELEASE_TAG"
+          if [ "$GITHUB_REF" != "$EXPECTED_REF" ]; then
+            echo "::error::Release attachment must run from $EXPECTED_REF."
+            exit 1
           fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
@@ -260,7 +272,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
-          ref: ${{ steps.release-target.outputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Download Snap artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
