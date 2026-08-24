@@ -12,6 +12,14 @@ from nvbroadcast.video.pipeline import VideoPipeline
 
 
 class VideoPipelineRebuildTests(unittest.TestCase):
+    def setUp(self):
+        with VideoPipeline._capture_success_cache_lock:
+            VideoPipeline._capture_success_cache.clear()
+
+    def tearDown(self):
+        with VideoPipeline._capture_success_cache_lock:
+            VideoPipeline._capture_success_cache.clear()
+
     def _fake_gst_pipeline(self):
         fake_pipeline = mock.Mock()
         fake_sink = mock.Mock()
@@ -183,6 +191,62 @@ class VideoPipelineRebuildTests(unittest.TestCase):
             "message::error", pipeline._on_error, 1
         )
         self.assertEqual(pipeline._capture_generation, 1)
+
+    def test_successful_fallback_is_preferred_by_replacement_pipeline(self):
+        candidates = [
+            {"format": "mjpeg", "width": 640, "height": 360, "fps": 30},
+            {"format": "raw", "width": 640, "height": 360, "fps": 30},
+        ]
+        first = VideoPipeline()
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.camera_capture_candidates",
+            return_value=candidates,
+        ):
+            first.configure(
+                "/dev/video1", "/dev/video10",
+                width=640, height=360, fps=30,
+            )
+        first._capture_candidate_index = 1
+        first._capture_format = "raw"
+        first._mark_capture_started()
+
+        replacement = VideoPipeline()
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.camera_capture_candidates",
+            return_value=candidates,
+        ):
+            replacement.configure(
+                "/dev/video1", "/dev/video10",
+                width=640, height=360, fps=30,
+            )
+
+        self.assertEqual(replacement._capture_format, "raw")
+        self.assertEqual(
+            [candidate["format"] for candidate in replacement._capture_candidates],
+            ["raw", "mjpeg"],
+        )
+
+    def test_failed_candidate_is_not_cached_before_a_valid_frame(self):
+        pipeline = VideoPipeline()
+        pipeline._capture_cache_key = ("/dev/video1", 640, 360, 30)
+        pipeline._capture_candidates = [
+            {"format": "mjpeg", "width": 640, "height": 360, "fps": 30},
+            {"format": "raw", "width": 640, "height": 360, "fps": 30},
+        ]
+        pipeline._capture_format = "mjpeg"
+        camera_source = self._set_camera_source(pipeline)
+
+        with mock.patch(
+            "nvbroadcast.video.pipeline.GLib.idle_add", return_value=73
+        ):
+            pipeline._on_error(
+                None,
+                self._capture_error("startup failed", None, camera_source),
+            )
+
+        self.assertNotIn(
+            pipeline._capture_cache_key, VideoPipeline._capture_success_cache
+        )
 
     def test_runtime_camera_error_does_not_change_capture_candidate(self):
         pipeline = VideoPipeline()

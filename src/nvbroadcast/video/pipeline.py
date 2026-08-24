@@ -44,6 +44,10 @@ class _GpuPathFatal(RuntimeError):
 class VideoPipeline:
     # One-time probe result shared across instances (None = not yet probed)
     _cuda_convert_probe_result: bool | None = None
+    # Successful exact capture formats survive GUI pipeline replacement.
+    _capture_success_cache: dict[tuple[str, int, int, int], str] = {}
+    _capture_success_cache_lock = threading.Lock()
+    _capture_success_cache_limit = 32
 
     def __init__(self):
         Gst.init(None)
@@ -61,6 +65,7 @@ class VideoPipeline:
         self._capture_retry_pending = False
         self._capture_started = False
         self._capture_generation = 0
+        self._capture_cache_key: tuple[str, int, int, int] | None = None
         self._prefer_hw_decode = False
         self._effects_fps: int = 30  # Can be reduced by performance profile
         self._effect_callback = None
@@ -264,6 +269,7 @@ class VideoPipeline:
         self._capture_candidate_index = 0
         self._capture_retry_pending = False
         self._capture_started = False
+        self._capture_cache_key = (source_device, width, height, fps)
         from nvbroadcast.core.platform import IS_MACOS
         if IS_MACOS:
             self._capture_candidates = [{
@@ -274,7 +280,31 @@ class VideoPipeline:
             self._capture_candidates = camera_capture_candidates(
                 source_device, width, height, fps
             )
+        with self._capture_success_cache_lock:
+            cached_format = self._capture_success_cache.get(
+                self._capture_cache_key
+            )
+        if cached_format is not None:
+            self._capture_candidates = sorted(
+                self._capture_candidates,
+                key=lambda candidate: candidate["format"] != cached_format,
+            )
         self._capture_format = self._capture_candidates[0]["format"]
+
+    def _mark_capture_started(self) -> None:
+        """Record the first valid frame and remember its advertised format."""
+        if self._capture_started:
+            return
+        self._capture_started = True
+        key = self._capture_cache_key
+        if key is None:
+            return
+        with self._capture_success_cache_lock:
+            self._capture_success_cache.pop(key, None)
+            self._capture_success_cache[key] = self._capture_format
+            while len(self._capture_success_cache) > self._capture_success_cache_limit:
+                oldest = next(iter(self._capture_success_cache))
+                self._capture_success_cache.pop(oldest)
 
     def _select_decoder(self, effects_mode: bool) -> str:
         """Choose camera decode path for the active mode.
@@ -822,7 +852,7 @@ class VideoPipeline:
 
             frame_data = bytes(info.data)
             buf.unmap(info)
-            self._capture_started = True
+            self._mark_capture_started()
 
             with self._lock:
                 self._latest_frame = frame_data
@@ -877,7 +907,7 @@ class VideoPipeline:
             if len(frame_data) != expected:
                 return Gst.FlowReturn.OK
 
-            self._capture_started = True
+            self._mark_capture_started()
             self._frame_count += 1
 
             # Paused: push frozen frame, skip all processing
@@ -997,7 +1027,7 @@ class VideoPipeline:
                 finally:
                     buf.unmap(info)
 
-                self._capture_started = True
+                self._mark_capture_started()
                 self._frame_count += 1
                 if self._frame_plan is not None:
                     gpu_pure, mirror, inline = self._frame_plan()
