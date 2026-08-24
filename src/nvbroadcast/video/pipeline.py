@@ -56,6 +56,10 @@ class VideoPipeline:
         self._fps: int = DEFAULT_FPS
         self._output_format: str = "YUY2"
         self._capture_format: str = "mjpeg"
+        self._capture_candidates: list[dict] = []
+        self._capture_candidate_index = 0
+        self._capture_retry_pending = False
+        self._capture_started = False
         self._prefer_hw_decode = False
         self._effects_fps: int = 30  # Can be reduced by performance profile
         self._effect_callback = None
@@ -256,14 +260,20 @@ class VideoPipeline:
         self._output_format = output_format
         self._effects_fps = min(effects_fps, fps)
         self._prefer_hw_decode = prefer_hw_decode
+        self._capture_candidate_index = 0
+        self._capture_retry_pending = False
+        self._capture_started = False
         from nvbroadcast.core.platform import IS_MACOS
         if IS_MACOS:
-            self._capture_format = "raw"
+            self._capture_candidates = [{
+                "format": "raw", "width": width, "height": height, "fps": fps,
+            }]
         else:
-            from nvbroadcast.video.virtual_camera import select_camera_capture_format
-            self._capture_format = select_camera_capture_format(
+            from nvbroadcast.video.virtual_camera import camera_capture_candidates
+            self._capture_candidates = camera_capture_candidates(
                 source_device, width, height, fps
             )
+        self._capture_format = self._capture_candidates[0]["format"]
 
     def _select_decoder(self, effects_mode: bool) -> str:
         """Choose camera decode path for the active mode.
@@ -515,6 +525,7 @@ class VideoPipeline:
             GLib.source_remove(self._rebuild_source_id)
             self._rebuild_source_id = 0
         self._rebuild_pending = False
+        self._capture_retry_pending = False
 
     def _setup_macos_virtual_camera(self) -> None:
         """Open the supported OBS virtual-camera backend on macOS."""
@@ -802,6 +813,7 @@ class VideoPipeline:
 
             frame_data = bytes(info.data)
             buf.unmap(info)
+            self._capture_started = True
 
             with self._lock:
                 self._latest_frame = frame_data
@@ -856,6 +868,7 @@ class VideoPipeline:
             if len(frame_data) != expected:
                 return Gst.FlowReturn.OK
 
+            self._capture_started = True
             self._frame_count += 1
 
             # Paused: push frozen frame, skip all processing
@@ -975,6 +988,7 @@ class VideoPipeline:
                 finally:
                     buf.unmap(info)
 
+                self._capture_started = True
                 self._frame_count += 1
                 if self._frame_plan is not None:
                     gpu_pure, mirror, inline = self._frame_plan()
@@ -1235,6 +1249,8 @@ class VideoPipeline:
 
         self._rebuild_source_id = 0
         try:
+            self._capture_retry_pending = False
+            self._capture_started = False
             self.build(vcam_enabled=self._vcam_enabled)
             self.start()
         finally:
@@ -1423,9 +1439,42 @@ class VideoPipeline:
 
     def _on_error(self, bus, msg):
         err, debug = msg.parse_error()
+        camera_source = (
+            self._pipeline.get_by_name("camera_source")
+            if self._pipeline is not None else None
+        )
+        source_failed_during_startup = (
+            camera_source is not None
+            and getattr(msg, "src", None) == camera_source
+            and not self._capture_started
+        )
+        next_index = self._capture_candidate_index + 1
+        if (
+            source_failed_during_startup
+            and not self._capture_retry_pending
+            and next_index < len(self._capture_candidates)
+        ):
+            previous = self._capture_candidates[self._capture_candidate_index]
+            candidate = self._capture_candidates[next_index]
+            self._capture_candidate_index = next_index
+            self._capture_format = candidate["format"]
+            self._capture_retry_pending = True
+            print(
+                "[NV Broadcast] Camera startup failed for "
+                f"{previous['format']} {self._width}x{self._height}@{self._fps}; "
+                f"retrying {candidate['format']}",
+                flush=True,
+            )
+            self._queue_rebuild()
+            return
+
+        if self._capture_retry_pending:
+            return
+
         print(f"[NV Broadcast] Capture error: {err.message}")
         if debug:
             print(f"[NV Broadcast] Debug: {debug}")
+
         # GPU-path capture failures (e.g. caps negotiation) fall back to the
         # legacy BGRA pipeline instead of leaving the camera dead.
         if self._gpu_capture_active and not self._gpu_path_demoted:

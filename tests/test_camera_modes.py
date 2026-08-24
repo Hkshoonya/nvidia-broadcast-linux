@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 
 from nvbroadcast.video.virtual_camera import (
+    camera_capture_candidates,
     camera_mode_candidates,
     list_camera_devices,
     list_camera_format_modes,
@@ -118,6 +119,34 @@ ioctl: VIDIOC_ENUM_FMT
                 select_camera_capture_format("/dev/video0", 1280, 720, 30),
                 "mjpeg",
             )
+
+    def test_camera_capture_candidates_keep_exact_geometry(self):
+        output = """
+ioctl: VIDIOC_ENUM_FMT
+        Type: Video Capture
+        [0]: 'MJPG' (Motion-JPEG, compressed)
+                Size: Discrete 640x360
+                        Interval: Discrete 0.033s (30.000 fps)
+        [1]: 'YUYV' (YUYV 4:2:2)
+                Size: Discrete 640x360
+                        Interval: Discrete 0.033s (30.000 fps)
+        [2]: 'MJPG' (Motion-JPEG, compressed)
+                Size: Discrete 1280x720
+                        Interval: Discrete 0.033s (30.000 fps)
+"""
+        run_result = mock.Mock(returncode=0, stdout=output)
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.subprocess.run",
+            return_value=run_result,
+        ):
+            candidates = camera_capture_candidates(
+                "/dev/video0", 640, 360, 30
+            )
+
+        self.assertEqual(candidates, [
+            {"format": "mjpeg", "width": 640, "height": 360, "fps": 30},
+            {"format": "raw", "width": 640, "height": 360, "fps": 30},
+        ])
 
     def test_camera_mode_candidates_step_down_from_high_fps_phone_mode(self):
         output = """

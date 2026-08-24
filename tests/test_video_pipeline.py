@@ -23,8 +23,10 @@ class VideoPipelineRebuildTests(unittest.TestCase):
     def test_effects_pipeline_uses_raw_source_without_jpeg_decode(self):
         pipeline = VideoPipeline()
         with mock.patch(
-            "nvbroadcast.video.virtual_camera.select_camera_capture_format",
-            return_value="raw",
+            "nvbroadcast.video.virtual_camera.camera_capture_candidates",
+            return_value=[{
+                "format": "raw", "width": 640, "height": 480, "fps": 30,
+            }],
         ):
             pipeline.configure(
                 "/dev/video1",
@@ -40,6 +42,7 @@ class VideoPipelineRebuildTests(unittest.TestCase):
             pipeline.build(vcam_enabled=False)
 
         pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("v4l2src name=camera_source", pipeline_str)
         self.assertIn("video/x-raw,width=640,height=480,framerate=30/1", pipeline_str)
         self.assertNotIn("image/jpeg", pipeline_str)
         self.assertNotIn("jpegdec", pipeline_str)
@@ -47,8 +50,10 @@ class VideoPipelineRebuildTests(unittest.TestCase):
     def test_effects_pipeline_keeps_mjpeg_decode_when_supported(self):
         pipeline = VideoPipeline()
         with mock.patch(
-            "nvbroadcast.video.virtual_camera.select_camera_capture_format",
-            return_value="mjpeg",
+            "nvbroadcast.video.virtual_camera.camera_capture_candidates",
+            return_value=[{
+                "format": "mjpeg", "width": 1280, "height": 720, "fps": 30,
+            }],
         ):
             pipeline.configure(
                 "/dev/video1",
@@ -67,11 +72,136 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertIn("image/jpeg,width=1280,height=720,framerate=30/1", pipeline_str)
         self.assertIn("jpegdec", pipeline_str)
 
+    @staticmethod
+    def _capture_error(message, debug, source=None):
+        msg = mock.Mock()
+        msg.parse_error.return_value = (SimpleNamespace(message=message), debug)
+        msg.src = source
+        return msg
+
+    @staticmethod
+    def _set_camera_source(pipeline):
+        camera_source = mock.Mock()
+        pipeline._pipeline = mock.Mock()
+        pipeline._pipeline.get_by_name.return_value = camera_source
+        return camera_source
+
+    def test_camera_source_startup_error_tries_next_advertised_format(self):
+        pipeline = VideoPipeline()
+        pipeline._capture_candidates = [
+            {"format": "mjpeg", "width": 640, "height": 360, "fps": 30},
+            {"format": "raw", "width": 640, "height": 360, "fps": 30},
+        ]
+        pipeline._capture_format = "mjpeg"
+        pipeline._gpu_capture_active = True
+        camera_source = self._set_camera_source(pipeline)
+
+        with mock.patch(
+            "nvbroadcast.video.pipeline.GLib.timeout_add", return_value=73
+        ) as timeout_add:
+            pipeline._on_error(
+                None,
+                self._capture_error(
+                    "A future GStreamer error message.",
+                    "No implementation-specific text required.",
+                    camera_source,
+                ),
+            )
+
+        self.assertEqual(pipeline._capture_format, "raw")
+        self.assertEqual(pipeline._capture_candidate_index, 1)
+        self.assertTrue(pipeline._capture_retry_pending)
+        self.assertFalse(pipeline._gpu_path_demoted)
+        timeout_add.assert_called_once_with(
+            10, pipeline._rebuild_pipeline, priority=mock.ANY
+        )
+        self.assertTrue(pipeline._rebuild_pending)
+        self.assertEqual(pipeline._rebuild_source_id, 73)
+
+    def test_secondary_error_during_candidate_retry_is_ignored(self):
+        pipeline = VideoPipeline()
+        pipeline._capture_candidates = [
+            {"format": "mjpeg", "width": 640, "height": 360, "fps": 30},
+            {"format": "raw", "width": 640, "height": 360, "fps": 30},
+        ]
+        pipeline._capture_candidate_index = 1
+        pipeline._capture_format = "raw"
+        pipeline._capture_retry_pending = True
+        pipeline._gpu_capture_active = True
+
+        with mock.patch(
+            "nvbroadcast.video.pipeline.GLib.idle_add"
+        ) as idle_add:
+            pipeline._on_error(
+                None,
+                self._capture_error(
+                    "Internal data stream error.",
+                    "streaming stopped, reason not-negotiated (-4)",
+                ),
+            )
+
+        self.assertFalse(pipeline._gpu_path_demoted)
+        idle_add.assert_not_called()
+
+    def test_runtime_camera_error_does_not_change_capture_candidate(self):
+        pipeline = VideoPipeline()
+        pipeline._capture_candidates = [
+            {"format": "mjpeg", "width": 1280, "height": 720, "fps": 30},
+            {"format": "raw", "width": 1280, "height": 720, "fps": 30},
+        ]
+        pipeline._capture_format = "mjpeg"
+        pipeline._capture_started = True
+        pipeline._gpu_capture_active = True
+        camera_source = self._set_camera_source(pipeline)
+
+        with mock.patch(
+            "nvbroadcast.video.pipeline.GLib.idle_add", return_value=74
+        ) as idle_add:
+            pipeline._on_error(
+                None,
+                self._capture_error(
+                    "Internal data stream error.", "device disconnected",
+                    camera_source,
+                ),
+            )
+
+        self.assertEqual(pipeline._capture_format, "mjpeg")
+        self.assertEqual(pipeline._capture_candidate_index, 0)
+        self.assertTrue(pipeline._gpu_path_demoted)
+        idle_add.assert_called_once_with(pipeline._queue_rebuild)
+
+    def test_startup_error_reports_when_no_advertised_candidate_remains(self):
+        pipeline = VideoPipeline()
+        pipeline._capture_candidates = [
+            {"format": "mjpeg", "width": 640, "height": 360, "fps": 30},
+        ]
+        pipeline._gpu_capture_active = False
+        camera_source = self._set_camera_source(pipeline)
+
+        with mock.patch("builtins.print") as print_mock, mock.patch(
+            "nvbroadcast.video.pipeline.GLib.idle_add"
+        ) as idle_add:
+            pipeline._on_error(
+                None,
+                self._capture_error(
+                    "Failed to allocate required memory.",
+                    "Buffer pool activation failed",
+                    camera_source,
+                ),
+            )
+
+        rendered = "\n".join(str(call) for call in print_mock.call_args_list)
+        self.assertIn("Failed to allocate required memory.", rendered)
+        self.assertIn("Buffer pool activation failed", rendered)
+        idle_add.assert_not_called()
+
     def _gpu_pipeline(self, output_format="YUY2", capture="mjpeg"):
         pipeline = VideoPipeline()
         with mock.patch(
-            "nvbroadcast.video.virtual_camera.select_camera_capture_format",
-            return_value=capture,
+            "nvbroadcast.video.virtual_camera.camera_capture_candidates",
+            return_value=[{
+                "format": capture, "width": 1280, "height": 720, "fps": 30,
+            }],
         ):
             pipeline.configure(
                 "/dev/video1", "/dev/video10",
@@ -309,6 +439,7 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         pipeline._vcam_enabled = False
         pipeline._rebuild_pending = True
         pipeline._rebuild_source_id = 17
+        pipeline._capture_retry_pending = True
 
         def fake_stop(*, clear_rebuild_request=True):
             self = pipeline
@@ -333,6 +464,7 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         pipeline.start.assert_called_once_with()
         self.assertFalse(second)
         self.assertFalse(pipeline._rebuild_pending)
+        self.assertFalse(pipeline._capture_retry_pending)
         self.assertEqual(pipeline._rebuild_source_id, 0)
 
     def test_stop_cancels_pending_rebuild(self):
@@ -341,6 +473,7 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         pipeline._pipeline = mock.Mock()
         pipeline._rebuild_pending = True
         pipeline._rebuild_source_id = 123
+        pipeline._capture_retry_pending = True
 
         with mock.patch("nvbroadcast.video.pipeline.GLib.source_remove") as source_remove, \
              mock.patch("nvbroadcast.video.pipeline.GLib.timeout_add", return_value=456):
@@ -349,6 +482,7 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         source_remove.assert_called_once_with(123)
         self.assertFalse(pipeline._rebuild_pending)
         self.assertEqual(pipeline._rebuild_source_id, 0)
+        self.assertFalse(pipeline._capture_retry_pending)
         self.assertEqual(pipeline._teardown_source_id, 456)
 
     def test_effects_sample_uses_stable_vcam_appsrc_reference(self):

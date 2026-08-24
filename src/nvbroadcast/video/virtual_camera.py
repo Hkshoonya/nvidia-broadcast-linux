@@ -602,6 +602,39 @@ def select_camera_mode(
     return {"format": "mjpeg", "width": width, "height": height, "fps": fps}
 
 
+def camera_capture_candidates(
+    device: str,
+    width: int,
+    height: int,
+    fps: int,
+) -> list[dict]:
+    """Return advertised formats for one exact capture mode.
+
+    Unlike :func:`camera_mode_candidates`, this never changes geometry or
+    frame rate.  That keeps a running GUI pipeline's configured frame shape
+    stable while still allowing startup to try another advertised encoding.
+    """
+    candidates = camera_mode_candidates(device, width, height, fps)
+    exact = [
+        candidate for candidate in candidates
+        if candidate["width"] == width
+        and candidate["height"] == height
+        and candidate["fps"] == fps
+    ]
+    if exact:
+        return exact
+
+    # Camera probing can fail transiently. Preserve the old best-effort
+    # format choice without inventing a different geometry for this pipeline.
+    selected = select_camera_mode(device, width, height, fps)
+    return [{
+        "format": selected["format"],
+        "width": width,
+        "height": height,
+        "fps": fps,
+    }]
+
+
 def select_camera_capture_format(
     device: str,
     width: int,
