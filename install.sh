@@ -13,9 +13,10 @@ INSTALL_PREFIX="${HOME}/.local"
 VENV_DIR="${SCRIPT_DIR}/.venv"
 RUNTIME_REQUEST="auto"
 WITH_MEETING=false
+PYTHON_REQUEST=""
 
 usage() {
-    echo "Usage: $0 [--runtime auto|cpu|cuda] [--with-meeting]"
+    echo "Usage: $0 [--runtime auto|cpu|cuda] [--with-meeting] [--python /path/to/python]"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -31,6 +32,17 @@ while [ "$#" -gt 0 ]; do
             ;;
         --with-meeting)
             WITH_MEETING=true
+            shift
+            ;;
+        --python)
+            [ "$#" -ge 2 ] || { echo "ERROR: --python requires an interpreter path."; exit 2; }
+            [ -n "$2" ] || { echo "ERROR: --python requires an interpreter path."; exit 2; }
+            PYTHON_REQUEST="$2"
+            shift 2
+            ;;
+        --python=*)
+            PYTHON_REQUEST="${1#*=}"
+            [ -n "$PYTHON_REQUEST" ] || { echo "ERROR: --python requires an interpreter path."; exit 2; }
             shift
             ;;
         -h|--help)
@@ -51,13 +63,13 @@ case "$RUNTIME_REQUEST" in
 esac
 
 guard_source_environment() {
-    if ! command -v python3 &>/dev/null; then
-        echo "ERROR: Python 3 is required to inspect the source environment safely."
+    if [ -z "${PYTHON_BIN:-}" ] || [ ! -x "$PYTHON_BIN" ]; then
+        echo "ERROR: The selected Python interpreter is unavailable."
         exit 1
     fi
 
     local guard_status
-    if python3 "$SCRIPT_DIR/scripts/check_source_venv_processes.py" --venv "$VENV_DIR"; then
+    if "$PYTHON_BIN" "$SCRIPT_DIR/scripts/check_source_venv_processes.py" --venv "$VENV_DIR"; then
         return
     else
         guard_status=$?
@@ -73,19 +85,6 @@ guard_source_environment() {
     fi
     exit 1
 }
-
-# Refuse before system or environment mutations while an existing source
-# process can still import code from the installer-owned environment.
-guard_source_environment
-
-APP_VERSION="$(SCRIPT_DIR="$SCRIPT_DIR" python3 - <<'PY' 2>/dev/null || echo unknown
-from pathlib import Path
-import os
-import tomllib
-data = tomllib.loads((Path(os.environ["SCRIPT_DIR"]) / "pyproject.toml").read_text())
-print(data.get("project", {}).get("version", "unknown"))
-PY
-)"
 
 echo "========================================="
 echo "  NVIDIA Broadcast for Linux"
@@ -251,42 +250,59 @@ echo "[Pre-flight] Checking system requirements..."
 detect_distro
 ERRORS=()
 
+select_python_interpreter() {
+    local require_desktop_bindings="$1"
+    local selection
+    local selector_args=(--package-manager "$PKG_MANAGER")
+    if [ -n "$PYTHON_REQUEST" ]; then
+        selector_args+=(--python "$PYTHON_REQUEST")
+    fi
+    if [ "$require_desktop_bindings" = true ]; then
+        selector_args+=(--require-desktop-bindings)
+    fi
+    if ! selection="$("$BASH" "$SCRIPT_DIR/scripts/select_python_interpreter.sh" "${selector_args[@]}")"; then
+        return 1
+    fi
+    IFS=$'\t' read -r PYTHON_BIN PY_VER PY_MAJOR PY_MINOR <<< "$selection"
+    if [ -z "$PYTHON_BIN" ] || [ -z "$PY_VER" ] || [ -z "$PY_MAJOR" ] || [ -z "$PY_MINOR" ]; then
+        echo "ERROR: Python interpreter selection returned incomplete data."
+        return 1
+    fi
+}
+
+if ! select_python_interpreter false; then
+    exit 1
+fi
+
+# Refuse before system or environment mutations while an existing source
+# process can still import code from the installer-owned environment.
+guard_source_environment
+
+APP_VERSION="$(SCRIPT_DIR="$SCRIPT_DIR" "$PYTHON_BIN" - <<'PY' 2>/dev/null || echo unknown
+from pathlib import Path
+import os
+import tomllib
+data = tomllib.loads((Path(os.environ["SCRIPT_DIR"]) / "pyproject.toml").read_text())
+print(data.get("project", {}).get("version", "unknown"))
+PY
+)"
+
 # Check Linux
 if [[ "$(uname -s)" != "Linux" ]]; then
     ERRORS+=("This installer only supports Linux")
 fi
 
-# Check Python 3.11+
-if command -v python3 &>/dev/null; then
-    PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-    PY_MAJOR=$(echo "$PY_VER" | cut -d. -f1)
-    PY_MINOR=$(echo "$PY_VER" | cut -d. -f2)
-    if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]); then
-        ERRORS+=("Python >= 3.11 required (found $PY_VER)")
-    else
-        echo "  Python $PY_VER ... OK"
-    fi
-else
-    ERRORS+=("python3 not found")
-fi
+# The selector accepts only CPython 3.11-3.13 and validates venv support.
+echo "  Python $PY_VER ($PYTHON_BIN) ... OK"
 
-# Check python3-venv
-if ! python3 -m venv --help &>/dev/null 2>&1; then
+# Recheck venv and its pip bootstrap defensively in case the selected
+# interpreter changed on disk after selection.
+if ! "$PYTHON_BIN" -I -c 'import ensurepip, venv; ensurepip.version()' &>/dev/null; then
     case "$PKG_MANAGER" in
-        apt)    ERRORS+=("python3-venv not found (install: sudo apt install python3.${PY_MINOR}-venv)") ;;
-        dnf)    ERRORS+=("python3-venv not found (install: sudo dnf install python3-devel)") ;;
-        pacman) ERRORS+=("python3-venv not found (should be included with python)") ;;
-        *)      ERRORS+=("python3-venv not found") ;;
-    esac
-fi
-
-# Check pip
-if ! python3 -m pip --version &>/dev/null 2>&1; then
-    case "$PKG_MANAGER" in
-        apt)    ERRORS+=("pip not found (install: sudo apt install python3-pip)") ;;
-        dnf)    ERRORS+=("pip not found (install: sudo dnf install python3-pip)") ;;
-        pacman) ERRORS+=("pip not found (install: sudo pacman -S python-pip)") ;;
-        *)      ERRORS+=("pip not found") ;;
+        apt)    ERRORS+=("Python $PY_VER venv support disappeared (install: sudo apt install python${PY_VER}-venv)") ;;
+        dnf)    ERRORS+=("Python $PY_VER venv support disappeared (install: sudo dnf install python${PY_VER})") ;;
+        pacman) ERRORS+=("Python $PY_VER venv support disappeared (reinstall the official python package)") ;;
+        *)      ERRORS+=("Python $PY_VER venv support disappeared") ;;
     esac
 fi
 
@@ -346,27 +362,6 @@ fi
 echo ""
 echo "All requirements met. Proceeding with installation..."
 
-PY_RUNTIME_NOTICE="$(
-PYTHONPATH="$SCRIPT_DIR/src" python3 - <<'PY' 2>/dev/null || true
-from nvbroadcast.core.platform import python_runtime_advisory
-notice = python_runtime_advisory()
-if notice:
-    _, title, body = notice
-    print(title)
-    print(body)
-PY
-)"
-
-if [ -n "$PY_RUNTIME_NOTICE" ]; then
-    echo ""
-    echo "NOTICE:"
-    while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        echo "  $line"
-    done <<< "$PY_RUNTIME_NOTICE"
-    echo ""
-fi
-
 # ─── Step 1: System Dependencies ────────────────────────────────────────────
 
 echo ""
@@ -416,6 +411,41 @@ else
     else
         echo "All system packages are installed."
     fi
+fi
+
+# System PyGObject packages are interpreter-specific. Re-evaluate after those
+# packages are present so an automatic selection cannot create a venv whose
+# GUI, GStreamer, or Libadwaita imports will fail at first launch.
+INITIAL_PYTHON_BIN="$PYTHON_BIN"
+INITIAL_PYTHON_VER="$PY_VER"
+if ! select_python_interpreter true; then
+    exit 1
+fi
+if [ "$PYTHON_BIN" != "$INITIAL_PYTHON_BIN" ]; then
+    echo "  Python $INITIAL_PYTHON_VER lacks compatible desktop bindings; using Python $PY_VER ($PYTHON_BIN)."
+else
+    echo "  Python desktop bindings ... OK"
+fi
+
+PY_RUNTIME_NOTICE="$(
+PYTHONPATH="$SCRIPT_DIR/src" "$PYTHON_BIN" - <<'PY' 2>/dev/null || true
+from nvbroadcast.core.platform import python_runtime_advisory
+notice = python_runtime_advisory()
+if notice:
+    _, title, body = notice
+    print(title)
+    print(body)
+PY
+)"
+
+if [ -n "$PY_RUNTIME_NOTICE" ]; then
+    echo ""
+    echo "NOTICE:"
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        echo "  $line"
+    done <<< "$PY_RUNTIME_NOTICE"
+    echo ""
 fi
 
 # Auto-detect GPU capabilities for optional packages
@@ -569,19 +599,41 @@ print(variant.value if variant else "mixed-or-missing")
 PY
 }
 
+installed_python_base() {
+    if [ ! -x "$VENV_DIR/bin/python" ]; then
+        echo "none"
+        return
+    fi
+    "$VENV_DIR/bin/python" -I - <<'PY' 2>/dev/null || echo "unknown"
+import os
+import sys
+print(os.path.realpath(getattr(sys, "_base_executable", sys.executable)))
+PY
+}
+
 CURRENT_RUNTIME_VARIANT="$(installed_runtime_variant)"
+CURRENT_PYTHON_BASE="$(installed_python_base)"
+SELECTED_PYTHON_BASE="$("$PYTHON_BIN" -I -c 'import os, sys; print(os.path.realpath(sys.executable))')"
 
 # Recheck immediately before removing or upgrading the environment. This
 # narrows the window in which a source process could start during preflight.
 guard_source_environment
 
+REPLACE_VENV=false
+if [ -d "$VENV_DIR" ] && [ "$CURRENT_PYTHON_BASE" != "$SELECTED_PYTHON_BASE" ]; then
+    echo "Replacing environment created by ${CURRENT_PYTHON_BASE} with selected interpreter ${SELECTED_PYTHON_BASE}..."
+    REPLACE_VENV=true
+fi
 if [ "$CURRENT_RUNTIME_VARIANT" != "none" ] && [ "$CURRENT_RUNTIME_VARIANT" != "$SELECTED_RUNTIME_VARIANT" ]; then
     echo "Replacing ${CURRENT_RUNTIME_VARIANT} environment with ${SELECTED_RUNTIME_VARIANT} runtime variant..."
+    REPLACE_VENV=true
+fi
+if [ "$REPLACE_VENV" = true ]; then
     rm -rf -- "$VENV_DIR"
 fi
 
 create_virtual_environment() {
-    python3 -m venv "$VENV_DIR" --system-site-packages
+    "$PYTHON_BIN" -m venv "$VENV_DIR" --system-site-packages
     echo "Created virtual environment"
 }
 
@@ -732,27 +784,60 @@ fi
 echo ""
 
 # TensorRT (Zeus/Killer inference optimization)
+verify_tensorrt_execution() {
+    local probe_output
+    if probe_output="$("$VENV_DIR/bin/python" -m nvbroadcast.runtime \
+        --variant cuda --provider tensorrt 2>&1)"; then
+        echo "  TensorRT execution probe ... OK"
+        return 0
+    fi
+
+    echo "  WARNING: TensorRT is importable, but its execution provider failed the pinned-model probe."
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        echo "    $line"
+    done <<< "$probe_output"
+    return 1
+}
+
 TRT_INSTALLED=false
 TRT_SUPPORTED=false
-if "$VENV_DIR/bin/python" -c "import tensorrt" 2>/dev/null; then
-    echo "  [installed] TensorRT — Optimized inference for Zeus/Killer modes"
-    TRT_INSTALLED=true
+TRT_PROBE_FAILED=false
+TRT_UNVERIFIED=false
+if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 8 ] && [ "$PY_MINOR" -le 13 ]; then
     TRT_SUPPORTED=true
+fi
+
+if "$VENV_DIR/bin/python" -c "import tensorrt" 2>/dev/null; then
+    if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
+        if verify_tensorrt_execution; then
+            echo "  [installed] TensorRT — provider execution verified for Zeus/Killer modes"
+            TRT_INSTALLED=true
+        else
+            TRT_PROBE_FAILED=true
+        fi
+    else
+        echo "  [detected] TensorRT package — execution not verified without the CUDA runtime variant"
+        TRT_UNVERIFIED=true
+    fi
 else
     echo "  2) TensorRT (~4GB) — Unlocks:"
     echo "     - Optimized model inference (future TRT engine support)"
     echo "     - Potential 2-5x inference speedup on supported models"
     echo ""
     if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
-        if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 8 ] && [ "$PY_MINOR" -le 13 ]; then
-            TRT_SUPPORTED=true
+        if [ "$TRT_SUPPORTED" = true ]; then
             read -rp "  Install TensorRT? [y/N] " install_trt
             install_trt="${install_trt:-N}"
             if [[ "$install_trt" =~ ^[Yy]$ ]]; then
                 echo "  Installing TensorRT (this may take several minutes)..."
                 if "$VENV_DIR/bin/pip" install tensorrt-cu12 onnx -q 2>&1; then
-                    echo "  TensorRT installed!"
-                    TRT_INSTALLED=true
+                    if verify_tensorrt_execution; then
+                        echo "  TensorRT installed and its execution provider was verified!"
+                        TRT_INSTALLED=true
+                    else
+                        TRT_PROBE_FAILED=true
+                    fi
                 else
                     echo "  WARNING: TensorRT installation failed. Skipping."
                     echo "  Retry later: $VENV_DIR/bin/pip install tensorrt-cu12"
@@ -766,7 +851,7 @@ else
             echo "            Use DocZeus or CUDA modes, or install Python 3.13 for TensorRT."
         fi
     else
-        echo "  [skipped] No NVIDIA GPU detected."
+        echo "  [skipped] The CUDA runtime variant is not selected."
     fi
 fi
 echo ""
@@ -788,7 +873,11 @@ else
     echo "    CuPy:     NOT INSTALLED (CPU modes only)"
 fi
 if [ "$TRT_INSTALLED" = true ]; then
-    echo "    TensorRT: INSTALLED (optimized inference)"
+    echo "    TensorRT: INSTALLED (provider execution verified)"
+elif [ "$TRT_PROBE_FAILED" = true ]; then
+    echo "    TensorRT: NOT READY (provider execution probe failed)"
+elif [ "$TRT_UNVERIFIED" = true ]; then
+    echo "    TensorRT: PRESENT BUT UNVERIFIED (select the CUDA runtime to probe it)"
 elif [ "$TRT_SUPPORTED" = true ]; then
     echo "    TensorRT: NOT INSTALLED (optional for Zeus/Killer)"
 else
@@ -1022,11 +1111,15 @@ else
     echo "  CuPy: NO (install later for GPU modes)"
 fi
 if [ "$TRT_INSTALLED" = true ]; then
-    echo "  TensorRT: YES"
+    echo "  TensorRT: YES (provider execution verified)"
+elif [ "$TRT_PROBE_FAILED" = true ]; then
+    echo "  TensorRT: NOT READY (provider execution probe failed)"
+elif [ "$TRT_UNVERIFIED" = true ]; then
+    echo "  TensorRT: UNVERIFIED (rerun with --runtime cuda to probe it)"
 elif [ "$TRT_SUPPORTED" = true ]; then
     echo "  TensorRT: NO (install later for Zeus/Killer optimization)"
 else
-echo "  TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
+    echo "  TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
 fi
 if [ -n "$PY_RUNTIME_NOTICE" ]; then
     echo ""
@@ -1039,12 +1132,12 @@ fi
 echo ""
 echo "  Available modes:"
 if [ "$CUPY_INSTALLED" = true ] && [ "$CUDA_ACCEL_AVAILABLE" = true ]; then
-    if [ "$TRT_SUPPORTED" = true ]; then
+    if [ "$TRT_INSTALLED" = true ]; then
         echo "    Killer  — 48fps fused CUDA (fastest)"
         echo "    Zeus    — 33fps GPU-optimized"
     else
-        echo "    Killer  — unavailable on Python $PY_VER (TensorRT requires 3.8-3.13)"
-        echo "    Zeus    — unavailable on Python $PY_VER (TensorRT requires 3.8-3.13)"
+        echo "    Killer  — unavailable until TensorRT passes its execution probe"
+        echo "    Zeus    — unavailable until TensorRT passes its execution probe"
     fi
     echo "    DocZeus — 23fps full quality + fused kernel"
 elif [ "$CUPY_INSTALLED" = true ]; then

@@ -67,6 +67,12 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_source_installer_selects_and_validates_one_runtime_variant(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
         self.assertIn("--runtime auto|cpu|cuda] [--with-meeting", install_script)
+        self.assertIn("[--python /path/to/python]", install_script)
+        self.assertIn("scripts/select_python_interpreter.sh", install_script)
+        self.assertIn("--require-desktop-bindings", install_script)
+        self.assertIn("Python desktop bindings ... OK", install_script)
+        self.assertIn('"$PYTHON_BIN" -m venv "$VENV_DIR"', install_script)
+        self.assertIn("SELECTED_PYTHON_BASE", install_script)
         self.assertIn('--variant "$1"', install_script)
         self.assertIn('--meeting-backends "$meeting_backends"', install_script)
         self.assertLess(
@@ -76,6 +82,9 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('rm -rf -- "$VENV_DIR"', install_script)
         self.assertIn("CUDA_ACCEL_AVAILABLE=true", install_script)
         self.assertIn("CUDA execution probe ... OK", install_script)
+        self.assertIn("--variant cuda --provider tensorrt", install_script)
+        self.assertIn("TensorRT execution probe ... OK", install_script)
+        self.assertIn('if [ "$TRT_INSTALLED" = true ]; then', install_script)
         self.assertNotIn("get_available_providers", install_script)
         self.assertIn("Runtime switch: stop NVBroadcast", install_script)
         self.assertIn("unavailable until CuPy installs", install_script)
