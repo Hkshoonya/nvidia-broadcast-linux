@@ -4,14 +4,14 @@ set -e
 
 case "$1" in
     purge)
-        # Remove config and venv
-        rm -rf /opt/nvbroadcast/.venv
-        rm -rf /opt/nvbroadcast/models
+        # /opt/nvbroadcast is package-managed; remove generated runtime files too.
+        rm -rf -- /opt/nvbroadcast
         # System-level virtual camera config is intentionally preserved to avoid
         # modifying shared driver/module state during package removal.
         echo "NV Broadcast: Purged app files. System virtual camera config was left in place."
         ;;
     remove)
+        rm -rf -- /opt/nvbroadcast
         echo "NV Broadcast: Removed. Config preserved. Run 'apt purge nvbroadcast' to remove all."
         ;;
 esac

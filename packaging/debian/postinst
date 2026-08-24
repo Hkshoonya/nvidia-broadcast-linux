@@ -36,6 +36,9 @@ if ! install_runtime "$RUNTIME_VARIANT"; then
     install_runtime "$RUNTIME_VARIANT"
 fi
 
+# pip's local project build can leave metadata beside package-owned sources.
+rm -rf -- "$INSTALL_DIR/build" "$INSTALL_DIR/src/nvbroadcast.egg-info"
+
 # Setup v4l2loopback
 V4L2_CONF="/etc/modprobe.d/nvbroadcast-v4l2loopback.conf"
 V4L2_LOAD="/etc/modules-load.d/nvbroadcast-v4l2loopback.conf"

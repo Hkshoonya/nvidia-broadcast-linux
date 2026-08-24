@@ -7,6 +7,7 @@
 #   ./build-packages.sh          # Build both .deb and .rpm
 #   ./build-packages.sh deb      # Build .deb only
 #   ./build-packages.sh rpm      # Build .rpm only
+#   ./build-packages.sh upgrade-helper  # Bind upgrader to built .deb and .rpm
 #
 # Output:
 #   dist/deb/nvbroadcast_<version>-<rev>_all.deb
@@ -221,6 +222,27 @@ build_rpm() {
     rm -rf "$RPM_DIR"
 }
 
+# ─── Render native-package upgrade helper ────────────────────────────────────
+
+build_upgrade_helper() {
+    local DEB_PATH="dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb"
+    local RPM_PATH="dist/rpm/nvbroadcast-${VERSION}-${REV}.noarch.rpm"
+
+    if [ ! -f "$DEB_PATH" ] || [ ! -f "$RPM_PATH" ]; then
+        echo "[UPGRADE] ERROR: Build the exact .deb and .rpm before the upgrade helper."
+        exit 1
+    fi
+
+    python3 scripts/render_native_upgrade_helper.py \
+        --template scripts/native_package_upgrade.sh.in \
+        --deb "$DEB_PATH" \
+        --rpm "$RPM_PATH" \
+        --version "$VERSION" \
+        --revision "$REV" \
+        --output dist/nvbroadcast-native-upgrade
+    echo "[UPGRADE] Built: dist/nvbroadcast-native-upgrade"
+}
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 # ─── Build .pkg (macOS) ──────────────────────────────────────────────────────
@@ -283,7 +305,7 @@ INSTALL_DIR="/opt/nvbroadcast"
 echo "[NV Broadcast] Setting up Python environment..."
 
 if [ "$(uname -m)" != "arm64" ]; then
-    echo "[NV Broadcast] ERROR: v1.5.0 supports Apple Silicon Macs only."
+    echo "[NV Broadcast] ERROR: v1.5.1 supports Apple Silicon Macs only."
     exit 1
 fi
 
@@ -388,20 +410,23 @@ case "$BUILD_TARGET" in
     deb) build_deb ;;
     rpm) build_rpm ;;
     pkg) build_pkg ;;
+    upgrade-helper) build_upgrade_helper ;;
     all)
         build_deb; echo ""
         build_rpm; echo ""
+        build_upgrade_helper; echo ""
         build_pkg
         ;;
-    *)   echo "Usage: $0 [deb|rpm|pkg|all]"; exit 1 ;;
+    *)   echo "Usage: $0 [deb|rpm|pkg|upgrade-helper|all]"; exit 1 ;;
 esac
 
 echo ""
 echo "========================================="
 echo "  Packages built: v${VERSION}-${REV}"
 echo "========================================="
-ls -lh dist/deb/*.deb dist/rpm/*.rpm dist/pkg/*.pkg 2>/dev/null || true
+ls -lh dist/deb/*.deb dist/rpm/*.rpm dist/pkg/*.pkg dist/nvbroadcast-native-upgrade 2>/dev/null || true
 echo ""
 echo "  Install .deb:  sudo dpkg -i dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb && sudo apt -f install"
 echo "  Install .rpm:  sudo dnf install dist/rpm/nvbroadcast-${VERSION}-${REV}*.rpm"
 echo "  Install .pkg:  open dist/pkg/NVBroadcast-${VERSION}-${REV}.pkg  (macOS)"
+echo "  Upgrade native Linux package: sudo dist/nvbroadcast-native-upgrade <package>"

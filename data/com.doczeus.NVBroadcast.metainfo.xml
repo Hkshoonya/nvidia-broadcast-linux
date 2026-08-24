@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.5.1" date="2026-08-28">
+      <description>
+        <p>Native upgrade and release gate hotfix</p>
+        <ul>
+          <li>Added an attested native-package helper bound to exact release hashes for safe upgrades from affected legacy DEB and RPM scripts</li>
+          <li>Validated package identity, version, architecture, installed version, and known maintainer-script content before privileged upgrade work</li>
+          <li>Removed installer-generated virtual environments, build metadata, and bytecode on final native-package uninstall</li>
+          <li>Prevented Snap review or candidate dispatches from publishing draft GitHub releases</li>
+          <li>Retained deterministic runtime ownership, fresh-process acceleration probes, device recovery, and Linux arm64 face effects from v1.5.0</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.0" date="2026-08-27">
       <description>
         <p>Verified runtimes, safer packaging, and startup recovery</p>

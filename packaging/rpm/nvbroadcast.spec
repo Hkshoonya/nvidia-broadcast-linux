@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.5.0
+Version:        1.5.1
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -150,6 +150,9 @@ if ! install_runtime "$RUNTIME_VARIANT"; then
   install_runtime "$RUNTIME_VARIANT"
 fi
 
+# pip's local project build can leave metadata beside package-owned sources.
+rm -rf -- /opt/nvbroadcast/build /opt/nvbroadcast/src/nvbroadcast.egg-info
+
 # Load v4l2loopback
 if [ -f /etc/modprobe.d/nvbroadcast-v4l2loopback.conf ] && \
    grep -Eq 'card_label="(NVIDIA Broadcast|NVIDIA Broadcast Virtual Camera|NV Broadcast)"' /etc/modprobe.d/nvbroadcast-v4l2loopback.conf; then
@@ -160,6 +163,11 @@ modprobe v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_c
 
 %preun
 pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |$)' 2>/dev/null || true
+
+%postun
+if [ "$1" -eq 0 ]; then
+  rm -rf -- /opt/nvbroadcast
+fi
 
 %files
 /opt/nvbroadcast/
@@ -175,6 +183,11 @@ pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |
 %doc README.md
 
 %changelog
+* Fri Aug 28 2026 doczeus <harshit@kshoonya.com> - 1.5.1-1
+- Add an exact-artifact helper for safe upgrades from legacy native packages
+- Remove installer-generated files on final DEB and RPM uninstall
+- Prevent Snap review builds from finalizing draft GitHub releases
+
 * Thu Aug 27 2026 doczeus <harshit@kshoonya.com> - 1.5.0-1
 - Enforce exactly one CPU or CUDA ONNX Runtime owner in every environment
 - Verify CPU, CUDA, and TensorRT readiness with fresh-process model execution

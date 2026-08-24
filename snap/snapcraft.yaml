@@ -1,15 +1,21 @@
 name: nvbroadcast
 title: NV Broadcast
 base: core24
-version: '1.5.0'
-summary: Verified runtimes, safer packaging, and startup recovery
+version: '1.5.1'
+summary: Verified runtimes and safe native-package upgrades
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.5.0:
+  What's new in v1.5.1:
+  - Adds a hash-bound native-package upgrade helper that safely migrates the
+    known legacy DEB and RPM removal scripts before installing exact artifacts.
+  - Removes installer-generated runtime and build files on final DEB/RPM
+    uninstall, including clean package-only removal paths.
+  - Keeps tag artifacts in draft and prevents tagged review or candidate builds
+    from accidentally publishing the GitHub Release.
   - Enforces exactly one CPU or CUDA ONNX Runtime distribution owner in source,
     native-package, macOS, and Snap environments.
   - Verifies CPU, CUDA, and TensorRT readiness with pinned fresh-process model

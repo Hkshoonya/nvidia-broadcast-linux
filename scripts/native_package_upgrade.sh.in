@@ -1,0 +1,310 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+umask 022
+
+readonly TARGET_VERSION='@TARGET_VERSION@'
+readonly TARGET_REVISION='@TARGET_REVISION@'
+readonly EXPECTED_DEB_SHA256='@DEB_SHA256@'
+readonly EXPECTED_RPM_SHA256='@RPM_SHA256@'
+readonly LEGACY_RPM_PREUN='pkill -f "nvbroadcast" 2>/dev/null || true'
+readonly SAFE_PROCESS_KILL="pkill -f '^/opt/nvbroadcast/\\.venv/bin/python -m nvbroadcast(\\.vcam_service)?( |\$)' 2>/dev/null || true"
+
+WORK_DIR=""
+PATCH_TEMP=""
+STAGED_PACKAGE=""
+
+usage() {
+    cat <<EOF
+Usage: sudo ./nvbroadcast-native-upgrade /path/to/package.deb
+       sudo ./nvbroadcast-native-upgrade /path/to/package.rpm
+
+Installs the exact NV Broadcast ${TARGET_VERSION}-${TARGET_REVISION} native
+release artifact and safely migrates affected older package scripts.
+EOF
+}
+
+die() {
+    printf 'NV Broadcast upgrade: ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+cleanup() {
+    if [[ -n "$PATCH_TEMP" && -e "$PATCH_TEMP" ]]; then
+        rm -f -- "$PATCH_TEMP"
+    fi
+    if [[ -n "$WORK_DIR" && -d "$WORK_DIR" ]]; then
+        rm -rf -- "$WORK_DIR"
+    fi
+}
+
+need_command() {
+    command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+file_sha256() {
+    sha256sum -- "$1" | awk '{print $1}'
+}
+
+is_legacy_debian_prerm_hash() {
+    case "$1" in
+        a20da1ed2a66e80ca46d21738c8329b046642d0cf6d42dc8c25b7ee8ed996c36|\
+        c4ebf6d1ccc960870f8f69c62a5bee480f31b89e891c1fc45b462fc1eccee51c|\
+        ef1e8ed9cde08f74ab6ed5f1db2af09137a69b305e2b455727f7658fa0e171c4)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+is_patched_debian_prerm_hash() {
+    case "$1" in
+        ac7c7364a33b27b546cfe077e069cf41f9e8556bdddf78402680fe7a65560f53|\
+        12d9691bffd3ac17c428667be543ea161971cd3bf4851db87a0796f69895bbbe|\
+        179d11a6cab5a27d0b667947d4c3742cbf8ef890b474270147047381356603a6)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+has_unfamiliar_nvbroadcast_kill() {
+    local line
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == *pkill* && "$line" == *nvbroadcast* && \
+              "$line" != *"$SAFE_PROCESS_KILL"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+patch_legacy_debian_prerm() {
+    local prerm="$1"
+    local current_hash line prefix replacement_count new_hash
+
+    [[ -e "$prerm" ]] || return 0
+    [[ -f "$prerm" && ! -L "$prerm" ]] || \
+        die "refusing unsafe Debian maintainer-script path: $prerm"
+
+    current_hash="$(file_sha256 "$prerm")"
+    if is_patched_debian_prerm_hash "$current_hash"; then
+        printf 'NV Broadcast upgrade: legacy Debian pre-removal script is already safe.\n'
+        return 0
+    fi
+    if ! is_legacy_debian_prerm_hash "$current_hash"; then
+        if has_unfamiliar_nvbroadcast_kill < "$prerm"; then
+            die "installed Debian pre-removal script is unfamiliar; refusing to rewrite it"
+        fi
+        return 0
+    fi
+
+    PATCH_TEMP="$(mktemp "${prerm}.nvbroadcast-safe.XXXXXX")"
+    cp --preserve=all -- "$prerm" "$PATCH_TEMP"
+    replacement_count=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == *"$LEGACY_RPM_PREUN" ]]; then
+            prefix="${line%%pkill -f*}"
+            printf '%s%s\n' "$prefix" "$SAFE_PROCESS_KILL"
+            replacement_count=$((replacement_count + 1))
+        else
+            printf '%s\n' "$line"
+        fi
+    done < "$prerm" > "$PATCH_TEMP"
+
+    [[ "$replacement_count" -ge 1 && "$replacement_count" -le 2 ]] || \
+        die "legacy Debian script replacement count was unsafe: $replacement_count"
+    new_hash="$(file_sha256 "$PATCH_TEMP")"
+    is_patched_debian_prerm_hash "$new_hash" || \
+        die "patched Debian pre-removal script failed exact-content validation"
+
+    mv -f -- "$PATCH_TEMP" "$prerm"
+    PATCH_TEMP=""
+    printf 'NV Broadcast upgrade: repaired the known legacy Debian upgrade script.\n'
+}
+
+stage_package() {
+    local source="$1"
+    local suffix="$2"
+    local expected_hash="$3"
+    local actual_hash
+
+    [[ -f "$source" && ! -L "$source" ]] || \
+        die "package must be a regular, non-symlink file: $source"
+    WORK_DIR="$(mktemp -d /var/tmp/nvbroadcast-native-upgrade.XXXXXX)"
+    STAGED_PACKAGE="$WORK_DIR/package.$suffix"
+    install -m 0600 -- "$source" "$STAGED_PACKAGE"
+    actual_hash="$(file_sha256 "$STAGED_PACKAGE")"
+    [[ "$actual_hash" == "$expected_hash" ]] || \
+        die "package SHA-256 does not match the attested ${TARGET_VERSION} release artifact"
+}
+
+install_debian_package() {
+    local source="$1"
+    local package_name package_version package_arch status installed_version
+    local installed_after
+
+    need_command apt-get
+    need_command dpkg
+    need_command dpkg-deb
+    need_command dpkg-query
+    stage_package "$source" deb "$EXPECTED_DEB_SHA256"
+
+    package_name="$(dpkg-deb --field "$STAGED_PACKAGE" Package)"
+    package_version="$(dpkg-deb --field "$STAGED_PACKAGE" Version)"
+    package_arch="$(dpkg-deb --field "$STAGED_PACKAGE" Architecture)"
+    [[ "$package_name" == "nvbroadcast" ]] || die "DEB package name is not nvbroadcast"
+    [[ "$package_version" == "${TARGET_VERSION}-${TARGET_REVISION}" ]] || \
+        die "DEB version is $package_version, expected ${TARGET_VERSION}-${TARGET_REVISION}"
+    [[ "$package_arch" == "all" ]] || die "DEB architecture is $package_arch, expected all"
+
+    status="$(dpkg-query -W -f='${db:Status-Abbrev}' nvbroadcast 2>/dev/null || true)"
+    [[ "$status" == i* ]] || \
+        die "nvbroadcast is not installed or recoverable; use apt for a clean install"
+    installed_version="$(dpkg-query -W -f='${Version}' nvbroadcast)"
+    dpkg --compare-versions "$installed_version" lt "$package_version" || \
+        die "target $package_version is not newer than installed version $installed_version"
+
+    patch_legacy_debian_prerm /var/lib/dpkg/info/nvbroadcast.prerm
+    printf 'NV Broadcast upgrade: installing verified DEB %s over %s.\n' \
+        "$package_version" "$installed_version"
+    if [[ "$status" == ii* ]]; then
+        DEBIAN_FRONTEND=noninteractive \
+            apt-get install --yes --no-remove "$STAGED_PACKAGE"
+    else
+        printf 'NV Broadcast upgrade: recovering interrupted dpkg state %s.\n' "$status"
+        dpkg --unpack "$STAGED_PACKAGE"
+        DEBIAN_FRONTEND=noninteractive \
+            apt-get --fix-broken install --yes --no-remove
+    fi
+
+    installed_after="$(dpkg-query -W -f='${Version}' nvbroadcast 2>/dev/null || true)"
+    [[ "$installed_after" == "$package_version" ]] || \
+        die "DEB transaction finished without installing $package_version"
+}
+
+semantic_version_less() {
+    local left="$1" right="$2"
+    local left_major left_minor left_patch right_major right_minor right_patch
+
+    [[ "$left" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
+    left_major="${BASH_REMATCH[1]}"
+    left_minor="${BASH_REMATCH[2]}"
+    left_patch="${BASH_REMATCH[3]}"
+    [[ "$right" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
+    right_major="${BASH_REMATCH[1]}"
+    right_minor="${BASH_REMATCH[2]}"
+    right_patch="${BASH_REMATCH[3]}"
+
+    ((10#$left_major < 10#$right_major)) && return 0
+    ((10#$left_major > 10#$right_major)) && return 1
+    ((10#$left_minor < 10#$right_minor)) && return 0
+    ((10#$left_minor > 10#$right_minor)) && return 1
+    ((10#$left_patch < 10#$right_patch))
+}
+
+install_rpm_package() {
+    local source="$1"
+    local package_name package_version package_release package_arch
+    local installed_version installed_release installed_preun installed_after
+    local requirement requirements
+    local -a target_requirements=()
+
+    need_command dnf
+    need_command rpm
+    stage_package "$source" rpm "$EXPECTED_RPM_SHA256"
+
+    package_name="$(rpm -qp --qf '%{NAME}' "$STAGED_PACKAGE")"
+    package_version="$(rpm -qp --qf '%{VERSION}' "$STAGED_PACKAGE")"
+    package_release="$(rpm -qp --qf '%{RELEASE}' "$STAGED_PACKAGE")"
+    package_arch="$(rpm -qp --qf '%{ARCH}' "$STAGED_PACKAGE")"
+    [[ "$package_name" == "nvbroadcast" ]] || die "RPM package name is not nvbroadcast"
+    [[ "$package_version" == "$TARGET_VERSION" ]] || \
+        die "RPM version is $package_version, expected $TARGET_VERSION"
+    [[ "$package_release" == "$TARGET_REVISION" ]] || \
+        die "RPM release is $package_release, expected $TARGET_REVISION"
+    [[ "$package_arch" == "noarch" ]] || \
+        die "RPM architecture is $package_arch, expected noarch"
+
+    rpm -q nvbroadcast >/dev/null 2>&1 || \
+        die "nvbroadcast is not installed; use dnf to perform a normal clean install"
+    installed_version="$(rpm -q --qf '%{VERSION}' nvbroadcast)"
+    installed_release="$(rpm -q --qf '%{RELEASE}' nvbroadcast)"
+    semantic_version_less "$installed_version" "$TARGET_VERSION" || \
+        die "target $TARGET_VERSION is not newer than installed version $installed_version"
+
+    printf 'NV Broadcast upgrade: installing verified RPM %s-%s over %s-%s.\n' \
+        "$package_version" "$package_release" "$installed_version" "$installed_release"
+    installed_preun="$(rpm -q --qf '%{PREUN}' nvbroadcast)"
+    if [[ "$installed_preun" == "$LEGACY_RPM_PREUN" ]]; then
+        requirements="$(rpm -qp --requires "$STAGED_PACKAGE")" || \
+            die "could not read requirements from the verified RPM"
+        while IFS= read -r requirement; do
+            case "$requirement" in
+                ""|rpmlib\(*|config\(nvbroadcast\)*)
+                    continue
+                    ;;
+                *)
+                    target_requirements+=("$requirement")
+                    ;;
+            esac
+        done <<< "$requirements"
+        [[ "${#target_requirements[@]}" -gt 0 ]] || \
+            die "verified RPM reported no installable requirements"
+
+        printf 'NV Broadcast upgrade: resolving verified RPM dependencies before legacy migration.\n'
+        dnf --assumeyes install "${target_requirements[@]}"
+        rpm --upgrade --test --nopreun "$STAGED_PACKAGE"
+        printf 'NV Broadcast upgrade: bypassing the exact known legacy RPM pre-uninstall script.\n'
+        rpm --upgrade --nopreun "$STAGED_PACKAGE"
+    elif has_unfamiliar_nvbroadcast_kill <<< "$installed_preun"; then
+        die "installed RPM pre-uninstall script is unfamiliar; refusing to bypass it"
+    else
+        dnf --assumeyes install "$STAGED_PACKAGE"
+    fi
+
+    installed_after="$(rpm -q --qf '%{VERSION}-%{RELEASE}' nvbroadcast 2>/dev/null || true)"
+    [[ "$installed_after" == "${TARGET_VERSION}-${TARGET_REVISION}" ]] || \
+        die "RPM transaction finished without installing ${TARGET_VERSION}-${TARGET_REVISION}"
+}
+
+main() {
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+        usage
+        return 0
+    fi
+    [[ "$#" -eq 1 ]] || {
+        usage >&2
+        return 2
+    }
+    [[ "$EUID" -eq 0 ]] || die "run this helper through sudo"
+    need_command awk
+    need_command install
+    need_command mktemp
+    need_command sha256sum
+
+    trap cleanup EXIT HUP INT TERM
+    case "$1" in
+        *.deb)
+            install_debian_package "$1"
+            ;;
+        *.rpm)
+            install_rpm_package "$1"
+            ;;
+        *)
+            die "expected a .deb or .rpm release artifact"
+            ;;
+    esac
+    printf 'NV Broadcast upgrade: %s installed successfully.\n' "$TARGET_VERSION"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
