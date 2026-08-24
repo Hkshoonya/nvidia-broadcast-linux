@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.4.0
+Version:        1.5.0
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -63,6 +63,7 @@ cp -r data %{buildroot}/opt/nvbroadcast/
 cp -r configs %{buildroot}/opt/nvbroadcast/ 2>/dev/null || true
 find %{buildroot}/opt/nvbroadcast -type d -exec chmod 755 {} +
 find %{buildroot}/opt/nvbroadcast -type f -exec chmod 644 {} +
+chmod 755 %{buildroot}/opt/nvbroadcast/scripts/install_runtime_variant.py
 
 # Desktop entry
 install -Dm 644 data/com.doczeus.NVBroadcast.desktop \
@@ -174,6 +175,18 @@ pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |
 %doc README.md
 
 %changelog
+* Thu Aug 27 2026 doczeus <harshit@kshoonya.com> - 1.5.0-1
+- Enforce exactly one CPU or CUDA ONNX Runtime owner in every environment
+- Verify CPU, CUDA, and TensorRT readiness with fresh-process model execution
+- Reject silent GPU fallback and preserve provider diagnostics for recovery
+- Keep source runtime changes explicit, restart-gated, and failure-safe
+- Fix microphone selection persistence and live audio-pipeline rebuilding
+- Stop GUI and headless startup cleanly when no usable camera is available
+- Add explicit per-profile auto-start opt-in and failure-safe start state
+- Add Linux arm64 MediaPipe support and raise dependency security floors
+- Harden strict Snap dependency closure, revision promotion, and metadata refresh
+- Publish deterministic checksums and GitHub release provenance attestations
+
 * Tue Aug 04 2026 doczeus <harshit@kshoonya.com> - 1.4.0-1
 - Add rebindable global effect hotkeys and optional Eye Contact Gaze Lock
 - Switch physical cameras at runtime without restarting the application

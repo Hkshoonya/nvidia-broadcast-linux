@@ -79,7 +79,10 @@ class ArchSupportTests(unittest.TestCase):
 
     def test_tensorrt_modes_report_python_version_unsupported(self):
         installer = DependencyInstaller()
-        with mock.patch("nvbroadcast.core.dependency_installer.has_tensorrt_runtime", return_value=False), \
+        with mock.patch("nvbroadcast.core.dependency_installer.IS_LINUX", True), \
+             mock.patch("nvbroadcast.core.dependency_installer.IS_ARM64", False), \
+             mock.patch("nvbroadcast.core.dependency_installer._running_in_snap", return_value=False), \
+             mock.patch("nvbroadcast.core.dependency_installer.has_tensorrt_runtime", return_value=False), \
              mock.patch("nvbroadcast.core.dependency_installer.supports_tensorrt_python", return_value=False), \
              mock.patch(
                  "nvbroadcast.core.dependency_installer.tensorrt_python_unsupported_reason",

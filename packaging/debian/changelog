@@ -1,3 +1,19 @@
+nvbroadcast (1.5.0-1) unstable; urgency=medium
+
+  * Enforce exactly one CPU or CUDA ONNX Runtime owner in every environment.
+  * Verify CPU, CUDA, and TensorRT readiness with fresh-process model execution.
+  * Reject silent GPU fallback and preserve provider diagnostics for recovery.
+  * Keep source runtime changes explicit, restart-gated, and failure-safe.
+  * Fix microphone selection persistence and live audio-pipeline rebuilding.
+  * Stop GUI and headless startup cleanly when no usable camera is available.
+  * Add explicit per-profile auto-start opt-in and failure-safe start state.
+  * Add Linux arm64 MediaPipe support and raise dependency security floors.
+  * Harden strict Snap dependency closure, revision promotion, and metadata
+    refresh.
+  * Publish deterministic checksums and GitHub release provenance attestations.
+
+ -- DocZeus <harshit@kshoonya.com>  Thu, 27 Aug 2026 10:00:00 -0400
+
 nvbroadcast (1.4.0-1) unstable; urgency=medium
 
   * Add rebindable global effect hotkeys and optional Eye Contact Gaze Lock.

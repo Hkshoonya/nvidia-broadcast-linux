@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- **Verifiable Release Provenance** - Tag-built DEB, RPM, PKG, and Snap artifacts receive Sigstore-backed GitHub build attestations and deterministic SHA-256 manifests; manual stable Snap publication is pinned to the requested release tag, and Store promotion verifies both candidate architectures against that tag, commit, workflow, and a hosted runner. Verification instructions state what provenance proves and keep hermetic dependency locks, SBOMs, native signing, and reproducibility as explicit follow-up work ([Issue #60](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/60))
+## v1.5.0 - Verified Runtimes, Safer Packaging, and Startup Recovery
+
+- **Verifiable Release Provenance** - Tag-built DEB, RPM, PKG, and Snap artifacts receive Sigstore-backed GitHub build attestations; native packages and GitHub-attached Snap files also receive deterministic SHA-256 manifests. Manual stable Snap publication is pinned to the requested release tag, and Store promotion verifies both candidate architectures against that tag, commit, workflow, and a hosted runner. Verification instructions state what provenance proves and keep hermetic dependency locks, SBOMs, native signing, and reproducibility as explicit follow-up work ([Issue #60](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/60))
 - **Execution-Proven Runtime Ownership** - Source, native, macOS, and Snap environments enforce exactly one CPU or CUDA ONNX Runtime owner. Runtime readiness now executes a checksum-pinned model in a fresh process, rejects silent CPU fallback, verifies CUDA/TensorRT node placement and output, preserves provider-load diagnostics, and requires an app restart after optional GPU runtime installation ([Issue #53](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/53), [PR #62](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/62))
 - **Strict Snap Startup and Launcher Recovery** - Snap builds now use Core 24's runtime Python instead of a build-only GNOME SDK path, consume GTK and GStreamer from the GNOME content snap without shadow copies, and register a validated desktop launcher before artifact upload ([Issue #48](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/48))
 - **Microphone Selection Persistence** - The microphone shown in the dropdown is now saved and applied on first launch, unavailable saved devices fall back to the visible source, and changing devices rebuilds a running audio pipeline ([Issue #66](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/66))
@@ -10,6 +12,8 @@
 - **Enforced Dependency Security Floors** - Release metadata and regression tests enforce OpenCV 4.8.1.78, Protobuf 6.33.5, and Pillow 12.3.0 as runtime minimums, plus pytest 9.0.3 for development to protect against known CVEs.
 - **No-Camera Startup Recovery** - GUI and headless starts now stop cleanly with a useful status when no physical camera is available, instead of constructing a broken pipeline or virtual-camera session ([PR #70](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/70))
 - **Profile Auto-Start Opt-In** - Selecting a saved profile now starts the broadcast only when that profile's explicit opt-in ("Start broadcast when this profile is selected") is enabled, which defaults off and is set with a visible checkbox when saving the profile; profiles saved before this change never auto-start on selection. Launch-time auto-start remains governed solely by the application-level Auto Start setting, and a failed start (busy or missing camera) now leaves the window state aligned with the app instead of showing a phantom "Stop Broadcast" state.
+
+> If you are on `v1.4.0` or older, update to `v1.5.0`. This is the recommended stable release for deterministic CPU/CUDA runtime ownership, execution-proven acceleration, safer package promotion, persistent microphone selection, and clean startup recovery.
 
 ## v1.4.0 - Global Controls, Gaze Lock, and Live Video Reliability Update
 
