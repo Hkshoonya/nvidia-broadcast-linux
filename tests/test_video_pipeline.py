@@ -143,6 +143,47 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertFalse(pipeline._gpu_path_demoted)
         idle_add.assert_not_called()
 
+    def test_error_from_retired_pipeline_generation_is_ignored(self):
+        pipeline = VideoPipeline()
+        pipeline._capture_generation = 4
+        message = self._capture_error(
+            "Internal data stream error.", "retired pipeline"
+        )
+
+        with mock.patch(
+            "nvbroadcast.video.pipeline.GLib.idle_add"
+        ) as idle_add:
+            pipeline._on_error(None, message, generation=3)
+
+        message.parse_error.assert_not_called()
+        idle_add.assert_not_called()
+
+    def test_capture_bus_error_handler_records_pipeline_generation(self):
+        pipeline = VideoPipeline()
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.camera_capture_candidates",
+            return_value=[{
+                "format": "raw", "width": 640, "height": 480, "fps": 30,
+            }],
+        ):
+            pipeline.configure(
+                "/dev/video1", "/dev/video10",
+                width=640, height=480, fps=30,
+            )
+        pipeline._effects_active = True
+        fake_pipeline = self._fake_gst_pipeline()
+
+        with mock.patch(
+            "nvbroadcast.video.pipeline.Gst.parse_launch",
+            return_value=fake_pipeline,
+        ):
+            pipeline.build(vcam_enabled=False)
+
+        fake_pipeline.get_bus.return_value.connect.assert_any_call(
+            "message::error", pipeline._on_error, 1
+        )
+        self.assertEqual(pipeline._capture_generation, 1)
+
     def test_runtime_camera_error_does_not_change_capture_candidate(self):
         pipeline = VideoPipeline()
         pipeline._capture_candidates = [

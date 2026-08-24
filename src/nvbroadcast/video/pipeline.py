@@ -60,6 +60,7 @@ class VideoPipeline:
         self._capture_candidate_index = 0
         self._capture_retry_pending = False
         self._capture_started = False
+        self._capture_generation = 0
         self._prefer_hw_decode = False
         self._effects_fps: int = 30  # Can be reduced by performance profile
         self._effect_callback = None
@@ -604,6 +605,10 @@ class VideoPipeline:
         """
         from nvbroadcast.core.platform import IS_MACOS, get_gst_camera_caps
 
+        self._capture_generation += 1
+        generation = self._capture_generation
+        self._capture_started = False
+
         tee_branch = ""
         if vcam_enabled and not IS_MACOS:
             tee_branch = (
@@ -643,7 +648,7 @@ class VideoPipeline:
 
         bus = self._pipeline.get_bus()
         bus.add_signal_watch()
-        bus.connect("message::error", self._on_error)
+        bus.connect("message::error", self._on_error, generation)
 
         if vcam_enabled and IS_MACOS:
             self._setup_macos_virtual_camera()
@@ -651,6 +656,10 @@ class VideoPipeline:
     def _build_effects_pipeline(self, vcam_enabled: bool):
         """appsink/appsrc pipeline for Python effect processing."""
         from nvbroadcast.core.platform import IS_MACOS, get_gst_camera_caps
+
+        self._capture_generation += 1
+        generation = self._capture_generation
+        self._capture_started = False
 
         camera_src = get_gst_camera_caps(
             self._source_device, self._width, self._height, self._fps,
@@ -731,7 +740,7 @@ class VideoPipeline:
 
         bus = self._pipeline.get_bus()
         bus.add_signal_watch()
-        bus.connect("message::error", self._on_error)
+        bus.connect("message::error", self._on_error, generation)
 
         if vcam_enabled:
             if IS_MACOS:
@@ -1437,7 +1446,12 @@ class VideoPipeline:
             return "cudaupload ! cudaconvert ! cudadownload"
         return "videoconvert n-threads=2 qos=false"
 
-    def _on_error(self, bus, msg):
+    def _on_error(self, bus, msg, generation=None):
+        if (
+            generation is not None
+            and generation != self._capture_generation
+        ):
+            return
         err, debug = msg.parse_error()
         camera_source = (
             self._pipeline.get_by_name("camera_source")
