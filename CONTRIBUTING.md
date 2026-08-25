@@ -10,7 +10,7 @@ Thank you for your interest in contributing! This project was built for the Linu
 
 3. **Be respectful** — We're all here because we love Linux and want better tools. Constructive feedback only.
 
-4. **Contributor credits follow merged work** — After a pull request is merged, its author is added to the app's About window under **Contributions to App**. Sponsors are credited separately under **Project Sponsors**; sponsorship does not imply code authorship.
+4. **Contributor credits ship with accepted work** — Every external human pull request must register its author in `src/nvbroadcast/contributors.py` before merge. That cumulative registry appears in the app's About window under **Contributions to App** in this and every later release. Sponsors are credited separately under **Project Sponsors**; sponsorship does not imply code authorship.
 
 ## How to Contribute
 
@@ -33,6 +33,15 @@ Thank you for your interest in contributing! This project was built for the Linu
 4. **Test locally**: make sure the app runs, effects work, no regressions
 5. **Commit** with clear messages
 6. **Push** to your fork and open a **Pull Request**
+
+### Contributor Credit
+
+For an external human contribution, add one `Contributor` entry with your
+public display name and GitHub login to `src/nvbroadcast/contributors.py`, unless
+you are already listed. The pull-request checks enforce this before merge.
+Maintainer and automated dependency-bot changes are exempt. Maintainers verify
+the name, profile link, and absence of duplicates during review; accepted
+credits remain cumulative in future releases.
 
 ### Code Style
 

@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
 DIST_DIR = REPO_ROOT / "dist" / "release-smoke"
 REQUIRED_WHEEL_PATHS = [
+    "nvbroadcast/contributors.py",
     "nvbroadcast/runtime/probe.py",
     "nvbroadcast/ui/style.css",
     ".data/data/share/applications/com.doczeus.NVBroadcast.desktop",
@@ -78,6 +79,7 @@ def main() -> int:
             "tests.test_summarizer",
             "tests.test_tensorrt_rvm",
             "tests.test_training_bundle",
+            "tests.test_contributors",
         ],
         "unit tests",
     )

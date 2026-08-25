@@ -12,6 +12,7 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 
+from nvbroadcast.contributors import app_contributor_credits
 from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
 from nvbroadcast.core.config import save_config
 from nvbroadcast.core.gpu import detect_gpus, select_compute_gpu
@@ -32,13 +33,9 @@ from nvbroadcast.core.platform import IS_LINUX, has_tensorrt_runtime, supports_t
 from nvbroadcast.core.resources import find_app_icon
 
 
-# Keep project authorship, financial sponsorship, and accepted contributions
-# separate. Add contributors here only after their pull request has been merged.
+# Keep project authorship and financial sponsorship separate.
 _APP_SPONSORS = [
     "Mattsky — GitHub Sponsor https://github.com/Mattsky",
-]
-_APP_CONTRIBUTORS = [
-    "Jon Fuller (@perfectra1n) https://github.com/perfectra1n",
 ]
 
 
@@ -2410,7 +2407,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         )
         if hasattr(about, "add_credit_section"):
             about.add_credit_section("Project Sponsors", _APP_SPONSORS)
-            about.add_credit_section("Contributions to App", _APP_CONTRIBUTORS)
+            about.add_credit_section(
+                "Contributions to App",
+                app_contributor_credits(),
+            )
         about.add_link("Sponsor on GitHub", "https://github.com/sponsors/Hkshoonya")
         about.present()
 

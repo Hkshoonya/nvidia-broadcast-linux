@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Cumulative App Contributor Credits** - The About window now credits John Maingi (`@JohnMaingi-IXP`), Jon Fuller (`@perfectra1n`), Cédric Prezelin (`@Tenshock`), and Cenkay Çoban (`@pastor0711`) from one packaged registry. Pull-request validation requires every accepted external human contributor in that registry before merge, and release smoke verifies the credits ship in every future version.
+
 ## v1.5.1 - Native Upgrade and Release Gate Hotfix
 
 - **Safe Native Upgrades** - Release artifacts now include an attested `nvbroadcast-native-upgrade` helper bound to the exact v1.5.1 DEB and RPM hashes. It repairs only the byte-verified legacy Debian maintainer scripts, bypasses only the exact known legacy RPM pre-uninstall script, validates package identity and version, and refuses unfamiliar or modified scripts before installation.

@@ -15,8 +15,10 @@ not evidence for the release candidate.
 - Keep `docs/index.html` download commands on the latest public version while
   the new release is still a candidate. Keep the `published` version in
   `tests/test_packaging_metadata.py` aligned with those public links.
-- Confirm release notes distinguish completed work from open follow-up work and
-  credit merged community contributions accurately.
+- Confirm every external human pull request passed the contributor-credit gate,
+  its author remains in `src/nvbroadcast/contributors.py`, and the release notes
+  credit merged community work accurately. Credits are cumulative; do not drop
+  a previous contributor during a version update.
 - Review the complete diff for unrelated changes, generated files, credentials,
   private data, and release claims that exceed the performed verification.
 
@@ -25,6 +27,8 @@ not evidence for the release candidate.
 - Run `git diff --check`, metadata drift tests, Ruff, Bash syntax checks,
   actionlint, and ShellCheck where applicable.
 - Run the complete non-hardware test suite and `scripts/release_smoke.py`.
+- Confirm release smoke finds `nvbroadcast/contributors.py` in the built wheel
+  so the cumulative About credits ship in every package format.
 - Run `pip check`, Bandit, and the dependency vulnerability audit against a
   clean resolution of the release tree.
 - Build and inspect the Debian and RPM packages locally or in disposable clean

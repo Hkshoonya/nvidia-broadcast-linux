@@ -19,6 +19,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  contributor-credit:
+    name: Contributor credit
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Verify pull request contributor credit
+        env:
+          CONTRIBUTOR_LOGIN: ${{ github.event.pull_request.user.login }}
+          CONTRIBUTOR_TYPE: ${{ github.event.pull_request.user.type }}
+        run: |
+          python3 scripts/check_contributor_credit.py \
+            --login "$CONTRIBUTOR_LOGIN" \
+            --account-type "$CONTRIBUTOR_TYPE"
+
   linux:
     name: Linux validation
     runs-on: ubuntu-latest
