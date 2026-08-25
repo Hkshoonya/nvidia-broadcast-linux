@@ -15,6 +15,7 @@
 - [ ] I have tested my changes locally
 - [ ] My code follows the existing code style
 - [ ] I have NOT removed or modified any author attribution (doczeus copyright headers, UI credits, LICENSE)
+- [ ] My GitHub account is already in `src/nvbroadcast/contributors.py`, or I added it with this external human contribution (maintainer and bot PRs are exempt)
 - [ ] I have added comments for any non-obvious logic
 - [ ] I have updated documentation if needed
 
