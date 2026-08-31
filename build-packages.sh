@@ -305,7 +305,7 @@ INSTALL_DIR="/opt/nvbroadcast"
 echo "[NV Broadcast] Setting up Python environment..."
 
 if [ "$(uname -m)" != "arm64" ]; then
-    echo "[NV Broadcast] ERROR: v1.5.1 supports Apple Silicon Macs only."
+    echo "[NV Broadcast] ERROR: v1.5.2 supports Apple Silicon Macs only."
     exit 1
 fi
 

@@ -114,7 +114,7 @@ jobs:
           fi
 
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::release_tag must be an existing version tag such as v1.5.1."
+            echo "::error::release_tag must be an existing version tag such as v1.5.2."
             exit 1
           fi
 

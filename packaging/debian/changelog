@@ -1,3 +1,15 @@
+nvbroadcast (1.5.2-1) unstable; urgency=high
+
+  * Retry exact camera modes with another advertised encoding when the
+    preferred format fails before its first frame.
+  * Select and validate a fully supported Python for source installations.
+  * Pin Snap Store actions to a validated release tag and source commit.
+  * Add cumulative in-app contributor credits and merge validation.
+  * Carry forward safe native upgrades, clean uninstall, verified runtimes,
+    device recovery, and artifact provenance from the v1.5.1 candidate.
+
+ -- DocZeus <harshit@kshoonya.com>  Fri, 04 Sep 2026 12:00:00 -0400
+
 nvbroadcast (1.5.1-1) unstable; urgency=high
 
   * Add a hash-bound helper for upgrades from affected legacy DEB and RPM

@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.5.1
+Version:        1.5.2
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -183,6 +183,13 @@ fi
 %doc README.md
 
 %changelog
+* Fri Sep 04 2026 doczeus <harshit@kshoonya.com> - 1.5.2-1
+- Retry exact camera modes with a working advertised encoding at startup
+- Select and validate a fully supported Python for source installations
+- Pin every Snap Store action to a validated release tag and source commit
+- Add cumulative in-app contributor credits and merge validation
+- Carry forward safe native upgrades and verified v1.5 runtime behavior
+
 * Fri Aug 28 2026 doczeus <harshit@kshoonya.com> - 1.5.1-1
 - Add an exact-artifact helper for safe upgrades from legacy native packages
 - Remove installer-generated files on final DEB and RPM uninstall

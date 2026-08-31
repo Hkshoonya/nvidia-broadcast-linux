@@ -2,7 +2,15 @@
 
 ## Unreleased
 
-- **Cumulative App Contributor Credits** - The About window now credits John Maingi (`@JohnMaingi-IXP`), Jon Fuller (`@perfectra1n`), Cédric Prezelin (`@Tenshock`), and Cenkay Çoban (`@pastor0711`) from one packaged registry. Pull-request validation requires every accepted external human contributor in that registry before merge, and release smoke verifies the credits ship in every future version.
+## v1.5.2 - Camera Recovery and First Public v1.5 Release
+
+- **First Public v1.5 Build** - v1.5.2 supersedes the withdrawn v1.5.0 build and unpublished v1.5.1 candidate. It carries forward the tested native-upgrade helper, deterministic runtime ownership, device recovery, dependency floors, and artifact-provenance controls without requiring users to install an intermediate release.
+- **Exact-Mode Camera Recovery** - Linux cameras that advertise an unusable preferred MJPEG mode now retry another advertised encoding at the same resolution and frame rate before startup fails. Recovery ignores delayed errors from retired pipelines and remembers a format only after a valid frame arrives ([PR #76](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/76), contributed by Cédric Prezelin [`@Tenshock`](https://github.com/Tenshock)).
+- **Supported Source Python Selection** - Source installers select a compatible Python 3.11-3.13 interpreter, verify matching GTK, Libadwaita, and GStreamer bindings, recreate only an incompatible project environment, and provide package-manager-specific recovery guidance ([PR #80](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/80)).
+- **Tag-Pinned Snap Store Dispatches** - Every Store review, candidate, and stable action validates its release tag, source commit, and workflow ref before any build or upload; branch and mismatched-tag dispatches fail closed ([PR #79](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/79)).
+- **Cumulative App Contributor Credits** - The About window now credits John Maingi (`@JohnMaingi-IXP`), Jon Fuller (`@perfectra1n`), Cédric Prezelin (`@Tenshock`), and Cenkay Çoban (`@pastor0711`) from one packaged registry. Pull-request validation requires every accepted external human contributor in that registry before merge, and release smoke verifies the credits ship in every future version ([PR #81](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/81)).
+
+> Native-package users on `v1.4.0` or older must use the checksum-verified v1.5.2 release helper instead of invoking `apt`, `dpkg`, `dnf`, or `rpm` directly. Snap users update normally through the Store.
 
 ## v1.5.1 - Native Upgrade and Release Gate Hotfix
 
@@ -11,7 +19,7 @@
 - **Draft Release Isolation** - Tagged Snap review and candidate dispatches can no longer enter the GitHub release attachment job, and Snap attachment always preserves draft state. This closes the condition that briefly finalized the v1.5.0 draft during Store review.
 - **v1.5 Runtime and Recovery Work Included** - Deterministic CPU/CUDA ownership, fresh-process provider execution, microphone persistence, no-camera startup recovery, profile auto-start safety, Linux arm64 MediaPipe, and stricter artifact provenance remain included from v1.5.0.
 
-> Native-package users on `v1.4.0` or older must follow the v1.5.1 release-note upgrade procedure instead of invoking `apt`, `dpkg`, `dnf`, or `rpm` directly. Snap stable remains on v1.4.0 until the v1.5.1 candidate completes validation and soak.
+> v1.5.1 remained an unpublished GitHub draft and Snap candidate. Its tested changes are preserved in v1.5.2; native-package users on public v1.4.0 or older must follow the v1.5.2 upgrade procedure.
 
 ## v1.5.0 - Verified Runtimes, Safer Packaging, and Startup Recovery
 
@@ -24,7 +32,7 @@
 - **No-Camera Startup Recovery** - GUI and headless starts now stop cleanly with a useful status when no physical camera is available, instead of constructing a broken pipeline or virtual-camera session ([PR #70](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/70))
 - **Profile Auto-Start Opt-In** - Selecting a saved profile now starts the broadcast only when that profile's explicit opt-in ("Start broadcast when this profile is selected") is enabled, which defaults off and is set with a visible checkbox when saving the profile; profiles saved before this change never auto-start on selection. Launch-time auto-start remains governed solely by the application-level Auto Start setting, and a failed start (busy or missing camera) now leaves the window state aligned with the app instead of showing a phantom "Stop Broadcast" state.
 
-> v1.5.0 was withdrawn before Snap stable rollout after native-package lifecycle testing found a legacy upgrade blocker and incomplete uninstall cleanup. Use v1.5.1 after it is published.
+> v1.5.0 was withdrawn before Snap stable rollout after native-package lifecycle testing found a legacy upgrade blocker and incomplete uninstall cleanup. Its corrected work was carried through the unpublished v1.5.1 candidate and into v1.5.2.
 
 ## v1.4.0 - Global Controls, Gaze Lock, and Live Video Reliability Update
 

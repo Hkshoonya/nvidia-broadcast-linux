@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.5.2" date="2026-09-04">
+      <description>
+        <p>Camera recovery and first public v1.5 release</p>
+        <ul>
+          <li>Retried advertised camera encodings at the same resolution and frame rate when the preferred mode failed before producing a frame</li>
+          <li>Selected a supported Python 3.11-3.13 interpreter and validated matching desktop bindings for source installs</li>
+          <li>Required every Snap Store action to resolve to a validated release tag and source commit before build or upload</li>
+          <li>Added cumulative in-app contributor credits and a pull-request credit check</li>
+          <li>Carried forward the v1.5.1 safe native-upgrade helper, clean uninstall, verified runtimes, device recovery, and release provenance</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.1" date="2026-08-28">
       <description>
         <p>Native upgrade and release gate hotfix</p>
