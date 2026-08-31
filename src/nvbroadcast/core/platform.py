@@ -494,12 +494,14 @@ def get_gst_camera_caps(
     # Linux: use MMAP + fresh timestamps so the live path favors newest frames.
     if capture_format == "raw":
         return (
-            f"v4l2src device={device} io-mode=2 do-timestamp=true ! "
+            f"v4l2src name=camera_source device={device} "
+            "io-mode=2 do-timestamp=true ! "
             f"video/x-raw,width={width},height={height},"
             f"framerate={fps}/1"
         )
     return (
-        f"v4l2src device={device} io-mode=2 do-timestamp=true ! "
+        f"v4l2src name=camera_source device={device} "
+        "io-mode=2 do-timestamp=true ! "
         f"image/jpeg,width={width},height={height},"
         f"framerate={fps}/1"
     )

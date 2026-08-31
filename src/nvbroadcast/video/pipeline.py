@@ -44,6 +44,10 @@ class _GpuPathFatal(RuntimeError):
 class VideoPipeline:
     # One-time probe result shared across instances (None = not yet probed)
     _cuda_convert_probe_result: bool | None = None
+    # Successful exact capture formats survive GUI pipeline replacement.
+    _capture_success_cache: dict[tuple[str, int, int, int], str] = {}
+    _capture_success_cache_lock = threading.Lock()
+    _capture_success_cache_limit = 32
 
     def __init__(self):
         Gst.init(None)
@@ -56,6 +60,12 @@ class VideoPipeline:
         self._fps: int = DEFAULT_FPS
         self._output_format: str = "YUY2"
         self._capture_format: str = "mjpeg"
+        self._capture_candidates: list[dict] = []
+        self._capture_candidate_index = 0
+        self._capture_retry_pending = False
+        self._capture_started = False
+        self._capture_generation = 0
+        self._capture_cache_key: tuple[str, int, int, int] | None = None
         self._prefer_hw_decode = False
         self._effects_fps: int = 30  # Can be reduced by performance profile
         self._effect_callback = None
@@ -256,14 +266,45 @@ class VideoPipeline:
         self._output_format = output_format
         self._effects_fps = min(effects_fps, fps)
         self._prefer_hw_decode = prefer_hw_decode
+        self._capture_candidate_index = 0
+        self._capture_retry_pending = False
+        self._capture_started = False
+        self._capture_cache_key = (source_device, width, height, fps)
         from nvbroadcast.core.platform import IS_MACOS
         if IS_MACOS:
-            self._capture_format = "raw"
+            self._capture_candidates = [{
+                "format": "raw", "width": width, "height": height, "fps": fps,
+            }]
         else:
-            from nvbroadcast.video.virtual_camera import select_camera_capture_format
-            self._capture_format = select_camera_capture_format(
+            from nvbroadcast.video.virtual_camera import camera_capture_candidates
+            self._capture_candidates = camera_capture_candidates(
                 source_device, width, height, fps
             )
+        with self._capture_success_cache_lock:
+            cached_format = self._capture_success_cache.get(
+                self._capture_cache_key
+            )
+        if cached_format is not None:
+            self._capture_candidates = sorted(
+                self._capture_candidates,
+                key=lambda candidate: candidate["format"] != cached_format,
+            )
+        self._capture_format = self._capture_candidates[0]["format"]
+
+    def _mark_capture_started(self) -> None:
+        """Record the first valid frame and remember its advertised format."""
+        if self._capture_started:
+            return
+        self._capture_started = True
+        key = self._capture_cache_key
+        if key is None:
+            return
+        with self._capture_success_cache_lock:
+            self._capture_success_cache.pop(key, None)
+            self._capture_success_cache[key] = self._capture_format
+            while len(self._capture_success_cache) > self._capture_success_cache_limit:
+                oldest = next(iter(self._capture_success_cache))
+                self._capture_success_cache.pop(oldest)
 
     def _select_decoder(self, effects_mode: bool) -> str:
         """Choose camera decode path for the active mode.
@@ -515,6 +556,7 @@ class VideoPipeline:
             GLib.source_remove(self._rebuild_source_id)
             self._rebuild_source_id = 0
         self._rebuild_pending = False
+        self._capture_retry_pending = False
 
     def _setup_macos_virtual_camera(self) -> None:
         """Open the supported OBS virtual-camera backend on macOS."""
@@ -593,6 +635,10 @@ class VideoPipeline:
         """
         from nvbroadcast.core.platform import IS_MACOS, get_gst_camera_caps
 
+        self._capture_generation += 1
+        generation = self._capture_generation
+        self._capture_started = False
+
         tee_branch = ""
         if vcam_enabled and not IS_MACOS:
             tee_branch = (
@@ -632,7 +678,7 @@ class VideoPipeline:
 
         bus = self._pipeline.get_bus()
         bus.add_signal_watch()
-        bus.connect("message::error", self._on_error)
+        bus.connect("message::error", self._on_error, generation)
 
         if vcam_enabled and IS_MACOS:
             self._setup_macos_virtual_camera()
@@ -640,6 +686,10 @@ class VideoPipeline:
     def _build_effects_pipeline(self, vcam_enabled: bool):
         """appsink/appsrc pipeline for Python effect processing."""
         from nvbroadcast.core.platform import IS_MACOS, get_gst_camera_caps
+
+        self._capture_generation += 1
+        generation = self._capture_generation
+        self._capture_started = False
 
         camera_src = get_gst_camera_caps(
             self._source_device, self._width, self._height, self._fps,
@@ -720,7 +770,7 @@ class VideoPipeline:
 
         bus = self._pipeline.get_bus()
         bus.add_signal_watch()
-        bus.connect("message::error", self._on_error)
+        bus.connect("message::error", self._on_error, generation)
 
         if vcam_enabled:
             if IS_MACOS:
@@ -802,6 +852,7 @@ class VideoPipeline:
 
             frame_data = bytes(info.data)
             buf.unmap(info)
+            self._mark_capture_started()
 
             with self._lock:
                 self._latest_frame = frame_data
@@ -856,6 +907,7 @@ class VideoPipeline:
             if len(frame_data) != expected:
                 return Gst.FlowReturn.OK
 
+            self._mark_capture_started()
             self._frame_count += 1
 
             # Paused: push frozen frame, skip all processing
@@ -975,6 +1027,7 @@ class VideoPipeline:
                 finally:
                     buf.unmap(info)
 
+                self._mark_capture_started()
                 self._frame_count += 1
                 if self._frame_plan is not None:
                     gpu_pure, mirror, inline = self._frame_plan()
@@ -1235,6 +1288,8 @@ class VideoPipeline:
 
         self._rebuild_source_id = 0
         try:
+            self._capture_retry_pending = False
+            self._capture_started = False
             self.build(vcam_enabled=self._vcam_enabled)
             self.start()
         finally:
@@ -1421,11 +1476,49 @@ class VideoPipeline:
             return "cudaupload ! cudaconvert ! cudadownload"
         return "videoconvert n-threads=2 qos=false"
 
-    def _on_error(self, bus, msg):
+    def _on_error(self, bus, msg, generation=None):
+        if (
+            generation is not None
+            and generation != self._capture_generation
+        ):
+            return
         err, debug = msg.parse_error()
+        camera_source = (
+            self._pipeline.get_by_name("camera_source")
+            if self._pipeline is not None else None
+        )
+        source_failed_during_startup = (
+            camera_source is not None
+            and getattr(msg, "src", None) == camera_source
+            and not self._capture_started
+        )
+        next_index = self._capture_candidate_index + 1
+        if (
+            source_failed_during_startup
+            and not self._capture_retry_pending
+            and next_index < len(self._capture_candidates)
+        ):
+            previous = self._capture_candidates[self._capture_candidate_index]
+            candidate = self._capture_candidates[next_index]
+            self._capture_candidate_index = next_index
+            self._capture_format = candidate["format"]
+            self._capture_retry_pending = True
+            print(
+                "[NV Broadcast] Camera startup failed for "
+                f"{previous['format']} {self._width}x{self._height}@{self._fps}; "
+                f"retrying {candidate['format']}",
+                flush=True,
+            )
+            self._queue_rebuild()
+            return
+
+        if self._capture_retry_pending:
+            return
+
         print(f"[NV Broadcast] Capture error: {err.message}")
         if debug:
             print(f"[NV Broadcast] Debug: {debug}")
+
         # GPU-path capture failures (e.g. caps negotiation) fall back to the
         # legacy BGRA pipeline instead of leaving the camera dead.
         if self._gpu_capture_active and not self._gpu_path_demoted:
