@@ -1005,6 +1005,19 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("scripts/validate_snap_runtime.py", workflow)
         self.assertIn('IMPORT_PROBES = ("packaging", "setuptools", "onnxruntime")', (REPO_ROOT / "scripts" / "validate_snap_runtime.py").read_text())
 
+    def test_snap_prioritizes_app_owned_python_packages(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        pythonpath = re.search(
+            r"(?m)^\s+PYTHONPATH:\s*(\S+)$",
+            snapcraft,
+        )
+
+        self.assertIsNotNone(pythonpath)
+        self.assertEqual(
+            pythonpath.group(1).split(":", 1)[0],
+            "$SNAP/lib/python3.12/site-packages",
+        )
+
     def test_snap_relocates_python_venv_for_strict_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         validator = (
