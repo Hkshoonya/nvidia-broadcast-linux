@@ -519,6 +519,15 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--output release-assets/SHA256SUMS.snap", snap_release)
         self.assertIn("release-assets/SHA256SUMS.snap", snap_release)
         self.assertIn("Duplicate Snap release asset name", snap_release)
+        snap_attachment = snap_release.split(
+            "- name: Attach snaps to GitHub Release", 1
+        )[1]
+        self.assertIn("release-assets/nvbroadcast_*.snap", snap_attachment)
+        self.assertNotIn("release-assets/*.snap", snap_attachment)
+        self.assertEqual(
+            snap_attachment.count("release-assets/SHA256SUMS.snap"),
+            1,
+        )
 
         self.assertIn("docs/RELEASE_VERIFICATION.md", readme)
         self.assertIn("gh attestation verify", verification)

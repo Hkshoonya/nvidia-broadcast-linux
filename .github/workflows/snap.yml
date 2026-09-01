@@ -317,6 +317,6 @@ jobs:
           draft: true
           tag_name: ${{ steps.release-target.outputs.tag }}
           files: |
-            release-assets/*.snap
+            release-assets/nvbroadcast_*.snap
             release-assets/SHA256SUMS.snap
           fail_on_unmatched_files: true
