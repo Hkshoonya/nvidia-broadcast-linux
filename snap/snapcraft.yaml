@@ -119,7 +119,7 @@ apps:
       - process-control
       - system-observe
     environment:
-      PYTHONPATH: $SNAP/lib/python3/dist-packages:$SNAP/usr/lib/python3/dist-packages
+      PYTHONPATH: $SNAP/lib/python3.12/site-packages:$SNAP/lib/python3/dist-packages:$SNAP/usr/lib/python3/dist-packages
 
 parts:
   nvbroadcast:
