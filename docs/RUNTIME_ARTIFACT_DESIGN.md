@@ -516,7 +516,7 @@ Independent source rebuilds of CPython and every third-party wheel are a later
 supply-chain milestone. Until then, release claims must say "deterministically
 assembled from hash-locked upstream artifacts," not "fully rebuilt from source."
 
-### v1.5.2 observed baseline
+### v1.5.2 reproducibility evidence
 
 The v1.5.2 Snap release provides concrete evidence for the reproducibility
 gate. Two independent GitHub-hosted builds used tag `v1.5.2`, source commit
@@ -535,12 +535,6 @@ reproducibility remains unresolved. Future independent-build diagnostics must
 compare the normalized runtime content, unsigned package payload, and enclosing
 artifact separately so that package-container metadata cannot hide the first
 divergent input or file.
-
-The same tag also triggered Snapcraft's connected builder, which published edge
-revisions `174` and `175` before the reviewed GitHub Actions uploads became
-unchannelled revisions `177` and `176`. Candidate promotion selected only the
-reviewed and attested `177`/`176` pair, while stable remained on v1.4.0. This
-second builder and publication path is part of the release trust boundary.
 
 ## Package-consumer contracts
 
@@ -689,6 +683,14 @@ flowchart LR
     V --> E
     A --> E --> J
 ```
+
+### v1.5.2 builder-inventory evidence
+
+Tag `v1.5.2` triggered Snapcraft's connected builder, which published edge
+revisions `174` and `175` before the reviewed GitHub Actions uploads became
+unchannelled revisions `177` and `176`. Candidate promotion selected only the
+reviewed and attested `177`/`176` pair, while stable remained on v1.4.0. This
+second builder and publication path is part of the release trust boundary.
 
 Trust rules:
 
