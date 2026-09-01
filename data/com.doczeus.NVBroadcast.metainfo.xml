@@ -67,6 +67,8 @@
         <p>Camera recovery and first public v1.5 release</p>
         <ul>
           <li>Retried advertised camera encodings at the same resolution and frame rate when the preferred mode failed before producing a frame</li>
+          <li>Allowed the strict Snap's isolated meeting-transcription worker to use a private shared-memory namespace</li>
+          <li>Required pip 26.2 or newer in source and native-package installers</li>
           <li>Selected a supported Python 3.11-3.13 interpreter and validated matching desktop bindings for source installs</li>
           <li>Required every Snap Store action to resolve to a validated release tag and source commit before build or upload</li>
           <li>Added cumulative in-app contributor credits and a pull-request credit check</li>

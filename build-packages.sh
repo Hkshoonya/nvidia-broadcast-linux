@@ -337,7 +337,7 @@ rm -rf -- "$INSTALL_DIR/.venv"
 $PYTHON -m venv "$INSTALL_DIR/.venv" --system-site-packages 2>/dev/null || true
 source "$INSTALL_DIR/.venv/bin/activate"
 pip install --upgrade \
-    "pip>=26.1.2" "setuptools>=83.0.0" wheel -q 2>/dev/null || true
+    "pip>=26.2" "setuptools>=83.0.0" wheel -q 2>/dev/null || true
 python "$INSTALL_DIR/scripts/install_runtime_variant.py" \
     --project "$INSTALL_DIR" --variant cpu --meeting-backends faster
 

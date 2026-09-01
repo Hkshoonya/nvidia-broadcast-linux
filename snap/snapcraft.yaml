@@ -12,6 +12,7 @@ description: |
   What's new in v1.5.2:
   - Recovers when a camera's preferred MJPEG mode fails before its first frame
     by retrying another advertised format at the same resolution and frame rate.
+  - Gives local meeting transcription workers a private Snap shared-memory namespace.
   - Selects a fully supported Python 3.11-3.13 interpreter for source installs,
     validates matching desktop bindings, and fails with targeted guidance.
   - Pins every Snap Store review, candidate, and stable dispatch to a validated
@@ -37,7 +38,7 @@ description: |
   - Makes profile auto-start an explicit per-profile opt-in and keeps controls
     aligned when a busy or missing camera prevents startup.
   - Adds MediaPipe 1.0.0 face effects on Linux arm64 and raises OpenCV,
-    Protobuf, Pillow, and pytest security floors.
+    Protobuf, Pillow, pip, and pytest security floors.
   - Strengthens strict Snap dependency closure, launcher validation, reviewed
     revision promotion, rollback, and post-promotion metadata refresh.
   - Publishes checksums for attached release assets and GitHub provenance,
@@ -88,6 +89,11 @@ platforms:
     build-on: [arm64]
     build-for: [arm64]
 
+plugs:
+  shared-memory:
+    interface: shared-memory
+    private: true
+
 slots:
   nvbroadcast-dbus:
     interface: dbus
@@ -104,6 +110,7 @@ apps:
     plugs:
       - home
       - network
+      - shared-memory
       - camera
       - audio-playback
       - audio-record

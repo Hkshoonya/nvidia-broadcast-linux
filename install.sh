@@ -642,7 +642,7 @@ prepare_virtual_environment() {
         create_virtual_environment
     fi
     "$VENV_DIR/bin/pip" install --upgrade \
-        "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
+        "pip>=26.2" "setuptools>=83.0.0" wheel -q
 }
 
 prepare_virtual_environment

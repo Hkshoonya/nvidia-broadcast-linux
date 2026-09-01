@@ -43,6 +43,13 @@ system Python or add a third-party package repository, and unsupported setups
 stop with package-manager-specific recovery guidance instead of reporting a
 partially working installation.
 
+## Snap meeting transcription
+
+The strict Snap now gives its isolated Whisper worker a private shared-memory
+namespace. This lets Python create the semaphore used by the transcription
+worker without exposing that IPC namespace to other snaps, so local meeting
+transcription can initialize under strict confinement.
+
 ## Included v1.5 improvements
 
 v1.5.2 includes the complete v1.5.1 candidate and its corrected v1.5 runtime:
@@ -54,8 +61,8 @@ v1.5.2 includes the complete v1.5.1 candidate and its corrected v1.5 runtime:
 - clean GUI and headless handling when no physical camera is available;
 - explicit per-profile auto-start with failure-safe visible controls;
 - MediaPipe 1.0.0 face effects on Linux arm64;
-- enforced OpenCV, Protobuf, Pillow, and development dependency security
-  floors;
+- enforced OpenCV, Protobuf, Pillow, pip 26.2, and development dependency
+  security floors;
 - clean final DEB and RPM removal of installer-generated runtime and build
   files; and
 - package checksums plus GitHub provenance attestations for tag-built release
