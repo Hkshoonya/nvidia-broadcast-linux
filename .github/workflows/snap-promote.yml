@@ -155,7 +155,7 @@ jobs:
           AMD64_REVISION: ${{ inputs.amd64_revision }}
           ARM64_REVISION: ${{ inputs.arm64_revision }}
           GH_TOKEN: ${{ github.token }}
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ inputs.operation == 'edge' && secrets.SNAP_CANDIDATE_TOKEN || secrets.SNAP_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ inputs.operation == 'edge' && secrets.SNAP_EDGE_TOKEN || secrets.SNAP_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -167,6 +167,10 @@ jobs:
           fi
           if [ "$TARGET_CHANNEL" != "edge" ] && [ "$TARGET_CHANNEL" != "stable" ]; then
             echo "::error::Candidate build-set promotion requires edge or stable."
+            exit 1
+          fi
+          if [ -z "${SNAPCRAFT_STORE_CREDENTIALS:-}" ]; then
+            echo "::error::A channel-scoped Snap Store credential is required for $TARGET_CHANNEL promotion."
             exit 1
           fi
           if [ -n "$AMD64_REVISION" ] || [ -n "$ARM64_REVISION" ]; then
