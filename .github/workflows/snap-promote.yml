@@ -155,7 +155,7 @@ jobs:
           AMD64_REVISION: ${{ inputs.amd64_revision }}
           ARM64_REVISION: ${{ inputs.arm64_revision }}
           GH_TOKEN: ${{ github.token }}
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ inputs.operation == 'edge' && secrets.SNAP_CANDIDATE_TOKEN || secrets.SNAP_TOKEN }}
         run: |
           set -euo pipefail
 
