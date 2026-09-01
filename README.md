@@ -23,6 +23,9 @@
 
 ---
 
+> [!IMPORTANT]
+> **Canonical upstream:** [Hkshoonya/nvidia-broadcast-linux](https://github.com/Hkshoonya/nvidia-broadcast-linux), created and maintained by [DocZeus](https://github.com/Hkshoonya). Forks and mirrors are welcome under the project license, but downstream versions should identify themselves clearly, link to this repository, and preserve the required author attribution. See [Canonical Project and Attribution](docs/CANONICAL_PROJECT.md).
+
 ## Why I Built This
 
 I left Windows. Millions of Linux users left Windows. But we all missed one thing — **NVIDIA Broadcast**.

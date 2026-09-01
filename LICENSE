@@ -1,7 +1,7 @@
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
-Copyright (c) 2026 doczeus (https://github.com/doczeus)
+Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 
 NVIDIA Broadcast for Linux - AI-powered virtual camera, background
 removal, noise cancellation, and auto-framing for Linux systems.
@@ -31,7 +31,7 @@ or derivative work MUST retain the following:
 2. The copyright headers in all source files
 3. The "by doczeus" attribution in the application UI
 4. The __author__ = "doczeus" metadata in __init__.py
-5. The original project URL: https://github.com/doczeus/nvidia-broadcast-linux
+5. The original project URL: https://github.com/Hkshoonya/nvidia-broadcast-linux
 
 Removing or obscuring the original author attribution is a violation
 of this license.

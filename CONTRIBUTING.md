@@ -6,7 +6,7 @@ Thank you for your interest in contributing! This project was built for the Linu
 
 1. **All PRs require review** — No direct pushes to `main`. Every change goes through a pull request and needs approval from a maintainer.
 
-2. **Keep attribution intact** — The `doczeus` copyright headers, UI credits, and LICENSE file must not be removed or modified. This is a legal requirement of the GPL-3.0 license.
+2. **Keep attribution intact** — The `doczeus` copyright headers, UI credits, and LICENSE file must not be removed or modified. These requirements are part of this project's license terms; see [LICENSE](LICENSE).
 
 3. **Be respectful** — We're all here because we love Linux and want better tools. Constructive feedback only.
 
@@ -50,7 +50,7 @@ credits remain cumulative in future releases.
 - Copyright header on new `.py` files:
   ```python
   # NVIDIA Broadcast for Linux
-  # Copyright (c) 2026 doczeus (https://github.com/doczeus)
+  # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
   # Licensed under GPL-3.0 - see LICENSE file
   # Original author: doczeus | AI Powered
   #
