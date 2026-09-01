@@ -109,6 +109,17 @@ class AppAudioPolicyTests(unittest.TestCase):
         self.assertFalse(NVBroadcastApp._stop_headless_vcam_service(app))
         run.assert_not_called()
 
+    @mock.patch("nvbroadcast.app.subprocess.run")
+    @mock.patch("nvbroadcast.app.running_in_flatpak", return_value=True)
+    @mock.patch("nvbroadcast.app.IS_LINUX", True)
+    def test_flatpak_startup_skips_host_headless_service(
+        self, _flatpak, run
+    ):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+
+        self.assertFalse(NVBroadcastApp._stop_headless_vcam_service(app))
+        run.assert_not_called()
+
     @mock.patch(
         "nvbroadcast.app.subprocess.run",
         side_effect=PermissionError("strict confinement"),

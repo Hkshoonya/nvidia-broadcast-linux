@@ -59,6 +59,7 @@ from nvbroadcast.core.platform import (
     IS_ARM64,
     legacy_tray_enabled,
     python_runtime_advisory,
+    running_in_flatpak,
 )
 from nvbroadcast.core.resources import find_ui_css
 from nvbroadcast.core.dependency_installer import DependencyInstaller
@@ -269,9 +270,9 @@ class NVBroadcastApp(Adw.Application):
         """
         if not IS_LINUX:
             return False
-        if os.environ.get("SNAP"):
-            # Strict snaps cannot execute the host's systemctl. Continue with
-            # virtual-camera setup instead of aborting application startup.
+        if os.environ.get("SNAP") or running_in_flatpak():
+            # Sandboxed packages cannot execute the host's systemctl. Continue
+            # with virtual-camera setup instead of aborting startup.
             return False
 
         service = "nvbroadcast-vcam.service"

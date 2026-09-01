@@ -16,7 +16,7 @@ from nvbroadcast.core.constants import (
     VIRTUAL_CAM_DEVICE,
     VIRTUAL_CAM_LABEL,
 )
-from nvbroadcast.core.platform import IS_MACOS
+from nvbroadcast.core.platform import IS_MACOS, running_in_flatpak
 
 _MJPEG_FORMATS = {"MJPG", "JPEG"}
 _RAW_FORMATS = {
@@ -149,7 +149,7 @@ def is_v4l2loopback_loaded() -> bool:
             ["lsmod"], capture_output=True, text=True, check=True
         )
         return "v4l2loopback" in result.stdout
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
 
@@ -272,6 +272,13 @@ def ensure_virtual_camera(preferred_device: str | None = None) -> str:
     target_device = preferred or VIRTUAL_CAM_DEVICE
     modprobe_cmd = _v4l2loopback_modprobe_command(target_device)
 
+    if running_in_flatpak():
+        raise RuntimeError(
+            f"No accessible v4l2loopback device was found at {target_device}.\n"
+            "Flatpak cannot install or load host kernel modules. Run this "
+            f"from a host terminal, then restart the app: {modprobe_cmd}"
+        )
+
     if not is_v4l2loopback_loaded():
         raise RuntimeError(
             "v4l2loopback kernel module is not loaded.\n"
@@ -327,6 +334,13 @@ def set_firefox_pipewire(disabled: bool) -> tuple[bool, str]:
     Writes to user.js in ALL Firefox profiles. Firefox must be restarted.
     Returns (success, message).
     """
+    if running_in_flatpak():
+        return (
+            False,
+            "Firefox profile changes are unavailable inside Flatpak. "
+            "Configure the Firefox camera preference from the host instead.",
+        )
+
     profiles = get_firefox_profiles()
     if not profiles:
         return False, "No Firefox profiles found"
@@ -368,6 +382,11 @@ def reset_virtual_camera(device: str | None = None) -> bool:
     because v4l2loopback with exclusive_caps=1 locks the format after
     the first producer writes. Close all consumers (browsers) first.
     """
+    if running_in_flatpak():
+        # Kernel modules belong to the host and cannot be reloaded from the
+        # sandbox. The user can still reset v4l2loopback from a host terminal.
+        return False
+
     target_device = (device or VIRTUAL_CAM_DEVICE).strip()
     if _video_nr_from_device(target_device) is None:
         return False

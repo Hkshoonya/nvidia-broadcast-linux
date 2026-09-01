@@ -7,7 +7,7 @@
 
 import os
 import subprocess
-import re
+import ctypes
 from dataclasses import dataclass
 
 # cuCtxCreate flag: park CPU threads on a synchronization primitive while
@@ -55,8 +55,8 @@ class GpuInfo:
     driver_version: str
 
 
-def detect_gpus() -> list[GpuInfo]:
-    """Detect NVIDIA GPUs using nvidia-smi."""
+def _detect_gpus_with_nvidia_smi() -> list[GpuInfo]:
+    """Detect NVIDIA GPUs through the host utility when it is available."""
     try:
         result = subprocess.run(
             [
@@ -71,22 +71,101 @@ def detect_gpus() -> list[GpuInfo]:
     except (subprocess.CalledProcessError, FileNotFoundError):
         return []
 
-    gpus = []
+    gpus: list[GpuInfo] = []
     for line in result.stdout.strip().split("\n"):
         if not line.strip():
             continue
         parts = [p.strip() for p in line.split(",")]
         if len(parts) >= 5:
+            try:
+                index = int(parts[0])
+                memory_total_mb = int(parts[2])
+            except ValueError:
+                continue
             gpus.append(
                 GpuInfo(
-                    index=int(parts[0]),
+                    index=index,
                     name=parts[1],
-                    memory_total_mb=int(parts[2]),
+                    memory_total_mb=memory_total_mb,
                     compute_capability=parts[3],
                     driver_version=parts[4],
                 )
             )
     return gpus
+
+
+def _cuda_driver_version(value: int) -> str:
+    if value <= 0:
+        return "CUDA driver API"
+    return f"CUDA driver API {value // 1000}.{(value % 1000) // 10}"
+
+
+def _detect_gpus_with_cuda_driver() -> list[GpuInfo]:
+    """Detect GPUs through libcuda when host tools are sandboxed away."""
+    try:
+        cuda = ctypes.CDLL("libcuda.so.1")
+        if cuda.cuInit(0) != 0:
+            return []
+
+        count = ctypes.c_int()
+        if cuda.cuDeviceGetCount(ctypes.byref(count)) != 0:
+            return []
+
+        driver_api = ctypes.c_int()
+        if cuda.cuDriverGetVersion(ctypes.byref(driver_api)) != 0:
+            driver_api.value = 0
+    except Exception:
+        return []
+
+    total_mem_fn = getattr(cuda, "cuDeviceTotalMem_v2", None)
+    if total_mem_fn is None:
+        total_mem_fn = getattr(cuda, "cuDeviceTotalMem", None)
+
+    gpus: list[GpuInfo] = []
+    for ordinal in range(max(0, count.value)):
+        try:
+            device = ctypes.c_int()
+            if cuda.cuDeviceGet(ctypes.byref(device), ordinal) != 0:
+                continue
+
+            name_buffer = ctypes.create_string_buffer(256)
+            if cuda.cuDeviceGetName(name_buffer, len(name_buffer), device) != 0:
+                name = f"NVIDIA GPU {ordinal}"
+            else:
+                name = name_buffer.value.decode("utf-8", errors="replace")
+
+            total_memory = ctypes.c_size_t()
+            if total_mem_fn is None or total_mem_fn(
+                ctypes.byref(total_memory), device
+            ) != 0:
+                total_memory.value = 0
+
+            major = ctypes.c_int()
+            minor = ctypes.c_int()
+            if cuda.cuDeviceComputeCapability(
+                ctypes.byref(major), ctypes.byref(minor), device
+            ) != 0:
+                compute_capability = "Unknown"
+            else:
+                compute_capability = f"{major.value}.{minor.value}"
+
+            gpus.append(
+                GpuInfo(
+                    index=ordinal,
+                    name=name or f"NVIDIA GPU {ordinal}",
+                    memory_total_mb=int(total_memory.value >> 20),
+                    compute_capability=compute_capability,
+                    driver_version=_cuda_driver_version(driver_api.value),
+                )
+            )
+        except Exception:
+            continue
+    return gpus
+
+
+def detect_gpus() -> list[GpuInfo]:
+    """Detect NVIDIA GPUs without requiring host executables in sandboxes."""
+    return _detect_gpus_with_nvidia_smi() or _detect_gpus_with_cuda_driver()
 
 
 def get_cuda_device_id(nvsmi_index: int) -> int:
