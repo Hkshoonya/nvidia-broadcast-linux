@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require external human pull-request authors in the app credit registry."""
+"""Require external human pull-request authors in cumulative project credits."""
 
 from __future__ import annotations
 
@@ -50,7 +50,8 @@ def main() -> int:
 
     print(
         f"Contributor credit missing for @{login}. Add a reviewed Contributor "
-        "entry to src/nvbroadcast/contributors.py before merging this pull request.",
+        "entry to src/nvbroadcast/contributors.py and document the accepted work "
+        "in CONTRIBUTORS.md before merging this pull request.",
         file=sys.stderr,
     )
     return 1

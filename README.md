@@ -656,6 +656,12 @@ nvidia-broadcast-linux/
 
 Contributions, feedback, and ideas are **warmly welcome**.
 
+Recognized external contributors receive cumulative credit in every later app
+release and in [CONTRIBUTORS.md](CONTRIBUTORS.md), including a public record of
+the work or technical finding behind each credit. Original project authorship,
+external contributions, community testing, and financial sponsorship are
+recognized separately so that one form of support never replaces another.
+
 ### How to Contribute
 
 1. **Fork** this repository
@@ -679,6 +685,16 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 - [ ] NVIDIA Maxine SDK integration
 - [ ] Flatpak packaging
 - [x] Snap packaging
+
+### Recognized Contributors
+
+The permanent contributor record currently recognizes
+[John Maingi](https://github.com/JohnMaingi-IXP),
+[Jon Fuller](https://github.com/perfectra1n),
+[Cédric Prezelin](https://github.com/Tenshock), and
+[Cenkay Çoban](https://github.com/pastor0711). See
+[CONTRIBUTORS.md](CONTRIBUTORS.md) for the contribution summary and source
+references behind each credit.
 
 ## Future Upgrades
 

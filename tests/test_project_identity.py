@@ -14,6 +14,7 @@ class ProjectIdentityTests(unittest.TestCase):
             "LICENSE": CANONICAL_REPOSITORY,
             "NOTICE": CANONICAL_REPOSITORY,
             "README.md": CANONICAL_REPOSITORY,
+            "CONTRIBUTORS.md": CANONICAL_REPOSITORY,
             "CONTRIBUTING.md": CANONICAL_ACCOUNT,
             "docs/CANONICAL_PROJECT.md": CANONICAL_REPOSITORY,
             "pyproject.toml": CANONICAL_REPOSITORY,
@@ -32,6 +33,7 @@ class ProjectIdentityTests(unittest.TestCase):
         self.assertIn("Original creator and maintainer: DocZeus (@Hkshoonya)", notice)
         self.assertIn(f"{CANONICAL_REPOSITORY}/releases", notice)
         self.assertIn("does not replace the LICENSE file", notice)
+        self.assertIn("does not remove, replace, or diminish authorship credit", notice)
 
 
 if __name__ == "__main__":

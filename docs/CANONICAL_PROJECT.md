@@ -15,6 +15,24 @@ Official source releases are published through the canonical repository's
 [Releases](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases) page.
 Store packages should link back to the same canonical repository.
 
+## Contributor recognition
+
+"Original creator" identifies the origin and continuing maintenance of the
+project. It does not claim sole authorship of accepted external work. Recognized
+contributors and the work or technical finding behind each credit are recorded
+permanently in [CONTRIBUTORS.md](../CONTRIBUTORS.md), the canonical Git history
+and pull-request record, and the cumulative registry displayed by the
+application's About window.
+
+Contributor recognition is separate from sponsorship. Sponsors are recognized
+for financial support, while contributors retain technical credit for reports,
+testing, documentation, design, or code. A person may appear in both groups,
+but one form of recognition does not replace the other.
+
+Downstream maintainers should preserve upstream contributor history and
+credits while also crediting their own original changes. The canonical-project
+notice does not diminish documented downstream authorship.
+
 ## Forks and mirrors
 
 Forks, mirrors, and derivative versions are part of open-source development and
@@ -27,7 +45,8 @@ maintainers should:
 - name the original project and DocZeus as its creator;
 - link to the canonical repository;
 - preserve the LICENSE, copyright notices, source headers, metadata, and
-  in-application attribution required by the license; and
+  in-application attribution required by the license;
+- preserve the cumulative contributor record and Git history; and
 - distinguish downstream releases and support channels from official ones.
 
 Using the same repository or application name does not by itself prove that

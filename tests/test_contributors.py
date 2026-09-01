@@ -16,6 +16,36 @@ CREDIT_CHECK = REPO_ROOT / "scripts" / "check_contributor_credit.py"
 
 
 class ContributorCreditTests(unittest.TestCase):
+    def test_public_contributor_record_matches_cumulative_registry(self):
+        contributor_record = (REPO_ROOT / "CONTRIBUTORS.md").read_text()
+        documented_logins = {
+            match.casefold()
+            for match in re.findall(
+                r"^### .+ \(\[@([A-Za-z0-9-]+)\]"
+                r"\(https://github\.com/\1\)\)$",
+                contributor_record,
+                flags=re.MULTILINE,
+            )
+        }
+        registry_logins = {
+            contributor.github_login.casefold() for contributor in CONTRIBUTORS
+        }
+        self.assertEqual(documented_logins, registry_logins)
+
+        for contributor in CONTRIBUTORS:
+            with self.subTest(github_login=contributor.github_login):
+                heading = (
+                    f"### {contributor.name} "
+                    f"([@{contributor.github_login}]({contributor.github_url}))"
+                )
+                start = contributor_record.index(heading) + len(heading)
+                end = contributor_record.find("\n### ", start)
+                section = contributor_record[start : end if end >= 0 else None]
+                self.assertRegex(section, re.compile(r"\n\n- \S"))
+
+        contributing = (REPO_ROOT / "CONTRIBUTING.md").read_text()
+        self.assertIn("describe the accepted work in `CONTRIBUTORS.md`", contributing)
+
     def test_registry_contains_all_accepted_external_contributors(self):
         required_logins = {
             "johnmaingi-ixp",
@@ -72,6 +102,7 @@ class ContributorCreditTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1)
         self.assertIn("Contributor credit missing", completed.stderr)
         self.assertIn("src/nvbroadcast/contributors.py", completed.stderr)
+        self.assertIn("CONTRIBUTORS.md", completed.stderr)
 
     def test_pull_request_workflow_runs_dedicated_credit_gate(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "pr-checks.yml").read_text(
