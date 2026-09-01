@@ -516,6 +516,32 @@ Independent source rebuilds of CPython and every third-party wheel are a later
 supply-chain milestone. Until then, release claims must say "deterministically
 assembled from hash-locked upstream artifacts," not "fully rebuilt from source."
 
+### v1.5.2 observed baseline
+
+The v1.5.2 Snap release provides concrete evidence for the reproducibility
+gate. Two independent GitHub-hosted builds used tag `v1.5.2`, source commit
+`c9c17ec62fc92749f7bbb91db541a46452ed2204`, the same workflow,
+architecture, and output size, but produced different artifact digests:
+
+| Architecture | Tag-build SHA-256 | Store-review-build SHA-256 |
+| --- | --- | --- |
+| amd64 | `97a4eabd16c4b88a19114dca1b9a9e20df55f1e8a1d6cc0b8c3788bf9e1c005f` | `f308a3fa802e7e0bf553726d3fec0912e7dbf920e22c9024a78cea7f3094b54e` |
+| arm64 | `5d70b23cc9d602de302f6b43e54626dbe728c941171f2747981c5d144b7a7ceb` | `8641b51f4ae947f5a4166f8da60de84bd500dd999117f896d1f91a3cd924716f` |
+
+All four artifacts pass exact-tag GitHub provenance verification, and the two
+Store-review builds completed Store processing as ready to release. Provenance
+is therefore verifiable for these artifacts, while byte-for-byte
+reproducibility remains unresolved. Future independent-build diagnostics must
+compare the normalized runtime content, unsigned package payload, and enclosing
+artifact separately so that package-container metadata cannot hide the first
+divergent input or file.
+
+The same tag also triggered Snapcraft's connected builder, which published edge
+revisions `174` and `175` before the reviewed GitHub Actions uploads became
+unchannelled revisions `177` and `176`. Candidate promotion selected only the
+reviewed and attested `177`/`176` pair, while stable remained on v1.4.0. This
+second builder and publication path is part of the release trust boundary.
+
 ## Package-consumer contracts
 
 ### Thin adapter rule
@@ -677,6 +703,11 @@ Trust rules:
 - Normal builders use read-only repository permissions and do not receive an
   OIDC token. Attestation/signing jobs receive only the minimal
   `id-token: write`, `attestations: write`, and release permissions they need.
+- Every tag-triggered or connected builder and every integration capable of
+  uploading or publishing an artifact is inventoried with its source ref,
+  workflow or recipe identity, credentials, output destination, and promotion
+  authority. A builder outside the protected release flow must either be
+  disabled from publishing or produce isolated, non-promotable artifacts.
 - Approved missing wheels are built from pinned source and build inputs before
   lock generation. The lock selects their immutable wheel bytes; release jobs
   never rebuild them.
@@ -689,7 +720,9 @@ Trust rules:
   Self-hosted runner identity and protection policy are part of the evidence.
 - Release publication resolves the tag to one commit and verifies provenance,
   checksums, signatures, SBOM, lifecycle evidence, and applicable CPU/CUDA
-  execution evidence before promoting the unchanged finalized artifact.
+  execution evidence before promoting the unchanged finalized artifact. It
+  rejects an unrecognized builder, unexpected Store revision, or artifact that
+  bypassed the protected promotion flow.
 
 ## Staged implementation plan
 
@@ -723,6 +756,9 @@ identical canonical payload digest from clean builders.
 
 - Make DEB, RPM, and PKG consume the accepted runtime payload without network
   resolution or Python environment creation during installation.
+- Inventory every tag-triggered builder and publication integration. Disable
+  unmanaged publication paths or bind their outputs to the same reviewed
+  source, provenance, digest, and protected-promotion checks.
 - Add architecture-correct metadata and clean-system install, launch, upgrade,
   variant-switch, rollback, uninstall, and purge coverage.
 - Finalize RPM signing and macOS Developer ID signing, notarization, and stapling
@@ -778,7 +814,9 @@ scenarios:
 8. CPU and CUDA fresh-process probes validate output on the requested provider;
    CUDA rejects silent CPU fallback and preserves diagnostics.
 9. Two clean builders produce the same canonical runtime and unsigned package
-   payload digests.
+   payload digests. Valid provenance does not satisfy this test when equivalent
+   build digests differ; diagnostics identify the first differing normalized
+   file or package-container field.
 10. Finalized DEB/RPM/PKG artifacts install and launch without network access on
     each supported minimum OS, then pass upgrade, rollback, uninstall, and
     residue checks.
@@ -793,11 +831,16 @@ scenarios:
     matching embedded `contentSetSha256`. Release verification rejects the wrong
     source commit, workflow, runner policy, signature, notarization state, SBOM
     subject, content-set digest, or artifact digest.
+15. Builder-inventory validation enumerates every tag-triggered and connected
+    builder plus every upload or publication credential. Promotion rejects an
+    unknown builder, unexpected Store revision, or artifact published outside
+    the protected flow.
 
 ## References
 
 - [Issue #60: Make native release artifacts reproducible and signed](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/60)
 - [Maintainer constraints for this design draft](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/60#issuecomment-5400149798)
+- [v1.5.2 reproducibility and builder-inventory evidence](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/60#issuecomment-5486881497)
 - [Issue #53: GPU runtime selection](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/53)
 - [Issue #72: Project interpreter selection](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/72)
 - [PEP 751: A file format to record Python dependencies for installation reproducibility](https://peps.python.org/pep-0751/)
