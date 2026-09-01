@@ -12,6 +12,11 @@ not evidence for the release candidate.
   `pyproject.toml`, `src/nvbroadcast/__init__.py`, `snap/snapcraft.yaml`, Debian
   and RPM metadata, AppStream metadata, installer/build copy, the changelog,
   and the release notes.
+- Declare the release freeze when the branch is cut. Queue ordinary fixes,
+  features, dependency updates, and newly accepted contributions for the next
+  release. Add a change to the active release only when it resolves a recorded
+  release blocker; record the reason, risk, and gates invalidated by that
+  change. Do not replace a candidate merely to collect more completed work.
 - Keep `docs/index.html` download commands on the latest public version while
   the new release is still a candidate. Keep the `published` version in
   `tests/test_packaging_metadata.py` aligned with those public links.
@@ -71,8 +76,24 @@ commit changes. Fix the release branch and restart affected gates.
   A branch dispatch must fail before building or uploading to the Store.
   After approval, promote the recorded amd64 and arm64 revisions together to
   `candidate`; do not substitute a rebuild from another ref.
+- Freeze the candidate tag and recorded Store revisions after promotion. A
+  replacement candidate requires a documented release blocker. Normal work
+  continues toward the next version and must not move the active release tag.
 
 ## 4. Test and soak the candidate
+
+- Tie soak evidence to the exact source, artifacts, Store revisions, and
+  affected behavior, not to a version label by itself. Renaming a release or
+  correcting metadata does not by itself invalidate completed runtime soak.
+- Carry forward earlier candidate evidence for code paths and package behavior
+  that are byte-for-byte or functionally unchanged. Test every candidate delta
+  according to its risk: rerun metadata and package gates for metadata-only
+  changes, targeted hardware tests for a camera or audio change, and the full
+  affected-platform matrix for runtime or installer changes.
+- Restart a 48-72 hour window only for the changed behavior when a replacement
+  candidate affects runtime, camera, audio, upgrades, or packaging. Record the
+  previous evidence being retained and the exact delta receiving the new soak.
+  Do not restart the clock to include unrelated work after the freeze.
 
 - Install or upgrade from the built DEB and RPM on clean supported Linux
   systems. Verify launch, camera selection, virtual camera output, microphone
