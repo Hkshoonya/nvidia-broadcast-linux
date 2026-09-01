@@ -1185,6 +1185,11 @@ class NVBroadcastApp(Adw.Application):
 
     # --- Video Pipeline ---
 
+    def _sync_tray_status(self, status: str):
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            tray.update_status(bool(self._streaming), status)
+
     def _clear_finished_teardown(self):
         if self._pipeline_teardown and self._pipeline_teardown._teardown_done:
             self._pipeline_teardown = None
@@ -1251,6 +1256,7 @@ class NVBroadcastApp(Adw.Application):
             message = "No usable camera found. Connect a camera and try again."
             if self._window:
                 self._window.set_status(message)
+            self._sync_tray_status(message)
             print(f"[NV Broadcast] {message}", flush=True)
             return False
         if resolved_camera != camera_device:
@@ -1353,14 +1359,16 @@ class NVBroadcastApp(Adw.Application):
             self.config.video.output_format = output_format
             save_config(self.config)
 
-            if self._tray and self._tray.available:
-                self._tray.update_status(True, status)
+            self._sync_tray_status(status)
 
         except Exception as e:
             if self._video_pipeline:
                 self._video_pipeline.stop()
                 self._video_pipeline = None
-            self._window.set_status(f"Pipeline error: {e}")
+            self._streaming = False
+            error_status = f"Pipeline error: {e}"
+            self._window.set_status(error_status)
+            self._sync_tray_status(error_status)
             print(f"[NV Broadcast] Pipeline failed: {e}")
 
         return self._streaming  # True on success, False on failure
@@ -1382,6 +1390,7 @@ class NVBroadcastApp(Adw.Application):
                 self._pipeline_teardown = pipeline
             self._video_pipeline = None
         self._streaming = False
+        self._sync_tray_status("idle")
 
     def _update_alpha(self, frame_data: bytes, width: int, height: int) -> None:
         """Background thread — only updates the alpha mask."""

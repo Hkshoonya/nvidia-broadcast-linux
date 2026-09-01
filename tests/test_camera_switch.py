@@ -84,6 +84,7 @@ class CameraSwitchTests(unittest.TestCase):
         app._pipeline_teardown = None
         app._streaming = False
         app._window = mock.Mock()
+        app._tray = mock.Mock()
         app._clear_finished_teardown = mock.Mock()
 
         app._do_start_pipeline("/dev/video0", "YUY2")
@@ -94,6 +95,25 @@ class CameraSwitchTests(unittest.TestCase):
         app._window.set_status.assert_called_once_with(
             "No usable camera found. Connect a camera and try again."
         )
+        app._tray.update_status.assert_called_once_with(
+            False,
+            "No usable camera found. Connect a camera and try again.",
+        )
+
+    def test_stop_pipeline_refreshes_tray_from_authoritative_state(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app._pending_start = ("/dev/video0", "YUY2")
+        app._idle_active = True
+        app._idle_strikes = 2
+        app._restart_source_id = 0
+        app._video_pipeline = None
+        app._streaming = True
+        app._tray = mock.Mock()
+
+        app.stop_pipeline()
+
+        self.assertFalse(app._streaming)
+        app._tray.update_status.assert_called_once_with(False, "idle")
 
 
 if __name__ == "__main__":
