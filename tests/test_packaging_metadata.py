@@ -1186,6 +1186,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: false", workflow)
         self.assertIn("amd64_revision:", workflow)
         self.assertIn("arm64_revision:", workflow)
+        self.assertIn("          - edge", workflow)
         self.assertIn("validate_revision amd64", workflow)
         self.assertIn("validate_revision arm64", workflow)
         self.assertIn("rollback_candidate", workflow)
@@ -1194,8 +1195,11 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", workflow)
         self.assertIn("secrets.SNAP_TOKEN", workflow)
         self.assertIn("--from-channel=candidate", workflow)
-        self.assertIn("--to-channel=stable", workflow)
-        self.assertIn("Stable channel verification does not match", workflow)
+        self.assertIn('--to-channel="$TARGET_CHANNEL"', workflow)
+        self.assertIn("inputs.operation == 'edge' || inputs.operation == 'stable'", workflow)
+        self.assertIn('current_revision "$AMD64_TABLE" "$TARGET_CHANNEL"', workflow)
+        self.assertIn('current_revision "$ARM64_TABLE" "$TARGET_CHANNEL"', workflow)
+        self.assertIn("channel verification does not match", workflow)
         self.assertIn('snap download "$SNAP_NAME"', workflow)
         self.assertIn("download_and_verify_candidate amd64", workflow)
         self.assertIn("download_and_verify_candidate arm64", workflow)
@@ -1218,6 +1222,7 @@ class PackagingMetadataTests(unittest.TestCase):
             'snapcraft upload-metadata "$CANDIDATE_ARM64_SNAP" --force',
             workflow,
         )
+        self.assertIn('if [ "$TARGET_CHANNEL" = "stable" ]; then', workflow)
         self.assertNotIn('if [ -n "${{ inputs.', workflow)
 
     def test_about_window_separates_authorship_sponsors_and_contributors(self):
