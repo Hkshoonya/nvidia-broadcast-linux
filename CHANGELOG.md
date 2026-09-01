@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Cleaner Blur and Remove Edges** - Fused GPU Remove mode repairs contaminated soft-edge colors without changing Replace, while Blur now honors its Dilate and Softness controls and avoids broad matte closing that could bridge raised hands, fingers, and other legitimate background gaps ([PR #93](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/93)).
 - **Accurate Tray Broadcast State** - Starting, stopping, or failing to start a pipeline now refreshes both tray implementations from the application's authoritative streaming state, so the SNI action no longer remains stuck on "Stop Broadcast" after the stream has ended ([PR #92](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/92)).
 - **Reliable Snap Release Attachments** - Snap release automation uses non-overlapping artifact patterns, preventing the checksum file from being submitted twice while preserving the already validated binaries and frozen release tag ([PR #89](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/89)).
 - **Official Project Identity and Contributor Records** - The repository now documents the canonical project, repository, publisher, and website; accepted external contributors remain cumulatively credited; and `NOTICE` plus `CONTRIBUTORS.md` ship inside source, wheel, DEB, RPM, Snap, and macOS package paths ([PR #94](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/94), [PR #101](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/101)).

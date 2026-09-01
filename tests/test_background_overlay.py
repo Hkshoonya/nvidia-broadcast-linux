@@ -857,7 +857,7 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertIsNotNone(out)
         self.assertEqual(int(out[2, 2, 2]), 220)
 
-    def test_fused_blur_enables_gpu_fringe_cleanup(self):
+    def test_fused_blur_preserves_soft_edge_without_gpu_fringe_cleanup(self):
         effects = self._make_effects()
         effects._bg_mode = "blur"
         effects._cupy = self._FakeCupy()
@@ -887,8 +887,8 @@ class BackgroundOverlayTests(unittest.TestCase):
         finally:
             self.effects_module._get_fused_kernel = original_kernel
 
-        self.assertEqual(reference_calls, [((4, 4, 4), (4, 4))])
-        self.assertEqual(kernel_flags, [1])
+        self.assertEqual(reference_calls, [])
+        self.assertEqual(kernel_flags, [0])
         self.assertIsNotNone(out)
 
     def test_edge_aware_replace_matte_hardens_transition_on_real_edges(self):
