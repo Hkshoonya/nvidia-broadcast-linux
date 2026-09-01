@@ -60,7 +60,7 @@ echo "[5/5] Setting up Python environment..."
 preflight_python_environment
 python3 -m venv .venv --system-site-packages
 .venv/bin/pip install --upgrade \
-    "pip>=26.1.2" "setuptools>=83.0.0" wheel
+    "pip>=26.2" "setuptools>=83.0.0" wheel
 .venv/bin/python scripts/install_runtime_variant.py \
     --project . --variant cpu --meeting-backends none \
     --source-venv .venv --editable

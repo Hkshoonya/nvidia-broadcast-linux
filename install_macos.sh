@@ -115,7 +115,7 @@ rm -rf -- "$INSTALL_DIR/venv"
 $PYTHON -m venv "$INSTALL_DIR/venv" --system-site-packages
 source "$INSTALL_DIR/venv/bin/activate"
 
-pip install --upgrade "pip>=26.1.2" "setuptools>=83.0.0" wheel -q
+pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel -q
 
 # ── Step 4: Install pip dependencies ─────────────────────────────────────────
 

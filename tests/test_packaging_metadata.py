@@ -316,7 +316,7 @@ class PackagingMetadataTests(unittest.TestCase):
             REPO_ROOT / "build-packages.sh",
         )
         for installer in installers:
-            self.assertIn("pip>=26.1.2", installer.read_text(), str(installer))
+            self.assertIn("pip>=26.2", installer.read_text(), str(installer))
             self.assertIn(
                 "setuptools>=83.0.0", installer.read_text(), str(installer)
             )
@@ -327,6 +327,7 @@ class PackagingMetadataTests(unittest.TestCase):
             install_script,
         )
         self.assertIn('requires = ["setuptools>=83.0.0", "wheel"]', pyproject)
+        self.assertIn("pip>=26.2", build_workflow)
         self.assertIn("setuptools>=83.0.0", build_workflow)
 
     def test_native_package_payloads_use_safe_ownership_and_permissions(self):
@@ -962,6 +963,18 @@ class PackagingMetadataTests(unittest.TestCase):
             "tqdm",
         ):
             self.assertIn(package, build_workflow)
+
+    def test_snap_transcriber_uses_private_shared_memory(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        self.assertIn(
+            "plugs:\n"
+            "  shared-memory:\n"
+            "    interface: shared-memory\n"
+            "    private: true\n",
+            snapcraft,
+        )
+        app = snapcraft.split("apps:\n", 1)[1].split("\nparts:", 1)[0]
+        self.assertIn("      - shared-memory\n", app)
 
     def test_snap_excludes_runtime_pip_installer(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
