@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from gi.repository import Gio
@@ -13,6 +14,19 @@ class SniTrayTests(unittest.TestCase):
 
         self.assertEqual(item.interfaces[0].name, "org.kde.StatusNotifierItem")
         self.assertEqual(menu.interfaces[0].name, "com.canonical.dbusmenu")
+
+    def test_broadcast_label_uses_authoritative_application_state(self):
+        tray = sni_tray.SniTray.__new__(sni_tray.SniTray)
+        tray._app = SimpleNamespace(_streaming=False, _window=None)
+        tray._streaming = True
+        tray._status_text = "Streaming"
+
+        items = dict(tray._menu_items())
+
+        self.assertEqual(
+            items[sni_tray._ID_BROADCAST]["label"].unpack(),
+            "Start Broadcast",
+        )
 
     def test_shutdown_releases_watcher_and_exported_objects(self):
         tray = sni_tray.SniTray.__new__(sni_tray.SniTray)
