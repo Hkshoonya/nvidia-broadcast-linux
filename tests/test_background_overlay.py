@@ -857,6 +857,40 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertIsNotNone(out)
         self.assertEqual(int(out[2, 2, 2]), 220)
 
+    def test_fused_blur_enables_gpu_fringe_cleanup(self):
+        effects = self._make_effects()
+        effects._bg_mode = "blur"
+        effects._cupy = self._FakeCupy()
+        effects._gpu_blur_bgra = lambda fg_arg, _sigma: np.zeros_like(fg_arg)
+
+        fg = np.zeros((4, 4, 4), dtype=np.uint8)
+        fg[:, :, 3] = 255
+        alpha = np.ones((4, 4), dtype=np.float32)
+        clean_color = np.zeros((2, 2, 4), dtype=np.uint8)
+        reference_calls = []
+        kernel_flags = []
+
+        def gpu_clean_reference(fg_arg, alpha_arg):
+            reference_calls.append((fg_arg.shape, alpha_arg.shape))
+            return clean_color, 2
+
+        effects._gpu_clean_color_reference = gpu_clean_reference
+
+        def fake_kernel(_grid, _block, args):
+            args[6][:] = args[0]
+            kernel_flags.append(int(args[12]))
+
+        original_kernel = self.effects_module._get_fused_kernel
+        self.effects_module._get_fused_kernel = lambda: fake_kernel
+        try:
+            out = effects._composite_fused(fg, alpha, 4, 4)
+        finally:
+            self.effects_module._get_fused_kernel = original_kernel
+
+        self.assertEqual(reference_calls, [((4, 4, 4), (4, 4))])
+        self.assertEqual(kernel_flags, [1])
+        self.assertIsNotNone(out)
+
     def test_edge_aware_replace_matte_hardens_transition_on_real_edges(self):
         effects = self._make_effects()
 

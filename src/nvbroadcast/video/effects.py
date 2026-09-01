@@ -3508,7 +3508,7 @@ class VideoEffects:
         try:
             cp = self._cupy
 
-            # Keep replace cleanup aligned with the standard path. Remove-mode
+            # Keep replace cleanup aligned with the standard path. Blur/remove
             # cleanup runs inside the fused GPU compositor so this path can
             # still reuse the frame upload performed for inference.
             if self._bg_mode == "replace" and self._bg_image is not None:
@@ -3569,7 +3569,7 @@ class VideoEffects:
             bg_gpu = self._fused_bg_gpu
 
         alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
-        if self._bg_mode == "remove":
+        if self._bg_mode in ("blur", "remove"):
             clean_color_gpu, clean_scale = self._gpu_clean_color_reference(
                 fg_gpu, alpha_gpu)
             despill = 1
