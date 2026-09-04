@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Accurate Tray Broadcast State** - Starting, stopping, or failing to start a pipeline now refreshes both tray implementations from the application's authoritative streaming state, so the SNI action no longer remains stuck on "Stop Broadcast" after the stream has ended ([PR #92](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/92)).
+- **Reliable Snap Release Attachments** - Snap release automation uses non-overlapping artifact patterns, preventing the checksum file from being submitted twice while preserving the already validated binaries and frozen release tag ([PR #89](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/89)).
+- **Official Project Identity and Contributor Records** - The repository now documents the canonical project, repository, publisher, and website; accepted external contributors remain cumulatively credited; and `NOTICE` plus `CONTRIBUTORS.md` ship inside source, wheel, DEB, RPM, Snap, and macOS package paths ([PR #94](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/94), [PR #101](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/101)).
+- **Public Website and Listing Metadata** - Release information, project links, search metadata, and the Snap listing now use the official [nvbroadcast.com](https://nvbroadcast.com) identity with a descriptive product summary ([PR #97](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/97), [PR #98](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/98), [PR #99](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/99)).
+
 ## v1.5.2 - Camera Recovery and First Public v1.5 Release
 
 - **First Public v1.5 Build** - v1.5.2 supersedes the withdrawn v1.5.0 build and unpublished v1.5.1 candidate. It carries forward the tested native-upgrade helper, deterministic runtime ownership, device recovery, dependency floors, and artifact-provenance controls without requiring users to install an intermediate release.
