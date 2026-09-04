@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: doczeus <harshit@kshoonya.com>
 Build-Depends: debhelper-compat (= 13), python3, python3-venv
 Standards-Version: 4.6.0
-Homepage: https://github.com/Hkshoonya/nvidia-broadcast-linux
+Homepage: https://nvbroadcast.com
 Vcs-Git: https://github.com/Hkshoonya/nvidia-broadcast-linux.git
 Vcs-Browser: https://github.com/Hkshoonya/nvidia-broadcast-linux
 

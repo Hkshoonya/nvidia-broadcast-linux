@@ -70,16 +70,16 @@ description: |
 
   For install guides, release downloads, feature breakdowns, and upgrade
   instructions, visit the official website:
-  https://nvbroadcast.domjarvis.com
+  https://nvbroadcast.com
 
 grade: stable
 confinement: strict
 license: GPL-3.0
 icon: data/icons/com.doczeus.NVBroadcast.svg
-website: https://nvbroadcast.domjarvis.com
+website: https://nvbroadcast.com
 source-code: https://github.com/Hkshoonya/nvidia-broadcast-linux
 issues: https://github.com/Hkshoonya/nvidia-broadcast-linux/issues
-contact: https://nvbroadcast.domjarvis.com
+contact: https://nvbroadcast.com
 
 platforms:
   amd64:

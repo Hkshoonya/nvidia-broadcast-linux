@@ -3,7 +3,7 @@ Version:        1.5.2
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
-URL:            https://github.com/Hkshoonya/nvidia-broadcast-linux
+URL:            https://nvbroadcast.com
 Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      noarch

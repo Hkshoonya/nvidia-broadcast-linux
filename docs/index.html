@@ -3,15 +3,74 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NV Broadcast - NVIDIA Broadcast for Linux by Doczeus</title>
-<meta name="description" content="AI-powered virtual camera with background removal, eye contact correction, relighting, recording, AI meeting transcription, voice effects, mic selection, and video enhancement for Linux. 9 processing modes with 5 built-in profiles.">
+<title>NV Broadcast - NVIDIA Broadcast for Linux &amp; macOS</title>
+<meta name="description" content="Open-source, unofficial NVIDIA Broadcast alternative for Linux and macOS with background blur, auto framing, noise removal, and meeting transcription.">
 <meta name="author" content="Doczeus">
-<meta name="keywords" content="nvidia broadcast, linux, virtual camera, background removal, noise cancellation, doczeus">
-<meta property="og:title" content="NV Broadcast - NVIDIA Broadcast for Linux">
-<meta property="og:description" content="AI-powered virtual camera with background removal, eye contact, relighting, recording, AI meeting transcription, voice effects, and mic selection. 9 GPU/CPU modes. Open source by Doczeus.">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta name="theme-color" content="#111111">
+<link rel="canonical" href="https://nvbroadcast.com/">
+<meta property="og:site_name" content="NV Broadcast">
+<meta property="og:title" content="NV Broadcast - AI Virtual Camera for Linux &amp; macOS">
+<meta property="og:description" content="Open-source, unofficial NVIDIA Broadcast alternative with AI background effects, auto framing, noise removal, and local meeting transcription.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://hkshoonya.github.io/nvidia-broadcast-linux/">
+<meta property="og:url" content="https://nvbroadcast.com/">
+<meta property="og:image" content="https://nvbroadcast.com/og-image.png">
+<meta property="og:image:secure_url" content="https://nvbroadcast.com/og-image.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="NV Broadcast AI virtual camera for Linux and macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NV Broadcast - AI Virtual Camera for Linux &amp; macOS">
+<meta name="twitter:description" content="Open-source AI background effects, auto framing, noise removal, and local meeting transcription for Linux and macOS.">
+<meta name="twitter:image" content="https://nvbroadcast.com/og-image.png">
+<meta name="twitter:image:alt" content="NV Broadcast AI virtual camera for Linux and macOS">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='20' fill='%23111'/%3E%3Ccircle cx='64' cy='70' r='6' fill='%2376b900'/%3E%3C/svg%3E">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://nvbroadcast.com/#website",
+      "url": "https://nvbroadcast.com/",
+      "name": "NV Broadcast",
+      "description": "Open-source, unofficial NVIDIA Broadcast alternative for Linux and macOS",
+      "publisher": { "@id": "https://nvbroadcast.com/#author" }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nvbroadcast.com/#software",
+      "name": "NV Broadcast",
+      "url": "https://nvbroadcast.com/",
+      "downloadUrl": "https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest",
+      "softwareVersion": "1.5.2",
+      "operatingSystem": "Linux, macOS 13 or later",
+      "applicationCategory": "MultimediaApplication",
+      "description": "AI virtual camera with background effects, auto framing, eye contact, noise removal, recording, and local meeting transcription",
+      "image": "https://nvbroadcast.com/og-image.png",
+      "author": { "@id": "https://nvbroadcast.com/#author" },
+      "license": "https://spdx.org/licenses/GPL-3.0-or-later.html",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "sameAs": [
+        "https://github.com/Hkshoonya/nvidia-broadcast-linux",
+        "https://snapcraft.io/nvbroadcast"
+      ]
+    },
+    {
+      "@type": "Person",
+      "@id": "https://nvbroadcast.com/#author",
+      "name": "Doczeus",
+      "url": "https://github.com/Hkshoonya"
+    }
+  ]
+}
+</script>
 <style>
 /* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,13 +83,14 @@
   --surface-raised: #ffffff;
   --text: #111111;
   --text-secondary: #555555;
-  --text-muted: #777777;
+  --text-muted: #666666;
   --border: #d8d8d8;
   --border-subtle: #e8e8e8;
   --accent: #76b900;
   --accent-hover: #8ad400;
   --accent-text: #4a7400;
   --accent-surface: #76b90012;
+  --sponsor-text: #a12a6a;
   --code-bg: #f0f0f0;
   --code-text: #1a1a1a;
   --terminal-bg: #111111;
@@ -50,13 +110,14 @@
     --surface-raised: #1c1c1c;
     --text: #e8e8e8;
     --text-secondary: #999999;
-    --text-muted: #666666;
+    --text-muted: #888888;
     --border: #2a2a2a;
     --border-subtle: #222222;
     --accent: #76b900;
     --accent-hover: #8ad400;
     --accent-text: #76b900;
     --accent-surface: #76b90010;
+    --sponsor-text: #db61a2;
     --code-bg: #1a1a1a;
     --code-text: #d4d4d4;
     --terminal-bg: #0a0a0a;
@@ -102,7 +163,7 @@ nav .container {
   text-decoration: none; color: var(--text);
 }
 .nav-brand svg { width: 32px; height: 32px; }
-.nav-brand span { font-weight: 700; font-size: 15px; letter-spacing: 0.5px; }
+.nav-brand span { font-weight: 700; font-size: 15px; letter-spacing: 0; }
 .nav-links { display: flex; align-items: center; gap: 28px; }
 .nav-links a {
   font-size: 14px; font-weight: 500; color: var(--text-secondary);
@@ -132,11 +193,11 @@ nav .container {
 .hero h1 {
   font-size: clamp(2rem, 5vw, 3.2rem);
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   line-height: 1.15;
   margin-bottom: 16px;
 }
-.hero h1 .accent { color: var(--accent); }
+.hero h1 .accent { color: var(--accent-text); }
 
 /* macOS text reveal — starts hidden, JS adds .animate to trigger */
 .macos-reveal {
@@ -219,7 +280,7 @@ nav .container {
 .terminal-dot.g { background: #28c840; }
 .terminal-bar span {
   flex: 1; text-align: center;
-  font-size: 12px; color: #666; font-weight: 500;
+  font-size: 12px; color: #909090; font-weight: 500;
 }
 .terminal-body {
   padding: 16px 20px;
@@ -283,7 +344,7 @@ nav .container {
   bottom: 10px; left: 0; right: 0;
   text-align: center;
   font-size: 10px; font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -443,12 +504,12 @@ nav .container {
 /* ── Section headers ── */
 .section-tag {
   font-size: 13px; font-weight: 700; color: var(--accent-text);
-  text-transform: uppercase; letter-spacing: 2px;
+  text-transform: uppercase; letter-spacing: 0;
   margin-bottom: 12px;
 }
 .section-title {
   font-size: clamp(1.5rem, 3.5vw, 2.2rem);
-  font-weight: 800; letter-spacing: -0.02em;
+  font-weight: 800; letter-spacing: 0;
   margin-bottom: 12px;
 }
 .section-desc {
@@ -601,7 +662,7 @@ nav .container {
   color: #fff;
   font-size: 10px; font-weight: 700;
   padding: 3px 8px; border-radius: 4px;
-  letter-spacing: 1px;
+  letter-spacing: 0;
   animation: rec-blink 1.6s ease-in-out infinite;
 }
 .preview-video .badge-mode {
@@ -610,7 +671,7 @@ nav .container {
   color: #000;
   font-size: 10px; font-weight: 700;
   padding: 3px 10px; border-radius: 4px;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
 }
 .preview-video .badge-fps {
   position: absolute; bottom: 12px; right: 12px;
@@ -633,7 +694,7 @@ nav .container {
 }
 .preview-ctrl .label {
   font-size: 10px; color: #76b900; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 1px;
+  text-transform: uppercase; letter-spacing: 0;
   margin-bottom: 4px;
 }
 .preview-ctrl .value {
@@ -685,7 +746,7 @@ nav .container {
   font-size: 10px; font-weight: 700;
   color: var(--accent);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0;
   margin-bottom: 10px;
 }
 .mode-fps {
@@ -818,9 +879,9 @@ nav .container {
   border-radius: 8px;
   padding: 20px;
 }
-.req-card h4 {
-  font-size: 13px; font-weight: 700; color: var(--accent);
-  text-transform: uppercase; letter-spacing: 1px;
+.req-card h3 {
+  font-size: 13px; font-weight: 700; color: var(--accent-text);
+  text-transform: uppercase; letter-spacing: 0;
   margin-bottom: 8px;
 }
 .req-card ul {
@@ -850,6 +911,8 @@ footer {
   font-size: 13px; font-weight: 500; color: var(--text-secondary);
 }
 .footer-links a:hover { color: var(--accent); }
+.sponsor-link,
+.sponsor-link:hover { color: var(--sponsor-text) !important; }
 .footer-copy {
   font-size: 12px; color: var(--text-muted);
 }
@@ -936,7 +999,7 @@ button:focus-visible, a:focus-visible {
       <a href="#modes">Modes</a>
       <a href="#install">Install</a>
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_site" target="_blank" rel="noopener" style="color:#db61a2">Sponsor</a>
+      <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_site" target="_blank" rel="noopener" class="sponsor-link">Sponsor</a>
       <a href="#install" class="nav-cta">Download</a>
     </div>
   </div>
@@ -985,10 +1048,10 @@ button:focus-visible, a:focus-visible {
     </div>
 
     <h1 class="reveal reveal-delay-1">
-      NVIDIA Broadcast<br>for <span class="accent">Linux</span> <span class="macos-reveal">&amp; <span class="accent">macOS</span></span>
+      NV Broadcast<br>for <span class="accent">Linux</span> <span class="macos-reveal">&amp; <span class="accent">macOS</span></span>
     </h1>
     <p class="subtitle reveal reveal-delay-2">
-      AI-powered virtual camera with background removal, eye contact correction, face relighting, recording, AI meeting transcription, voice studio, and video enhancement. 9 GPU/CPU modes. Linux and macOS.
+      Open-source, unofficial NVIDIA Broadcast alternative with AI background removal, blur and replacement, auto framing, eye contact, noise removal, recording, and local meeting transcription.
     </p>
 
     <div class="hero-ctas reveal reveal-delay-3">
@@ -1525,7 +1588,7 @@ button:focus-visible, a:focus-visible {
     <!-- Requirements -->
     <div class="req-grid reveal">
       <div class="req-card">
-        <h4>Linux</h4>
+        <h3>Linux</h3>
         <ul>
           <li>Any distro (Ubuntu, Fedora, Arch, Pop!_OS...)</li>
           <li>NVIDIA GTX 1060+ for GPU modes</li>
@@ -1534,7 +1597,7 @@ button:focus-visible, a:focus-visible {
         </ul>
       </div>
       <div class="req-card">
-        <h4>macOS</h4>
+        <h3>macOS</h3>
         <ul>
           <li>macOS 13 Ventura or newer</li>
           <li>Apple Silicon (M1+) required</li>
@@ -1544,7 +1607,7 @@ button:focus-visible, a:focus-visible {
         </ul>
       </div>
       <div class="req-card">
-        <h4>Camera + Audio</h4>
+        <h3>Camera + Audio</h3>
         <ul>
           <li>USB webcam, 720p+ recommended</li>
           <li>Any microphone (USB, built-in)</li>
@@ -1583,14 +1646,14 @@ button:focus-visible, a:focus-visible {
       <svg viewBox="0 0 200 48" width="140" height="34" aria-hidden="true">
         <rect x="2" y="8" width="32" height="32" rx="8" fill="none" stroke="#76b900" stroke-width="3"/>
         <circle cx="18" cy="24" r="6" fill="#76b900"/>
-        <text x="40" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="currentColor" letter-spacing="1">oczeus</text>
-        <text x="40" y="46" font-family="system-ui, sans-serif" font-size="9" fill="#76b900" letter-spacing="2">AI POWERED</text>
+        <text x="40" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="currentColor" letter-spacing="0">oczeus</text>
+        <text x="40" y="46" font-family="system-ui, sans-serif" font-size="9" fill="#76b900" letter-spacing="0">AI POWERED</text>
       </svg>
     </div>
     <div class="footer-links">
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues" target="_blank" rel="noopener">Issues</a>
-      <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_site" target="_blank" rel="noopener" style="color:#db61a2">Sponsor</a>
+      <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_site" target="_blank" rel="noopener" class="sponsor-link">Sponsor</a>
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
     </div>
