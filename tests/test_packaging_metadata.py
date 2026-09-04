@@ -128,6 +128,15 @@ class PackagingMetadataTests(unittest.TestCase):
         description = self._snap_description(snapcraft)
         self.assertLessEqual(len(description), 4096)
 
+    def test_snap_summary_stays_descriptive_between_releases(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        summary = re.search(r"^summary: (.+)$", snapcraft, flags=re.MULTILINE).group(1)
+
+        self.assertLessEqual(len(summary), 79)
+        self.assertIn("virtual camera", summary.lower())
+        self.assertIn("background", summary.lower())
+        self.assertNotRegex(summary, r"\bv?\d+\.\d+")
+
     def test_install_script_uses_supported_tensorrt_command(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
         self.assertIn("pip install tensorrt-cu12", install_script)
