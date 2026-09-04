@@ -229,7 +229,7 @@ nav .container {
   color: var(--terminal-text);
   min-height: 80px;
 }
-.terminal-line { white-space: nowrap; overflow: hidden; }
+.terminal-line { white-space: normal; overflow-wrap: anywhere; }
 .terminal-line .prompt { color: var(--accent); }
 .terminal-line .cmd { color: #e8e8e8; }
 .terminal-line .comment { color: #555; }
@@ -1411,14 +1411,22 @@ button:focus-visible, a:focus-visible {
           </div>
           <div class="terminal-body" role="code">
             <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('deb')">Copy</button>
-            <div class="terminal-line"><span class="comment"># Download the .deb from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.4.0-1_all.deb</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_1.4.0-1_all.deb</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo apt-get install -f</span></div>
-            <div class="terminal-line"><span class="comment"># v1.4.0 and older: use the verified release helper for future upgrades</span></div>
+            <div class="terminal-line"><span class="comment"># Download and verify v1.5.2</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">(</span></div>
+            <div class="terminal-line"><span class="cmd">set -euo pipefail</span></div>
+            <div class="terminal-line"><span class="cmd">WORKDIR=$(mktemp -d)</span></div>
+            <div class="terminal-line"><span class="cmd">cd "$WORKDIR"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">BASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.2</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">PACKAGE=nvbroadcast_1.5.2-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">awk -v package="$PACKAGE" '$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }' SHA256SUMS.packages | sha256sum -c -</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">chmod 755 nvbroadcast-native-upgrade</span></div>
+            <div class="terminal-line"><span class="comment"># Protected upgrade when installed; normal package-manager path when clean</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">if dpkg-query -W -f='${db:Status-Abbrev}' nvbroadcast 2&gt;/dev/null | grep -q '^i'; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo apt-get install --yes --no-remove "./$PACKAGE"; fi</span></div>
+            <div class="terminal-line"><span class="cmd">)</span></div>
           </div>
         </div>
-        <p class="install-note">For Ubuntu, Debian, Pop!_OS, Linux Mint, and derivatives. Native v1.4.0 and older installations must use the checksum-verified upgrade helper included with v1.5.2 and later releases. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/RELEASE_VERIFICATION.md" target="_blank" rel="noopener">Read the verified upgrade steps</a></p>
+        <p class="install-note">For Ubuntu, Debian, Pop!_OS, Linux Mint, and derivatives. The commands above verify both downloads and automatically protect native v1.4.0-and-older upgrades with the release-bound helper. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/RELEASE_VERIFICATION.md" target="_blank" rel="noopener">Read the verification details</a></p>
       </div>
 
       <!-- RPM -->
@@ -1432,13 +1440,22 @@ button:focus-visible, a:focus-visible {
           </div>
           <div class="terminal-body" role="code">
             <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('rpm')">Copy</button>
-            <div class="terminal-line"><span class="comment"># Download the .rpm from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.4.0-1.noarch.rpm</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-1.4.0-1.noarch.rpm</span></div>
-            <div class="terminal-line"><span class="comment"># v1.4.0 and older: use the verified release helper for future upgrades</span></div>
+            <div class="terminal-line"><span class="comment"># Download and verify v1.5.2</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">(</span></div>
+            <div class="terminal-line"><span class="cmd">set -euo pipefail</span></div>
+            <div class="terminal-line"><span class="cmd">WORKDIR=$(mktemp -d)</span></div>
+            <div class="terminal-line"><span class="cmd">cd "$WORKDIR"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">BASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.2</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">PACKAGE=nvbroadcast-1.5.2-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">awk -v package="$PACKAGE" '$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }' SHA256SUMS.packages | sha256sum -c -</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">chmod 755 nvbroadcast-native-upgrade</span></div>
+            <div class="terminal-line"><span class="comment"># Protected upgrade when installed; normal package-manager path when clean</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">if rpm -q nvbroadcast &gt;/dev/null 2&gt;&amp;1; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo dnf install --assumeyes "./$PACKAGE"; fi</span></div>
+            <div class="terminal-line"><span class="cmd">)</span></div>
           </div>
         </div>
-        <p class="install-note">For Fedora, RHEL, CentOS, and Rocky. Native v1.4.0 and older installations must use the checksum-verified upgrade helper included with v1.5.2 and later releases. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/RELEASE_VERIFICATION.md" target="_blank" rel="noopener">Read the verified upgrade steps</a></p>
+        <p class="install-note">For Fedora, RHEL, CentOS, and Rocky. The commands above verify both downloads and automatically protect native v1.4.0-and-older upgrades with the release-bound helper. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/RELEASE_VERIFICATION.md" target="_blank" rel="noopener">Read the verification details</a></p>
       </div>
 
       <!-- Snap -->
@@ -1457,7 +1474,7 @@ button:focus-visible, a:focus-visible {
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo snap refresh nvbroadcast</span></div>
           </div>
         </div>
-        <p class="install-note">For systems with Snap support. Snap Store updates are released separately after artifact inspection, Store policy approval, and strict-confinement testing. When `1.4.0` reaches the stable channel, `snap refresh nvbroadcast` upgrades in place with rebindable global effect hotkeys, optional Gaze Lock, live camera switching, low-latency virtual microphone startup, and reliable background processing during quality or mode changes.</p>
+        <p class="install-note">For systems with Snap support. Snap Store updates are released separately after artifact inspection, provenance verification, Store review, and candidate testing. v1.5.2 is now available in the stable channel; `snap refresh nvbroadcast` upgrades in place with camera-format recovery, strict-Snap meeting transcription, verified runtime ownership, and cumulative contributor credits. The arm64 Snap remains CPU-only.</p>
       </div>
 
       <!-- Arch -->
@@ -1498,8 +1515,8 @@ button:focus-visible, a:focus-visible {
           </div>
         </div>
         <p class="install-note">
-          Existing configured installs can download the update package: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/NVBroadcast-1.4.0-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.4.0-1.pkg</a><br>
-          Requires Apple Silicon, macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio. After installing OBS, open it once, start and stop Virtual Camera, then close OBS. Intel macOS is not included in v1.4.0 because a secure current MediaPipe wheel is unavailable.
+          Existing configured installs can download the update package: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.2/NVBroadcast-1.5.2-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.5.2-1.pkg</a><br>
+          Requires Apple Silicon, macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio. After installing OBS, open it once, start and stop Virtual Camera, then close OBS. Intel macOS is not included in v1.5.2 because a secure current MediaPipe wheel is unavailable.
         </p>
       </div>
 
@@ -1696,8 +1713,8 @@ document.querySelectorAll('.install-tab').forEach(tab => {
 /* ── Copy command ── */
 const commands = {
   source: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
-  deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.4.0-1_all.deb && sudo dpkg -i nvbroadcast_1.4.0-1_all.deb && sudo apt-get install -f',
-  rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.4.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.4.0-1.noarch.rpm',
+  deb: '(\nset -euo pipefail\nWORKDIR=$(mktemp -d)\ncd "$WORKDIR"\nBASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.2\nPACKAGE=nvbroadcast_1.5.2-1_all.deb\nwget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"\nawk -v package="$PACKAGE" \'$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }\' SHA256SUMS.packages | sha256sum -c -\nchmod 755 nvbroadcast-native-upgrade\nif dpkg-query -W -f=\'${db:Status-Abbrev}\' nvbroadcast 2>/dev/null | grep -q \'^i\'; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo apt-get install --yes --no-remove "./$PACKAGE"; fi\n)',
+  rpm: '(\nset -euo pipefail\nWORKDIR=$(mktemp -d)\ncd "$WORKDIR"\nBASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.2\nPACKAGE=nvbroadcast-1.5.2-1.noarch.rpm\nwget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"\nawk -v package="$PACKAGE" \'$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }\' SHA256SUMS.packages | sha256sum -c -\nchmod 755 nvbroadcast-native-upgrade\nif rpm -q nvbroadcast >/dev/null 2>&1; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo dnf install --assumeyes "./$PACKAGE"; fi\n)',
   snap: 'sudo snap install nvbroadcast || sudo snap refresh nvbroadcast',
   arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
   macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'
