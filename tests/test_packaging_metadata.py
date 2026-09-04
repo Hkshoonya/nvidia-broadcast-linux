@@ -429,10 +429,36 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("packaging/debian/changelog", build_script)
         self.assertIn("/^#DEBHELPER#$/d", build_script)
         self.assertIn("%{buildroot}/opt/nvbroadcast -type f -exec chmod 644 {} +", rpm_spec)
-        self.assertIn("chmod 644 LICENSE README.md", rpm_spec)
+        self.assertIn(
+            "chmod 644 LICENSE NOTICE README.md CONTRIBUTORS.md",
+            rpm_spec,
+        )
 
-        for relative in ("LICENSE", "README.md"):
+        for relative in ("LICENSE", "NOTICE", "README.md", "CONTRIBUTORS.md"):
             self.assertEqual((REPO_ROOT / relative).stat().st_mode & stat.S_IXUSR, 0, relative)
+
+    def test_canonical_notice_and_contributors_ship_in_package_payloads(self):
+        records = ("NOTICE", "CONTRIBUTORS.md")
+        manifest = (REPO_ROOT / "MANIFEST.in").read_text()
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        build_script = (REPO_ROOT / "build-packages.sh").read_text()
+        debian_rules = (REPO_ROOT / "packaging" / "debian" / "rules").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        macos_installer = (REPO_ROOT / "install_macos.sh").read_text()
+        build_workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+
+        self.assertIn('"share/doc/nvbroadcast"', pyproject)
+        for record in records:
+            with self.subTest(record=record):
+                self.assertIn(f"include {record}", manifest)
+                self.assertIn(f'"{record}"', pyproject)
+                self.assertIn(record, build_script)
+                self.assertIn(record, debian_rules)
+                self.assertIn(record, rpm_spec)
+                self.assertIn(record, macos_installer)
+                self.assertIn(f"/opt/nvbroadcast/{record}", build_workflow)
 
     def test_advertised_shell_entrypoints_are_executable(self):
         for relative in ("build-packages.sh", "install.sh", "install_macos.sh"):

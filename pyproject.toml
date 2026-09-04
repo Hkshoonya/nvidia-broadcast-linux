@@ -107,6 +107,10 @@ where = ["src"]
 "nvbroadcast.ui" = ["style.css"]
 
 [tool.setuptools.data-files]
+"share/doc/nvbroadcast" = [
+    "CONTRIBUTORS.md",
+    "NOTICE",
+]
 "share/applications" = ["data/com.doczeus.NVBroadcast.desktop"]
 "share/metainfo" = ["data/com.doczeus.NVBroadcast.metainfo.xml"]
 "share/icons/hicolor/scalable/apps" = ["data/icons/com.doczeus.NVBroadcast.svg"]
