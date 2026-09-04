@@ -1198,7 +1198,12 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('--to-channel="$TARGET_CHANNEL"', workflow)
         self.assertIn("inputs.operation == 'edge' || inputs.operation == 'stable'", workflow)
         self.assertIn(
-            "inputs.operation == 'edge' && secrets.SNAP_EDGE_TOKEN || secrets.SNAP_TOKEN",
+            "(inputs.operation == 'edge' && secrets.SNAP_EDGE_TOKEN) || "
+            "(inputs.operation == 'stable' && secrets.SNAP_TOKEN)",
+            workflow,
+        )
+        self.assertNotIn(
+            "secrets.SNAP_EDGE_TOKEN || secrets.SNAP_TOKEN",
             workflow,
         )
         self.assertIn("A channel-scoped Snap Store credential is required", workflow)
