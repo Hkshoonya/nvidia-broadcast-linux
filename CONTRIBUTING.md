@@ -6,11 +6,11 @@ Thank you for your interest in contributing! This project was built for the Linu
 
 1. **All PRs require review** — No direct pushes to `main`. Every change goes through a pull request and needs approval from a maintainer.
 
-2. **Keep attribution intact** — The `doczeus` copyright headers, UI credits, and LICENSE file must not be removed or modified. This is a legal requirement of the GPL-3.0 license.
+2. **Keep attribution intact** — The `doczeus` copyright headers, UI credits, and LICENSE file must not be removed or modified. These requirements are part of this project's license terms; see [LICENSE](LICENSE).
 
 3. **Be respectful** — We're all here because we love Linux and want better tools. Constructive feedback only.
 
-4. **Contributor credits ship with accepted work** — Every external human pull request must register its author in `src/nvbroadcast/contributors.py` before merge. That cumulative registry appears in the app's About window under **Contributions to App** in this and every later release. Sponsors are credited separately under **Project Sponsors**; sponsorship does not imply code authorship.
+4. **Contributor credits ship with accepted work** — Every external human pull request must register its author in `src/nvbroadcast/contributors.py` and describe the accepted work in `CONTRIBUTORS.md` before merge. That cumulative registry appears in the app's About window under **Contributions to App** in this and every later release. Sponsors are credited separately under **Project Sponsors**; sponsorship does not imply code authorship.
 
 ## How to Contribute
 
@@ -38,7 +38,9 @@ Thank you for your interest in contributing! This project was built for the Linu
 
 For an external human contribution, add one `Contributor` entry with your
 public display name and GitHub login to `src/nvbroadcast/contributors.py`, unless
-you are already listed. The pull-request checks enforce this before merge.
+you are already listed. Add or update the matching entry in `CONTRIBUTORS.md`
+with a factual summary and links to the accepted pull requests or commits. The
+pull-request checks enforce both records before merge.
 Maintainer and automated dependency-bot changes are exempt. Maintainers verify
 the name, profile link, and absence of duplicates during review; accepted
 credits remain cumulative in future releases.
@@ -50,7 +52,7 @@ credits remain cumulative in future releases.
 - Copyright header on new `.py` files:
   ```python
   # NVIDIA Broadcast for Linux
-  # Copyright (c) 2026 doczeus (https://github.com/doczeus)
+  # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
   # Licensed under GPL-3.0 - see LICENSE file
   # Original author: doczeus | AI Powered
   #
