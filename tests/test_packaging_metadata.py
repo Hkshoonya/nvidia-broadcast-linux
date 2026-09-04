@@ -37,14 +37,29 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f'<release version="{current}" date="2026-09-04">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
-        # Direct website downloads follow the latest published release until
-        # the candidate is promoted, so release preparation cannot create 404s.
-        published = "1.4.0"
+        # Direct website downloads follow the latest published release only
+        # after its artifacts and Store revisions are public.
+        published = "1.5.2"
         self.assertIn(f"nvbroadcast_{published}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{published}-1.noarch.rpm", docs_index)
         self.assertIn(f"NVBroadcast-{published}-1.pkg", docs_index)
         self.assertIn(f"such as v{current}", snap_workflow)
         self.assertIn(f"# NV Broadcast v{current}", release_notes)
+
+    def test_published_native_downloads_protect_legacy_upgrades(self):
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+        commands = website.split("const commands = {", 1)[1].split("};", 1)[0]
+
+        self.assertNotIn("sudo dpkg -i", commands)
+        self.assertIn("nvbroadcast-native-upgrade", commands)
+        self.assertIn("SHA256SUMS.packages | sha256sum -c -", commands)
+        self.assertEqual(commands.count("set -euo pipefail"), 2)
+        self.assertEqual(commands.count("WORKDIR=$(mktemp -d)"), 2)
+        self.assertEqual(commands.count("wget --https-only"), 2)
+        self.assertIn("if dpkg-query", commands)
+        self.assertIn("if rpm -q nvbroadcast", commands)
+        self.assertIn("sudo apt-get install --yes --no-remove", commands)
+        self.assertIn("sudo dnf install --assumeyes", commands)
 
     def test_snap_description_stays_within_store_limit(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()

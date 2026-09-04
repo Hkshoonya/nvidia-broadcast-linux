@@ -119,13 +119,30 @@ Snap users update normally through the Store and do not use this helper.
   (`@pastor0711`), and pull-request validation prevents a future release from
   silently dropping an accepted external contributor.
 
-## Validation and remaining boundary
+## Candidate validation and remaining boundary
 
-The unpublished v1.5.1 Snap candidate completed more than seven days of soak.
-Because v1.5.2 changes physical-camera startup, the exact v1.5.2 Snap revisions
-must complete a fresh 72-hour candidate soak, including no-camera and
-busy-camera recovery, live source changes, processing-mode changes, auto
-framing, difficult lighting, and hair-edge behavior, before stable promotion.
+The exact Snap candidate set, amd64 revision `185` and arm64 revision `184`,
+was built from tag `v1.5.2` at commit
+`cf95d5239b1bed90b05b9542e92b142fda6f70a8` and completed more than
+72 hours in the candidate channel. Both Store files were downloaded again and
+their GitHub provenance was verified against that tag, commit, repository,
+Snap workflow, and GitHub-hosted runners before stable promotion.
+
+The installed amd64 candidate was exercised with camera startup, live source
+and processing-mode changes, transcription, auto framing, and Blur, Remove,
+and Replace modes. It produced no v1.5.2 traceback, core dump, pipeline crash,
+mode-switch failure, or original-camera-only fallback during the recorded
+tests. The arm64 Snap passed native arm64 build, application tests, package
+closure validation, and provenance checks. A physical arm64 camera rig was not
+available for this release cycle, and arm64 remains CPU-only by design.
+
+Known visual limitation: the installed amd64 candidate can show a soft
+gray/bright transition fringe around some hair and body boundaries in Blur and
+Remove under certain scenes. Fine hair remained present, no red outline was
+observed, and the behavior did not affect pipeline stability. The follow-up is
+tracked in [Issue #91](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/91);
+its proposed fix remains a draft until direct-sunlight and backlit motion
+testing is complete.
 
 This release does not close the broader supply-chain work in
 [Issue #60](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/60).
