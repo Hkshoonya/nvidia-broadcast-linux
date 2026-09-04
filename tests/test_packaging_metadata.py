@@ -1,7 +1,10 @@
+import json
 import re
 import stat
+import struct
 import tomllib
 import unittest
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
@@ -60,6 +63,65 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("if rpm -q nvbroadcast", commands)
         self.assertIn("sudo apt-get install --yes --no-remove", commands)
         self.assertIn("sudo dnf install --assumeyes", commands)
+
+    def test_public_homepage_and_search_metadata_are_canonical(self):
+        canonical = "https://nvbroadcast.com"
+        retired = "nvbroadcast.domjarvis.com"
+        homepage_files = (
+            "README.md",
+            "pyproject.toml",
+            "build-packages.sh",
+            "packaging/debian/control",
+            "packaging/rpm/nvbroadcast.spec",
+            "snap/snapcraft.yaml",
+            "data/com.doczeus.NVBroadcast.metainfo.xml",
+            "src/nvbroadcast/__init__.py",
+            "src/nvbroadcast/ui/window.py",
+            "docs/index.html",
+        )
+
+        for relative in homepage_files:
+            content = (REPO_ROOT / relative).read_text()
+            self.assertIn(canonical, content, relative)
+            self.assertNotIn(retired, content, relative)
+
+        self.assertEqual((REPO_ROOT / "docs" / "CNAME").read_text().strip(), "nvbroadcast.com")
+
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+        self.assertIn('<link rel="canonical" href="https://nvbroadcast.com/">', website)
+        self.assertIn('<meta property="og:url" content="https://nvbroadcast.com/">', website)
+        self.assertIn(
+            '<meta property="og:image" content="https://nvbroadcast.com/og-image.png">',
+            website,
+        )
+        self.assertIn('<meta name="twitter:card" content="summary_large_image">', website)
+        self.assertNotIn('<meta name="keywords"', website)
+
+        structured = website.split('<script type="application/ld+json">', 1)[1].split(
+            "</script>", 1
+        )[0]
+        graph = json.loads(structured)["@graph"]
+        nodes = {node["@type"]: node for node in graph}
+        self.assertEqual(nodes["WebSite"]["url"], f"{canonical}/")
+        application = nodes["SoftwareApplication"]
+        self.assertEqual(application["softwareVersion"], "1.5.2")
+        self.assertEqual(application["applicationCategory"], "MultimediaApplication")
+        self.assertEqual(application["offers"]["price"], "0")
+
+        robots = (REPO_ROOT / "docs" / "robots.txt").read_text()
+        self.assertIn("User-agent: *\nAllow: /", robots)
+        self.assertIn(f"Sitemap: {canonical}/sitemap.xml", robots)
+
+        sitemap = ET.parse(REPO_ROOT / "docs" / "sitemap.xml").getroot()
+        namespace = {"sitemap": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        self.assertEqual(
+            sitemap.findtext("sitemap:url/sitemap:loc", namespaces=namespace),
+            f"{canonical}/",
+        )
+
+        image = (REPO_ROOT / "docs" / "og-image.png").read_bytes()
+        self.assertEqual(image[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(struct.unpack(">II", image[16:24]), (1200, 630))
 
     def test_snap_description_stays_within_store_limit(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()

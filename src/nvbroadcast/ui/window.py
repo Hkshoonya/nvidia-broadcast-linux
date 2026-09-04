@@ -2389,7 +2389,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             application_icon=icon_name,
             version=__import__("nvbroadcast").__version__,
             developer_name="doczeus",
-            website="https://github.com/Hkshoonya/nvidia-broadcast-linux",
+            website="https://nvbroadcast.com",
             support_url="https://github.com/sponsors/Hkshoonya",
             issue_url="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues",
             license_type=Gtk.License.GPL_3_0,
