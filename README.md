@@ -311,16 +311,39 @@ Packaged releases are intended to include the local meeting transcription runtim
 
 ### NixOS
 
-Enable the NixOS module from Nixpkgs:
+Add NV Broadcast to your flake inputs and import its NixOS module:
 
 ```nix
 {
-  programs.nvbroadcast.enable = true;
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nvbroadcast = {
+      url = "github:Hkshoonya/nvidia-broadcast-linux";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs =
+    {
+      nixpkgs,
+      nvbroadcast,
+      ...
+    }:
+    {
+      nixosConfigurations.hostname = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          nvbroadcast.nixosModules.default
+          { programs.nvbroadcast.enable = true; }
+        ];
+      };
+    };
 }
 ```
 
-The module installs `pkgs.nvbroadcast` and, by default, also configures the
-PipeWire and virtual-camera host pieces the app needs:
+The module installs the flake's `packages.x86_64-linux.nvbroadcast` package by
+default. It also configures the PipeWire and virtual-camera host pieces the app
+needs:
 
 - v4l2loopback virtual camera setup
 - PipeWire with PulseAudio compatibility
@@ -339,13 +362,18 @@ module's basic NVIDIA defaults:
 }
 ```
 
-See all installation options at https://search.nixos.org/options?query=nvbroadcast.
+See [`nix/module.nix`](nix/module.nix) for all module options.
 
-Package-only installs are also available:
+For a package-only install, omit `nvbroadcast.nixosModules.default` and add the
+package directly inside the same `nixosSystem` definition:
 
 ```nix
-environment.systemPackages = [
-  pkgs.nvbroadcast
+modules = [
+  {
+    environment.systemPackages = [
+      nvbroadcast.packages.x86_64-linux.nvbroadcast
+    ];
+  }
 ];
 ```
 

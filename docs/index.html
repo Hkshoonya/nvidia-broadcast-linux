@@ -1472,13 +1472,24 @@ button:focus-visible, a:focus-visible {
           </div>
           <div class="terminal-body" role="code">
             <button class="copy-btn" aria-label="Copy NixOS module configuration" onclick="copyCommand('nixos')">Copy</button>
-            <div class="terminal-line"><span class="comment"># configuration.nix</span></div>
-            <div class="terminal-line"><span class="cmd">{</span></div>
-            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;programs.nvbroadcast.enable = true;</span></div>
-            <div class="terminal-line"><span class="cmd">}</span></div>
+            <div class="terminal-line"><span class="comment"># flake.nix</span></div>
+            <div class="terminal-line"><span class="cmd">inputs.nvbroadcast = {</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;url = "github:Hkshoonya/nvidia-broadcast-linux";</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;inputs.nixpkgs.follows = "nixpkgs";</span></div>
+            <div class="terminal-line"><span class="cmd">};</span></div>
+            <div class="terminal-line"><br></div>
+            <div class="terminal-line"><span class="comment"># Inside nixosSystem</span></div>
+            <div class="terminal-line"><span class="cmd">modules = [</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;nvbroadcast.nixosModules.default</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;{</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;&nbsp;&nbsp;programs.nvbroadcast = {</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;enable = true;</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;&nbsp;&nbsp;};</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;}</span></div>
+            <div class="terminal-line"><span class="cmd">];</span></div>
           </div>
         </div>
-        <p class="install-note">For NixOS with Nixpkgs. The module installs `pkgs.nvbroadcast` and defaults PipeWire with Pulse compatibility plus v4l2loopback on `/dev/video10`. NVIDIA driver defaults are opt-in with `programs.nvbroadcast.nvidia.enable = true`.</p>
+        <p class="install-note">For x86_64 NixOS. Add the GitHub flake input, reuse your host's Nixpkgs input, and import `nvbroadcast.nixosModules.default`. The module defaults PipeWire with Pulse compatibility plus v4l2loopback on `/dev/video10`. NVIDIA driver defaults are opt-in with `programs.nvbroadcast.nvidia.enable = true`.</p>
       </div>
 
       <!-- Arch -->
@@ -1720,7 +1731,7 @@ const commands = {
   deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.4.0-1_all.deb && sudo dpkg -i nvbroadcast_1.4.0-1_all.deb && sudo apt-get install -f',
   rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.4.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.4.0-1.noarch.rpm',
   snap: 'sudo snap install nvbroadcast || sudo snap refresh nvbroadcast',
-  nixos: '{ programs.nvbroadcast.enable = true; }',
+  nixos: 'inputs.nvbroadcast = {\n  url = "github:Hkshoonya/nvidia-broadcast-linux";\n  inputs.nixpkgs.follows = "nixpkgs";\n};\n\n# Inside nixosSystem\nmodules = [\n  nvbroadcast.nixosModules.default\n  {\n    programs.nvbroadcast = {\n      enable = true;\n    };\n  }\n];',
   arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
   macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'
 };
