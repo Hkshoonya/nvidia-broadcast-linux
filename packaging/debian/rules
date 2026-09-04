@@ -6,7 +6,7 @@
 override_dh_auto_install:
 	# Install application to /opt/nvbroadcast
 	install -d $(CURDIR)/debian/nvbroadcast/opt/nvbroadcast
-	cp -r src pyproject.toml LICENSE README.md \
+	cp -r src pyproject.toml LICENSE NOTICE README.md CONTRIBUTORS.md \
 		$(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/
 	install -Dm 755 scripts/install_runtime_variant.py \
 		$(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/scripts/install_runtime_variant.py
@@ -32,6 +32,11 @@ override_dh_auto_install:
 	install -d $(CURDIR)/debian/nvbroadcast/usr/share/icons/hicolor/scalable/apps
 	install -m 644 data/icons/com.doczeus.NVBroadcast.svg \
 		$(CURDIR)/debian/nvbroadcast/usr/share/icons/hicolor/scalable/apps/
+
+	# Canonical identity and cumulative contributor records
+	install -d $(CURDIR)/debian/nvbroadcast/usr/share/doc/nvbroadcast
+	install -m 644 NOTICE CONTRIBUTORS.md \
+		$(CURDIR)/debian/nvbroadcast/usr/share/doc/nvbroadcast/
 
 	# Launcher script
 	install -d $(CURDIR)/debian/nvbroadcast/usr/bin

@@ -103,7 +103,8 @@ INSTALL_DIR="$HOME/.local/share/nvbroadcast"
 mkdir -p "$INSTALL_DIR"
 
 # Copy source
-cp -r src pyproject.toml data models configs "$INSTALL_DIR/" 2>/dev/null || true
+cp -r src pyproject.toml LICENSE NOTICE README.md CONTRIBUTORS.md \
+    data models configs "$INSTALL_DIR/" 2>/dev/null || true
 mkdir -p "$INSTALL_DIR/scripts"
 cp scripts/install_runtime_variant.py "$INSTALL_DIR/scripts/"
 mkdir -p "$INSTALL_DIR/models"

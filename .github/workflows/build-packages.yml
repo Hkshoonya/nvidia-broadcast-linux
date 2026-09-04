@@ -33,6 +33,24 @@ jobs:
       - name: Build .rpm package
         run: bash build-packages.sh rpm
 
+      - name: Inspect attribution records in native packages
+        run: |
+          deb="$(find dist/deb -name '*.deb' -type f -print -quit)"
+          rpm="$(find dist/rpm -name '*.rpm' -type f -print -quit)"
+          test -n "$deb"
+          test -n "$rpm"
+          mkdir -p /tmp/nvbroadcast-deb-attribution
+          dpkg-deb -x "$deb" /tmp/nvbroadcast-deb-attribution
+          test -f /tmp/nvbroadcast-deb-attribution/opt/nvbroadcast/NOTICE
+          test -f /tmp/nvbroadcast-deb-attribution/opt/nvbroadcast/CONTRIBUTORS.md
+          test -f /tmp/nvbroadcast-deb-attribution/usr/share/doc/nvbroadcast/NOTICE
+          test -f /tmp/nvbroadcast-deb-attribution/usr/share/doc/nvbroadcast/CONTRIBUTORS.md
+          rpm -qlp "$rpm" > /tmp/nvbroadcast-rpm-files
+          grep -Fxq '/opt/nvbroadcast/NOTICE' /tmp/nvbroadcast-rpm-files
+          grep -Fxq '/opt/nvbroadcast/CONTRIBUTORS.md' /tmp/nvbroadcast-rpm-files
+          grep -Fq '/usr/share/licenses/nvbroadcast' /tmp/nvbroadcast-rpm-files
+          grep -Fq '/usr/share/doc/nvbroadcast/CONTRIBUTORS.md' /tmp/nvbroadcast-rpm-files
+
       - name: Build verified native-package upgrader
         run: |
           bash build-packages.sh upgrade-helper
@@ -75,6 +93,8 @@ jobs:
           rm -rf /tmp/nvbroadcast-pkg-expanded
           pkgutil --expand-full "$package" /tmp/nvbroadcast-pkg-expanded
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/src/nvbroadcast/__init__.py' -print -quit)"
+          test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/NOTICE' -print -quit)"
+          test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/CONTRIBUTORS.md' -print -quit)"
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/usr/local/bin/nvbroadcast' -print -quit)"
           runtime_installer="$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/scripts/install_runtime_variant.py' -print -quit)"
           test -x "$runtime_installer"

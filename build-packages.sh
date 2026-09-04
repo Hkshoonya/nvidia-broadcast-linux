@@ -87,7 +87,8 @@ CTRL
 
     # Application files -> /opt/nvbroadcast
     install -d "$PKG_DIR/opt/nvbroadcast"
-    cp -r src pyproject.toml LICENSE README.md "$PKG_DIR/opt/nvbroadcast/"
+    cp -r src pyproject.toml LICENSE NOTICE README.md CONTRIBUTORS.md \
+        "$PKG_DIR/opt/nvbroadcast/"
     install -Dm 755 scripts/install_runtime_variant.py \
         "$PKG_DIR/opt/nvbroadcast/scripts/install_runtime_variant.py"
     find "$PKG_DIR/opt/nvbroadcast/src" -type d \
@@ -113,6 +114,7 @@ CTRL
     # Debian package documentation
     install -d "$PKG_DIR/usr/share/doc/nvbroadcast"
     install -m 644 packaging/debian/copyright "$PKG_DIR/usr/share/doc/nvbroadcast/copyright"
+    install -m 644 NOTICE CONTRIBUTORS.md "$PKG_DIR/usr/share/doc/nvbroadcast/"
     gzip -9n -c packaging/debian/changelog > \
         "$PKG_DIR/usr/share/doc/nvbroadcast/changelog.Debian.gz"
 
@@ -192,7 +194,8 @@ build_rpm() {
     local TAR_PATH="$RPM_DIR/SOURCES/${TAR_DIR}.tar.gz"
     local TAR_ROOT="$RPM_DIR/source"
     mkdir -p "$TAR_ROOT/$TAR_DIR"
-    cp -r src pyproject.toml LICENSE README.md data "$TAR_ROOT/$TAR_DIR/"
+    cp -r src pyproject.toml LICENSE NOTICE README.md CONTRIBUTORS.md data \
+        "$TAR_ROOT/$TAR_DIR/"
     install -Dm 755 scripts/install_runtime_variant.py \
         "$TAR_ROOT/$TAR_DIR/scripts/install_runtime_variant.py"
     [ -d configs ] && cp -r configs "$TAR_ROOT/$TAR_DIR/" || true
@@ -264,7 +267,8 @@ build_pkg() {
     mkdir -p "$SCRIPTS_DIR"
 
     # Application files -> /opt/nvbroadcast
-    cp -r src pyproject.toml LICENSE README.md "$INSTALL_ROOT/opt/nvbroadcast/"
+    cp -r src pyproject.toml LICENSE NOTICE README.md CONTRIBUTORS.md \
+        "$INSTALL_ROOT/opt/nvbroadcast/"
     install -m 755 scripts/install_runtime_variant.py \
         "$INSTALL_ROOT/opt/nvbroadcast/scripts/install_runtime_variant.py"
     find "$INSTALL_ROOT/opt/nvbroadcast/src" -type d \
