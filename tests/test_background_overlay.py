@@ -768,10 +768,13 @@ class BackgroundOverlayTests(unittest.TestCase):
             return cleaned
         effects._prepare_replace_foreground = prepare_replace
 
+        kernel_calls = []
+
         def fake_kernel(_grid, _block, args):
             fg_gpu = args[0]
-            output_gpu = args[5]
+            output_gpu = args[6]
             output_gpu[:] = fg_gpu
+            kernel_calls.append(int(args[12]))
 
         original_kernel = self.effects_module._get_fused_kernel
         self.effects_module._get_fused_kernel = lambda: fake_kernel
@@ -781,8 +784,112 @@ class BackgroundOverlayTests(unittest.TestCase):
             self.effects_module._get_fused_kernel = original_kernel
 
         self.assertEqual(calls, [((4, 4, 4), (4, 4))])
+        self.assertEqual(kernel_calls, [0])
         self.assertIsNotNone(out)
         self.assertEqual(int(out[2, 2, 2]), 220)
+
+    def test_fused_remove_enables_gpu_fringe_cleanup(self):
+        effects = self._make_effects()
+        effects._bg_mode = "remove"
+        effects._cupy = self._FakeCupy()
+
+        fg = np.zeros((4, 4, 4), dtype=np.uint8)
+        fg[:, :, 2] = 40
+        fg[:, :, 3] = 255
+        alpha = np.ones((4, 4), dtype=np.float32)
+
+        clean_color = np.zeros((2, 2, 4), dtype=np.uint8)
+        clean_color[:, :, 2] = 220
+        clean_color[:, :, 3] = 255
+        reference_calls = []
+        kernel_calls = []
+
+        def gpu_clean_reference(fg_arg, alpha_arg):
+            reference_calls.append((fg_arg.shape, alpha_arg.shape))
+            return clean_color, 2
+
+        effects._gpu_clean_color_reference = gpu_clean_reference
+
+        def fake_kernel(_grid, _block, args):
+            fg_gpu = args[0]
+            output_gpu = args[6]
+            output_gpu[:] = fg_gpu
+            kernel_calls.append(
+                {
+                    "clean_color": args[3],
+                    "frame_width": int(args[8]),
+                    "clean_width": int(args[9]),
+                    "clean_height": int(args[10]),
+                    "clean_scale": int(args[11]),
+                    "despill": int(args[12]),
+                }
+            )
+            if int(args[12]):
+                output_gpu[:, :, 2] = args[3][0, 0, 2]
+
+        original_kernel = self.effects_module._get_fused_kernel
+        self.effects_module._get_fused_kernel = lambda: fake_kernel
+        try:
+            out = effects._composite_fused(fg, alpha, 4, 4)
+        finally:
+            self.effects_module._get_fused_kernel = original_kernel
+
+        self.assertEqual(reference_calls, [((4, 4, 4), (4, 4))])
+        self.assertEqual(len(kernel_calls), 1)
+        self.assertIs(kernel_calls[0]["clean_color"], clean_color)
+        argument_names = (
+            "frame_width",
+            "clean_width",
+            "clean_height",
+            "clean_scale",
+            "despill",
+        )
+        self.assertEqual(
+            {key: kernel_calls[0][key] for key in argument_names},
+            {
+                "frame_width": 4,
+                "clean_width": 2,
+                "clean_height": 2,
+                "clean_scale": 2,
+                "despill": 1,
+            },
+        )
+        self.assertIsNotNone(out)
+        self.assertEqual(int(out[2, 2, 2]), 220)
+
+    def test_fused_blur_preserves_soft_edge_without_gpu_fringe_cleanup(self):
+        effects = self._make_effects()
+        effects._bg_mode = "blur"
+        effects._cupy = self._FakeCupy()
+        effects._gpu_blur_bgra = lambda fg_arg, _sigma: np.zeros_like(fg_arg)
+
+        fg = np.zeros((4, 4, 4), dtype=np.uint8)
+        fg[:, :, 3] = 255
+        alpha = np.ones((4, 4), dtype=np.float32)
+        clean_color = np.zeros((2, 2, 4), dtype=np.uint8)
+        reference_calls = []
+        kernel_flags = []
+
+        def gpu_clean_reference(fg_arg, alpha_arg):
+            reference_calls.append((fg_arg.shape, alpha_arg.shape))
+            return clean_color, 2
+
+        effects._gpu_clean_color_reference = gpu_clean_reference
+
+        def fake_kernel(_grid, _block, args):
+            args[6][:] = args[0]
+            kernel_flags.append(int(args[12]))
+
+        original_kernel = self.effects_module._get_fused_kernel
+        self.effects_module._get_fused_kernel = lambda: fake_kernel
+        try:
+            out = effects._composite_fused(fg, alpha, 4, 4)
+        finally:
+            self.effects_module._get_fused_kernel = original_kernel
+
+        self.assertEqual(reference_calls, [])
+        self.assertEqual(kernel_flags, [0])
+        self.assertIsNotNone(out)
 
     def test_edge_aware_replace_matte_hardens_transition_on_real_edges(self):
         effects = self._make_effects()

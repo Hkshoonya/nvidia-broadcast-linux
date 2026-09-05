@@ -379,11 +379,41 @@ def _prepare_rvm_tensorrt_model(model_path: Path,
 # ─── Fused CUDA Kernel (DocZeus/Killer modes) ──────────────────────────────────
 
 _FUSED_COMPOSITE_KERNEL = r'''
+__device__ __forceinline__ float clamp01(float value) {
+    return fminf(fmaxf(value, 0.0f), 1.0f);
+}
+
+__device__ __forceinline__ float sample_clean_color(
+    const unsigned char* clean, int clean_w, int clean_h,
+    float source_x, float source_y, int channel
+) {
+    int x0 = (int)floorf(source_x);
+    int y0 = (int)floorf(source_y);
+    float tx = source_x - floorf(source_x);
+    float ty = source_y - floorf(source_y);
+    int x1 = x0 + 1;
+    int y1 = y0 + 1;
+    x0 = x0 < 0 ? 0 : (x0 >= clean_w ? clean_w - 1 : x0);
+    x1 = x1 < 0 ? 0 : (x1 >= clean_w ? clean_w - 1 : x1);
+    y0 = y0 < 0 ? 0 : (y0 >= clean_h ? clean_h - 1 : y0);
+    y1 = y1 < 0 ? 0 : (y1 >= clean_h ? clean_h - 1 : y1);
+
+    float v00 = clean[(y0 * clean_w + x0) * 4 + channel];
+    float v01 = clean[(y0 * clean_w + x1) * 4 + channel];
+    float v10 = clean[(y1 * clean_w + x0) * 4 + channel];
+    float v11 = clean[(y1 * clean_w + x1) * 4 + channel];
+    float top = v00 + (v01 - v00) * tx;
+    float bottom = v10 + (v11 - v10) * tx;
+    return top + (bottom - top) * ty;
+}
+
 extern "C" __global__ void fused_composite(
     const unsigned char* fg, const unsigned char* bg,
-    const float* alpha, const unsigned char* face_mask,
+    const float* alpha, const unsigned char* clean_color,
+    const unsigned char* face_mask,
     const float* vignette, unsigned char* output,
-    int total_pixels,
+    int total_pixels, int frame_width,
+    int clean_width, int clean_height, int clean_scale, int despill,
     float enhance_i, float vignette_i, float brightness,
     float contrast, float warmth
 ) {
@@ -394,10 +424,56 @@ extern "C" __global__ void fused_composite(
     float a = alpha[idx];
     float ia = 1.0f - a;
 
+    float fb = (float)fg[px];
+    float fg_ = (float)fg[px+1];
+    float fr = (float)fg[px+2];
+
+    // Keep these thresholds and weights aligned with _despill_fringe_region.
+    if (despill && a > 0.025f && a < 0.94f) {
+        int x = idx % frame_width;
+        int y = idx / frame_width;
+        float source_x = ((x + 0.5f) / clean_scale) - 0.5f;
+        float source_y = ((y + 0.5f) / clean_scale) - 0.5f;
+        float cb = sample_clean_color(
+            clean_color, clean_width, clean_height, source_x, source_y, 0);
+        float cg = sample_clean_color(
+            clean_color, clean_width, clean_height, source_x, source_y, 1);
+        float cr = sample_clean_color(
+            clean_color, clean_width, clean_height, source_x, source_y, 2);
+        float color_delta = (
+            fabsf(fb - cb) + fabsf(fg_ - cg) + fabsf(fr - cr)
+        ) / 3.0f;
+
+        if (color_delta > 10.0f) {
+            float source_mean = (fb + fg_ + fr) / 3.0f;
+            float clean_mean = (cb + cg + cr) / 3.0f;
+            float chroma_delta = (
+                fabsf((fb - source_mean) - (cb - clean_mean))
+                + fabsf((fg_ - source_mean) - (cg - clean_mean))
+                + fabsf((fr - source_mean) - (cr - clean_mean))
+            ) / 3.0f;
+            float tone_delta = fabsf(source_mean - clean_mean);
+            float opacity_weight = clamp01((0.94f - a) / 0.915f);
+            float chroma_weight = clamp01((chroma_delta - 5.0f) / 45.0f);
+            float tone_weight = clamp01((tone_delta - 12.0f) / 90.0f);
+            float blend = fminf(
+                clamp01(
+                    0.62f * opacity_weight
+                    + 0.68f * chroma_weight
+                    + 0.55f * tone_weight
+                ),
+                0.92f
+            );
+            fb = fb * (1.0f - blend) + cb * blend;
+            fg_ = fg_ * (1.0f - blend) + cg * blend;
+            fr = fr * (1.0f - blend) + cr * blend;
+        }
+    }
+
     // Alpha blend
-    float b = (float)fg[px]   * a + (float)bg[px]   * ia;
-    float g = (float)fg[px+1] * a + (float)bg[px+1] * ia;
-    float r = (float)fg[px+2] * a + (float)bg[px+2] * ia;
+    float b = fb * a + (float)bg[px] * ia;
+    float g = fg_ * a + (float)bg[px+1] * ia;
+    float r = fr * a + (float)bg[px+2] * ia;
 
     // Enhance on face region (brightness + contrast + warmth)
     if (enhance_i > 0.0f && face_mask != NULL) {
@@ -3187,7 +3263,6 @@ class VideoEffects:
         contour. For webcam scenes (one subject) this is equivalent; the
         area/span thresholds below are identical.
         """
-        import cupyx
         cp = self._cupy
         from cupyx.scipy import ndimage as cndi
 
@@ -3207,15 +3282,19 @@ class VideoEffects:
 
         areas = cp.bincount(labels.ravel(), minlength=int(num) + 1)
         ys, xs = cp.nonzero(holes)
-        lbl = labels[ys, xs]
-        min_y = cp.full(int(num) + 1, h, dtype=ys.dtype)
-        max_y = cp.zeros(int(num) + 1, dtype=ys.dtype)
-        min_x = cp.full(int(num) + 1, w, dtype=xs.dtype)
-        max_x = cp.zeros(int(num) + 1, dtype=xs.dtype)
-        cupyx.scatter_min(min_y, lbl, ys)
-        cupyx.scatter_max(max_y, lbl, ys)
-        cupyx.scatter_min(min_x, lbl, xs)
-        cupyx.scatter_max(max_x, lbl, xs)
+        # CuPy's indexed min/max reductions do not accept signed int64 data.
+        # Frame coordinates and component labels fit safely in int32.
+        ys = ys.astype(cp.int32, copy=False)
+        xs = xs.astype(cp.int32, copy=False)
+        lbl = labels[ys, xs].astype(cp.int32, copy=False)
+        min_y = cp.full(int(num) + 1, h, dtype=cp.int32)
+        max_y = cp.zeros(int(num) + 1, dtype=cp.int32)
+        min_x = cp.full(int(num) + 1, w, dtype=cp.int32)
+        max_x = cp.zeros(int(num) + 1, dtype=cp.int32)
+        cp.minimum.at(min_y, lbl, ys)
+        cp.maximum.at(max_y, lbl, ys)
+        cp.minimum.at(min_x, lbl, xs)
+        cp.maximum.at(max_x, lbl, xs)
 
         ok = (
             (areas <= max_area)
@@ -3244,29 +3323,33 @@ class VideoEffects:
         # 1. Small close: fill tiny holes in hair/fine detail
         a8 = cndi.grey_closing(a8, footprint=self._gpu_footprint(5))
 
-        # 2. Half-resolution close (2x2 box mean = exact INTER_AREA at 0.5)
-        h, w = a8.shape[:2]
-        if h % 2 == 0 and w % 2 == 0:
-            small = (a8.reshape(h // 2, 2, w // 2, 2)
-                     .astype(cp.float32).mean(axis=(1, 3)).astype(cp.uint8))
-            small = cndi.grey_closing(small, footprint=self._gpu_footprint(25))
-            a8 = cndi.zoom(small, 2, order=1, mode="mirror",
-                           grid_mode=True).astype(cp.uint8)
+        # 2. Do not broadly close Blur mattes. A 25x25 close at half
+        # resolution bridges legitimate exterior gaps between hands and arms.
 
         # 3. Fill interior holes
         a8 = self._fill_small_internal_holes_gpu(
             a8, binary_threshold=30, fill_cutoff=100, fill_value=220,
             max_area_ratio=0.0007, max_span_ratio=0.07)
 
-        # 4. Wide dilate: 2 passes with 7x7
-        fp7 = self._gpu_footprint(7)
-        a8 = cndi.grey_dilation(a8, footprint=fp7)
-        a8 = cndi.grey_dilation(a8, footprint=fp7)
+        # 4. Honor the live edge controls. The old fixed 7x7 two-pass
+        # dilation exposed an inflated silhouette in Blur mode.
+        if self._dilate_size > 0:
+            a8 = cndi.grey_dilation(
+                a8,
+                footprint=self._gpu_footprint(self._dilate_kernel.shape[0]),
+            )
 
-        # 5. Three-pass Gaussian: wide, smooth gradient
+        # 5. Apply the selected transition softness once.
+        if self._blur_size > 1:
+            a8 = cp.clip(
+                self._gpu_gaussian2d(
+                    a8.astype(cp.float32),
+                    self._blur_ksize[0],
+                ),
+                0,
+                255,
+            ).astype(cp.uint8)
         t = a8.astype(cp.float32)
-        for k in (17, 11, 7):
-            t = self._gpu_gaussian2d(t, k)
 
         # 6. Moderate sigmoid
         t = t * (1.0 / 255.0)
@@ -3280,9 +3363,9 @@ class VideoEffects:
         t[core] = 1.0 - (1.0 - t[core]) ** 2.0
         t[t < 0.02] = 0.0
 
-        # 8. Final feathering (quantize to u8 first, matching the CPU path)
+        # 8. Minimal final anti-aliasing (quantize first to match the CPU path)
         r = cp.clip(t * 255, 0, 255).astype(cp.uint8).astype(cp.float32)
-        r = self._gpu_gaussian2d(r, 11)
+        r = self._gpu_gaussian2d(r, 3)
         return (r * (1.0 / 255.0)).astype(cp.float32)
 
     def _refine_alpha_full(
@@ -3292,6 +3375,7 @@ class VideoEffects:
     ) -> np.ndarray:
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
         is_replace = self._bg_mode == "replace"
+        is_blur = self._bg_mode == "blur"
         preserve_detail = (
             is_replace and self._quality in self._DETAIL_QUALITY_PRESETS
         )
@@ -3326,11 +3410,10 @@ class VideoEffects:
                 max_area_ratio=None,
                 reference_shape=reference_shape,
             )
-        # 2. Half-resolution close: keep replacement tighter, keep blur/remove
-        #    more forgiving where wide feathering hides seams. Quality replace
-        #    mode skips this broad close and relies on final-matte cleanup so
-        #    narrow hair/finger channels stay visible.
-        if not preserve_detail:
+        # 2. Half-resolution close for Remove and non-detail Replace. Blur
+        #    skips this broad close so exterior hand/arm gaps stay open.
+        #    Quality Replace also skips it to preserve fine channels.
+        if not preserve_detail and not is_blur:
             h, w = a8.shape[:2]
             small = cv2.resize(a8, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
             close_size = 3 if is_replace else 25
@@ -3391,14 +3474,20 @@ class VideoEffects:
             if preserve_slits is not None and preserve_slits.any():
                 result[preserve_slits] = np.minimum(result[preserve_slits], alpha[preserve_slits])
         else:
-            # 4. Wide dilate for blur/remove: 2 passes with 7x7
-            dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-            a8 = cv2.dilate(a8, dilate_k, iterations=2)
-
-            # 5. Three-pass Gaussian: wide, smooth gradient
-            a8 = cv2.GaussianBlur(a8, (17, 17), 0)
-            a8 = cv2.GaussianBlur(a8, (11, 11), 0)
-            a8 = cv2.GaussianBlur(a8, (7, 7), 0)
+            if is_blur:
+                # Blur uses the live edge controls. A fixed wide dilation made
+                # the matte visible as a separate outline around the subject.
+                if self._dilate_size > 0:
+                    a8 = cv2.dilate(a8, self._dilate_kernel, iterations=1)
+                if self._blur_size > 1:
+                    a8 = cv2.GaussianBlur(a8, self._blur_ksize, 0)
+            else:
+                # Preserve Remove's established green-screen matte behavior.
+                dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+                a8 = cv2.dilate(a8, dilate_k, iterations=2)
+                a8 = cv2.GaussianBlur(a8, (17, 17), 0)
+                a8 = cv2.GaussianBlur(a8, (11, 11), 0)
+                a8 = cv2.GaussianBlur(a8, (7, 7), 0)
 
             # 6. Moderate sigmoid
             t = a8.astype(np.float32) * (1.0 / 255.0)
@@ -3413,9 +3502,11 @@ class VideoEffects:
             result[core] = 1.0 - (1.0 - result[core]) ** 2.0
             result[result < 0.02] = 0.0
 
-            # 8. Final feathering
+            # 8. Final feathering. Blur already applies the selected
+            # softness above, so retain only a minimal anti-alias pass.
             r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
-            r_u8 = cv2.GaussianBlur(r_u8, (11, 11), 0)
+            final_ksize = (3, 3) if is_blur else (11, 11)
+            r_u8 = cv2.GaussianBlur(r_u8, final_ksize, 0)
             result = r_u8.astype(np.float32) * (1.0 / 255.0)
 
         return result
@@ -3432,9 +3523,9 @@ class VideoEffects:
         try:
             cp = self._cupy
 
-            # Keep replace-mode foreground cleanup identical to the CPU/CuPy
-            # blend path so hair/edge fringe does not reappear only in
-            # DocZeus/Killer fused compositing.
+            # Keep replace cleanup aligned with the standard path. Remove-mode
+            # cleanup runs inside the fused GPU compositor so this path can
+            # still reuse the frame upload performed for inference.
             if self._bg_mode == "replace" and self._bg_image is not None:
                 frame = self._prepare_replace_foreground(frame, alpha)
             pending = self._pending_frame_gpu
@@ -3493,6 +3584,16 @@ class VideoEffects:
             bg_gpu = self._fused_bg_gpu
 
         alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
+        if self._bg_mode == "remove":
+            clean_color_gpu, clean_scale = self._gpu_clean_color_reference(
+                fg_gpu, alpha_gpu)
+            despill = 1
+        else:
+            # RawKernel arguments cannot be None. The flag keeps this one-pixel
+            # placeholder unread in blur and replace modes.
+            clean_color_gpu = fg_gpu[:1, :1]
+            clean_scale = 1
+            despill = 0
         output_gpu = cp.empty_like(fg_gpu)
 
         face_mask = self._fused_face_mask
@@ -3517,9 +3618,14 @@ class VideoEffects:
         threads = 256
         blocks = (total + threads - 1) // threads
         kernel((blocks,), (threads,), (
-            fg_gpu, bg_gpu, alpha_gpu,
+            fg_gpu, bg_gpu, alpha_gpu, clean_color_gpu,
             face_mask_gpu, vignette_gpu, output_gpu,
             cp.int32(total),
+            cp.int32(width),
+            cp.int32(clean_color_gpu.shape[1]),
+            cp.int32(clean_color_gpu.shape[0]),
+            cp.int32(clean_scale),
+            cp.int32(despill),
             cp.float32(self._fused_enhance_intensity),
             cp.float32(self._fused_vignette_intensity),
             cp.float32(self._fused_brightness),
@@ -3530,6 +3636,44 @@ class VideoEffects:
             # Horizontal flip on-device so the caller can skip cv2.flip.
             output_gpu = cp.ascontiguousarray(output_gpu[:, ::-1, :])
         return output_gpu
+
+    def _gpu_clean_color_reference(self, fg_gpu, alpha_gpu):
+        """Build a compact foreground-color reference entirely on-device."""
+        cp = self._cupy
+        from cupyx.scipy import ndimage as cndi
+
+        height, width = alpha_gpu.shape
+        work_scale = (
+            8 if max(height, width) >= 960 or min(height, width) >= 540 else 2
+        )
+        work_scale = max(1, min(work_scale, height, width))
+        small_height = max(1, height // work_scale)
+        small_width = max(1, width // work_scale)
+
+        # Ignore only an incomplete trailing block on unusual frame sizes. The
+        # compositor clamps those edge pixels to the nearest reference sample.
+        ref_height = small_height * work_scale
+        ref_width = small_width * work_scale
+        fg_small = fg_gpu[:ref_height, :ref_width].reshape(
+            small_height, work_scale, small_width, work_scale, 4
+        ).mean(axis=(1, 3), dtype=cp.float32)
+        alpha_small = alpha_gpu[:ref_height, :ref_width].reshape(
+            small_height, work_scale, small_width, work_scale
+        ).mean(axis=(1, 3), dtype=cp.float32)
+
+        solid = (alpha_small > 0.94).astype(cp.float32)
+        weighted = fg_small * solid[:, :, cp.newaxis]
+        sigma = 1.0 if work_scale >= 8 else 2.0
+        weighted_sum = cndi.gaussian_filter(
+            weighted, sigma=(sigma, sigma, 0), truncate=2.0, mode="mirror")
+        weights = cndi.gaussian_filter(
+            solid, sigma=sigma, truncate=2.0, mode="mirror")
+        weights_3d = weights[:, :, cp.newaxis]
+        clean = weighted_sum / cp.maximum(weights_3d, 0.001)
+        # Where no solid subject color is nearby, preserving the local sample
+        # is safer than inventing a black edge.
+        clean = cp.where(weights_3d > 0.001, clean, fg_small)
+        return cp.clip(clean, 0, 255).astype(cp.uint8), work_scale
 
     def _gpu_blur_bgra(self, frame_gpu, sigma: float):
         """Background blur for a uint8 BGRA frame on GPU.
