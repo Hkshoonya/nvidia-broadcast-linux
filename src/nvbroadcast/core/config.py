@@ -606,7 +606,7 @@ def apply_builtin_profile(config: AppConfig, name: str) -> bool:
 def detect_system_capabilities() -> dict:
     """Detect system hardware and recommend the best configuration."""
     import os
-    import subprocess
+    from nvbroadcast.core.gpu import detect_gpus
     from nvbroadcast.core.platform import (
         IS_ARM64,
         IS_LINUX,
@@ -641,20 +641,15 @@ def detect_system_capabilities() -> dict:
         caps["gpu_name"] = "Linux ARM64"
         caps["recommended_resolved_mode"] = "cpu_quality"
 
-    # GPU detection (Linux — nvidia-smi)
+    # GPU detection uses nvidia-smi when available and the CUDA driver API in
+    # sandboxes where the host executable is intentionally not exposed.
     if supports_linux_gpu_stack():
-        try:
-            result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, check=True,
-            )
-            line = result.stdout.strip().split("\n")[0]
-            parts = [p.strip() for p in line.split(",")]
-            caps["gpu_name"] = parts[0]
-            caps["gpu_vram_mb"] = int(parts[1])
+        gpus = detect_gpus()
+        if gpus:
+            gpu = gpus[0]
+            caps["gpu_name"] = gpu.name
+            caps["gpu_vram_mb"] = gpu.memory_total_mb
             caps["has_nvidia"] = True
-        except Exception:
-            pass
 
     # GStreamer GL
     try:

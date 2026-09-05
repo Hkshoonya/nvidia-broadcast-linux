@@ -11,6 +11,7 @@ APP_ICON = "com.doczeus.NVBroadcast.svg"
 APP_ICON_PNG = "com.doczeus.NVBroadcast.png"
 DEFAULT_BACKGROUND = "studio_bg.png"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+FLATPAK_SHARE = Path("/app/share")
 
 
 def _existing(paths: list[Path]) -> Path | None:
@@ -34,6 +35,7 @@ def find_ui_css() -> Path | None:
 
 def find_app_icon() -> Path | None:
     share_candidates = [
+        FLATPAK_SHARE / "icons" / "hicolor" / "scalable" / "apps" / APP_ICON,
         Path(sys.prefix) / "share" / "icons" / "hicolor" / "scalable" / "apps" / APP_ICON,
         Path.home() / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps" / APP_ICON,
         Path("/usr/local/share/icons/hicolor/scalable/apps") / APP_ICON,
@@ -51,6 +53,7 @@ def find_app_icon_png() -> Path | None:
     sandboxed runtimes, which left the tray pixmap empty.
     """
     share_candidates = [
+        FLATPAK_SHARE / "icons" / "hicolor" / "128x128" / "apps" / APP_ICON_PNG,
         Path(sys.prefix) / "share" / "icons" / "hicolor" / "128x128" / "apps" / APP_ICON_PNG,
         Path.home() / ".local" / "share" / "icons" / "hicolor" / "128x128" / "apps" / APP_ICON_PNG,
         Path("/usr/local/share/icons/hicolor/128x128/apps") / APP_ICON_PNG,
@@ -62,6 +65,7 @@ def find_app_icon_png() -> Path | None:
 
 def find_backgrounds_dir() -> Path | None:
     share_candidates = [
+        FLATPAK_SHARE / "nvbroadcast" / "backgrounds",
         Path(sys.prefix) / "share" / "nvbroadcast" / "backgrounds",
         Path.home() / ".local" / "share" / "nvbroadcast" / "backgrounds",
         Path("/usr/local/share/nvbroadcast/backgrounds"),

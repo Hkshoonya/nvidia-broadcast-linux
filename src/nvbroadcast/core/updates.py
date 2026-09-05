@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from nvbroadcast.core.platform import running_in_flatpak
+
 
 LATEST_RELEASE_URL = "https://api.github.com/repos/Hkshoonya/nvidia-broadcast-linux/releases/latest"
 DEFAULT_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
@@ -77,6 +79,16 @@ def resolve_update_target(release: ReleaseInfo) -> UpdateTarget:
             button_label="Open Snap Update",
             tooltip="Open the Snap Store page for the latest stable refresh",
             url=SNAP_STORE_URL,
+        )
+
+    if running_in_flatpak():
+        return UpdateTarget(
+            button_label="Open Release Notes",
+            tooltip=(
+                "Flatpak updates are delivered by the configured remote; "
+                f"open the release notes for v{release.version}"
+            ),
+            url=release.html_url or LATEST_RELEASE_URL,
         )
 
     if sys.platform == "darwin":

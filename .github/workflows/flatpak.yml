@@ -1,0 +1,88 @@
+name: Flatpak Development Build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/flatpak.yml'
+      - 'MANIFEST.in'
+      - 'data/**'
+      - 'packaging/flatpak/**'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+env:
+  BUILDER_IMAGE: ghcr.io/flathub-infra/flatpak-github-actions@sha256:bdbeb241813021cf96f3001ccceea46b8e0c3c46a316172992fd60ad9dfc50e2
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONNOUSERSITE: "1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flatpak-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build x86_64 CPU baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate packaging policy
+        env:
+          PYTHONPATH: src
+        run: python3 -m unittest discover -s tests -p 'test_flatpak_packaging.py'
+
+      - name: Lint manifest
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$BUILDER_IMAGE" \
+            flatpak-builder-lint manifest \
+            packaging/flatpak/com.doczeus.NVBroadcast.yml
+
+      - name: Build Flatpak from pinned sources
+        run: |
+          docker run --rm --privileged \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$BUILDER_IMAGE" \
+            flatpak-builder --force-clean --disable-rofiles-fuse \
+            --repo=flatpak-repo flatpak-build \
+            packaging/flatpak/com.doczeus.NVBroadcast.yml
+
+      - name: Validate dependency closure
+        run: |
+          docker run --rm --privileged \
+            -v /etc/machine-id:/etc/machine-id:ro \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$BUILDER_IMAGE" \
+            flatpak build --readonly flatpak-build python3 -m pip check
+
+      - name: Smoke-test finished runtime
+        run: |
+          docker run --rm --privileged \
+            -v /etc/machine-id:/etc/machine-id:ro \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$BUILDER_IMAGE" \
+            flatpak build --runtime --readonly flatpak-build python3 -c \
+            'import cv2, mediapipe, onnxruntime, pyrnnoise, faster_whisper, nvbroadcast; from pathlib import Path; from nvbroadcast.core.platform import running_in_flatpak; from nvbroadcast.core.resources import find_app_icon, find_app_icon_png, find_bundled_backgrounds; assert running_in_flatpak(); assert find_app_icon(); assert find_app_icon_png(); assert len(find_bundled_backgrounds()) == 3; assert Path("/app/share/doc/nvbroadcast/NOTICE").is_file(); assert Path("/app/share/doc/nvbroadcast/CONTRIBUTORS.md").is_file()'
+
+      - name: Validate AppStream metadata
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace:ro" \
+            -w /workspace \
+            "$BUILDER_IMAGE" \
+            flatpak-builder-lint appstream \
+            flatpak-build/files/share/metainfo/com.doczeus.NVBroadcast.metainfo.xml

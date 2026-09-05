@@ -328,6 +328,42 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertIn("immutable Snap", message)
         popen.assert_not_called()
 
+    def test_flatpak_installer_rejects_direct_runtime_mutation(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(
+            dependency_installer, "running_in_flatpak", return_value=True
+        ), mock.patch.object(
+            installer, "is_available", return_value=False
+        ), mock.patch.object(
+            installer, "is_supported", return_value=True
+        ), mock.patch.object(
+            dependency_installer.subprocess, "Popen"
+        ) as popen:
+            self.assertFalse(installer.start_install("tensorrt"))
+            success, message = installer._install_single("tensorrt", "tensorrt")
+
+        self.assertFalse(success)
+        self.assertIn("immutable Flatpak", message)
+        popen.assert_not_called()
+
+    def test_flatpak_cpu_variant_does_not_offer_source_installer(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(
+            installer, "is_available", return_value=False
+        ), mock.patch.object(
+            dependency_installer, "supports_linux_gpu_stack", return_value=True
+        ), mock.patch.object(
+            dependency_installer,
+            "detect_runtime_variant",
+            return_value=dependency_installer.RuntimeVariant.CPU,
+        ), mock.patch.object(
+            dependency_installer, "running_in_flatpak", return_value=True
+        ):
+            reason = installer.install_block_reason("cupy")
+
+        self.assertIn("Flatpak was built with the CPU runtime variant", reason)
+        self.assertNotIn("./install.sh", reason)
+
     def test_bundled_runtime_is_available_even_when_install_is_unsupported(self):
         installer = dependency_installer.DependencyInstaller()
         with mock.patch.dict(dependency_installer.PACKAGE_SPECS["tensorrt"], {"check": lambda: True}), \

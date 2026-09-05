@@ -1,0 +1,62 @@
+# Development manifest. See README.md before distributing this build.
+id: com.doczeus.NVBroadcast
+runtime: org.gnome.Platform
+runtime-version: "50"
+sdk: org.gnome.Sdk
+command: nvbroadcast
+
+build-options:
+  env:
+    PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    PYTHONNOUSERSITE: "1"
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  # Direct V4L2 camera capture and v4l2loopback output are not portal APIs.
+  - --device=all
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --env=PYTHONNOUSERSITE=1
+
+modules:
+  - name: python3-build-tools
+    buildsystem: simple
+    build-commands:
+      - test "$(uname -m)" = "x86_64"
+      - >-
+        pip3 install --verbose --exists-action=i --no-index
+        --find-links="file://${PWD}" --prefix=${FLATPAK_DEST}
+        --ignore-installed --no-deps setuptools==84.0.0 wheel==0.48.0
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl
+        sha256: 51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670
+      - type: file
+        url: https://files.pythonhosted.org/packages/2e/29/69cfbb602cd91690c55d38ba9fe53e6a7e76a6fa647bf38f19c138d25449/wheel-0.48.0-py3-none-any.whl
+        sha256: 3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab
+    cleanup:
+      - /bin/wheel
+      - /lib/python3.13/site-packages/_distutils_hack
+      - /lib/python3.13/site-packages/distutils-precedence.pth
+      - /lib/python3.13/site-packages/setuptools
+      - /lib/python3.13/site-packages/setuptools-*.dist-info
+      - /lib/python3.13/site-packages/wheel
+      - /lib/python3.13/site-packages/wheel-*.dist-info
+
+  - python3-flatpak-requirements.yaml
+
+  - name: nvbroadcast
+    buildsystem: simple
+    build-commands:
+      # SoundFile cannot use ldconfig in the sandbox and falls back to this name.
+      - ln -s /usr/lib/x86_64-linux-gnu/libsndfile.so.1 ${FLATPAK_DEST}/lib/libsndfile.so
+      - >-
+        pip3 install --verbose --exists-action=i --no-index --no-deps
+        --no-build-isolation --prefix=${FLATPAK_DEST} .
+      - python3 -m compileall -q ${FLATPAK_DEST}/lib/python3.13/site-packages/nvbroadcast
+    sources:
+      - type: dir
+        path: ../..

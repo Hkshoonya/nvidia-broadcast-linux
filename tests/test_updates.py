@@ -55,6 +55,20 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(target.button_label, "Open Snap Update")
         self.assertIn("snapcraft.io/nvbroadcast", target.url)
 
+    def test_resolve_update_target_does_not_offer_native_asset_in_flatpak(self):
+        release = release_info_from_payload({
+            "tag_name": "v1.5.3",
+            "html_url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.3",
+        })
+        with mock.patch(
+            "nvbroadcast.core.updates.running_in_flatpak", return_value=True
+        ), mock.patch.dict(os.environ, {}, clear=True):
+            target = resolve_update_target(release)
+
+        self.assertEqual(target.button_label, "Open Release Notes")
+        self.assertIn("configured remote", target.tooltip)
+        self.assertEqual(target.url, release.html_url)
+
     @mock.patch("sys.platform", "darwin")
     def test_resolve_update_target_prefers_pkg_on_macos(self):
         release = release_info_from_payload({
