@@ -1438,6 +1438,7 @@ button:focus-visible, a:focus-visible {
       <button class="install-tab" data-tab="deb">Debian / Ubuntu</button>
       <button class="install-tab" data-tab="rpm">Fedora / RHEL</button>
       <button class="install-tab" data-tab="snap">Snap</button>
+      <button class="install-tab" data-tab="nixos">NixOS</button>
       <button class="install-tab" data-tab="arch">Arch</button>
       <button class="install-tab" data-tab="macos">macOS</button>
     </div>
@@ -1540,6 +1541,37 @@ button:focus-visible, a:focus-visible {
         <p class="install-note">For systems with Snap support. Snap Store updates are released separately after artifact inspection, provenance verification, Store review, and candidate testing. v1.5.2 is now available in the stable channel; `snap refresh nvbroadcast` upgrades in place with camera-format recovery, strict-Snap meeting transcription, verified runtime ownership, and cumulative contributor credits. The arm64 Snap remains CPU-only.</p>
       </div>
 
+      <!-- NixOS -->
+      <div class="install-pane" id="pane-nixos">
+        <div class="terminal" role="region" aria-label="NixOS configuration">
+          <div class="terminal-bar">
+            <div class="terminal-dot r" aria-hidden="true"></div>
+            <div class="terminal-dot y" aria-hidden="true"></div>
+            <div class="terminal-dot g" aria-hidden="true"></div>
+            <span>nix</span>
+          </div>
+          <div class="terminal-body" role="code">
+            <button class="copy-btn" aria-label="Copy NixOS module configuration" onclick="copyCommand('nixos')">Copy</button>
+            <div class="terminal-line"><span class="comment"># flake.nix</span></div>
+            <div class="terminal-line"><span class="cmd">inputs.nvbroadcast = {</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;url = "github:Hkshoonya/nvidia-broadcast-linux";</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;inputs.nixpkgs.follows = "nixpkgs";</span></div>
+            <div class="terminal-line"><span class="cmd">};</span></div>
+            <div class="terminal-line"><br></div>
+            <div class="terminal-line"><span class="comment"># Inside nixosSystem</span></div>
+            <div class="terminal-line"><span class="cmd">modules = [</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;nvbroadcast.nixosModules.default</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;{</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;&nbsp;&nbsp;programs.nvbroadcast = {</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;enable = true;</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;&nbsp;&nbsp;};</span></div>
+            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;}</span></div>
+            <div class="terminal-line"><span class="cmd">];</span></div>
+          </div>
+        </div>
+        <p class="install-note">For x86_64 NixOS. Add the GitHub flake input, reuse your host's Nixpkgs input, and import `nvbroadcast.nixosModules.default`. The module defaults PipeWire with Pulse compatibility plus v4l2loopback on `/dev/video10`. NVIDIA driver defaults are opt-in with `programs.nvbroadcast.nvidia.enable = true`.</p>
+      </div>
+
       <!-- Arch -->
       <div class="install-pane" id="pane-arch">
         <div class="terminal" role="region" aria-label="Terminal command">
@@ -1590,7 +1622,7 @@ button:focus-visible, a:focus-visible {
       <div class="req-card">
         <h3>Linux</h3>
         <ul>
-          <li>Any distro (Ubuntu, Fedora, Arch, Pop!_OS...)</li>
+          <li>Any distro (Ubuntu, Fedora, Arch, NixOS, Pop!_OS...)</li>
           <li>NVIDIA GTX 1060+ for GPU modes</li>
           <li>Python 3.11+, GStreamer, GTK4</li>
           <li>PipeWire for virtual mic</li>
@@ -1779,6 +1811,7 @@ const commands = {
   deb: '(\nset -euo pipefail\nWORKDIR=$(mktemp -d)\ncd "$WORKDIR"\nBASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.2\nPACKAGE=nvbroadcast_1.5.2-1_all.deb\nwget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"\nawk -v package="$PACKAGE" \'$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }\' SHA256SUMS.packages | sha256sum -c -\nchmod 755 nvbroadcast-native-upgrade\nif dpkg-query -W -f=\'${db:Status-Abbrev}\' nvbroadcast 2>/dev/null | grep -q \'^i\'; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo apt-get install --yes --no-remove "./$PACKAGE"; fi\n)',
   rpm: '(\nset -euo pipefail\nWORKDIR=$(mktemp -d)\ncd "$WORKDIR"\nBASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.2\nPACKAGE=nvbroadcast-1.5.2-1.noarch.rpm\nwget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"\nawk -v package="$PACKAGE" \'$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }\' SHA256SUMS.packages | sha256sum -c -\nchmod 755 nvbroadcast-native-upgrade\nif rpm -q nvbroadcast >/dev/null 2>&1; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo dnf install --assumeyes "./$PACKAGE"; fi\n)',
   snap: 'sudo snap install nvbroadcast || sudo snap refresh nvbroadcast',
+  nixos: 'inputs.nvbroadcast = {\n  url = "github:Hkshoonya/nvidia-broadcast-linux";\n  inputs.nixpkgs.follows = "nixpkgs";\n};\n\n# Inside nixosSystem\nmodules = [\n  nvbroadcast.nixosModules.default\n  {\n    programs.nvbroadcast = {\n      enable = true;\n    };\n  }\n];',
   arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
   macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'
 };

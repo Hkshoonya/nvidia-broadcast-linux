@@ -313,6 +313,77 @@ package-manager upgrade is not safe on those versions.
 
 Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
 
+### NixOS
+
+Add NV Broadcast to your flake inputs and import its NixOS module:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nvbroadcast = {
+      url = "github:Hkshoonya/nvidia-broadcast-linux";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs =
+    {
+      nixpkgs,
+      nvbroadcast,
+      ...
+    }:
+    {
+      nixosConfigurations.hostname = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          nvbroadcast.nixosModules.default
+          { programs.nvbroadcast.enable = true; }
+        ];
+      };
+    };
+}
+```
+
+The module installs the flake's `packages.x86_64-linux.nvbroadcast` package by
+default. It also configures the PipeWire and virtual-camera host pieces the app
+needs:
+
+- v4l2loopback virtual camera setup
+- PipeWire with PulseAudio compatibility
+
+If your system does not already configure the NVIDIA driver, opt into the
+module's basic NVIDIA defaults:
+
+```nix
+{
+  hardware.nvidia.open = true;
+
+  programs.nvbroadcast = {
+    enable = true;
+    nvidia.enable = true;
+  };
+}
+```
+
+See [`nix/module.nix`](nix/module.nix) for all module options.
+
+For a package-only install, omit `nvbroadcast.nixosModules.default` and add the
+package directly inside the same `nixosSystem` definition:
+
+```nix
+modules = [
+  {
+    environment.systemPackages = [
+      nvbroadcast.packages.x86_64-linux.nvbroadcast
+    ];
+  }
+];
+```
+
+When using the package without the NixOS module, configure the NVIDIA driver,
+PipeWire with PulseAudio compatibility, and v4l2loopback host settings yourself.
+
 ### Linux Installer Details
 
 The installer:
@@ -358,7 +429,8 @@ modes instead.
 | Fedora, RHEL, CentOS, Rocky | dnf/yum | Full auto-install |
 | Arch, Manjaro, EndeavourOS | pacman | Full auto-install |
 | openSUSE | zypper | Full auto-install |
-| Gentoo, Void, NixOS | portage/xbps/nix | Manual instructions shown |
+| NixOS | nix | NixOS module or Nixpkgs package |
+| Gentoo, Void | portage/xbps | Manual instructions shown |
 
 <details>
 <summary>Click to expand manual install steps</summary>
