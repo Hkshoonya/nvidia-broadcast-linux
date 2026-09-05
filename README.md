@@ -249,7 +249,7 @@ When Edge Refine is toggled ON (Zeus/Killer modes):
 
 ### Software
 - **Linux** with NVIDIA driver 525+ (Pop!_OS, Ubuntu, Fedora, Arch, openSUSE, etc.)
-- **Python** 3.11+ (the Linux source installer uses CPython 3.11-3.13 for the current broad-feature runtime)
+- **Python** 3.11+ (the Linux source installer accepts any CPython 3.11+ interpreter that can import GTK4/Libadwaita/GStreamer bindings; Python 3.12/3.13 currently give the broadest premium-feature compatibility, see [Python runtime notice](#optional-tensorrt-for-zeuskiller-modes))
 - **PipeWire** (virtual microphone)
 - **PulseAudio utilities** (`pactl`) for speaker-monitor routing and device resolution
 - **GStreamer** 1.20+ with plugins-base, plugins-good, plugins-bad

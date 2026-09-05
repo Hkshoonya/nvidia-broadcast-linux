@@ -63,6 +63,12 @@ diminish authorship of any contribution.
   safely to a stopped state
   ([#52](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/52)).
 
+### KadotyGamer ([@KadotyGamer](https://github.com/KadotyGamer))
+
+- Allowed the Linux source installer to accept Python 3.14, gating on actual
+  GTK4/Libadwaita/GStreamer binding availability instead of a hardcoded
+  version ceiling (PR pending).
+
 ## Other Community Contributions
 
 Bug reports, reproduction details, hardware testing, review comments,

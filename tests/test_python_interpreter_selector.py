@@ -60,11 +60,12 @@ exit 1
             check=False,
         )
 
-    def _shadow_all_candidates(self, version: tuple[int, int] = (3, 14)) -> None:
-        for name in ("python3.13", "python3.12", "python3.11", "python3"):
+    def _shadow_all_candidates(self, version: tuple[int, int] = (3, 10)) -> None:
+        for name in ("python3.14", "python3.13", "python3.12", "python3.11", "python3"):
             self._write_interpreter(name, version)
 
-    def test_prefers_313_then_312_then_311(self):
+    def test_prefers_314_then_313_then_312_then_311(self):
+        self._write_interpreter("python3.14", (3, 14))
         self._write_interpreter("python3.13", (3, 13))
         self._write_interpreter("python3.12", (3, 12))
         self._write_interpreter("python3.11", (3, 11))
@@ -74,11 +75,12 @@ exit 1
 
         self.assertEqual(result.returncode, 0, result.stderr)
         executable, version, major, minor = result.stdout.strip().split("\t")
-        self.assertEqual(Path(executable), self.bin_dir / "python3.13")
-        self.assertEqual((version, major, minor), ("3.13", "3", "13"))
+        self.assertEqual(Path(executable), self.bin_dir / "python3.14")
+        self.assertEqual((version, major, minor), ("3.14", "3", "14"))
 
     def test_skips_candidate_without_venv_support(self):
-        self._write_interpreter("python3.13", (3, 13), has_venv=False)
+        self._write_interpreter("python3.14", (3, 14), has_venv=False)
+        self._write_interpreter("python3.13", (3, 13))
         self._write_interpreter("python3.12", (3, 12))
         self._write_interpreter("python3.11", (3, 11))
         self._write_interpreter("python3", (3, 11))
@@ -87,12 +89,12 @@ exit 1
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            Path(result.stdout.split("\t", 1)[0]), self.bin_dir / "python3.12"
+            Path(result.stdout.split("\t", 1)[0]), self.bin_dir / "python3.13"
         )
 
     def test_uses_compatible_generic_python3_as_last_fallback(self):
-        for name in ("python3.13", "python3.12", "python3.11"):
-            self._write_interpreter(name, (3, 14))
+        for name in ("python3.14", "python3.13", "python3.12", "python3.11"):
+            self._write_interpreter(name, (3, 10))
         self._write_interpreter("python3", (3, 11))
 
         result = self._run_selector()
@@ -129,13 +131,23 @@ exit 1
         self.assertEqual(Path(executable), requested)
         self.assertEqual(version, "3.12")
 
-    def test_rejects_explicit_python_314(self):
+    def test_accepts_explicit_python_314(self):
         requested = self._write_interpreter("python3.14", (3, 14))
 
         result = self._run_selector("--python", str(requested))
 
+        self.assertEqual(result.returncode, 0, result.stderr)
+        executable, version, *_ = result.stdout.strip().split("\t")
+        self.assertEqual(Path(executable), requested)
+        self.assertEqual(version, "3.14")
+
+    def test_rejects_explicit_python_too_old(self):
+        requested = self._write_interpreter("python3.10", (3, 10))
+
+        result = self._run_selector("--python", str(requested))
+
         self.assertEqual(result.returncode, 1)
-        self.assertIn("must select CPython 3.11-3.13; found 3.14", result.stderr)
+        self.assertIn("must select CPython 3.11 or newer; found 3.10", result.stderr)
         self.assertIn("will not replace the system Python", result.stderr)
 
     def test_rejects_non_cpython_interpreter(self):

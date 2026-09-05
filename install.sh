@@ -292,7 +292,8 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     ERRORS+=("This installer only supports Linux")
 fi
 
-# The selector accepts only CPython 3.11-3.13 and validates venv support.
+# The selector accepts CPython 3.11 and newer (gated on desktop-binding
+# availability, not a hardcoded ceiling) and validates venv support.
 echo "  Python $PY_VER ($PYTHON_BIN) ... OK"
 
 # Recheck venv and its pip bootstrap defensively in case the selected
