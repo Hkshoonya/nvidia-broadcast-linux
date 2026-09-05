@@ -16,6 +16,7 @@ class PythonInterpreterSelectorTests(unittest.TestCase):
         self.addCleanup(self.temporary_directory.cleanup)
         self.bin_dir = Path(self.temporary_directory.name) / "bin"
         self.bin_dir.mkdir()
+        self._shadow_all_candidates()
 
     def _write_interpreter(
         self,
@@ -60,24 +61,34 @@ exit 1
             check=False,
         )
 
-    def _shadow_all_candidates(self, version: tuple[int, int] = (3, 14)) -> None:
-        for name in ("python3.13", "python3.12", "python3.11", "python3"):
+    def _shadow_all_candidates(self, version: tuple[int, int] = (3, 10)) -> None:
+        for name in ("python3.14", "python3.13", "python3.12", "python3.11", "python3"):
             self._write_interpreter(name, version)
 
-    def test_prefers_313_then_312_then_311(self):
-        self._write_interpreter("python3.13", (3, 13))
-        self._write_interpreter("python3.12", (3, 12))
-        self._write_interpreter("python3.11", (3, 11))
+    def test_preserves_broad_feature_preference_before_python_314(self):
+        candidates = ((3, 13), (3, 12), (3, 11), (3, 14))
+        for version in candidates:
+            self._write_interpreter(f"python{version[0]}.{version[1]}", version)
         self._write_interpreter("python3", (3, 11))
 
-        result = self._run_selector()
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        executable, version, major, minor = result.stdout.strip().split("\t")
-        self.assertEqual(Path(executable), self.bin_dir / "python3.13")
-        self.assertEqual((version, major, minor), ("3.13", "3", "13"))
+        for major, minor in candidates:
+            with self.subTest(version=(major, minor)):
+                result = self._run_selector()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                executable, version, selected_major, selected_minor = (
+                    result.stdout.strip().split("\t")
+                )
+                self.assertEqual(
+                    Path(executable), self.bin_dir / f"python{major}.{minor}"
+                )
+                self.assertEqual(
+                    (version, selected_major, selected_minor),
+                    (f"{major}.{minor}", str(major), str(minor)),
+                )
+                self._write_interpreter(f"python{major}.{minor}", (3, 10))
 
     def test_skips_candidate_without_venv_support(self):
+        self._write_interpreter("python3.14", (3, 14))
         self._write_interpreter("python3.13", (3, 13), has_venv=False)
         self._write_interpreter("python3.12", (3, 12))
         self._write_interpreter("python3.11", (3, 11))
@@ -91,8 +102,8 @@ exit 1
         )
 
     def test_uses_compatible_generic_python3_as_last_fallback(self):
-        for name in ("python3.13", "python3.12", "python3.11"):
-            self._write_interpreter(name, (3, 14))
+        for name in ("python3.14", "python3.13", "python3.12", "python3.11"):
+            self._write_interpreter(name, (3, 10))
         self._write_interpreter("python3", (3, 11))
 
         result = self._run_selector()
@@ -103,6 +114,7 @@ exit 1
         )
 
     def test_desktop_check_falls_back_to_compatible_interpreter(self):
+        self._write_interpreter("python3.14", (3, 14))
         self._write_interpreter("python3.13", (3, 13), has_desktop_bindings=False)
         self._write_interpreter("python3.12", (3, 12))
         self._write_interpreter("python3.11", (3, 11))
@@ -113,6 +125,20 @@ exit 1
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             Path(result.stdout.split("\t", 1)[0]), self.bin_dir / "python3.12"
+        )
+
+    def test_desktop_check_accepts_python_314_when_older_bindings_are_missing(self):
+        for minor in (13, 12, 11):
+            self._write_interpreter(
+                f"python3.{minor}", (3, minor), has_desktop_bindings=False
+            )
+        self._write_interpreter("python3.14", (3, 14))
+
+        result = self._run_selector("--require-desktop-bindings")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            Path(result.stdout.split("\t", 1)[0]), self.bin_dir / "python3.14"
         )
 
     def test_explicit_path_overrides_automatic_preference(self):
@@ -129,14 +155,32 @@ exit 1
         self.assertEqual(Path(executable), requested)
         self.assertEqual(version, "3.12")
 
-    def test_rejects_explicit_python_314(self):
+    def test_accepts_explicit_python_314(self):
         requested = self._write_interpreter("python3.14", (3, 14))
 
         result = self._run_selector("--python", str(requested))
 
+        self.assertEqual(result.returncode, 0, result.stderr)
+        executable, version, *_ = result.stdout.strip().split("\t")
+        self.assertEqual(Path(executable), requested)
+        self.assertEqual(version, "3.14")
+
+    def test_rejects_explicit_python_too_old(self):
+        requested = self._write_interpreter("python3.10", (3, 10))
+
+        result = self._run_selector("--python", str(requested))
+
         self.assertEqual(result.returncode, 1)
-        self.assertIn("must select CPython 3.11-3.13; found 3.14", result.stderr)
+        self.assertIn("must select CPython 3.11-3.14; found 3.10", result.stderr)
         self.assertIn("will not replace the system Python", result.stderr)
+
+    def test_rejects_python_newer_than_supported_runtime_wheels(self):
+        requested = self._write_interpreter("python3.15", (3, 15))
+
+        result = self._run_selector("--python", str(requested))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must select CPython 3.11-3.14; found 3.15", result.stderr)
 
     def test_rejects_non_cpython_interpreter(self):
         requested = self._write_interpreter("pypy3", (3, 11), implementation="PyPy")
@@ -148,7 +192,7 @@ exit 1
 
     def test_rejects_explicit_interpreter_without_desktop_bindings(self):
         requested = self._write_interpreter(
-            "python3.13", (3, 13), has_desktop_bindings=False
+            "python3.14", (3, 14), has_desktop_bindings=False
         )
 
         result = self._run_selector(
