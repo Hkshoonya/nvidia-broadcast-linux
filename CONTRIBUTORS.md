@@ -67,7 +67,8 @@ diminish authorship of any contribution.
 
 - Allowed the Linux source installer to accept Python 3.14, gating on actual
   GTK4/Libadwaita/GStreamer binding availability instead of a hardcoded
-  version ceiling (PR pending).
+  version ceiling 
+  ([#103](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/103)).
 
 ## Other Community Contributions
 
