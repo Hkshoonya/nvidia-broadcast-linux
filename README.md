@@ -249,7 +249,7 @@ When Edge Refine is toggled ON (Zeus/Killer modes):
 
 ### Software
 - **Linux** with NVIDIA driver 525+ (Pop!_OS, Ubuntu, Fedora, Arch, openSUSE, etc.)
-- **Python** 3.11+ (the Linux source installer accepts any CPython 3.11+ interpreter that can import GTK4/Libadwaita/GStreamer bindings; Python 3.12/3.13 currently give the broadest premium-feature compatibility, see [Python runtime notice](#optional-tensorrt-for-zeuskiller-modes))
+- **Python** 3.11+ (the Linux source installer supports CPython 3.11-3.14 with compatible GTK4/Libadwaita/GStreamer bindings; Python 3.12/3.13 currently give the broadest premium-feature compatibility, see [Python runtime notice](#optional-tensorrt-for-zeuskiller-modes))
 - **PipeWire** (virtual microphone)
 - **PulseAudio utilities** (`pactl`) for speaker-monitor routing and device resolution
 - **GStreamer** 1.20+ with plugins-base, plugins-good, plugins-bad
@@ -270,8 +270,10 @@ cd nvidia-broadcast-linux
 ```
 
 The Linux source installer uses an already-installed compatible interpreter in
-this order: CPython 3.13, 3.12, then 3.11. It creates only the repository's
-`.venv`; it does not replace the distro's system Python or add a package
+this order: CPython 3.13, 3.12, 3.11, then 3.14, followed by a compatible
+`python3`. This preserves the current TensorRT-compatible preference while
+supporting distros whose desktop bindings target Python 3.14. It creates only
+the repository's `.venv`; it does not replace the distro's system Python or add a package
 repository. Compatibility includes `venv`/`ensurepip` support and access to the
 distro's GTK4, Libadwaita, and GStreamer Python bindings. To select a specific
 compatible interpreter:
@@ -279,6 +281,11 @@ compatible interpreter:
 ```bash
 ./install.sh --python /usr/bin/python3.12
 ```
+
+Use `--python /usr/bin/python3.14` to choose Python 3.14 explicitly. The current
+ONNX Runtime/TensorRT combination remains unsupported on that interpreter;
+ordinary CUDA and CPU processing remain available. Newer Python versions need
+runtime-wheel validation before the source installer accepts them.
 
 If no compatible interpreter with `venv` support is installed, the installer
 stops before changing the system and prints guidance for the detected distro.

@@ -103,10 +103,9 @@ inspect_python() {
         INSPECT_REASON="not-cpython"
         return 1
     fi
-    # No upper bound: PyGObject dropped its Python ceiling and fixed 3.14
-    # compatibility upstream, so newer interpreters are accepted here and
-    # gated only on whether the actual desktop bindings import (below).
-    if [ "$INSPECT_MAJOR" -ne 3 ] || [ "$INSPECT_MINOR" -lt 11 ]; then
+    # Python 3.14 supports the desktop bindings, but their availability alone
+    # does not prove that the pinned ONNX/CUDA runtime has compatible wheels.
+    if [ "$INSPECT_MAJOR" -ne 3 ] || [ "$INSPECT_MINOR" -lt 11 ] || [ "$INSPECT_MINOR" -gt 14 ]; then
         INSPECT_REASON="unsupported-version"
         return 1
     fi
@@ -136,7 +135,7 @@ from gi.repository import Adw, GdkPixbuf, Gst, GstVideo, Gtk
 print_apt_guidance() {
     local version
     if command -v apt-cache &>/dev/null; then
-        for version in 3.14 3.13 3.12 3.11; do
+        for version in 3.13 3.12 3.11 3.14; do
             if apt-cache show "python${version}" &>/dev/null &&
                apt-cache show "python${version}-venv" &>/dev/null; then
                 echo "  sudo apt install python${version} python${version}-venv" >&2
@@ -146,11 +145,12 @@ print_apt_guidance() {
         done
     fi
     echo "  apt-cache policy python3.14 python3.13 python3.12 python3.11" >&2
-    echo "Install the newest listed version and its matching -venv package." >&2
+    echo "Install a supported listed version and its matching -venv package." >&2
 }
 
 print_install_guidance() {
-    echo "Install CPython 3.14, 3.13, 3.12, or 3.11 from your distro's official repositories." >&2
+    echo "Install CPython 3.11-3.14 from your distro's official repositories." >&2
+    echo "Prefer Python 3.13, 3.12, or 3.11 for the current TensorRT runtime." >&2
     case "$PACKAGE_MANAGER" in
         apt)
             echo "Ubuntu/Debian family:" >&2
@@ -184,7 +184,7 @@ print_install_guidance() {
             echo "Arch family:" >&2
             echo "  pacman -Si python" >&2
             echo "  sudo pacman -S python" >&2
-            echo "Rerun only if the official package is Python 3.11 or newer; otherwise pass an independently managed interpreter with --python." >&2
+            echo "Rerun only if the official package is Python 3.11-3.14; otherwise pass an independently managed interpreter with --python." >&2
             ;;
         portage)
             echo "Gentoo:" >&2
@@ -195,7 +195,7 @@ print_install_guidance() {
             echo "Void Linux:" >&2
             echo "  xbps-query -R python3" >&2
             echo "  sudo xbps-install -S python3" >&2
-            echo "Rerun only if the official package is Python 3.11 or newer." >&2
+            echo "Rerun only if the official package is Python 3.11-3.14." >&2
             ;;
         nix)
             echo "NixOS:" >&2
@@ -235,7 +235,7 @@ if [ -n "$PYTHON_REQUEST" ]; then
     case "$INSPECT_REASON" in
         not-found) echo "ERROR: --python interpreter '$PYTHON_REQUEST' was not found or is not executable." >&2 ;;
         not-cpython) echo "ERROR: --python must select CPython; found ${INSPECT_IMPLEMENTATION:-an unknown implementation}." >&2 ;;
-        unsupported-version) echo "ERROR: --python must select CPython 3.11 or newer; found ${INSPECT_VERSION:-an unknown version}." >&2 ;;
+        unsupported-version) echo "ERROR: --python must select CPython 3.11-3.14; found ${INSPECT_VERSION:-an unknown version}." >&2 ;;
         missing-venv) echo "ERROR: $PYTHON_REQUEST is CPython $INSPECT_VERSION but its venv module is unavailable." >&2 ;;
         missing-desktop-bindings)
             echo "ERROR: $PYTHON_REQUEST cannot import the required GTK4, Libadwaita, and GStreamer bindings." >&2
@@ -249,7 +249,9 @@ if [ -n "$PYTHON_REQUEST" ]; then
 fi
 
 SAW_MISSING_DESKTOP_BINDINGS=false
-for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
+# Preserve the current broad-feature preference so an installer rerun does
+# not replace a working older environment just because 3.14 became available.
+for candidate in python3.13 python3.12 python3.11 python3.14 python3; do
     if inspect_python "$candidate"; then
         emit_selection
         exit 0
@@ -260,7 +262,7 @@ for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
 done
 
 if [ "$REQUIRE_DESKTOP_BINDINGS" = true ] && [ "$SAW_MISSING_DESKTOP_BINDINGS" = true ]; then
-    echo "ERROR: No CPython 3.11+ interpreter can import the required desktop bindings." >&2
+    echo "ERROR: No CPython 3.11-3.14 interpreter can import the required desktop bindings." >&2
     print_desktop_binding_guidance
     exit 1
 fi

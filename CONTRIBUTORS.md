@@ -65,9 +65,8 @@ diminish authorship of any contribution.
 
 ### KadotyGamer ([@KadotyGamer](https://github.com/KadotyGamer))
 
-- Allowed the Linux source installer to accept Python 3.14, gating on actual
-  GTK4/Libadwaita/GStreamer binding availability instead of a hardcoded
-  version ceiling 
+- Added Python 3.14 support to the Linux source installer with checks for
+  actual GTK4/Libadwaita/GStreamer binding availability
   ([#103](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/103)).
 
 ## Other Community Contributions
