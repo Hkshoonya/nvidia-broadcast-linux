@@ -2208,6 +2208,13 @@ class VideoEffects:
         dropping = alpha < prev - 0.05
         weight[dropping] *= drop_scale
 
+        if self._bg_mode == "replace":
+            # A moving finger occupies too little of the frame to trip the
+            # global motion gate. Retain smoothing for small model jitter,
+            # but release history where the local silhouette clearly moved.
+            local_motion = np.abs(alpha - prev)
+            weight *= np.clip((0.24 - local_motion) / 0.16, 0.0, 1.0)
+
         return weight * prev + (1.0 - weight) * alpha
 
     def _temporal_smooth_gpu(self, alpha, matte_version: int | None = None):
@@ -2400,9 +2407,19 @@ class VideoEffects:
         if not added.any():
             return np.zeros_like(original_u8, dtype=bool)
 
+        # Only protect channels connected to the camera background. Compact
+        # enclosed holes may still be segmentation defects that need repair.
+        exterior = np.pad(original, 1, constant_values=0)
+        cv2.floodFill(exterior, None, (0, 0), 128)
+        added &= (exterior[1:-1, 1:-1] == 128).astype(np.uint8)
+        if not added.any():
+            return np.zeros_like(original_u8, dtype=bool)
+
         h, w = original_u8.shape[:2]
         ref_h, ref_w = reference_shape or (h, w)
-        min_long = max(3, int(max(ref_h, ref_w) * min_span_ratio))
+        # The close kernel bridges the same few pixels at every resolution.
+        # A 20px finger gap must not stop qualifying on a 720p/1080p frame.
+        min_long = max(3, min(6, int(max(ref_h, ref_w) * min_span_ratio)))
         max_short = max(2, min(12, int(min(ref_h, ref_w) * max_span_ratio)))
         max_area = None if max_area_ratio is None else max(8, int(ref_h * ref_w * max_area_ratio))
 
@@ -2436,7 +2453,15 @@ class VideoEffects:
                 if not (top.any() and bottom.any()):
                     continue
 
-            preserve |= labels == idx
+            preserve[y0:y1, x0:x1] |= labels[y0:y1, x0:x1] == idx
+        if preserve.any():
+            # The close leaves the first pixel at an opening untouched, but
+            # subsequent feathering can seal that mouth and turn the channel
+            # into an apparent internal hole. Retain its immediate background
+            # neighbors as well, without changing adjacent foreground/contact.
+            preserve = cv2.dilate(
+                preserve.astype(np.uint8), np.ones((3, 3), dtype=np.uint8),
+            ).astype(bool) & (exterior[1:-1, 1:-1] == 128)
         return preserve
 
     def _replacement_matte(self, alpha: np.ndarray,
@@ -2510,6 +2535,7 @@ class VideoEffects:
         matte[matte > 0.985] = 1.0
 
         matte_u8 = np.clip(matte * 255.0, 0, 255).astype(np.uint8)
+        original_matte_u8 = matte_u8
         work_mask = matte_u8
         work_scale = 1
         if max(matte_u8.shape[:2]) >= 960 or min(matte_u8.shape[:2]) >= 540:
@@ -2558,6 +2584,24 @@ class VideoEffects:
             matte_u8 = work_mask
             preserve_holes = preserve_holes_small
 
+        preserve_slits = None
+        if work_scale > 1:
+            # Half-resolution filtering can erase narrow exterior channels
+            # that survived inference refinement. Detect their original shape
+            # with a local close, without applying that close to the matte.
+            # Comparing against every resized fringe would join the channel
+            # to the whole silhouette's interpolation rim instead.
+            gap_probe = cv2.morphologyEx(
+                original_matte_u8, cv2.MORPH_CLOSE,
+                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+            )
+            preserve_slits = self._preserve_narrow_exterior_gaps(
+                original_matte_u8, gap_probe,
+                binary_threshold=74,
+                min_span_ratio=0.025,
+                max_span_ratio=0.24,
+                reference_shape=reference_shape,
+            )
         matte = matte_u8.astype(np.float32) * (1.0 / 255.0)
 
         mid = (matte > 0.04) & (matte < 0.55)
@@ -2568,6 +2612,8 @@ class VideoEffects:
         matte[solid] = np.maximum(matte[solid], 0.995)
         if preserve_holes.any():
             matte[preserve_holes] = np.minimum(matte[preserve_holes], alpha[preserve_holes])
+        if preserve_slits is not None and preserve_slits.any():
+            matte[preserve_slits] = np.minimum(matte[preserve_slits], alpha[preserve_slits])
         matte[matte < 0.12] = 0.0
         return matte
 
