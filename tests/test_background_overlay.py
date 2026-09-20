@@ -971,6 +971,42 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertGreater(float(refined[280, 512]), float(matte[280, 512]), "ROI edge should still harden exit fringe")
         self.assertEqual(float(refined[12, 12]), float(matte[12, 12]), "solid pixels outside the ROI must be untouched")
 
+    def test_edge_refinement_is_local_with_sparse_or_dense_partial_opacity(self):
+        effects = self._make_effects()
+        frame = np.zeros((64, 96, 4), dtype=np.uint8)
+        frame[:, 48:, :3] = 230
+        frame[:, :, 3] = 255
+        sparse = np.zeros((64, 96), dtype=np.float32)
+        sparse[:, 48:] = 1.0
+        sparse[:, 44:52] = np.array(
+            [0.02, 0.07, 0.11, 0.34, 0.66, 0.82, 0.97, 0.99], dtype=np.float32,
+        )
+        dense = sparse.copy()
+        dense[:, :44] = 0.25
+        dense[:, 52:] = 0.75
+        # Unrelated partial-opacity pixels must not change the shared edge.
+        # Read-only inputs also catch accidental in-place cleanup.
+        frame.setflags(write=False)
+        sparse.setflags(write=False)
+        dense.setflags(write=False)
+        for preserve_detail in (False, True):
+            for downsample in (False, True):
+                with self.subTest(detail=preserve_detail, downsample=downsample):
+                    results = []
+                    for matte in (sparse, dense):
+                        transition = (matte > 0.05) & (matte < 0.95)
+                        results.append(effects._edge_aware_replace_matte_region(
+                            frame, matte, transition, preserve_detail, downsample,
+                        ))
+                    np.testing.assert_allclose(
+                        results[0][:, 44:52], results[1][:, 44:52],
+                        rtol=0, atol=1e-7,
+                    )
+                    self.assertTrue(np.all(results[0][:, :44] == 0))
+                    self.assertTrue(np.all(results[0][:, 52:] == 1))
+                    self.assertTrue(np.all(sparse[:, :44] == 0))
+                    self.assertTrue(np.all(dense[:, :44] == 0.25))
+
     def test_greenscreen_matte_is_tighter_than_replace_matte(self):
         effects = self._make_effects()
         effects._bg_mode = "remove"

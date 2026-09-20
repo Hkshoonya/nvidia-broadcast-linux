@@ -3,7 +3,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-import cv2
 import numpy as np
 import onnx
 from onnx import TensorProto, helper, numpy_helper
@@ -334,7 +333,6 @@ class TensorrtRvmTests(unittest.TestCase):
         backend = _RVMBackend(1)
         backend.session = mock.Mock()
         outputs = [
-            np.zeros((1, 3, 480, 640), dtype=np.float32),
             np.zeros((1, 1, 480, 640), dtype=np.float32),
             np.zeros((1, 16, 90, 120), dtype=np.float32),
             np.zeros((1, 32, 45, 60), dtype=np.float32),
@@ -357,7 +355,34 @@ class TensorrtRvmTests(unittest.TestCase):
         self.assertEqual(alpha.shape, (480, 640))
         reset_state.assert_called_once()
         backend.session.run.assert_called_once()
+        self.assertEqual(
+            backend.session.run.call_args.args[0],
+            ["pha", "r1o", "r2o", "r3o", "r4o"],
+        )
         self.assertEqual(backend._state_input_shape, (640, 480))
+
+    def test_infer_fetches_only_matte_and_preserves_recurrent_state_order(self):
+        backend = _RVMBackend(0)
+        backend.session = mock.Mock()
+        backend.session.get_providers.return_value = ["CUDAExecutionProvider"]
+        backend._downsample_ratio = np.array([0.5], dtype=np.float32)
+        backend.reset_state(log=False)
+        states = [np.full((1, i, 2, 3), i, dtype=np.float32) for i in range(1, 5)]
+        matte = np.full((1, 1, 8, 12), 0.5, dtype=np.float32)
+        backend.session.run.return_value = [matte, *states]
+        frame = np.full((8, 12, 4), 80, dtype=np.uint8)
+
+        for _ in range(2):
+            result = backend.infer(frame, 12, 8)
+            np.testing.assert_array_equal(result, matte[0, 0])
+            for name, state in zip(("_r1", "_r2", "_r3", "_r4"), states):
+                self.assertIs(getattr(backend, name), state)
+
+        for call in backend.session.run.call_args_list:
+            self.assertEqual(call.args[0], ["pha", "r1o", "r2o", "r3o", "r4o"])
+        next_inputs = backend.session.run.call_args.args[1]
+        for name, state in zip(("r1i", "r2i", "r3i", "r4i"), states):
+            self.assertIs(next_inputs[name], state)
 
     def test_infer_generic_runtime_error_does_not_reset_state(self):
         backend = _RVMBackend(1)
@@ -383,7 +408,6 @@ class TensorrtRvmTests(unittest.TestCase):
         original_session = mock.Mock()
         rebuilt_session = mock.Mock()
         outputs = [
-            np.zeros((1, 3, 360, 640), dtype=np.float32),
             np.zeros((1, 1, 360, 640), dtype=np.float32),
             np.zeros((1, 16, 68, 120), dtype=np.float32),
             np.zeros((1, 32, 34, 60), dtype=np.float32),
@@ -418,6 +442,10 @@ class TensorrtRvmTests(unittest.TestCase):
 
         self.assertEqual(alpha.shape, (360, 640))
         self.assertIs(backend.session, rebuilt_session)
+        self.assertEqual(
+            rebuilt_session.run.call_args.args[0],
+            ["pha", "r1o", "r2o", "r3o", "r4o"],
+        )
         create_session.assert_called_once_with(Path("/tmp/base.onnx"), 1, use_tensorrt=False)
         release_session.assert_called_once_with(original_session)
         reset_state.assert_called_once()
@@ -458,7 +486,6 @@ class TensorrtRvmTests(unittest.TestCase):
     def test_infer_shape_transition_error_resets_once_and_recovers(self):
         backend = _RVMBackend(1)
         outputs = [
-            np.zeros((1, 3, 360, 640), dtype=np.float32),
             np.zeros((1, 1, 360, 640), dtype=np.float32),
             np.zeros((1, 16, 68, 120), dtype=np.float32),
             np.zeros((1, 32, 34, 60), dtype=np.float32),
@@ -482,6 +509,9 @@ class TensorrtRvmTests(unittest.TestCase):
 
         self.assertEqual(alpha.shape, (360, 640))
         reset_state.assert_called_once()
+        self.assertEqual(backend.session.run.call_count, 2)
+        for call in backend.session.run.call_args_list:
+            self.assertEqual(call.args[0], ["pha", "r1o", "r2o", "r3o", "r4o"])
 
 
 if __name__ == "__main__":
