@@ -2424,7 +2424,9 @@ class VideoEffects:
         max_area = None if max_area_ratio is None else max(8, int(ref_h * ref_w * max_area_ratio))
 
         preserve = np.zeros_like(original_u8, dtype=bool)
-        num, labels, stats, _centroids = cv2.connectedComponentsWithStats(added, connectivity=8)
+        crop_x, crop_y, crop_w, crop_h = cv2.boundingRect(added)
+        added_roi = added[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
+        num, labels, stats, _centroids = cv2.connectedComponentsWithStats(added_roi, connectivity=8)
         for idx in range(1, num):
             area = int(stats[idx, cv2.CC_STAT_AREA])
             span_w = int(stats[idx, cv2.CC_STAT_WIDTH])
@@ -2438,8 +2440,10 @@ class VideoEffects:
             if float(long_span) / float(short_span) < min_aspect_ratio:
                 continue
 
-            x0 = int(stats[idx, cv2.CC_STAT_LEFT])
-            y0 = int(stats[idx, cv2.CC_STAT_TOP])
+            local_x = int(stats[idx, cv2.CC_STAT_LEFT])
+            local_y = int(stats[idx, cv2.CC_STAT_TOP])
+            x0 = crop_x + local_x
+            y0 = crop_y + local_y
             x1 = min(w, x0 + span_w)
             y1 = min(h, y0 + span_h)
             if span_h >= span_w:
@@ -2453,7 +2457,9 @@ class VideoEffects:
                 if not (top.any() and bottom.any()):
                     continue
 
-            preserve[y0:y1, x0:x1] |= labels[y0:y1, x0:x1] == idx
+            preserve[y0:y1, x0:x1] |= labels[
+                local_y:local_y + span_h, local_x:local_x + span_w,
+            ] == idx
         if preserve.any():
             # The close leaves the first pixel at an opening untouched, but
             # subsequent feathering can seal that mouth and turn the channel
@@ -2585,9 +2591,9 @@ class VideoEffects:
             preserve_holes = preserve_holes_small
 
         preserve_slits = None
-        if work_scale > 1:
-            # Half-resolution filtering can erase narrow exterior channels
-            # that survived inference refinement. Detect their original shape
+        if work_scale > 1 or (self._bg_mode == "replace" and not preserve_detail):
+            # Downsampling or non-detail feathering can erase narrow exterior
+            # channels that survived inference refinement. Detect their shape
             # with a local close, without applying that close to the matte.
             # Comparing against every resized fringe would join the channel
             # to the whole silhouette's interpolation rim instead.
@@ -3440,6 +3446,7 @@ class VideoEffects:
         reference_shape: tuple[int, int] | None = None,
     ) -> np.ndarray:
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
+        original_a8 = a8
         is_replace = self._bg_mode == "replace"
         is_blur = self._bg_mode == "blur"
         preserve_detail = (
@@ -3447,6 +3454,7 @@ class VideoEffects:
         )
         preserve_holes = None
         preserve_slits = None
+        restored_slits = None
         if is_replace:
             preserve_holes = self._preserve_large_internal_holes(
                 a8,
@@ -3467,7 +3475,7 @@ class VideoEffects:
 
         if is_replace:
             preserve_slits = self._preserve_narrow_exterior_gaps(
-                np.clip(alpha * 255, 0, 255).astype(np.uint8),
+                original_a8,
                 a8,
                 binary_threshold=70,
                 min_span_ratio=0.025,
@@ -3486,7 +3494,39 @@ class VideoEffects:
             close_lg = cv2.getStructuringElement(
                 cv2.MORPH_ELLIPSE, (close_size, close_size)
             )
-            small = cv2.morphologyEx(small, cv2.MORPH_CLOSE, close_lg)
+            closed_small = cv2.morphologyEx(small, cv2.MORPH_CLOSE, close_lg)
+            if is_replace:
+                # Balanced/Performance can close wider finger gaps here than
+                # the first full-resolution close. Preserve this pass's own
+                # exterior-channel evidence before it is lost on upsampling.
+                half_slits = self._preserve_narrow_exterior_gaps(
+                    small, closed_small,
+                    binary_threshold=70,
+                    min_span_ratio=0.025,
+                    max_span_ratio=0.24,
+                    reference_shape=(h // 2, w // 2),
+                )
+                if half_slits.any():
+                    restored_slits = cv2.resize(
+                        half_slits.astype(np.uint8), (w, h),
+                        interpolation=cv2.INTER_NEAREST,
+                    )
+                    # A half-resolution boundary cell can mix one foreground
+                    # pixel with one gap pixel. Include that immediate margin
+                    # only where the original full-resolution mask is low.
+                    restored_slits = cv2.dilate(
+                        restored_slits, np.ones((3, 3), dtype=np.uint8),
+                    ).astype(bool)
+                    # Recheck connectivity at full resolution: downsampling
+                    # must not turn a closed segmentation hole into a channel.
+                    _, original_binary = cv2.threshold(
+                        original_a8, 70, 255, cv2.THRESH_BINARY,
+                    )
+                    exterior = np.pad(original_binary, 1, constant_values=0)
+                    cv2.floodFill(exterior, None, (0, 0), 128)
+                    restored_slits &= exterior[1:-1, 1:-1] == 128
+                    preserve_slits |= restored_slits
+            small = closed_small
             a8 = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
 
         # 3. Fill interior holes. Replacement mode is intentionally more
@@ -3535,6 +3575,16 @@ class VideoEffects:
             if not preserve_detail:
                 r_u8 = cv2.GaussianBlur(r_u8, (3, 3), 0)
             result = r_u8.astype(np.float32) * (1.0 / 255.0)
+            if restored_slits is not None:
+                # Reopening a gap before feathering must not erase a thin
+                # finger alongside it. Retain strongly opaque source evidence
+                # only in the immediate foreground margin of these new gaps.
+                supported_foreground = cv2.dilate(
+                    restored_slits.astype(np.uint8), np.ones((3, 3), dtype=np.uint8),
+                ).astype(bool) & (original_a8 >= 250)
+                result[supported_foreground] = np.maximum(
+                    result[supported_foreground], alpha[supported_foreground],
+                )
             if preserve_holes is not None and preserve_holes.any():
                 result[preserve_holes] = np.minimum(result[preserve_holes], alpha[preserve_holes])
             if preserve_slits is not None and preserve_slits.any():

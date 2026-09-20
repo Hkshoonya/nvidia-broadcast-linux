@@ -537,7 +537,7 @@ class BackgroundOverlayTests(unittest.TestCase):
             "replacement temporal smoothing should not keep narrow gaps shut after they open",
         )
 
-    def test_quality_replace_matte_reopens_gap_more_tightly_than_performance(self):
+    def test_quality_and_performance_replace_mattes_reopen_fine_gaps(self):
         quality = self._make_effects()
         quality._bg_mode = "replace"
         quality._quality = "quality"
@@ -557,11 +557,13 @@ class BackgroundOverlayTests(unittest.TestCase):
         quality_gap = quality._replacement_matte(alpha_open)
         performance_gap = performance._replacement_matte(alpha_open)
 
-        self.assertLess(
-            float(quality_gap[4, 7]),
-            float(performance_gap[4, 7]),
-            "quality replace mode should preserve fine reopened gaps more tightly than performance mode",
-        )
+        for preset, matte in (("quality", quality_gap), ("performance", performance_gap)):
+            with self.subTest(preset=preset):
+                self.assertLess(
+                    float(matte[4, 7]), 0.12,
+                    "both presets should reopen a detected background gap",
+                )
+                self.assertGreater(float(matte[10, 7]), 0.90)
 
     def test_refine_alpha_preserves_narrow_exterior_finger_gap(self):
         effects = self._make_effects()

@@ -114,6 +114,94 @@ class ReplaceHandGapTests(unittest.TestCase):
         self.assertTrue(np.all(output[y + 25, x - 5, :3] == 240))
         self.assertTrue(np.all(output[y + 10, x:x + 2, :3] == 0))
 
+    def test_balanced_second_close_preserves_gaps_across_sampling_phases(self):
+        for quality in ("balanced", "performance"):
+            for height, width in ((360, 640), (720, 1280)):
+                for gap in (3, 4):
+                    effects = None
+                    for shift in (0, 1, 2, 3, 2, 1):
+                        with self.subTest(
+                            quality=quality, size=(width, height), gap=gap, shift=shift,
+                        ):
+                            frame, alpha, y, x = self._hand_scene(
+                                height, width, gap, length=60, shift=shift,
+                            )
+                            # The nearby closed hole must still be repaired,
+                            # independently of the real exterior finger gap.
+                            hole = (slice(y + 64, y + 67), slice(x - 6, x - 3))
+                            alpha[hole] = 0.0
+                            frame[hole][:, :, :3] = 240
+                            if effects is None:
+                                effects = self._effects(alpha)
+                                effects._quality = quality
+                                effects._use_fused_kernel = quality == "performance"
+                                effects.update_edge_params(
+                                    sigmoid_strength=12 if quality == "balanced" else 10,
+                                )
+                                effects._refresh_temporal_strength()
+                            else:
+                                effects._backend.alpha = alpha
+
+                            output = effects.process_frame_array(frame, width, height)
+                            matte = effects.latest_final_matte_u8(width, height)
+
+                            self.assertTrue(
+                                np.all(matte[y + 20:y + 40, x:x + gap] == 0),
+                                "The second close must not bridge a gap that survived "
+                                "the first close, at either downsampling phase.",
+                            )
+                            self.assertTrue(
+                                np.all(output[y + 20:y + 40, x:x + gap, :3] == 0)
+                            )
+                            self.assertGreaterEqual(int(matte[y + 30, x - 6]), 250)
+                            self.assertTrue(np.all(output[y + 30, x - 6, :3] == 64))
+                            self.assertGreaterEqual(int(matte[y + 66, x]), 250)
+                            self.assertGreaterEqual(int(matte[y + 65, x - 5]), 250)
+                            self.assertTrue(np.all(output[y + 65, x - 5, :3] == 240))
+
+    def test_reopened_gaps_keep_thin_opaque_finger_between_them(self):
+        for quality in ("balanced", "performance"):
+            for height, width in ((360, 640), (720, 1280)):
+                for gap in (3, 4):
+                    for finger_width in (1, 2):
+                        effects = None
+                        for shift in (0, 1, 2, 3):
+                            with self.subTest(
+                                quality=quality, size=(width, height), gap=gap,
+                                finger_width=finger_width, shift=shift,
+                            ):
+                                frame, alpha, y, x = self._hand_scene(
+                                    height, width, gap * 2 + finger_width,
+                                    length=60, shift=shift,
+                                )
+                                finger = slice(x + gap, x + gap + finger_width)
+                                alpha[y:y + 60, finger] = 1.0
+                                frame[y:y + 60, finger, :3] = 64
+                                if effects is None:
+                                    effects = self._effects(alpha)
+                                    effects._quality = quality
+                                    effects._use_fused_kernel = quality == "performance"
+                                    effects.update_edge_params(
+                                        sigmoid_strength=12 if quality == "balanced" else 10,
+                                    )
+                                    effects._refresh_temporal_strength()
+                                else:
+                                    effects._backend.alpha = alpha
+
+                                output = effects.process_frame_array(frame, width, height)
+                                matte = effects.latest_final_matte_u8(width, height)
+                                rows = slice(y + 20, y + 40)
+
+                                self.assertTrue(np.all(matte[rows, finger] >= 250))
+                                self.assertTrue(np.all(output[rows, finger, :3] == 64))
+                                for opening in (
+                                    slice(x, x + gap),
+                                    slice(x + gap + finger_width, x + gap * 2 + finger_width),
+                                ):
+                                    self.assertTrue(np.all(matte[rows, opening] == 0))
+                                    self.assertTrue(np.all(output[rows, opening, :3] == 0))
+                                self.assertGreaterEqual(int(matte[y + 66, x + gap]), 250)
+
 
 if __name__ == "__main__":
     unittest.main()
