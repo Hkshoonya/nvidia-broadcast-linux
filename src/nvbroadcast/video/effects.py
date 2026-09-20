@@ -1615,6 +1615,10 @@ class VideoEffects:
         self._green_bg = None
         self._frame_counter = 0
         self._cached_alpha = None
+        # Keep the model's color-mixing confidence paired with its refined
+        # matte. Sharpened opacity no longer describes camera RGB mixtures.
+        self._cached_source_alpha = None
+        self._pending_source_alpha = None
         self._prev_alpha = None  # Previous frame's alpha for temporal smoothing
         self._stable_alpha = None  # Pre-tightened alpha for replacement smoothing
         self._cached_replace_matte = None
@@ -1665,6 +1669,8 @@ class VideoEffects:
         with self._state_lock:
             self._matte_version += 1
             self._cached_alpha = None
+            self._cached_source_alpha = None
+            self._pending_source_alpha = None
             self._prev_alpha = None
             self._prev_alpha_gpu = None
             self._stable_alpha = None
@@ -1679,6 +1685,7 @@ class VideoEffects:
         """Invalidate temporal state while keeping the last matte visible."""
         with self._state_lock:
             self._matte_version += 1
+            self._pending_source_alpha = None
             self._prev_alpha = None
             self._prev_alpha_gpu = None
             self._stable_alpha = None
@@ -1693,6 +1700,11 @@ class VideoEffects:
         """Return the current cached alpha and its generation."""
         with self._state_lock:
             return self._cached_alpha, self._matte_version
+
+    def _matte_color_snapshot(self):
+        """Read opacity and its source confidence together for CPU-frame paths."""
+        with self._state_lock:
+            return self._cached_alpha, self._cached_source_alpha, self._matte_version
 
     def latest_final_matte_u8(self, width: int, height: int) -> np.ndarray | None:
         """Return the most recent per-frame final matte, if it matches this frame size."""
@@ -1757,6 +1769,12 @@ class VideoEffects:
         with self._state_lock:
             if matte_version != self._matte_version:
                 return False
+            pending = self._pending_source_alpha
+            self._cached_source_alpha = (
+                pending[1] if pending is not None and pending[0] is alpha else None
+            )
+            if pending is not None and pending[0] is alpha:
+                self._pending_source_alpha = None
             self._cached_alpha = alpha
             self._cached_alpha_serial += 1
             return True
@@ -2852,25 +2870,21 @@ class VideoEffects:
         if not self._bg_removal_enabled or not self._initialized:
             return frame
         self._remember_frame_size(width, height)
-        alpha, matte_version = self._matte_snapshot()
+        alpha, source_alpha, matte_version = self._matte_color_snapshot()
         if alpha is None:
             return frame
-
-        if alpha.shape[0] != height or alpha.shape[1] != width:
-            if self._cupy is not None and isinstance(alpha, self._cupy.ndarray):
-                alpha = self._cupy.asnumpy(alpha)
-            alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
         if not frame.flags.writeable and self._bg_mode != "blur":
             frame = frame.copy()
 
         return self._composite_array(frame, alpha, width, height, matte_version,
-                                     mirror=mirror)
+                                     mirror=mirror, source_alpha=source_alpha)
 
     def _composite_array(self, frame: np.ndarray, alpha: np.ndarray,
                          width: int, height: int,
                          matte_version: int | None = None,
-                         mirror: bool = False) -> np.ndarray:
+                         mirror: bool = False,
+                         source_alpha: np.ndarray | None = None) -> np.ndarray:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
         self.last_output_mirrored = False
         cp = self._cupy
@@ -2888,6 +2902,9 @@ class VideoEffects:
         # Ensure alpha matches frame dimensions
         if alpha.shape[0] != height or alpha.shape[1] != width:
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
+        if source_alpha is not None and source_alpha.shape != (height, width):
+            source_alpha = cv2.resize(
+                source_alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
         alpha = self._final_matte(frame, alpha, matte_version)
         with self._state_lock:
@@ -2905,7 +2922,8 @@ class VideoEffects:
 
         # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass
         if self._use_fused_kernel and self._cupy is not None:
-            result = self._composite_fused(frame, alpha, width, height, mirror=mirror)
+            result = self._composite_fused(
+                frame, alpha, width, height, mirror=mirror, source_alpha=source_alpha)
             if result is not None:
                 self.last_output_mirrored = mirror
                 return result
@@ -2920,7 +2938,8 @@ class VideoEffects:
         elif self._bg_mode == "remove":
             result = self._apply_green_screen(frame, alpha, width, height)
         else:
-            result = self._apply_replace(frame, alpha, width, height)
+            result = self._apply_replace(frame, alpha, width, height,
+                                         source_alpha=source_alpha)
         return result
 
     def _composite(self, frame: np.ndarray, alpha: np.ndarray,
@@ -2950,7 +2969,7 @@ class VideoEffects:
             frame = frame.copy()
 
         self._frame_counter += 1
-        alpha, matte_version = self._matte_snapshot()
+        alpha, source_alpha, matte_version = self._matte_color_snapshot()
 
         run_inference = (
             self._skip_interval <= 1
@@ -2960,19 +2979,15 @@ class VideoEffects:
         if run_inference:
             alpha = self._run_inference(frame, width, height, matte_version)
             if alpha is not None:
-                if not self._commit_alpha(alpha, matte_version):
-                    alpha, matte_version = self._matte_snapshot()
-            elif alpha is None:
-                alpha, matte_version = self._matte_snapshot()
-            if alpha is None:
-                return frame
-        elif alpha is None:
-            alpha, matte_version = self._matte_snapshot()
+                self._commit_alpha(alpha, matte_version)
+            # Use the latest committed pair even when inference was rejected
+            # or another worker completed between inference and this snapshot.
+            alpha, source_alpha, matte_version = self._matte_color_snapshot()
             if alpha is None:
                 return frame
 
         return self._composite_array(frame, alpha, width, height, matte_version,
-                                     mirror=mirror)
+                                     mirror=mirror, source_alpha=source_alpha)
 
     # ─── Device-resident frame path ──────────────────────────────────────
     #
@@ -3150,6 +3165,7 @@ class VideoEffects:
                         return None
                     alpha = backend.infer(frame, width, height)
             if alpha is not None:
+                source_alpha = alpha.copy() if self._bg_mode == "replace" else None
                 # Refine first, then temporal smooth on the FINAL output.
                 # RVM's raw edges jitter 6-8% — smoothing the final result
                 # directly stabilizes what the user sees.
@@ -3164,6 +3180,10 @@ class VideoEffects:
                     raw_refined = self._edge_refiner.refine(frame, alpha, width, height)
                     alpha = self._refine_alpha(raw_refined)
                 alpha = self._temporal_smooth(alpha, matte_version)
+                if source_alpha is not None:
+                    with self._state_lock:
+                        if matte_version is None or matte_version == self._matte_version:
+                            self._pending_source_alpha = (alpha, source_alpha)
             return alpha
         except Exception as e:
             print(f"[NV Broadcast] Inference error: {e}")
@@ -3515,7 +3535,8 @@ class VideoEffects:
 
     def _composite_fused(self, frame: np.ndarray, alpha: np.ndarray,
                          width: int, height: int,
-                         mirror: bool = False) -> np.ndarray | None:
+                         mirror: bool = False,
+                         source_alpha: np.ndarray | None = None) -> np.ndarray | None:
         """Single-pass GPU composite: CPU frame in, CPU frame out."""
         kernel = _get_fused_kernel()
         if kernel is None:
@@ -3527,7 +3548,8 @@ class VideoEffects:
             # cleanup runs inside the fused GPU compositor so this path can
             # still reuse the frame upload performed for inference.
             if self._bg_mode == "replace" and self._bg_image is not None:
-                frame = self._prepare_replace_foreground(frame, alpha)
+                frame = self._prepare_replace_foreground(
+                    frame, alpha if source_alpha is None else source_alpha)
             pending = self._pending_frame_gpu
             self._pending_frame_gpu = None
             if pending is not None and pending[0] is frame:
@@ -3894,6 +3916,8 @@ class VideoEffects:
     def _clean_color_reference(self, fg: np.ndarray, alpha: np.ndarray,
                                solid_threshold: float = 0.88) -> np.ndarray:
         """Estimate clean foreground colors from solid subject pixels."""
+        if self._bg_mode == "replace":
+            return self._nearest_foreground_color(fg, alpha, solid_threshold)
         # Create a "clean color" reference by blurring only solid person pixels.
         # Process at half resolution for speed (32ms → ~4ms).
         h, w = fg.shape[:2]
@@ -3909,12 +3933,68 @@ class VideoEffects:
         clean_small = (weighted_sum / wt).astype(np.uint8)
         return cv2.resize(clean_small, (w, h), interpolation=cv2.INTER_LINEAR)
 
+    @staticmethod
+    def _nearest_foreground_color(fg: np.ndarray, alpha: np.ndarray,
+                                  solid_threshold: float) -> np.ndarray:
+        """Borrow only nearby opaque colors without averaging across clothing."""
+        solid = alpha > solid_threshold
+        if not solid.any():
+            return fg
+        fringe = (alpha > 0.025) & ~solid
+        if not fringe.any():
+            return fg
+        h, w = alpha.shape
+        if h * w > 256 * 1024:
+            # Large subject bounds include lots of opaque interior. Restrict
+            # distance transforms to edge tiles with enough surrounding pixels
+            # to preserve the same bounded donor search across tile seams.
+            tile, pad = 128, 12
+            tiled = np.pad(fringe, ((0, -h % tile), (0, -w % tile)))
+            occupied = tiled.reshape(
+                tiled.shape[0] // tile, tile, tiled.shape[1] // tile, tile,
+            ).any(axis=(1, 3))
+            result = fg.copy()
+            for ty, tx in zip(*np.nonzero(occupied)):
+                y0, x0 = int(ty) * tile, int(tx) * tile
+                y1, x1 = min(y0 + tile, h), min(x0 + tile, w)
+                top, left = max(0, y0 - pad), max(0, x0 - pad)
+                bottom, right = min(h, y1 + pad), min(w, x1 + pad)
+                reference = VideoEffects._nearest_foreground_color(
+                    fg[top:bottom, left:right], alpha[top:bottom, left:right],
+                    solid_threshold,
+                )
+                result[y0:y1, x0:x1] = reference[
+                    y0 - top:y1 - top, x0 - left:x1 - left,
+                ]
+            return result
+        # Select donors at full resolution: downsampling can erase a narrow
+        # dark border beside white fabric and repaint the border white.
+        # The nearest solid pixel to any fringe must be on the solid boundary.
+        # Label only that boundary, avoiding a palette entry per interior pixel.
+        neighbors = cv2.dilate(
+            (~solid).astype(np.uint8), np.ones((3, 3), dtype=np.uint8),
+            borderType=cv2.BORDER_CONSTANT, borderValue=0,
+        )
+        donors = solid & (neighbors != 0)
+        distance, labels = cv2.distanceTransformWithLabels(
+            (~donors).astype(np.uint8), cv2.DIST_L2, 5,
+            labelType=cv2.DIST_LABEL_PIXEL,
+        )
+        palette = np.empty((int(labels.max()) + 1, fg.shape[2]), dtype=fg.dtype)
+        palette[labels[donors]] = fg[donors]
+        # Match the old filter's local support. Where no reliable donor is
+        # nearby, preserve the source instead of inventing a foreground color.
+        nearby = fringe & (distance <= 10.0) & (labels > 0)
+        result = fg.copy()
+        result[nearby] = palette[labels[nearby]]
+        return result
+
     def _despill_fringe(self, fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
         """Remove webcam background color bleeding into hair/edge fringe.
 
         Fringe pixels are a blend of person + webcam background. The lower
         the alpha, the more contaminated. Strategy: pull fringe pixel colors
-        toward nearby solid person pixels using a weighted blur.
+        toward nearby solid person pixels.
         """
         # Soft matte pixels contain a mix of subject and the physical camera
         # background. Include near-solid boundary pixels as well: edge-aware
@@ -4047,13 +4127,15 @@ class VideoEffects:
         return self._despill_fringe(fg, alpha)
 
     def _apply_replace(self, frame: np.ndarray, alpha: np.ndarray,
-                       width: int, height: int) -> np.ndarray:
+                       width: int, height: int,
+                       source_alpha: np.ndarray | None = None) -> np.ndarray:
         if self._bg_image is None:
             return self._apply_blur(frame, alpha)
         if self._frame_size != (width, height):
             self._resized_bg = self._resize_bg(self._bg_image, width, height)
             self._frame_size = (width, height)
-        frame = self._prepare_replace_foreground(frame, alpha)
+        frame = self._prepare_replace_foreground(
+            frame, alpha if source_alpha is None else source_alpha)
         return self._blend(frame, self._resized_bg, alpha)
 
     def _resize_bg(self, bg: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
