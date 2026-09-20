@@ -540,7 +540,7 @@ class FaceBeautifier:
     def _apply_denoise(self, frame: np.ndarray) -> np.ndarray:
         """Face-local temporal denoising that avoids recursive motion smear."""
         intensity = self._denoise
-        raw_bgr = frame[:, :, :3].copy()
+        raw_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
 
         bbox = self._face_bbox
         mask = self._tone_mask if self._tone_mask is not None else self._face_mask
