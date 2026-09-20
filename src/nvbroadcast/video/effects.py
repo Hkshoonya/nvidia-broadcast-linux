@@ -505,6 +505,26 @@ extern "C" __global__ void fused_composite(
 
 _fused_kernel = None
 
+_HOST_TEMPORAL_EMA_OPERATION = r'''
+float w = bw;
+if (a > emin && a < emax) w = ew;
+if (a > fmin && a < fmax) w = fw;
+if (cap_first) w = fminf(fmaxf(w, 0.0f), cap);
+if (a < p - drop) w *= ds;
+if (!cap_first) w = fminf(fmaxf(w, 0.0f), cap);
+if (local_release) {
+    w *= fminf(fmaxf(__fdiv_rn(0.24f - fabsf(a - p), 0.16f), 0.0f), 1.0f);
+}
+// CuPy enables flush-to-zero. Keep the final NumPy blend's separate rounded
+// operations, including subnormal input/output values, without changing it.
+float ip, left, right;
+asm("sub.rn.f32 %0, 0f3f800000, %1;" : "=f"(ip) : "f"(w));
+asm("mul.rn.f32 %0, %1, %2;" : "=f"(left) : "f"(w), "f"(p));
+asm("mul.rn.f32 %0, %1, %2;" : "=f"(right) : "f"(ip), "f"(a));
+asm("add.rn.f32 %0, %1, %2;" : "=f"(out) : "f"(left), "f"(right));
+'''
+
+
 def _get_fused_kernel():
     """Lazy-load the fused CUDA kernel."""
     global _fused_kernel
@@ -1600,6 +1620,8 @@ class VideoEffects:
         }
         self._compositing = "cpu"
         self._cupy = None  # Lazy-loaded cupy module
+        self._temporal_gpu_kernels = {}
+        self._temporal_gpu_failed_devices = set()
         if compositing != "cpu":
             self.set_compositing(compositing)
 
@@ -2194,6 +2216,15 @@ class VideoEffects:
         motion_gate = np.clip(1.0 - global_motion * 20.0, 0.15, 1.0)
         base_w = self._temporal_strength * motion_gate
 
+        gpu_result = self._try_temporal_blend_gpu(
+            alpha, prev, global_motion,
+            (base_w * base_scale, base_w * edge_scale, base_w * fringe_scale),
+            0.03, 0.97, fringe_min, fringe_max, max_weight, 0.05, drop_scale,
+            local_release=self._bg_mode == "replace", cap_first=True,
+        )
+        if gpu_result is not None:
+            return gpu_result
+
         # Three-tier smoothing weights:
         # Edge/transition (0.03-0.97): strongest — these jitter most
         # Core (>0.97): minimal — solid person
@@ -2219,6 +2250,83 @@ class VideoEffects:
             weight *= np.clip((0.24 - local_motion) / 0.16, 0.0, 1.0)
 
         return weight * prev + (1.0 - weight) * alpha
+
+    def _try_temporal_blend_gpu(
+        self,
+        alpha: np.ndarray,
+        prev: np.ndarray,
+        global_motion: float,
+        weights: tuple[float, float, float],
+        edge_min: float,
+        edge_max: float,
+        fringe_min: float,
+        fringe_max: float,
+        max_weight: float,
+        drop_threshold: float,
+        drop_scale: float,
+        *,
+        local_release: bool,
+        cap_first: bool,
+    ) -> np.ndarray | None:
+        """Accelerate host Replace mattes without owning temporal history.
+
+        Keep global reductions and scalar arithmetic on CPU. Only the pointwise
+        blend runs on the selected GPU, returning an independent NumPy array so
+        existing history, source pairing, and version checks retain ownership.
+        """
+        cp = self._cupy
+        gpu_index = self._gpu_index
+        if (
+            self._bg_mode != "replace"
+            or self._compositing != "cupy"
+            or cp is None
+            or gpu_index in self._temporal_gpu_failed_devices
+            or not isinstance(alpha, np.ndarray)
+            or not isinstance(prev, np.ndarray)
+            or alpha.dtype != np.float32
+            or prev.dtype != np.float32
+            or alpha.ndim != 2
+            or prev.shape != alpha.shape
+            or alpha.size < 640 * 360
+            or not np.isfinite(global_motion)
+        ):
+            return None
+        if not np.isfinite(alpha).all() or not np.isfinite(prev).all():
+            return None
+        with np.errstate(over="ignore", invalid="ignore"):
+            scalars = np.asarray(
+                (*weights, edge_min, edge_max, fringe_min, fringe_max,
+                 max_weight, drop_threshold, drop_scale),
+                dtype=np.float32,
+            )
+        if not np.isfinite(scalars).all():
+            return None
+
+        try:
+            with cp.cuda.Device(gpu_index):
+                kernel = self._temporal_gpu_kernels.get(gpu_index)
+                if kernel is None:
+                    kernel = cp.ElementwiseKernel(
+                        "float32 a, float32 p, float32 bw, float32 ew, float32 fw, "
+                        "float32 emin, float32 emax, float32 fmin, float32 fmax, "
+                        "float32 cap, float32 drop, float32 ds, "
+                        "bool local_release, bool cap_first",
+                        "float32 out",
+                        _HOST_TEMPORAL_EMA_OPERATION,
+                        "nvb_host_temporal_ema",
+                        options=("--fmad=false",),
+                    )
+                    self._temporal_gpu_kernels[gpu_index] = kernel
+                result = kernel(
+                    cp.asarray(alpha), cp.asarray(prev), *scalars,
+                    local_release, cap_first,
+                )
+                return cp.asnumpy(result)
+        except Exception as exc:
+            self._temporal_gpu_failed_devices.add(gpu_index)
+            print(f"[NV Broadcast] GPU temporal blend failed on GPU {gpu_index}; "
+                  f"using CPU: {exc}", flush=True)
+            return None
 
     def _temporal_smooth_gpu(self, alpha, matte_version: int | None = None):
         """GPU port of _temporal_smooth for the blur-mode matte pipeline.
@@ -2520,6 +2628,16 @@ class VideoEffects:
         base_weight = 0.05 if preserve_detail else 0.07
         edge_weight = 0.11 if preserve_detail else 0.15
         fringe_weight = 0.16 if preserve_detail else 0.21
+        gpu_result = self._try_temporal_blend_gpu(
+            alpha, prev, global_motion,
+            (base_weight * motion_gate, edge_weight * motion_gate,
+             fringe_weight * motion_gate),
+            0.02, 0.98, 0.02, 0.35, 0.24 if preserve_detail else 0.30,
+            0.04, 0.10 if preserve_detail else 0.18,
+            local_release=False, cap_first=False,
+        )
+        if gpu_result is not None:
+            return gpu_result
         weight = np.full_like(alpha, base_weight * motion_gate, dtype=np.float32)
         edge_mask = (alpha > 0.02) & (alpha < 0.98)
         fringe_mask = (alpha > 0.02) & (alpha < 0.35)
@@ -3988,6 +4106,10 @@ class VideoEffects:
     def set_compositing(self, backend: str):
         """Switch compositing backend (cpu, gstreamer_gl, cupy)."""
         self._compositing = backend
+        # Explicit reselection can retry a repaired device/runtime. Matte
+        # resets happen during normal use and must not repeat failed attempts.
+        self._temporal_gpu_kernels = {}
+        self._temporal_gpu_failed_devices = set()
         if backend in ("cupy", "gstreamer_gl") and self._cupy is None:
             try:
                 import cupy

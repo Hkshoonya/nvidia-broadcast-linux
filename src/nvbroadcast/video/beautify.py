@@ -509,7 +509,6 @@ class FaceBeautifier:
         x1 = max(0, x - pad)
         x2 = min(frame.shape[1], x + w + pad)
 
-        roi = frame[y1:y2, x1:x2, :3]
         roi_mask = mask[y1:y2, x1:x2]
         # When the face is moving quickly, smoothing contributes less visible
         # value than edge freshness. Back off instead of spending the full
@@ -526,6 +525,7 @@ class FaceBeautifier:
             # Small kernel (d=5 = 2ms vs d=10 = 20ms)
             d = 5 if intensity < 0.6 else 7
             sigma = int(30 + intensity * 40)
+        roi = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGRA2BGR)
         smoothed = cv2.bilateralFilter(roi, d, sigma, sigma)
 
         # Blend using face mask (ROI only)
