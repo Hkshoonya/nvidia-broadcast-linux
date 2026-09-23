@@ -165,7 +165,27 @@ SVC
 
     # Build .deb
     mkdir -p dist/deb
-    dpkg-deb -Zxz --root-owner-group --build \
+    # dpkg-deb uses SOURCE_DATE_EPOCH to clamp generated file and archive
+    # timestamps. Use the Debian changelog date for direct local builds too.
+    local deb_source_date_epoch="${SOURCE_DATE_EPOCH:-}"
+    if [ -z "$deb_source_date_epoch" ]; then
+        deb_source_date_epoch="$(python3 - <<'PY'
+from email.utils import parsedate_to_datetime
+from pathlib import Path
+
+entry = next(
+    line for line in Path("packaging/debian/changelog").read_text().splitlines()
+    if line.startswith(" -- ")
+)
+print(int(parsedate_to_datetime(entry.rsplit("  ", 1)[-1]).timestamp()))
+PY
+)"
+    fi
+    if [[ ! "$deb_source_date_epoch" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: SOURCE_DATE_EPOCH must be a non-negative Unix timestamp" >&2
+        exit 1
+    fi
+    SOURCE_DATE_EPOCH="$deb_source_date_epoch" dpkg-deb -Zxz --root-owner-group --build \
         "$PKG_DIR" \
         "dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb"
 

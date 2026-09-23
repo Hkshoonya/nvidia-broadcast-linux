@@ -1,7 +1,13 @@
 import json
+import os
 import re
+import shutil
 import stat
 import struct
+import subprocess
+import sys
+import tempfile
+import time
 import tomllib
 import unittest
 import xml.etree.ElementTree as ET
@@ -445,6 +451,48 @@ class PackagingMetadataTests(unittest.TestCase):
 
         for relative in ("LICENSE", "NOTICE", "README.md", "CONTRIBUTORS.md"):
             self.assertEqual((REPO_ROOT / relative).stat().st_mode & stat.S_IXUSR, 0, relative)
+
+    @unittest.skipUnless(
+        sys.platform == "linux"
+        and shutil.which("dpkg-deb"),
+        "requires Linux dpkg-deb",
+    )
+    def test_direct_deb_builds_are_reproducible(self):
+        with tempfile.TemporaryDirectory(prefix="nvbroadcast-repro-deb-") as directory:
+            project = Path(directory)
+            for name in ("src", "data", "configs", "packaging", "scripts"):
+                shutil.copytree(REPO_ROOT / name, project / name)
+            for name in (
+                "build-packages.sh", "pyproject.toml", "LICENSE", "NOTICE",
+                "README.md", "CONTRIBUTORS.md",
+            ):
+                shutil.copy2(REPO_ROOT / name, project / name)
+
+            environment = os.environ.copy()
+            environment.pop("SOURCE_DATE_EPOCH", None)
+
+            def build() -> bytes:
+                subprocess.run(
+                    ["bash", "build-packages.sh", "deb"],
+                    cwd=project,
+                    env=environment,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                packages = list((project / "dist" / "deb").glob("nvbroadcast_*.deb"))
+                self.assertEqual(len(packages), 1)
+                return packages[0].read_bytes()
+
+            first = build()
+            time.sleep(1.1)
+            self.assertEqual(first, build())
+
+            environment["SOURCE_DATE_EPOCH"] = "1600000000"
+            self.assertNotEqual(first, build())
+            environment["SOURCE_DATE_EPOCH"] = "invalid"
+            with self.assertRaises(subprocess.CalledProcessError):
+                build()
 
     def test_canonical_notice_and_contributors_ship_in_package_payloads(self):
         records = ("NOTICE", "CONTRIBUTORS.md")
