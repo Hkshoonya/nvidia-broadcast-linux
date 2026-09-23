@@ -123,10 +123,14 @@ headerbar .title {
 
 /* ── Video preview ────────────────────────────────────────────────────────── */
 .video-preview {
-    background-color: alpha(@window_fg_color, 0.95);
+    background-color: #202323;
     border-radius: 10px;
     border: 1px solid @border_default;
-    min-height: 320px;
+    min-height: 160px;
+}
+
+.video-preview.compact-tiny {
+    min-height: 100px;
 }
 
 .preview-controls {
@@ -168,6 +172,7 @@ headerbar .title {
     font-size: 13px;
     border-radius: 8px;
     border: none;
+    border-bottom: 2px solid transparent;
     background: transparent;
     color: @text_tertiary;
     transition: all 150ms ease;
@@ -180,8 +185,9 @@ headerbar .title {
 
 .section-tab:checked,
 .section-tab.active {
-    color: @nv_green;
+    color: @text_primary;
     background-color: @nv_green_subtle;
+    border-bottom-color: @nv_green;
 }
 
 /* ── Effect cards — glassmorphism-inspired ─────────────────────────────────── */
