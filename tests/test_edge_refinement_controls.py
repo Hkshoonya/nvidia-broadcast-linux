@@ -47,7 +47,7 @@ class EdgeRefinementControlTests(unittest.TestCase):
         for mode, quality, expected_gaussians, expected_dilation in (
             ("replace", "ultra", [3], []),
             ("replace", "balanced", [5, 3, 3], []),
-            ("remove", "ultra", [17, 11, 7, 11], [(7, 2)]),
+            ("remove", "ultra", [17, 11, 7, 11], [(3, 1)]),
             ("blur", "ultra", [5, 3], [(3, 1)]),
         ):
             with self.subTest(mode=mode, quality=quality):
@@ -64,6 +64,19 @@ class EdgeRefinementControlTests(unittest.TestCase):
                      for call in dilate.call_args_list],
                     expected_dilation,
                 )
+
+    def test_remove_large_edge_settings_do_not_restore_gap_closing_ladder(self):
+        effects = self._effects("remove", "ultra")
+        effects.update_edge_params(dilate_size=15, blur_size=25)
+        with mock.patch.object(cv2, "morphologyEx", wraps=cv2.morphologyEx) as morphology, \
+                mock.patch.object(cv2, "dilate", wraps=cv2.dilate) as dilate:
+            effects._refine_alpha(self._alpha())
+
+        self.assertNotIn((25, 25), [call.args[2].shape for call in morphology.call_args_list])
+        self.assertIn((15, 1), [
+            (call.args[1].shape[0], call.kwargs.get("iterations", 1))
+            for call in dilate.call_args_list
+        ])
 
     def test_dilate_moves_the_outer_boundary_in_each_mode(self):
         alpha = self._alpha()
