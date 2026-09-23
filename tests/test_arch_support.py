@@ -17,6 +17,7 @@ from nvbroadcast.core.platform import (
     preload_nvidia_runtime_libs,
     preload_tensorrt_runtime_libs,
     python_runtime_advisory,
+    running_in_flatpak,
     supports_openai_whisper_python,
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
@@ -25,6 +26,14 @@ from nvbroadcast.runtime.probe import ProbeProvider, RuntimeProbeResult
 
 
 class ArchSupportTests(unittest.TestCase):
+    def test_flatpak_detection_uses_runtime_environment(self):
+        with mock.patch.dict(
+            "nvbroadcast.core.platform.os.environ",
+            {"FLATPAK_ID": "com.doczeus.NVBroadcast"},
+            clear=True,
+        ):
+            self.assertTrue(running_in_flatpak())
+
     def test_linux_multiarch_triplet_arm64(self):
         import nvbroadcast.core.platform as platform_mod
 
