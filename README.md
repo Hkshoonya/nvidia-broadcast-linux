@@ -307,11 +307,13 @@ helper and package against `SHA256SUMS.packages`, then follow
 pre-removal script runs before a newer package can replace it, so a direct
 package-manager upgrade is not safe on those versions.
 
-Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
+The official Snap, `.deb`, and `.rpm` releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
 
 ### NixOS
 
-Add NV Broadcast to your flake inputs and import its NixOS module:
+This repository's interim flake supports `x86_64-linux` with **CPU inference only**. It does not yet package CUDA/TensorRT inference, CuPy compositing, or the optional meeting transcription runtime. The in-app dependency installer cannot add those components to the immutable Nix package; use a Nix-owned package variant when one becomes available. This is a repository flake, not the proposed Nixpkgs package ([NixOS/nixpkgs#538136](https://github.com/NixOS/nixpkgs/pull/538136)).
+
+Add the repository flake to your inputs and import its NixOS module:
 
 ```nix
 {
@@ -319,7 +321,6 @@ Add NV Broadcast to your flake inputs and import its NixOS module:
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nvbroadcast = {
       url = "github:Hkshoonya/nvidia-broadcast-linux";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
@@ -349,7 +350,8 @@ needs:
 - PipeWire with PulseAudio compatibility
 
 If your system does not already configure the NVIDIA driver, opt into the
-module's basic NVIDIA defaults:
+module's basic NVIDIA defaults. This configures the host driver; it does not
+add CUDA inference to this CPU-only package:
 
 ```nix
 {
@@ -425,7 +427,7 @@ modes instead.
 | Fedora, RHEL, CentOS, Rocky | dnf/yum | Full auto-install |
 | Arch, Manjaro, EndeavourOS | pacman | Full auto-install |
 | openSUSE | zypper | Full auto-install |
-| NixOS | nix | NixOS module or Nixpkgs package |
+| NixOS | nix | Interim repository flake (CPU inference only) |
 | Gentoo, Void | portage/xbps | Manual instructions shown |
 
 <details>

@@ -1475,7 +1475,6 @@ button:focus-visible, a:focus-visible {
             <div class="terminal-line"><span class="comment"># flake.nix</span></div>
             <div class="terminal-line"><span class="cmd">inputs.nvbroadcast = {</span></div>
             <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;url = "github:Hkshoonya/nvidia-broadcast-linux";</span></div>
-            <div class="terminal-line"><span class="cmd">&nbsp;&nbsp;inputs.nixpkgs.follows = "nixpkgs";</span></div>
             <div class="terminal-line"><span class="cmd">};</span></div>
             <div class="terminal-line"><br></div>
             <div class="terminal-line"><span class="comment"># Inside nixosSystem</span></div>
@@ -1489,7 +1488,7 @@ button:focus-visible, a:focus-visible {
             <div class="terminal-line"><span class="cmd">];</span></div>
           </div>
         </div>
-        <p class="install-note">For x86_64 NixOS. Add the GitHub flake input, reuse your host's Nixpkgs input, and import `nvbroadcast.nixosModules.default`. The module defaults PipeWire with Pulse compatibility plus v4l2loopback on `/dev/video10`. NVIDIA driver defaults are opt-in with `programs.nvbroadcast.nvidia.enable = true`.</p>
+        <p class="install-note">For x86_64 NixOS. This interim repository flake packages CPU inference only; CUDA/TensorRT, CuPy, and meeting transcription are not packaged, and the immutable Nix package cannot install optional runtimes from the app. Add the GitHub flake input and import `nvbroadcast.nixosModules.default`. Keep its Nixpkgs lock input for the tested package closure. The module defaults PipeWire with Pulse compatibility plus v4l2loopback on `/dev/video10`. NVIDIA driver defaults are opt-in with `programs.nvbroadcast.nvidia.enable = true`, but do not add a CUDA runtime.</p>
       </div>
 
       <!-- Arch -->
@@ -1731,7 +1730,7 @@ const commands = {
   deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.4.0-1_all.deb && sudo dpkg -i nvbroadcast_1.4.0-1_all.deb && sudo apt-get install -f',
   rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.4.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.4.0-1.noarch.rpm',
   snap: 'sudo snap install nvbroadcast || sudo snap refresh nvbroadcast',
-  nixos: 'inputs.nvbroadcast = {\n  url = "github:Hkshoonya/nvidia-broadcast-linux";\n  inputs.nixpkgs.follows = "nixpkgs";\n};\n\n# Inside nixosSystem\nmodules = [\n  nvbroadcast.nixosModules.default\n  {\n    programs.nvbroadcast = {\n      enable = true;\n    };\n  }\n];',
+  nixos: 'inputs.nvbroadcast = {\n  url = "github:Hkshoonya/nvidia-broadcast-linux";\n};\n\n# Inside nixosSystem\nmodules = [\n  nvbroadcast.nixosModules.default\n  {\n    programs.nvbroadcast = {\n      enable = true;\n    };\n  }\n];',
   arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
   macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'
 };

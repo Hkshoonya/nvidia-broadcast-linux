@@ -26,7 +26,6 @@
   psmisc,
   pulseaudio,
   python3Packages,
-  replaceVars,
   v4l-utils,
   writableTmpDirAsHomeHook,
   writeShellScript,
@@ -203,7 +202,10 @@ let
     '';
   });
 
-  pythonOnnx = (python313Packages.onnx.override { onnx = onnx_1_22; }).overridePythonAttrs (_: {
+  pythonOnnx = (python313Packages.onnx.override {
+    onnx = onnx_1_22;
+    protobuf = python313Packages.protobuf6;
+  }).overridePythonAttrs (_: {
     enabledTestPaths = [ "onnx/test" ];
   });
 
@@ -218,6 +220,7 @@ let
       psutil
       pygobject3
       pyrnnoise
+      protobuf6
       scipy
     ])
     ++ [
@@ -240,28 +243,6 @@ let
     warn() {
       printf 'nvbroadcast: warning: %s\n' "$*" >&2
     }
-
-    if [ ! -e /dev/nvidiactl ] && [ ! -e /proc/driver/nvidia/version ]; then
-      warn "NVIDIA driver was not detected; upstream recommends NVIDIA driver 525 or newer."
-    fi
-
-    if command -v nvidia-smi >/dev/null 2>&1; then
-      driver_version="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null)"
-      driver_version="''${driver_version%%$'\n'*}"
-      driver_major="''${driver_version%%.*}"
-      case "$driver_major" in
-        "" | *[!0-9]*)
-          warn "could not read NVIDIA driver version; upstream recommends 525 or newer."
-          ;;
-        *)
-          if [ "$driver_major" -lt 525 ]; then
-            warn "NVIDIA driver $driver_version detected; upstream recommends 525 or newer."
-          fi
-          ;;
-      esac
-    elif [ -e /dev/nvidiactl ] || [ -e /proc/driver/nvidia/version ]; then
-      warn "nvidia-smi is not in PATH; cannot verify upstream NVIDIA driver 525+ requirement."
-    fi
 
     if [ ! -d /sys/module/v4l2loopback ]; then
       warn "v4l2loopback is not loaded; virtual camera output may be unavailable."
@@ -294,13 +275,6 @@ python313Packages.buildPythonApplication (finalAttrs: {
     );
   };
 
-  patches = [
-    (replaceVars ./runtime-site.patch {
-      pip = lib.getExe' python313Packages.pip "pip";
-      inherit (finalAttrs) version;
-    })
-  ];
-
   build-system = with python313Packages; [
     setuptools
     wheel
@@ -311,10 +285,7 @@ python313Packages.buildPythonApplication (finalAttrs: {
     "opencv-python-headless"
   ];
 
-  pythonRelaxDeps = [
-    "av"
-    "protobuf"
-  ];
+  pythonRelaxDeps = [ "av" ];
 
   dependencies = pythonDeps;
 
@@ -349,7 +320,6 @@ python313Packages.buildPythonApplication (finalAttrs: {
 
   preCheck = ''
     export MPLCONFIGDIR=$TMPDIR/matplotlib
-    export NVBROADCAST_RUNTIME_SITE=$TMPDIR/runtime-site
   '';
 
   # Requires real GPU, camera, and v4l2loopback devices.
@@ -429,33 +399,26 @@ python313Packages.buildPythonApplication (finalAttrs: {
       help = runCommand "${finalAttrs.pname}-help-test" { } ''
         export MPLCONFIGDIR=$TMPDIR/matplotlib
         export NVBROADCAST_SKIP_REQUIREMENTS_CHECK=1
-        export NVBROADCAST_RUNTIME_SITE=$TMPDIR/runtime-site
         ${lib.getExe finalAttrs.finalPackage} --help > help.txt
         ${finalAttrs.finalPackage}/bin/nvbroadcast-vcam --help > vcam-help.txt
         grep -F "Show help options" help.txt
         grep -F "Virtual Camera Service" vcam-help.txt
-        ! grep -F "Runtime dependency installation is disabled" \
-          ${finalAttrs.finalPackage}/${python313Packages.python.sitePackages}/nvbroadcast/core/dependency_installer.py
         grep -F 'getattr(b, "_MAX_INFER_HEIGHT", "?")' \
           ${finalAttrs.finalPackage}/${python313Packages.python.sitePackages}/nvbroadcast/app.py
         PYTHONPATH=${finalAttrs.finalPackage}/${python313Packages.python.sitePackages}:${pythonPath} \
           ${python313Packages.python.interpreter} -c '
-        import os
-        import sys
         import audiolab
         import av
         import mediapipe
         import onnxruntime
         import pyrnnoise
+        from google.protobuf import __version__ as protobuf_version
+        from packaging.version import Version
         from nvbroadcast.core import dependency_installer, resources
         assert av.__version__ == "16.0.1"
         assert onnxruntime.__version__ == "1.24.4"
-        runtime_site = os.environ["NVBROADCAST_RUNTIME_SITE"]
-        assert runtime_site not in sys.path
-        assert not os.path.exists(runtime_site)
-        dependency_installer._ensure_runtime_site()
-        assert runtime_site in sys.path
-        assert os.path.isdir(runtime_site)
+        assert Version("6.33.5") <= Version(protobuf_version) < Version("7")
+        assert dependency_installer._runtime_install_block_reason() is not None
         assert resources.find_app_icon().is_file()
         assert resources.find_app_icon_png().is_file()
         assert resources.find_backgrounds_dir().is_dir()
@@ -472,7 +435,8 @@ python313Packages.buildPythonApplication (finalAttrs: {
       NV Broadcast — Unofficial NVIDIA Broadcast for Linux and other OS.
 
       AI-powered virtual camera with background removal, blur, replacement,
-      video enhancement, and noise cancellation. GPU accelerated. Open source.
+      video enhancement, and noise cancellation. This flake currently packages
+      the CPU inference runtime. Open source.
     '';
     homepage = "https://github.com/Hkshoonya/nvidia-broadcast-linux";
     changelog = "https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v${finalAttrs.version}";
