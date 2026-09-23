@@ -738,8 +738,11 @@ class PackagingMetadataTests(unittest.TestCase):
             "  release:", 1
         )[0]
         snap_builder = snap_workflow.split("  build-snap:", 1)[1].split(
-            "  attach-release:", 1
+            "  attest-snap-checksums:", 1
         )[0]
+        snap_checksums = snap_workflow.split(
+            "  attest-snap-checksums:", 1
+        )[1].split("  attach-release:", 1)[0]
 
         for builder in (attestation_job, snap_builder):
             self.assertIn("attestations: write", builder)
@@ -758,7 +761,12 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("artifacts/SHA256SUMS.packages", attestation_job)
         self.assertIn("steps.snapcraft.outputs.snap", snap_builder)
         self.assertEqual(build_workflow.count(attest_action), 1)
-        self.assertEqual(snap_workflow.count(attest_action), 1)
+        self.assertEqual(snap_workflow.count(attest_action), 2)
+        self.assertIn("subject-path: SHA256SUMS.snap", snap_checksums)
+        self.assertIn("attestations: write", snap_checksums)
+        self.assertIn("contents: read", snap_checksums)
+        self.assertIn("id-token: write", snap_checksums)
+        self.assertNotIn("contents: write", snap_checksums)
 
     def test_release_workflows_publish_deterministic_checksum_manifests(self):
         build_workflow = (
@@ -787,19 +795,28 @@ class PackagingMetadataTests(unittest.TestCase):
         )
         self.assertIn("needs: attest-release", native_release)
 
+        snap_checksums = snap_workflow.split(
+            "  attest-snap-checksums:", 1
+        )[1].split("  attach-release:", 1)[0]
         snap_release = snap_workflow.split("  attach-release:", 1)[1]
-        self.assertIn("--output release-assets/SHA256SUMS.snap", snap_release)
+        self.assertIn("--output SHA256SUMS.snap", snap_checksums)
+        self.assertIn('"${SNAP_FILES[@]}"', snap_checksums)
+        self.assertIn("ARCH_FILES=(artifacts/snap-package-", snap_checksums)
+        self.assertIn("name: snap-release-checksums", snap_checksums)
+        self.assertIn("needs: attest-snap-checksums", snap_release)
         self.assertIn("release-assets/SHA256SUMS.snap", snap_release)
+        self.assertIn("Release asset staging directory must be empty", snap_release)
         self.assertIn("Duplicate Snap release asset name", snap_release)
+        self.assertIn("Snap artifact differs from its attested checksum manifest", snap_release)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", snap_release)
+        self.assertLess(
+            snap_release.index("- name: Refuse stale Snap assets"),
+            snap_release.index("- name: Attach snaps to GitHub Release"),
+        )
         snap_attachment = snap_release.split(
             "- name: Attach snaps to GitHub Release", 1
         )[1]
-        self.assertIn("release-assets/nvbroadcast_*.snap", snap_attachment)
-        self.assertNotIn("release-assets/*.snap", snap_attachment)
-        self.assertEqual(
-            snap_attachment.count("release-assets/SHA256SUMS.snap"),
-            1,
-        )
+        self.assertIn("files: release-assets/*", snap_attachment)
 
         self.assertIn("docs/RELEASE_VERIFICATION.md", readme)
         self.assertIn("gh attestation verify", verification)
@@ -812,7 +829,7 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_snap_store_actions_are_pinned_to_the_release_tag(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
         build_job = workflow.split("  build-snap:", 1)[1].split(
-            "  attach-release:", 1
+            "  attest-snap-checksums:", 1
         )[0]
         attach_job = workflow.split("  attach-release:", 1)[1]
         release_target = build_job.split(
@@ -861,7 +878,7 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_snap_build_does_not_receive_release_write_permission(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
         build_job = workflow.split("  build-snap:", 1)[1].split(
-            "  attach-release:", 1
+            "  attest-snap-checksums:", 1
         )[0]
         attach_job = workflow.split("  attach-release:", 1)[1]
 
