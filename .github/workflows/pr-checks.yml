@@ -60,7 +60,11 @@ jobs:
             gir1.2-adw-1 \
             gir1.2-gstreamer-1.0 \
             gir1.2-gst-plugins-base-1.0 \
-            gstreamer1.0-plugins-base
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-plugins-ugly \
+            gstreamer1.0-libav
 
       - name: Create test environment
         run: |
@@ -125,4 +129,5 @@ jobs:
             tests/test_tensorrt_rvm.py \
             tests/test_training_bundle.py \
             tests/test_updates.py \
-            tests/test_voice_fx.py
+            tests/test_voice_fx.py \
+            tests/test_whisper_model_trust.py

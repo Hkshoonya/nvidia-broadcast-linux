@@ -29,7 +29,8 @@ def _make_window(app):
     win = NVBroadcastWindow.__new__(NVBroadcastWindow)
     win._streaming = False
     win._app = app
-    win._profile_btn = SimpleNamespace(set_label=mock.Mock())
+    win._profile_btn = SimpleNamespace(set_tooltip_text=mock.Mock())
+    win._profile_text = SimpleNamespace(set_text=mock.Mock())
     win._stream_btn = SimpleNamespace(
         set_label=mock.Mock(),
         remove_css_class=mock.Mock(),

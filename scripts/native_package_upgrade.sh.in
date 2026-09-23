@@ -7,6 +7,7 @@ umask 022
 
 readonly TARGET_VERSION='@TARGET_VERSION@'
 readonly TARGET_REVISION='@TARGET_REVISION@'
+readonly TARGET_RPM_RELEASE='@TARGET_RPM_RELEASE@'
 readonly EXPECTED_DEB_SHA256='@DEB_SHA256@'
 readonly EXPECTED_RPM_SHA256='@RPM_SHA256@'
 readonly LEGACY_RPM_PREUN='pkill -f "nvbroadcast" 2>/dev/null || true'
@@ -228,8 +229,8 @@ install_rpm_package() {
     [[ "$package_name" == "nvbroadcast" ]] || die "RPM package name is not nvbroadcast"
     [[ "$package_version" == "$TARGET_VERSION" ]] || \
         die "RPM version is $package_version, expected $TARGET_VERSION"
-    [[ "$package_release" == "$TARGET_REVISION" ]] || \
-        die "RPM release is $package_release, expected $TARGET_REVISION"
+    [[ "$package_release" == "$TARGET_RPM_RELEASE" ]] || \
+        die "RPM release is $package_release, expected $TARGET_RPM_RELEASE"
     [[ "$package_arch" == "noarch" ]] || \
         die "RPM architecture is $package_arch, expected noarch"
 
@@ -271,8 +272,8 @@ install_rpm_package() {
     fi
 
     installed_after="$(rpm -q --qf '%{VERSION}-%{RELEASE}' nvbroadcast 2>/dev/null || true)"
-    [[ "$installed_after" == "${TARGET_VERSION}-${TARGET_REVISION}" ]] || \
-        die "RPM transaction finished without installing ${TARGET_VERSION}-${TARGET_REVISION}"
+    [[ "$installed_after" == "${TARGET_VERSION}-${TARGET_RPM_RELEASE}" ]] || \
+        die "RPM transaction finished without installing ${TARGET_VERSION}-${TARGET_RPM_RELEASE}"
 }
 
 main() {
