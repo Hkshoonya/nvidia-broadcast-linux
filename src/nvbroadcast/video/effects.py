@@ -3098,7 +3098,7 @@ class VideoEffects:
     def _restore_remove_exterior_gaps(
         self, matte: np.ndarray, source_alpha: np.ndarray,
     ) -> np.ndarray:
-        """Reopen narrow camera-background channels after Remove's broad close."""
+        """Reopen narrow camera-background channels after Remove's feathering."""
         source_is_u8 = source_alpha.dtype == np.uint8
         active_threshold = 6 if source_is_u8 else 0.025
         bounds = self._mask_roi_bounds(source_alpha > active_threshold, pad=20)
@@ -3736,11 +3736,6 @@ class VideoEffects:
         preserve_detail = (
             is_replace and self._quality in self._DETAIL_QUALITY_PRESETS
         )
-        fine_remove = (
-            self._bg_mode == "remove"
-            and self._dilate_size <= 3
-            and self._blur_size <= 11
-        )
         preserve_holes = None
         preserve_slits = None
         restored_slits = None
@@ -3773,14 +3768,13 @@ class VideoEffects:
                 max_area_ratio=None,
                 reference_shape=reference_shape,
             )
-        # 2. At ordinary Remove edge settings, the 25x25 half-resolution
-        #    close bridges the raw RVM gaps between moving fingers. Leave
-        #    those channels open; retain the broad ladder for deliberately
-        #    stronger Dilate/Softness settings and non-detail Replace.
-        if not preserve_detail and not is_blur and not fine_remove:
+        # 2. The former 25x25 half-resolution Remove close bridged raw RVM
+        #    finger gaps. Keep half-resolution closing only for non-detail
+        #    Replace; Remove and Blur leave exterior channels open.
+        if is_replace and not preserve_detail:
             h, w = a8.shape[:2]
             small = cv2.resize(a8, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
-            close_size = 3 if is_replace else 25
+            close_size = 3
             close_lg = cv2.getStructuringElement(
                 cv2.MORPH_ELLIPSE, (close_size, close_size)
             )
@@ -3898,14 +3892,12 @@ class VideoEffects:
                 if self._blur_size > 1:
                     a8 = cv2.GaussianBlur(a8, self._blur_ksize, 0)
             else:
-                # A single narrow pass keeps open the gaps that survived the
-                # first close. Larger edge settings keep their existing ladder.
+                # One pass keeps the Dilate control continuous without the
+                # former two-pass expansion that bridged finger channels.
                 if self._dilate_size > 0:
-                    size = (self._dilate_size | 1) if fine_remove else max(
-                        1, 2 * self._dilate_size + 1)
+                    size = self._dilate_size | 1
                     dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
-                    a8 = cv2.dilate(a8, dilate_k,
-                                    iterations=1 if fine_remove else 2)
+                    a8 = cv2.dilate(a8, dilate_k, iterations=1)
                 softness_sizes = self._edge_softness_sizes((17, 11, 7, 11))
                 for size in softness_sizes[:-1]:
                     if size > 1:
@@ -4483,6 +4475,15 @@ class VideoEffects:
         bounds = self._mask_roi_bounds(active, pad=self._edge_roi_pad(alpha.shape))
         if bounds is not None:
             x0, y0, x1, y1 = bounds
+            if self._bg_mode == "remove" and w % 2 == 0 and h % 2 == 0:
+                # Remove samples solid-color donors at half resolution. Keep
+                # a cropped CPU ROI on the same 2x2 camera grid as the fused
+                # GPU path; an odd ROI origin can lose donor support entirely
+                # at a soft edge and turn the two compositors different colors.
+                x0 &= ~1
+                y0 &= ~1
+                x1 = min(w, (x1 + 1) & ~1)
+                y1 = min(h, (y1 + 1) & ~1)
             roi_area = (x1 - x0) * (y1 - y0)
             if roi_area < int(h * w * 0.92):
                 fg_roi = fg[y0:y1, x0:x1]

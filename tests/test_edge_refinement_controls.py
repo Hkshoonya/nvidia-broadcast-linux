@@ -65,15 +65,15 @@ class EdgeRefinementControlTests(unittest.TestCase):
                     expected_dilation,
                 )
 
-    def test_remove_large_edge_settings_keep_existing_broad_ladder(self):
+    def test_remove_large_edge_settings_do_not_restore_gap_closing_ladder(self):
         effects = self._effects("remove", "ultra")
         effects.update_edge_params(dilate_size=15, blur_size=25)
         with mock.patch.object(cv2, "morphologyEx", wraps=cv2.morphologyEx) as morphology, \
                 mock.patch.object(cv2, "dilate", wraps=cv2.dilate) as dilate:
             effects._refine_alpha(self._alpha())
 
-        self.assertIn((25, 25), [call.args[2].shape for call in morphology.call_args_list])
-        self.assertIn((31, 2), [
+        self.assertNotIn((25, 25), [call.args[2].shape for call in morphology.call_args_list])
+        self.assertIn((15, 1), [
             (call.args[1].shape[0], call.kwargs.get("iterations", 1))
             for call in dilate.call_args_list
         ])
