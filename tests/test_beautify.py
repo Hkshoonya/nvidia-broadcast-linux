@@ -59,6 +59,33 @@ class BeautifyTests(unittest.TestCase):
             "raw history should still update when face landmarks are unavailable",
         )
 
+    def test_denoise_keeps_isolated_raw_history_from_strided_frames(self):
+        rng = np.random.default_rng(392)
+        for step in (2, -2):
+            with self.subTest(step=step):
+                storage = rng.integers(0, 256, (16, 16, 4), dtype=np.uint8)
+                frame = storage[::step, ::step]
+                self.assertFalse(frame.flags.c_contiguous)
+                original = frame.copy()
+                beautifier = self._make_beautifier()
+                reference = self._make_beautifier()
+                beautifier._prev_frame = np.full((8, 8, 3), 200, dtype=np.uint8)
+                reference._prev_frame = beautifier._prev_frame.copy()
+
+                result = beautifier._apply_denoise(frame)
+                expected = reference._apply_denoise(original.copy())
+
+                np.testing.assert_array_equal(result, expected)
+                np.testing.assert_array_equal(result[:, :, 3], original[:, :, 3])
+                np.testing.assert_array_equal(beautifier._prev_frame, original[:, :, :3])
+                storage.fill(0)
+                result.fill(17)
+                np.testing.assert_array_equal(
+                    beautifier._prev_frame,
+                    original[:, :, :3],
+                    err_msg="Later frame writes must not alter raw denoise history.",
+                )
+
     def test_denoise_motion_gate_keeps_fast_motion_close_to_current_frame(self):
         beautifier = self._make_beautifier()
         beautifier._prev_frame = np.full((8, 8, 3), 255, dtype=np.uint8)
