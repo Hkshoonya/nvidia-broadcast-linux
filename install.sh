@@ -76,7 +76,7 @@ guard_source_environment() {
     fi
 
     if [ "$guard_status" -eq 1 ]; then
-        echo "Stop NVBroadcast and the virtual-camera service, then rerun this installer."
+        echo "Stop NVBroadcast and any audio or virtual-camera service, then rerun this installer."
         if command -v systemctl &>/dev/null; then
             echo "For the user service: systemctl --user stop nvbroadcast-vcam.service"
         fi

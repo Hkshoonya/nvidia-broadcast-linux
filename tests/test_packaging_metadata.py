@@ -285,7 +285,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertLess(guard_calls[1], first_environment_mutation)
         self.assertIn("check_source_venv_processes.py", install_script)
         self.assertIn(
-            "Stop NVBroadcast and the virtual-camera service", install_script
+            "Stop NVBroadcast and any audio or virtual-camera service", install_script
         )
         self.assertIn(
             "systemctl --user stop nvbroadcast-vcam.service", install_script
