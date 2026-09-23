@@ -134,6 +134,11 @@ class ResponsiveWindowTests(unittest.TestCase):
                     self.assertTrue(self.section_nav.get_visible())
                     self.assertTrue(camera.get_visible())
                     self.assertFalse(audio.get_visible())
+                    if width == 850:
+                        _, bounds = camera.compute_bounds(self.controls)
+                        self.assertGreaterEqual(
+                            bounds.get_width(), self.controls.get_width() - 16
+                        )
                     self.window._audio_section_btn.set_active(True)
                     self._settle()
                     self.assertTrue(audio.get_visible())
@@ -492,3 +497,14 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.assertFalse(legacy._section_nav.get_visible())
         self.assertTrue(legacy._camera_flow_child.get_visible())
         self.assertTrue(legacy._audio_flow_child.get_visible())
+
+    def test_scaled_breakpoint_boundary_has_no_desktop_gap(self):
+        settings = Gtk.Settings.get_default()
+        previous_dpi = settings.get_property("gtk-xft-dpi")
+        self.addCleanup(settings.set_property, "gtk-xft-dpi", previous_dpi)
+        settings.set_property("gtk-xft-dpi", int(96 * 1024 * 1.5))
+        for width in (1330, 1331, 1332):
+            with self.subTest(width=width):
+                self._show(width, 640)
+                self.assertIsNotNone(self.window.get_current_breakpoint())
+                self.assertLessEqual(self.window._preview.get_height(), 260)

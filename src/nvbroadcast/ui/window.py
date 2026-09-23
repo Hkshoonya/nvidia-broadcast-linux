@@ -403,6 +403,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._audio_flow_child = controls.get_child_at_index(1)
         self._camera_flow_child.set_focusable(False)
         self._audio_flow_child.set_focusable(False)
+        self._camera_flow_child.set_hexpand(True)
+        self._audio_flow_child.set_hexpand(True)
 
         scroll.set_child(controls)
         self._controls_scroll = scroll
@@ -441,10 +443,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         layout_regions = (
             ("max-width: 880sp and min-height: 701px", True, 300),
             (
-                "min-width: 881sp and min-height: 701px "
+                "min-width: 880sp and min-height: 701px "
                 "and max-aspect-ratio: 6/5", False, 300,
             ),
-            ("max-height: 700px and min-width: 881sp", False, 220),
+            ("max-height: 700px and min-width: 880sp", False, 220),
             (
                 "min-height: 601px and max-height: 700px "
                 "and max-width: 880sp", True, 220,
@@ -644,6 +646,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._compact_controls = compact
         self._controls_flow.set_margin_start(4 if compact else 16)
         self._controls_flow.set_margin_end(4 if compact else 16)
+        self._controls_flow.set_max_children_per_line(1 if compact else 2)
+        self._controls_flow.set_homogeneous(compact)
         self._switching_section = True
         try:
             self._camera_section_btn.set_active(self._active_section == "camera")
