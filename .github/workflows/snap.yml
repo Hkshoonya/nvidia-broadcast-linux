@@ -244,9 +244,59 @@ jobs:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ steps.store-target.outputs.channel == 'stable' && secrets.SNAP_TOKEN || secrets.SNAP_CANDIDATE_TOKEN }}
         run: snapcraft revisions nvbroadcast --arch "${{ matrix.arch }}"
 
-  attach-release:
+  attest-snap-checksums:
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.publish == true)
     needs: build-snap
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Download Snap artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: artifacts/
+
+      - name: Generate complete Snap checksums
+        run: |
+          shopt -s nullglob
+          SNAP_FILES=(artifacts/snap-package-*/*.snap)
+          if [ "${#SNAP_FILES[@]}" -ne 2 ]; then
+            echo "::error::Expected exactly one Snap artifact for each architecture."
+            exit 1
+          fi
+          for ARCH in amd64 arm64; do
+            ARCH_FILES=(artifacts/snap-package-"$ARCH"/*.snap)
+            if [ "${#ARCH_FILES[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one $ARCH Snap artifact."
+              exit 1
+            fi
+          done
+          python3 scripts/generate_release_checksums.py \
+            --output SHA256SUMS.snap \
+            "${SNAP_FILES[@]}"
+
+      - name: Attest Snap checksum manifest
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: SHA256SUMS.snap
+
+      - name: Upload Snap checksum manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: snap-release-checksums
+          path: SHA256SUMS.snap
+
+  attach-release:
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.publish == true)
+    needs: attest-snap-checksums
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -274,16 +324,33 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
-      - name: Download Snap artifacts
+      - name: Download Snap artifacts and checksum manifest
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts/
 
       - name: Select GitHub-sized release assets
-        id: release-assets
         run: |
+          test -f artifacts/snap-release-checksums/SHA256SUMS.snap
           mkdir -p release-assets
-          while IFS= read -r -d '' SNAP_PATH; do
+          if [ -n "$(find release-assets -mindepth 1 -print -quit)" ]; then
+            echo "::error::Release asset staging directory must be empty."
+            exit 1
+          fi
+          cp artifacts/snap-release-checksums/SHA256SUMS.snap release-assets/SHA256SUMS.snap
+          shopt -s nullglob
+          SNAP_FILES=(artifacts/snap-package-*/*.snap)
+          if [ "${#SNAP_FILES[@]}" -ne 2 ]; then
+            echo "::error::Expected exactly one Snap artifact for each architecture."
+            exit 1
+          fi
+          for SNAP_PATH in "${SNAP_FILES[@]}"; do
+            EXPECTED_SHA256="$(awk -v name="$(basename "$SNAP_PATH")" '$2 == name { print $1 }' release-assets/SHA256SUMS.snap)"
+            ACTUAL_SHA256="$(sha256sum "$SNAP_PATH" | cut -d ' ' -f1)"
+            if [ -z "$EXPECTED_SHA256" ] || [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+              echo "::error::Snap artifact differs from its attested checksum manifest."
+              exit 1
+            fi
             SNAP_SIZE="$(stat -c%s "$SNAP_PATH")"
             if [ "$SNAP_SIZE" -lt 2147483648 ]; then
               DESTINATION="release-assets/$(basename "$SNAP_PATH")"
@@ -292,31 +359,19 @@ jobs:
                 exit 1
               fi
               cp -- "$SNAP_PATH" "$DESTINATION"
+              if ! cmp -s -- "$SNAP_PATH" "$DESTINATION"; then
+                echo "::error::Copied Snap differs from the checksummed build artifact."
+                exit 1
+              fi
             else
               echo "::warning::Skipping GitHub release upload for $SNAP_PATH because it exceeds GitHub's 2 GiB release-asset limit."
             fi
-          done < <(find artifacts -type f -name '*.snap' -print0)
-          if compgen -G 'release-assets/*.snap' >/dev/null; then
-            echo "attach=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "attach=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No Snap artifacts fit the GitHub release-asset limit."
-          fi
-
-      - name: Generate Snap checksums
-        if: steps.release-assets.outputs.attach == 'true'
-        run: |
-          python3 scripts/generate_release_checksums.py \
-            --output release-assets/SHA256SUMS.snap \
-            release-assets/*.snap
+          done
 
       - name: Attach snaps to GitHub Release
-        if: steps.release-assets.outputs.attach == 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           draft: true
           tag_name: ${{ steps.release-target.outputs.tag }}
-          files: |
-            release-assets/nvbroadcast_*.snap
-            release-assets/SHA256SUMS.snap
+          files: release-assets/*
           fail_on_unmatched_files: true
