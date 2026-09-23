@@ -95,6 +95,7 @@ scripts/setup_v4l2loopback.sh
 scripts/sweep_background_models.py
 scripts/sweep_background_modes.py
 scripts/train_edge_refiner.py
+scripts/update_whisper_model_manifest.py
 scripts/validate_snap_runtime.py
 setup_deps.sh
 snap/gui/banner.png
@@ -104,8 +105,10 @@ snap/snapcraft.yaml
 src/nvbroadcast/__init__.py
 src/nvbroadcast/__main__.py
 src/nvbroadcast/ai/__init__.py
+src/nvbroadcast/ai/model_trust.py
 src/nvbroadcast/ai/summarizer.py
 src/nvbroadcast/ai/transcriber.py
+src/nvbroadcast/ai/whisper-models.json
 src/nvbroadcast/app.py
 src/nvbroadcast/audio/__init__.py
 src/nvbroadcast/audio/deepfilter.py
@@ -229,4 +232,5 @@ tests/test_video_pipeline.py
 tests/test_virtual_camera_config.py
 tests/test_virtual_mic.py
 tests/test_voice_fx.py
+tests/test_whisper_model_trust.py
 uninstall.sh
