@@ -1,8 +1,10 @@
 import hashlib
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -138,6 +140,65 @@ class ReleaseChecksumTests(unittest.TestCase):
         output.write_text("old\n", encoding="ascii")
         with self.assertRaisesRegex(CHECKSUMS.ManifestError, "cannot hash itself"):
             CHECKSUMS.generate_manifest((output, regular), output)
+
+    def test_release_guard_rejects_stale_omitted_snap_asset(self):
+        workflow = (REPO_ROOT / ".github/workflows/snap.yml").read_text()
+        guard = workflow.split("      - name: Refuse stale omitted Snap assets\n", 1)[1]
+        guard = guard.split("      - name: Attach snaps to GitHub Release\n", 1)[0]
+        script = textwrap.dedent(guard.split("        run: |\n", 1)[1])
+
+        assets = self.root / "release-assets"
+        assets.mkdir()
+        (assets / "SHA256SUMS.snap").write_text(
+            "a" * 64 + "  nvbroadcast_1.5.2_amd64.snap\n"
+            + "b" * 64 + "  nvbroadcast_1.5.2_arm64.snap\n",
+            encoding="ascii",
+        )
+        (assets / "nvbroadcast_1.5.2_arm64.snap").write_bytes(b"arm64")
+
+        mock_bin = self.root / "bin"
+        mock_bin.mkdir()
+        fake_gh = mock_bin / "gh"
+        fake_gh.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            "assert '--paginate' in sys.argv and '--jq' in sys.argv\n"
+            "assert 'releases?per_page=100' in sys.argv[-1]\n"
+            "mode = os.environ['MOCK_MODE']\n"
+            "if mode == 'error': raise SystemExit(1)\n"
+            "if mode == 'existing':\n"
+            "    print(json.dumps({'tag_name': 'v1.5.2', 'assets': "
+            "[name for name in os.environ.get('MOCK_ASSETS', '').split(',') if name]}))\n",
+            encoding="utf-8",
+        )
+        fake_gh.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            GH_TOKEN="test-token",
+            GITHUB_REPOSITORY="example/nvbroadcast",
+            RELEASE_TAG="v1.5.2",
+            PATH=f"{mock_bin}:{environment['PATH']}",
+        )
+
+        for mode, existing_names, expected_success in (
+            ("new", "", True),  # A new tag has no release yet.
+            ("existing", "unrelated.deb", True),
+            ("existing", "nvbroadcast_1.5.2_amd64.snap", False),
+            ("error", "", False),
+        ):
+            with self.subTest(mode=mode, existing_names=existing_names):
+                environment.update(MOCK_MODE=mode, MOCK_ASSETS=existing_names)
+                result = subprocess.run(
+                    ("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script),
+                    cwd=self.root,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode == 0, expected_success, result.stderr)
+                if mode == "existing" and not expected_success:
+                    self.assertIn("Existing release contains omitted Snap asset", result.stderr)
 
 
 if __name__ == "__main__":

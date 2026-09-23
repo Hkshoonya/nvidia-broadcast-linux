@@ -368,6 +368,54 @@ jobs:
             fi
           done
 
+      - name: Refuse stale omitted Snap assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-target.outputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          manifest = Path("release-assets/SHA256SUMS.snap")
+          listed = {line.split("  ", 1)[1] for line in manifest.read_text().splitlines()}
+          staged = {path.name for path in Path("release-assets").glob("*.snap")}
+          omitted = listed - staged
+          if not omitted:
+              sys.exit(0)
+
+          tag = os.environ["RELEASE_TAG"]
+          # The releases-by-tag endpoint hides drafts; the list includes them.
+          query = f'.[] | select(.tag_name == {json.dumps(tag)}) | {{tag_name, assets: [.assets[].name]}}'
+          response = subprocess.run(
+              [
+                  "gh", "api", "--paginate", "--jq", query,
+                  f"repos/{os.environ['GITHUB_REPOSITORY']}/releases?per_page=100",
+              ],
+              capture_output=True,
+              check=False,
+          )
+          if response.returncode != 0:
+              sys.exit("::error::Cannot check existing release assets; refusing to attach checksums.")
+
+          try:
+              releases = [json.loads(line) for line in response.stdout.splitlines() if line]
+          except (TypeError, ValueError):
+              sys.exit("::error::Malformed release response; refusing to attach checksums.")
+          if not releases:
+              sys.exit(0)  # A new release has no stale assets.
+          if len(releases) != 1 or releases[0].get("tag_name") != tag or not isinstance(releases[0].get("assets"), list):
+              sys.exit("::error::Unexpected release response; refusing to attach checksums.")
+          existing = set(releases[0]["assets"])
+          stale = omitted & existing
+          if stale:
+              names = ", ".join(sorted(stale))
+              sys.exit(f"::error::Existing release contains omitted Snap asset(s): {names}. Resolve manually before replacing SHA256SUMS.snap.")
+          PY
+
       - name: Attach snaps to GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:

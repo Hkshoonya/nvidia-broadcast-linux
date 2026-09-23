@@ -73,7 +73,9 @@ commit changes. Fix the release branch and restart affected gates.
   attached file against its entry. A missing large Snap release asset is
   expected only when the workflow reports the size limit. Verify a separately
   built Store revision with its own attestation; compare it with the manifest
-  only when it came from that same build run.
+  only when it came from that same build run. On a same-tag rerun, resolve a
+  previously attached Snap with the same name as a newly omitted oversized
+  artifact; the attachment job stops rather than deleting it.
 - Upload the exact tag-built Snap revisions for Store review when required.
   Dispatch every Store review, candidate, or stable action from that exact tag;
   `release_tag` may be omitted only when the workflow ref is already the tag.
