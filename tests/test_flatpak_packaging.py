@@ -72,6 +72,14 @@ class FlatpakPackagingTests(unittest.TestCase):
         )
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertIn("persist-credentials: false", workflow)
+        for packaged_input in (
+            "'CONTRIBUTORS.md'",
+            "'LICENSE'",
+            "'NOTICE'",
+            "'README.md'",
+            "'src/**'",
+        ):
+            self.assertIn(packaged_input, workflow)
         self.assertIn("flatpak-builder-lint manifest", workflow)
         self.assertIn("python3 -m pip check", workflow)
         self.assertIn("/app/share/doc/nvbroadcast/NOTICE", workflow)

@@ -6,10 +6,15 @@ on:
       - main
     paths:
       - '.github/workflows/flatpak.yml'
+      - 'CONTRIBUTORS.md'
+      - 'LICENSE'
       - 'MANIFEST.in'
+      - 'NOTICE'
+      - 'README.md'
       - 'data/**'
       - 'packaging/flatpak/**'
       - 'pyproject.toml'
+      - 'src/**'
   workflow_dispatch:
 
 env:
