@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -14,10 +15,31 @@ import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
-from nvbroadcast.audio.meeting_capture import MeetingAudioCapture
+from nvbroadcast.audio.meeting_capture import (
+    MeetingAudioCapture,
+    has_recorded_meeting_audio,
+)
 
 
 class MeetingAudioCaptureTests(unittest.TestCase):
+    def test_only_a_wav_with_pcm_frames_counts_as_recorded_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = str(Path(directory) / "missing.wav")
+            empty = str(Path(directory) / "empty.wav")
+            header_only = str(Path(directory) / "header.wav")
+            valid = str(Path(directory) / "valid.wav")
+            Path(empty).touch()
+            for path, frames in ((header_only, b""), (valid, b"\0" * 320)):
+                with wave.open(path, "wb") as recording:
+                    recording.setnchannels(1)
+                    recording.setsampwidth(2)
+                    recording.setframerate(16000)
+                    recording.writeframes(frames)
+            self.assertFalse(has_recorded_meeting_audio(missing))
+            self.assertFalse(has_recorded_meeting_audio(empty))
+            self.assertFalse(has_recorded_meeting_audio(header_only))
+            self.assertTrue(has_recorded_meeting_audio(valid))
+
     def test_build_uses_pulse_names_for_mic_and_speaker_monitor(self):
         capture = MeetingAudioCapture()
         if Gst.ElementFactory.find("pulsesrc") is None:
@@ -84,6 +106,82 @@ class MeetingAudioCaptureTests(unittest.TestCase):
         on_error.assert_called_once_with("can't connect")
         self.assertIsNone(capture._bus)
         self.assertIsNone(capture._pipeline)
+
+    def test_stop_disposes_zero_byte_wav_after_failed_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "meeting audio.wav"
+            output.touch()
+            capture = MeetingAudioCapture()
+            capture._output_path = str(output)
+            capture._pipeline = mock.Mock()
+            capture._pipeline.get_state.return_value = (
+                Gst.StateChangeReturn.FAILURE, Gst.State.NULL,
+                Gst.State.VOID_PENDING,
+            )
+            capture.stop()
+            self.assertFalse(output.exists())
+
+    def test_queued_error_prevents_eos_even_if_state_is_playing(self):
+        capture = MeetingAudioCapture()
+        pipeline = mock.Mock()
+        pipeline.get_state.return_value = (
+            Gst.StateChangeReturn.SUCCESS, Gst.State.PLAYING,
+            Gst.State.VOID_PENDING,
+        )
+        bus = mock.Mock()
+        error = mock.Mock()
+        error.parse_error.return_value = (
+            SimpleNamespace(message="source disconnected"), "debug"
+        )
+        bus.timed_pop_filtered.return_value = error
+        capture._pipeline = pipeline
+        capture._bus = bus
+        capture._running = True
+
+        capture.stop()
+
+        pipeline.send_event.assert_not_called()
+        self.assertEqual(capture.last_error, "source disconnected")
+        self.assertFalse(capture.running)
+
+    def test_real_failed_playing_state_does_not_send_eos_in_bounded_child(self):
+        script = """
+from unittest import mock
+import sys
+import gi
+gi.require_version('Gst', '1.0')
+from gi.repository import Gst
+from nvbroadcast.audio.meeting_capture import MeetingAudioCapture
+Gst.init(None)
+pipeline = Gst.parse_launch(
+    'audiotestsrc is-live=true ! identity error-after=3 ! fakesink')
+bus = pipeline.get_bus()
+bus.add_signal_watch()
+pipeline.set_state(Gst.State.PLAYING)
+error = bus.timed_pop_filtered(3 * Gst.SECOND, Gst.MessageType.ERROR)
+if error is None:
+    sys.exit(77)
+state_return, state, _pending = pipeline.get_state(0)
+if state_return != Gst.StateChangeReturn.FAILURE or state != Gst.State.PLAYING:
+    sys.exit(77)
+capture = MeetingAudioCapture()
+capture._pipeline = mock.Mock(wraps=pipeline)
+capture._pipeline.send_event.side_effect = AssertionError('EOS after ERROR')
+capture._bus = bus
+capture._running = True
+capture.stop()
+print('failed native state stopped without EOS', flush=True)
+"""
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True,
+            env=env, timeout=10, check=False,
+        )
+        if result.returncode == 77:
+            self.skipTest("GStreamer did not reach the PLAYING/FAILURE race")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("without EOS", result.stdout)
 
     def test_failed_pipewire_source_stop_is_bounded_child_process(self):
         MeetingAudioCapture()

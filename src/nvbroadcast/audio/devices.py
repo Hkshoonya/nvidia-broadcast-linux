@@ -188,6 +188,16 @@ def resolve_pulse_source_name(device: str) -> str:
     return device
 
 
+def resolve_pulse_sink_name(device: str) -> str:
+    """Map a saved numeric sink selection to its PulseAudio sink name."""
+    if device.isdigit():
+        for sink_id, sink_name in _pactl_short("sinks"):
+            if sink_id == device:
+                return sink_name
+        return default_speaker_device()
+    return device
+
+
 def resolve_speaker_sink(device: str) -> str:
     """Resolve a speaker selection to a concrete sink target."""
     resolved = device or default_speaker_device()
@@ -196,7 +206,7 @@ def resolve_speaker_sink(device: str) -> str:
 
 def resolve_speaker_monitor_name(device: str) -> str:
     """Resolve a speaker sink selection to its monitor source name."""
-    target = resolve_speaker_sink(device)
+    target = resolve_pulse_sink_name(resolve_speaker_sink(device))
     if not target:
         return ""
 

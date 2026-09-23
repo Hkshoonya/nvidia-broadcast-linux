@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import wave
+
 import gi
 
 gi.require_version("Gst", "1.0")
@@ -22,6 +25,17 @@ from nvbroadcast.audio.devices import (
 from nvbroadcast.audio.source_probe import probe_audio_source
 
 
+def has_recorded_meeting_audio(path: str) -> bool:
+    """Require a readable WAV with at least one recorded PCM frame."""
+    if not path:
+        return False
+    try:
+        with wave.open(path, "rb") as recorded:
+            return recorded.getnframes() > 0 and bool(recorded.readframes(1))
+    except (OSError, EOFError, wave.Error):
+        return False
+
+
 class MeetingAudioCapture:
     """Capture meeting audio, mix both directions, and expose live PCM."""
 
@@ -36,6 +50,7 @@ class MeetingAudioCapture:
         self._source_backend = ""
         self._last_error = ""
         self._error_callback = None
+        self._output_path = ""
 
     def set_sample_callback(self, callback):
         self._sample_callback = callback
@@ -49,6 +64,7 @@ class MeetingAudioCapture:
             raise RuntimeError(f"No usable meeting audio source: {source_error}")
         self._source_backend = source_backend
         self._last_error = ""
+        self._output_path = output_path
         self._pipeline = Gst.Pipeline.new("nvbroadcast-meeting-capture")
         if source_backend == "pulsesrc":
             mic_target = resolve_pulse_source_name(mic_device)
@@ -182,8 +198,16 @@ class MeetingAudioCapture:
                 # Sending EOS to a source that already failed can crash its
                 # native teardown. An error or NULL state has no valid WAV to
                 # finalize, so release it without injecting another event.
-                state = self._pipeline.get_state(0)[1]
-                if self._running and not self._last_error and state != Gst.State.NULL:
+                if self._running and self._bus:
+                    pending_error = self._bus.timed_pop_filtered(
+                        0, Gst.MessageType.ERROR
+                    )
+                    if pending_error:
+                        self._on_error(self._bus, pending_error)
+                state_return, state, _pending = self._pipeline.get_state(0)
+                if (self._running and not self._last_error
+                        and state_return != Gst.StateChangeReturn.FAILURE
+                        and state != Gst.State.NULL):
                     self._pipeline.send_event(Gst.Event.new_eos())
                     if self._bus:
                         msg = self._bus.timed_pop_filtered(
@@ -198,6 +222,13 @@ class MeetingAudioCapture:
                     self._bus.remove_signal_watch()
                 self._bus = None
                 self._pipeline = None
+        if self._output_path:
+            try:
+                output = Path(self._output_path)
+                if output.is_file() and output.stat().st_size == 0:
+                    output.unlink()
+            except OSError:
+                pass
         self._running = False
 
     @property

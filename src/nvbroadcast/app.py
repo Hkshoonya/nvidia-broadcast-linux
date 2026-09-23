@@ -67,7 +67,10 @@ from nvbroadcast.core.meeting_store import (
 )
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
-from nvbroadcast.audio.meeting_capture import MeetingAudioCapture
+from nvbroadcast.audio.meeting_capture import (
+    MeetingAudioCapture,
+    has_recorded_meeting_audio,
+)
 from nvbroadcast.audio.virtual_mic import has_virtual_mic_backend
 from nvbroadcast.ui.window import NVBroadcastWindow
 from nvbroadcast import __version__
@@ -2651,11 +2654,15 @@ class NVBroadcastApp(Adw.Application):
             self._meeting_capture.stop()
             self._meeting_capture = None
         segments = self._transcriber.stop()
-        if self._meeting_audio_path and Path(self._meeting_audio_path).exists():
+        audio_path = (
+            self._meeting_audio_path
+            if has_recorded_meeting_audio(self._meeting_audio_path) else ""
+        )
+        if audio_path:
             try:
                 if self._window:
                     self._window.set_status("Finalizing high-accuracy meeting transcript...")
-                final_segments = self._transcriber.transcribe_file(self._meeting_audio_path)
+                final_segments = self._transcriber.transcribe_file(audio_path)
                 if final_segments:
                     segments = final_segments
                     self._transcriber.replace_segments(final_segments)
@@ -2687,7 +2694,7 @@ class NVBroadcastApp(Adw.Application):
                 notes_path=notes_path,
                 transcript_path=transcript_path,
                 transcript_srt_path=transcript_srt_path,
-                audio_path=self._meeting_audio_path,
+                audio_path=audio_path,
                 video_path=self._meeting_video_path,
             )
             save_session(session)
@@ -2721,6 +2728,8 @@ class NVBroadcastApp(Adw.Application):
             self._meeting_capture.stop()
             self._meeting_capture = None
         segments = self._transcriber.stop()
+        if not has_recorded_meeting_audio(meeting_audio_path):
+            meeting_audio_path = ""
 
         self._meeting_session_id = ""
         self._meeting_session_dir = None
@@ -2729,7 +2738,10 @@ class NVBroadcastApp(Adw.Application):
 
         def _worker():
             result_path = ""
-            status = "Meeting ended"
+            status = (
+                "Meeting ended" if meeting_audio_path
+                else "Meeting ended without a usable transcription WAV"
+            )
             session = None
             try:
                 result_path, session = self._finalize_meeting_outputs(
@@ -2739,7 +2751,10 @@ class NVBroadcastApp(Adw.Application):
                     meeting_video_path,
                     segments,
                 )
-                status = f"Meeting saved: {result_path}" if result_path else "Meeting ended"
+                if result_path:
+                    status = f"Meeting saved: {result_path}"
+                    if not meeting_audio_path:
+                        status += "; transcription WAV unavailable"
             except Exception as exc:
                 print(f"[NV Broadcast] Meeting finalization failed: {exc}")
                 status = "Meeting ended, but transcript finalization failed"
@@ -2771,7 +2786,9 @@ class NVBroadcastApp(Adw.Application):
         if meeting_session_dir is None:
             return "", None
 
-        if meeting_audio_path and Path(meeting_audio_path).exists():
+        if not has_recorded_meeting_audio(meeting_audio_path):
+            meeting_audio_path = ""
+        if meeting_audio_path:
             try:
                 final_segments = self._transcriber.transcribe_file(meeting_audio_path)
                 if final_segments:

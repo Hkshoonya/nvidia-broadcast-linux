@@ -28,6 +28,17 @@ class AudioDeviceResolverTests(unittest.TestCase):
                 "alsa_input.usb-demo",
             )
 
+    def test_resolve_speaker_monitor_name_maps_numeric_sink_without_pipewire(self):
+        with mock.patch.object(devices, "_pw_nodes", return_value=[]), \
+             mock.patch.object(devices, "_pactl_short", side_effect=lambda kind: {
+                 "sinks": [("7", "alsa_output.usb-demo")],
+                 "sources": [("8", "alsa_output.usb-demo.monitor")],
+             }[kind]):
+            self.assertEqual(
+                devices.resolve_speaker_monitor_name("7"),
+                "alsa_output.usb-demo.monitor",
+            )
+
     def test_resolve_speaker_monitor_returns_monitor_source_id(self):
         fake_sources = "228\talsa_output.demo.monitor\tPipeWire\ts16le 2ch 48000Hz\tRUNNING\n"
         with mock.patch.object(devices, "resolve_pipewire_target", return_value="alsa_output.demo"):

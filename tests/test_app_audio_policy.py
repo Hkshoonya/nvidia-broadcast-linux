@@ -240,6 +240,63 @@ class AppAudioPolicyTests(unittest.TestCase):
         capture.stop.assert_called_once_with()
         self.assertIsNone(app._meeting_capture)
 
+    def test_sync_meeting_finalizer_does_not_transcribe_or_save_empty_wav(self):
+        import tempfile
+        from pathlib import Path
+
+        segment = SimpleNamespace(text="hello", end_time=1.0)
+        transcriber = mock.Mock()
+        transcriber.stop.return_value = [segment]
+        transcriber.get_full_transcript.return_value = "hello"
+        summarizer = mock.Mock()
+        summarizer.summarize.return_value = SimpleNamespace(
+            title="Meeting", summary="hello"
+        )
+        summarizer.format_notes.return_value = "# Meeting"
+        with tempfile.TemporaryDirectory() as directory:
+            empty_wav = Path(directory) / "meeting_audio.wav"
+            empty_wav.touch()
+            app = SimpleNamespace(
+                _meeting_active=True, _meeting_capture=None,
+                _meeting_audio_path=str(empty_wav),
+                _meeting_session_dir=Path(directory),
+                _meeting_session_id="session", _meeting_video_path="meeting.mp4",
+                _window=None, _transcriber=transcriber,
+                _summarizer=summarizer, stop_recording=mock.Mock(),
+            )
+            with mock.patch("nvbroadcast.app.save_transcript", return_value="transcript.txt"), \
+                 mock.patch("nvbroadcast.app.save_session") as save_session:
+                NVBroadcastApp.stop_meeting(app)
+
+        transcriber.transcribe_file.assert_not_called()
+        self.assertEqual(save_session.call_args.args[0].audio_path, "")
+
+    def test_async_meeting_finalizer_does_not_transcribe_or_save_empty_wav(self):
+        import tempfile
+        from pathlib import Path
+
+        segment = SimpleNamespace(text="hello", end_time=1.0)
+        transcriber = mock.Mock()
+        transcriber.get_full_transcript.return_value = "hello"
+        summarizer = mock.Mock()
+        summarizer.summarize.return_value = SimpleNamespace(
+            title="Meeting", summary="hello"
+        )
+        summarizer.format_notes.return_value = "# Meeting"
+        app = SimpleNamespace(_transcriber=transcriber, _summarizer=summarizer)
+        with tempfile.TemporaryDirectory() as directory:
+            empty_wav = Path(directory) / "meeting_audio.wav"
+            empty_wav.touch()
+            with mock.patch("nvbroadcast.app.save_transcript", return_value="transcript.txt"), \
+                 mock.patch("nvbroadcast.app.save_session") as save_session:
+                NVBroadcastApp._finalize_meeting_outputs(
+                    app, "session", Path(directory), str(empty_wav),
+                    "meeting.mp4", [segment],
+                )
+
+        transcriber.transcribe_file.assert_not_called()
+        self.assertEqual(save_session.call_args.args[0].audio_path, "")
+
     def test_missing_h264_encoder_is_reported_to_recording_ui(self):
         import tempfile
         from pathlib import Path
