@@ -24,8 +24,8 @@
   pango,
   pipewire,
   psmisc,
+  protobuf_33,
   pulseaudio,
-  python3Packages,
   v4l-utils,
   writableTmpDirAsHomeHook,
   writeShellScript,
@@ -181,7 +181,14 @@ let
     };
   });
 
-  onnx_1_22 = onnx.overrideAttrs (oldAttrs: rec {
+  onnxPythonPackages = python313Packages.overrideScope (_final: previous: {
+    protobuf = previous.protobuf6;
+  });
+
+  onnx_1_22 = (onnx.override {
+    protobuf = protobuf_33;
+    python3Packages = onnxPythonPackages;
+  }).overrideAttrs (oldAttrs: rec {
     version = "1.22.0";
     src = fetchFromGitHub {
       owner = "onnx";
@@ -192,7 +199,7 @@ let
     env = oldAttrs.env // {
       BUILD_SHARED_LIBS = "0";
     };
-    nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [ python3Packages.scikit-build-core ];
+    nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [ onnxPythonPackages.scikit-build-core ];
     postPatch = (oldAttrs.postPatch or "") + ''
       substituteInPlace pyproject.toml \
         --replace-fail '"protobuf==4.25.1"' '"protobuf>=4.25.1"'
