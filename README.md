@@ -319,7 +319,80 @@ helper and package against `SHA256SUMS.packages`, then follow
 pre-removal script runs before a newer package can replace it, so a direct
 package-manager upgrade is not safe on those versions.
 
-Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
+The official Snap, `.deb`, and `.rpm` releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
+
+### NixOS
+
+This repository's interim flake supports `x86_64-linux` with **CPU inference only**. It does not yet package CUDA/TensorRT inference, CuPy compositing, or the optional meeting transcription runtime. The in-app dependency installer cannot add those components to the immutable Nix package; use a Nix-owned package variant when one becomes available. This is a repository flake, not the proposed Nixpkgs package ([NixOS/nixpkgs#538136](https://github.com/NixOS/nixpkgs/pull/538136)).
+
+Add the repository flake to your inputs and import its NixOS module:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nvbroadcast = {
+      url = "github:Hkshoonya/nvidia-broadcast-linux";
+    };
+  };
+
+  outputs =
+    {
+      nixpkgs,
+      nvbroadcast,
+      ...
+    }:
+    {
+      nixosConfigurations.hostname = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          nvbroadcast.nixosModules.default
+          { programs.nvbroadcast.enable = true; }
+        ];
+      };
+    };
+}
+```
+
+The module installs the flake's `packages.x86_64-linux.nvbroadcast` package by
+default. It also configures the PipeWire and virtual-camera host pieces the app
+needs:
+
+- v4l2loopback virtual camera setup
+- PipeWire with PulseAudio compatibility
+
+If you use NVIDIA hardware, you can opt into the module's basic NVIDIA driver
+defaults. This configures the host driver; it does not add CUDA inference to
+this CPU-only package:
+
+```nix
+{
+  programs.nvbroadcast = {
+    enable = true;
+    nvidia.enable = true;
+  };
+}
+```
+
+See [`nix/module.nix`](nix/module.nix) for all module options.
+
+For a package-only install, omit `nvbroadcast.nixosModules.default` and add the
+package directly inside the same `nixosSystem` definition:
+
+```nix
+modules = [
+  {
+    environment.systemPackages = [
+      nvbroadcast.packages.x86_64-linux.nvbroadcast
+    ];
+  }
+];
+```
+
+When using the package without the NixOS module, configure PipeWire with
+PulseAudio compatibility and v4l2loopback yourself. Configure the NVIDIA
+driver separately if your host needs it; it does not enable CUDA processing in
+this CPU-only package.
 
 ### Linux Installer Details
 
@@ -377,7 +450,8 @@ during that build.
 | Fedora, RHEL, CentOS, Rocky | dnf/yum | Full auto-install |
 | Arch, Manjaro, EndeavourOS | pacman | Full auto-install |
 | openSUSE | zypper | Full auto-install |
-| Gentoo, Void, NixOS | portage/xbps/nix | Manual instructions shown |
+| NixOS | nix | Interim repository flake (CPU inference only) |
+| Gentoo, Void | portage/xbps | Manual instructions shown |
 
 <details>
 <summary>Click to expand manual install steps</summary>
