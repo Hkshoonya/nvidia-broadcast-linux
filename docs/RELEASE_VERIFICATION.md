@@ -5,7 +5,8 @@ of integrity evidence:
 
 - `SHA256SUMS.packages` covers the DEB, RPM, macOS PKG, and native-upgrade
   helper assets.
-- `SHA256SUMS.snap` covers Snap files small enough to attach to GitHub Releases.
+- `SHA256SUMS.snap` covers both tag-built Snap files, including a Snap too large
+  to attach to GitHub Releases. The manifest itself has a GitHub attestation.
 - GitHub artifact attestations bind each package digest to the repository,
   source commit, triggering event, and workflow that produced it.
 
@@ -30,6 +31,24 @@ ARTIFACT=nvbroadcast_X.Y.Z_amd64.snap
 awk -v file="$ARTIFACT" '$2 == file { print; found=1 } END { exit !found }' \
   SHA256SUMS.snap | sha256sum -c -
 ```
+
+A Snap above GitHub's release-asset size limit is still listed in the checksum
+manifest for that workflow run. If that exact built Snap was uploaded to the
+Snap Store, download its recorded revision, select its build filename from the
+manifest, and compare the expected digest with the downloaded file's digest.
+Store downloads use revision-based filenames:
+
+```bash
+ARTIFACT=nvbroadcast_X.Y.Z_amd64.snap
+STORE_FILE=nvbroadcast_REVISION.snap
+EXPECTED_SHA256="$(awk -v file="$ARTIFACT" '$2 == file { print $1; found=1 } END { exit !found }' SHA256SUMS.snap)"
+ACTUAL_SHA256="$(sha256sum "$STORE_FILE" | cut -d ' ' -f1)"
+test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
+```
+
+A separate build of the same tag can produce a different Snap digest. Verify
+that Store revision with its own attestation; do not apply a checksum manifest
+from another build run to it.
 
 On macOS, select the downloaded PKG entry and pass it to `shasum`:
 
@@ -111,6 +130,10 @@ gh attestation verify ./PATH_TO_SNAP \
   --source-digest "$SOURCE_COMMIT" \
   --deny-self-hosted-runners
 ```
+
+Use the same Snap-workflow verification command on a downloaded Store revision.
+For releases built with complete Snap checksums, verify `SHA256SUMS.snap` itself
+with the same command before relying on a digest listed only there.
 
 Successful verification proves that the artifact digest was signed through
 GitHub Actions for this repository using Sigstore-backed identity. It links the

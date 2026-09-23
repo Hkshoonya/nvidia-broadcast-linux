@@ -67,9 +67,15 @@ commit changes. Fix the release branch and restart affected gates.
 - Download and inspect the DEB, RPM, and PKG. Verify every entry in
   `SHA256SUMS.packages` and verify each package attestation against the exact
   tag, commit, repository, signer workflow, and a GitHub-hosted runner.
-- Verify every tag-built Snap attestation. When a Snap fits GitHub's release
-  asset limit, also verify its `SHA256SUMS.snap` entry. A missing large Snap
-  release asset is expected only when the workflow reports the size limit.
+- Verify every tag-built Snap attestation and the `SHA256SUMS.snap` attestation.
+  Confirm that its two digest entries match the amd64 and arm64 files from that
+  workflow run. When a Snap fits GitHub's release-asset limit, verify the
+  attached file against its entry. A missing large Snap release asset is
+  expected only when the workflow reports the size limit. Verify a separately
+  built Store revision with its own attestation; compare it with the manifest
+  only when it came from that same build run. On a same-tag rerun, resolve a
+  previously attached Snap with the same name as a newly omitted oversized
+  artifact; the attachment job stops rather than deleting it.
 - Upload the exact tag-built Snap revisions for Store review when required.
   Dispatch every Store review, candidate, or stable action from that exact tag;
   `release_tag` may be omitted only when the workflow ref is already the tag.
