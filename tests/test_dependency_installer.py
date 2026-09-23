@@ -324,6 +324,18 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertIn("unavailable in this Snap", reason)
         self.assertIsNone(install_key)
 
+    def test_tensorrt_optional_install_uses_ort_abi_10_libraries(self):
+        spec = dependency_installer.PACKAGE_SPECS["tensorrt"]
+        self.assertEqual(
+            spec["install_args"],
+            ["install", "tensorrt-cu12-libs==10.16.0.72"],
+        )
+        self.assertEqual(spec["size"], "~4.3 GB")
+        self.assertEqual(
+            dependency_installer.PACKAGE_BUNDLES["premium_gpu_stack"]["size"],
+            "~6.3 GB",
+        )
+
     def test_snap_installer_rejects_direct_runtime_mutation(self):
         installer = dependency_installer.DependencyInstaller()
         with mock.patch.dict(dependency_installer.os.environ, {"SNAP": "/snap/nvbroadcast/current"}, clear=False), \

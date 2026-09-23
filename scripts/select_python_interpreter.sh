@@ -150,7 +150,7 @@ print_apt_guidance() {
 
 print_install_guidance() {
     echo "Install CPython 3.11-3.14 from your distro's official repositories." >&2
-    echo "Prefer Python 3.13, 3.12, or 3.11 for the current TensorRT runtime." >&2
+    echo "Choose a Python with matching desktop bindings; TensorRT 10 libraries also support Python 3.14." >&2
     case "$PACKAGE_MANAGER" in
         apt)
             echo "Ubuntu/Debian family:" >&2

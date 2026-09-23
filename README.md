@@ -271,7 +271,7 @@ cd nvidia-broadcast-linux
 
 The Linux source installer uses an already-installed compatible interpreter in
 this order: CPython 3.13, 3.12, 3.11, then 3.14, followed by a compatible
-`python3`. This preserves the current TensorRT-compatible preference while
+`python3`. This preserves the current broad-feature preference while
 supporting distros whose desktop bindings target Python 3.14. It creates only
 the repository's `.venv`; it does not replace the distro's system Python or add a package
 repository. Compatibility includes `venv`/`ensurepip` support and access to the
@@ -282,10 +282,11 @@ compatible interpreter:
 ./install.sh --python /usr/bin/python3.12
 ```
 
-Use `--python /usr/bin/python3.14` to choose Python 3.14 explicitly. The current
-ONNX Runtime/TensorRT combination remains unsupported on that interpreter;
-ordinary CUDA and CPU processing remain available. Newer Python versions need
-runtime-wheel validation before the source installer accepts them.
+Use `--python /usr/bin/python3.14` to choose Python 3.14 explicitly when that
+interpreter can import the desktop bindings. TensorRT modes also work with the
+pinned TensorRT 10 libraries after the provider execution probe succeeds.
+Newer Python versions need runtime-wheel validation before the source installer
+accepts them.
 
 If no compatible interpreter with `venv` support is installed, the installer
 stops before changing the system and prints guidance for the detected distro.
@@ -349,13 +350,24 @@ reproducibility limits.
 
 ### Optional: TensorRT (for Zeus/Killer modes)
 
+Use the CUDA runtime variant, then install the TensorRT 10 libraries and verify
+that ONNX Runtime actually executes its pinned probe graph on TensorRT:
+
 ```bash
-.venv/bin/pip install tensorrt-cu12 onnx
+./install.sh --runtime cuda
+.venv/bin/pip install 'tensorrt-cu12-libs==10.16.0.72'
+.venv/bin/python -m nvbroadcast.runtime --variant cuda --provider tensorrt
 ```
 
-TensorRT Python wheels are currently published for Python `3.8` through `3.13`
-on Linux `x86_64`. If you are on Python `3.14+`, use `DocZeus` or the CUDA
-modes instead.
+The ONNX Runtime GPU wheel used here requires TensorRT 10 shared libraries;
+TensorRT Python bindings are not needed for Zeus or Killer. The pinned library
+wheel is about 4.3 GB and is retrieved from NVIDIA's package index by the PyPI
+installer stub. It supports the source installer's Python `3.11` through
+`3.14` range on Linux `x86_64`. The installer also requires GTK4, Libadwaita,
+and GStreamer bindings for the selected interpreter, so choose a distro Python
+that can import them. The first use of each mode or frame size builds and caches
+an engine; the preview or window can appear unresponsive for several minutes
+during that build.
 
 ### Supported Distros
 
@@ -554,8 +566,9 @@ CUDA-owned environment, run:
 .venv/bin/python -m nvbroadcast.runtime --variant cuda --provider tensorrt
 ```
 
-On Python `3.14+`, TensorRT may still be unavailable, but CUDA modes can run
-when the default CUDA probe succeeds.
+On Python `3.14`, the optional TensorRT 10 libraries and a successful TensorRT
+probe enable Zeus and Killer. CUDA modes remain available when the CUDA probe
+succeeds.
 
 The amd64 Snap includes CUDA inference, compositing, and frame conversion, but
 intentionally uses GStreamer's CPU MJPEG decoder. Bundling the optional
