@@ -117,6 +117,7 @@ src/nvbroadcast/audio/mic_test.py
 src/nvbroadcast/audio/monitor.py
 src/nvbroadcast/audio/pipeline.py
 src/nvbroadcast/audio/service.py
+src/nvbroadcast/audio/source_probe.py
 src/nvbroadcast/audio/virtual_mic.py
 src/nvbroadcast/audio/voice_fx.py
 src/nvbroadcast/contributors.py
@@ -188,6 +189,7 @@ tests/test_gpu_frame_path.py
 tests/test_integration.py
 tests/test_log_permissions.py
 tests/test_macos_camera.py
+tests/test_meeting_capture.py
 tests/test_meeting_store.py
 tests/test_mic_test.py
 tests/test_model_download.py
