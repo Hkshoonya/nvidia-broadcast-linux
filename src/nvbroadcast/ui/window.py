@@ -1646,6 +1646,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 self._meeting_btn.remove_css_class("recording-btn")
                 self.set_status("Meeting ended")
         else:
+            if self._app.is_recording or self._app.recording_finalizing:
+                self.set_status("Stop or finish Rec before starting a meeting")
+                return
             if not self._app.dependency_installer.is_available("whisper"):
                 block_reason = self._app.dependency_installer.install_block_reason("whisper")
                 if block_reason:
@@ -1663,12 +1666,24 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 return
             filepath = self._app.start_meeting()
             if not filepath:
-                self.set_status("Meeting transcription could not start")
+                self.set_status(self._app.recording_start_error or "Meeting could not start")
                 return
             self._meeting_btn.set_label("End Meeting")
             self._meeting_btn.remove_css_class("idle")
             self._meeting_btn.add_css_class("recording-btn")
-            self.set_status(f"Meeting recording: {filepath}")
+            self.set_status(self._meeting_recording_status(filepath))
+
+    def _meeting_recording_status(self, filepath: str) -> str:
+        if not self._app.meeting_audio_capture_present:
+            return "Meeting started without transcription audio; check audio devices"
+        if not self._app.recording_has_audio:
+            status = "Meeting MP4 is video only; verify the separate audio capture"
+            if self._app.meeting_audio_route_warning:
+                status += f"; {self._app.meeting_audio_route_warning}"
+            return status
+        if self._app.meeting_audio_route_warning:
+            return f"Meeting audio: {self._app.meeting_audio_route_warning}"
+        return f"Meeting MP4 recording: {filepath}; transcription audio unverified"
 
     # --- Mic Selection ---
     def _populate_mics(self):
@@ -1943,19 +1958,52 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         save_config(self._app.config)
 
     # --- Recording ---
+    def on_recording_error(self, _message: str):
+        if self._app.meeting_active:
+            self.set_status("Meeting video failed; end the meeting to save available audio")
+            return
+        self._record_btn.set_label("Rec")
+        self._record_btn.add_css_class("idle")
+        self._record_btn.remove_css_class("recording-btn")
+        self.set_status(
+            "Recording stopped after an audio/video error; "
+            "restart the app if Rec remains unavailable"
+        )
+
+    def on_recording_finalized(self, success: bool, _error: str):
+        self.set_status(
+            "Recording saved" if success else "Recording may be incomplete"
+        )
+
     def _on_record_toggle(self, btn):
+        if self._app.meeting_active or self._app.meeting_finalizing:
+            self.set_status("End the meeting before using Rec")
+            return
+        if self._app.recording_finalizing:
+            self.set_status("Recording is still finalizing")
+            return
         if self._app.is_recording:
-            self._app.stop_recording()
+            finalized = self._app.stop_recording()
             self._record_btn.set_label("Rec")
             self._record_btn.add_css_class("idle")
             self._record_btn.remove_css_class("recording-btn")
-            self.set_status("Recording saved")
+            self.set_status(
+                "Recording saved" if finalized else
+                ("Finalizing recording" if self._app.recording_finalizing else
+                 "Recording may be incomplete")
+            )
         else:
             filepath = self._app.start_recording()
+            if not filepath:
+                self.set_status(self._app.recording_start_error or "Recording could not start")
+                return
             self._record_btn.set_label("Stop Rec")
             self._record_btn.remove_css_class("idle")
             self._record_btn.add_css_class("recording-btn")
-            self.set_status(f"Recording to {filepath}")
+            if self._app.recording_has_audio:
+                self.set_status(f"Recording to {filepath}")
+            else:
+                self.set_status("Recording video only; audio unavailable")
 
     # --- Profiles ---
     def _rebuild_profile_popover(self):
@@ -2614,13 +2662,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         if success and not restart_pending and self._pending_meeting_start:
             self._pending_meeting_start = False
+            if self._app.is_recording or self._app.recording_finalizing:
+                self.set_status("Stop or finish Rec before starting a meeting")
+                return
             filepath = self._app.start_meeting()
             if not filepath:
-                self.set_status("Meeting transcription could not start")
+                self.set_status(self._app.recording_start_error or "Meeting could not start")
                 return
             self._meeting_btn.set_label("End Meeting")
             self._meeting_btn.remove_css_class("idle")
             self._meeting_btn.add_css_class("recording-btn")
-            self.set_status(f"Meeting recording: {filepath}")
+            self.set_status(self._meeting_recording_status(filepath))
         else:
             self._pending_meeting_start = False

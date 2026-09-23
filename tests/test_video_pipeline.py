@@ -800,5 +800,236 @@ class GpuPathFailureBridgingTests(unittest.TestCase):
                         "persistent failure should not burn the 3-strike budget")
 
 
+class VideoPipelineRecordingTests(unittest.TestCase):
+    def test_start_rejects_a_second_output_without_changing_the_first(self):
+        pipeline = VideoPipeline()
+        original = mock.Mock()
+        pipeline._recording = True
+        pipeline._recording_pipeline = original
+        with self.assertRaisesRegex(RuntimeError, "active or still finalizing"):
+            pipeline.start_recording("/tmp/second.mp4")
+        self.assertIs(pipeline._recording_pipeline, original)
+        self.assertTrue(pipeline.is_recording)
+
+    def test_audio_source_requires_a_live_buffer_and_tries_pipewire(self):
+        pipeline = VideoPipeline()
+        failed_pulse = SimpleNamespace(returncode=1, stderr="connection refused")
+        working_pipewire = SimpleNamespace(returncode=0, stderr="")
+        with mock.patch(
+            "nvbroadcast.audio.source_probe.Gst.ElementFactory.find",
+            return_value=object(),
+        ), mock.patch(
+            "nvbroadcast.audio.source_probe.os.path.exists", return_value=True
+        ), mock.patch(
+            "nvbroadcast.audio.source_probe.subprocess.run",
+            side_effect=[failed_pulse, working_pipewire],
+        ) as run:
+            source, error = pipeline._recording_audio_source()
+
+        self.assertEqual((source, error), ("pipewiresrc", ""))
+        self.assertEqual([call.args[0][-1] for call in run.call_args_list],
+                         ["pulsesrc", "pipewiresrc"])
+        self.assertIn("audio/x-raw", run.call_args_list[0].args[0][2])
+        self.assertTrue(all(call.kwargs["timeout"] == 2
+                            for call in run.call_args_list))
+
+    def test_missing_audio_reports_video_only_and_sets_path_with_spaces(self):
+        pipeline = VideoPipeline()
+        pipeline._has_gst_element = lambda name: name == "x264enc"
+        recording = mock.Mock()
+        recording.set_state.return_value = Gst.StateChangeReturn.SUCCESS
+        path = "/tmp/NVB recording with spaces.mp4"
+
+        with mock.patch.object(
+            pipeline, "_recording_audio_source",
+            return_value=(None, "PulseAudio connection refused"),
+        ), mock.patch(
+            "nvbroadcast.video.pipeline.Gst.parse_launch",
+            return_value=recording,
+        ) as parse_launch:
+            pipeline.start_recording(path)
+
+        self.assertTrue(pipeline.is_recording)
+        self.assertFalse(pipeline.recording_has_audio)
+        self.assertIn("connection refused", pipeline.recording_audio_error)
+        self.assertNotIn(path, parse_launch.call_args.args[0])
+        recording.get_by_name.assert_any_call("recfile")
+        recording.get_by_name.return_value.set_property.assert_called_with(
+            "location", path
+        )
+
+    def test_aac_parse_failure_reports_video_only(self):
+        from gi.repository import GLib
+
+        pipeline = VideoPipeline()
+        pipeline._has_gst_element = lambda name: name == "x264enc"
+        recording = mock.Mock()
+        recording.set_state.return_value = Gst.StateChangeReturn.SUCCESS
+        with mock.patch.object(
+            pipeline, "_recording_audio_source", return_value=("pulsesrc", "")
+        ), mock.patch(
+            "nvbroadcast.video.pipeline.Gst.parse_launch",
+            side_effect=[GLib.Error("AAC encoder missing"), recording],
+        ) as parse_launch:
+            pipeline.start_recording("/tmp/recording.mp4")
+
+        self.assertEqual(parse_launch.call_count, 2)
+        self.assertIn("format=F32LE", parse_launch.call_args_list[0].args[0])
+        self.assertFalse(pipeline.recording_has_audio)
+        self.assertIn("AAC encoder missing", pipeline.recording_audio_error)
+
+    def test_recording_writes_h264_and_aac_to_path_with_spaces(self):
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        gi.require_version("GstPbutils", "1.0")
+        from gi.repository import GstPbutils
+
+        required = ("audiotestsrc", "avenc_aac", "aacparse", "x264enc",
+                    "h264parse", "mp4mux")
+        missing = [name for name in required if Gst.ElementFactory.find(name) is None]
+        if missing:
+            self.skipTest(f"GStreamer recording plugins unavailable: {missing}")
+
+        with tempfile.TemporaryDirectory(prefix="NVB recording test ") as directory:
+            path = str(Path(directory) / "camera and audio.mp4")
+            # The media graph runs in a bounded child process so a codec
+            # deadlock cannot hang the rest of the test suite.
+            script = """
+import sys, time
+from unittest import mock
+from nvbroadcast.video.pipeline import VideoPipeline, Gst
+p = VideoPipeline()
+p._width, p._height, p._fps = 64, 48, 15
+with mock.patch.object(p, '_has_gst_element', side_effect=lambda name: name == 'x264enc'), \\
+     mock.patch.object(p, '_recording_audio_source',
+                       return_value=('audiotestsrc is-live=true num-buffers=70', '')):
+    p.start_recording(sys.argv[1])
+    assert p.recording_has_audio
+    pixels = bytes((20, 40, 60, 255)) * (64 * 48)
+    for index in range(20):
+        frame = Gst.Buffer.new_allocate(None, len(pixels), None)
+        frame.fill(0, pixels)
+        frame.pts = index * Gst.SECOND // 15
+        frame.duration = Gst.SECOND // 15
+        assert p._rec_appsrc.emit('push-buffer', frame) == Gst.FlowReturn.OK
+        time.sleep(1 / 15)
+    assert p.stop_recording(), p.recording_audio_error
+"""
+            result = subprocess.run(
+                [sys.executable, "-c", script, path], capture_output=True,
+                text=True, timeout=12, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            info = GstPbutils.Discoverer.new(5 * Gst.SECOND).discover_uri(
+                Gst.filename_to_uri(path)
+            )
+            self.assertEqual(info.get_result(), GstPbutils.DiscovererResult.OK)
+            self.assertEqual(len(info.get_video_streams()), 1)
+            self.assertEqual(len(info.get_audio_streams()), 1)
+            self.assertIn("audio/mpeg", info.get_audio_streams()[0].get_caps().to_string())
+
+    def test_stop_returns_when_pipeline_eos_blocks(self):
+        pipeline = VideoPipeline()
+        recording = mock.Mock()
+        release = threading.Event()
+        recording.send_event.side_effect = lambda _event: release.wait(5)
+        pipeline._recording = True
+        pipeline._recording_pipeline = recording
+        try:
+            started = time.monotonic()
+            self.assertFalse(pipeline.stop_recording())
+            self.assertLess(time.monotonic() - started, 3)
+            self.assertFalse(pipeline.is_recording)
+            self.assertTrue(pipeline.recording_finalizing)
+            with self.assertRaisesRegex(RuntimeError, "still finalizing"):
+                pipeline.start_recording("/tmp/overlapping.mp4")
+        finally:
+            release.set()
+        deadline = time.monotonic() + 1
+        while pipeline.recording_finalizing and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(pipeline.recording_finalizing)
+
+    def test_runtime_error_blocks_restart_until_cleanup_completes(self):
+        pipeline = VideoPipeline()
+        recording = mock.Mock()
+        cleanup_started = threading.Event()
+        release_cleanup = threading.Event()
+
+        def hold_cleanup(_state):
+            cleanup_started.set()
+            release_cleanup.wait(2)
+
+        recording.set_state.side_effect = hold_cleanup
+        pipeline._recording = True
+        pipeline._recording_pipeline = recording
+        pipeline._recording_bus = mock.Mock()
+        pipeline._recording_bus_handler = 1
+        message = mock.Mock()
+        message.parse_error.return_value = (
+            SimpleNamespace(message="Microphone disconnected"), "capture error"
+        )
+        try:
+            pipeline._on_recording_error(None, message, recording)
+            self.assertTrue(cleanup_started.wait(1))
+            self.assertFalse(pipeline.is_recording)
+            self.assertTrue(pipeline.recording_finalizing)
+            with self.assertRaisesRegex(RuntimeError, "still finalizing"):
+                pipeline.start_recording("/tmp/overlapping.mp4")
+        finally:
+            release_cleanup.set()
+        deadline = time.monotonic() + 1
+        while pipeline.recording_finalizing and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(pipeline.recording_finalizing)
+
+    def test_runtime_audio_error_stops_recording_and_notifies_ui(self):
+        import subprocess
+        import sys
+
+        required = ("audiotestsrc", "identity", "avenc_aac", "aacparse",
+                    "x264enc", "h264parse", "mp4mux")
+        missing = [name for name in required if Gst.ElementFactory.find(name) is None]
+        if missing:
+            self.skipTest(f"GStreamer recording plugins unavailable: {missing}")
+
+        script = """
+import tempfile, time
+from pathlib import Path
+from unittest import mock
+from gi.repository import GLib
+from nvbroadcast.video.pipeline import VideoPipeline
+p = VideoPipeline()
+p._width, p._height, p._fps = 64, 48, 15
+notify = mock.Mock()
+p.set_recording_error_callback(notify)
+with tempfile.TemporaryDirectory() as directory, \\
+     mock.patch.object(p, '_has_gst_element',
+                       side_effect=lambda name: name == 'x264enc'), \\
+     mock.patch.object(p, '_recording_audio_source',
+                       return_value=('audiotestsrc is-live=true ! identity error-after=5', '')):
+    p.start_recording(str(Path(directory) / 'failing.mp4'))
+    deadline = time.monotonic() + 3
+    context = GLib.MainContext.default()
+    while p.is_recording and time.monotonic() < deadline:
+        if context.pending():
+            context.iteration(False)
+        time.sleep(0.01)
+    assert not p.is_recording
+    assert not p.recording_has_audio
+    assert 'Failed after iterations' in p.recording_audio_error
+    notify.assert_called_once()
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True,
+            text=True, timeout=8, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

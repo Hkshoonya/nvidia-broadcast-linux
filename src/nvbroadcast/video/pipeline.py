@@ -29,6 +29,7 @@ from nvbroadcast.core.constants import (
     DEFAULT_FPS,
     VIRTUAL_CAM_DEVICE,
 )
+from nvbroadcast.audio.source_probe import probe_audio_source
 
 
 # Formats cudaconvert handles reliably for the up/convert/download segment.
@@ -93,8 +94,15 @@ class VideoPipeline:
         self._alpha_shutdown = False
         self._vcam_failed = False
         self._recording = False
+        self._recording_finalizing = False
         self._recording_pipeline = None
         self._rec_appsrc = None
+        self._recording_has_audio = False
+        self._recording_audio_error = ""
+        self._recording_error_callback = None
+        self._recording_finalize_callback = None
+        self._recording_bus = None
+        self._recording_bus_handler = 0
         self._paused = False
         self._frozen_frame = None
         self._teardown_lock = threading.Lock()
@@ -1155,10 +1163,58 @@ class VideoPipeline:
         if self._alpha_callback:
             self._alpha_callback(frame_data, width, height)
 
+    @staticmethod
+    def _recording_audio_source() -> tuple[str | None, str]:
+        """Use the same live source check as Meeting's separate WAV capture."""
+        return probe_audio_source()
+
+    def set_recording_error_callback(self, callback):
+        self._recording_error_callback = callback
+
+    def set_recording_finalize_callback(self, callback):
+        self._recording_finalize_callback = callback
+
+    def _remove_recording_bus_watch(self):
+        bus = self._recording_bus
+        if bus is not None:
+            if self._recording_bus_handler:
+                bus.disconnect(self._recording_bus_handler)
+            bus.remove_signal_watch()
+        self._recording_bus = None
+        self._recording_bus_handler = 0
+
+    def _on_recording_error(self, _bus, message, recording_pipeline):
+        if recording_pipeline is not self._recording_pipeline or not self._recording:
+            return
+        error, debug = message.parse_error()
+        self._recording_audio_error = error.message
+        self._recording_has_audio = False
+        self._recording = False
+        self._rec_appsrc = None
+        self._recording_pipeline = None
+        self._recording_finalizing = True
+        self._remove_recording_bus_watch()
+        print(f"[NV Broadcast] Recording failed: {error.message}", flush=True)
+        if debug:
+            print(f"[NV Broadcast] Recording debug: {debug}", flush=True)
+        # A failing PipeWire source can hang while changing to NULL. Keep the
+        # GTK main loop responsive while its GStreamer resources are released.
+        def _cleanup_failed_recording():
+            try:
+                recording_pipeline.set_state(Gst.State.NULL)
+            finally:
+                self._recording_finalizing = False
+
+        threading.Thread(target=_cleanup_failed_recording, daemon=True).start()
+        if self._recording_error_callback:
+            self._recording_error_callback(error.message)
+
     def start_recording(self, filepath: str):
         """Start recording the processed output to an MP4 file."""
-        if self._recording:
-            return
+        if self._recording or self._recording_finalizing:
+            raise RuntimeError("A recording is active or still finalizing")
+        self._recording_has_audio = False
+        self._recording_audio_error = ""
 
         # Use NVENC if available, else x264
         from nvbroadcast.core.platform import IS_MACOS
@@ -1171,28 +1227,37 @@ class VideoPipeline:
             else:
                 convert = "videoconvert n-threads=2 qos=false"
             encoder = f"{convert} ! nvh264enc preset=low-latency-hq bitrate=8000"
-        else:
+        elif self._has_gst_element("x264enc"):
             encoder = ("videoconvert n-threads=2 qos=false ! "
                        "x264enc tune=zerolatency speed-preset=ultrafast bitrate=8000")
+        else:
+            raise RuntimeError("No H.264 recording encoder is installed")
 
-        try:
-            # Video + Audio recording pipeline
-            self._recording_pipeline = Gst.parse_launch(
-                f"mp4mux name=mux fragment-duration=1000 ! filesink location={filepath} "
-                f"appsrc name=recsrc is-live=true format=time "
-                f"caps=video/x-raw,format=BGRA,width={self._width},"
-                f"height={self._height},framerate={self._fps}/1 ! "
-                f"queue max-size-buffers=3 leaky=downstream ! "
-                f"{encoder} ! "
-                f"h264parse ! mux.video_0 "
-                f"pipewiresrc ! audioconvert ! audioresample ! "
-                f"audio/x-raw,format=S16LE,rate=48000,channels=1 ! "
-                f"queue max-size-buffers=10 ! "
-                f"avenc_aac bitrate=128000 ! aacparse ! mux.audio_0"
-            )
-        except Exception:
-            # Fallback: video only
-            self._recording_pipeline = Gst.parse_launch(
+        source, audio_error = self._recording_audio_source()
+        recording_pipeline = None
+        has_audio = False
+        if source:
+            try:
+                # The libav AAC encoder accepts F32LE, not S16LE PCM.
+                recording_pipeline = Gst.parse_launch(
+                    f"mp4mux name=mux fragment-duration=1000 ! filesink name=recfile "
+                    f"appsrc name=recsrc is-live=true format=time "
+                    f"caps=video/x-raw,format=BGRA,width={self._width},"
+                    f"height={self._height},framerate={self._fps}/1 ! "
+                    f"queue max-size-buffers=3 leaky=downstream ! "
+                    f"{encoder} ! "
+                    f"h264parse ! mux.video_0 "
+                    f"{source} ! audioconvert ! audioresample ! "
+                    f"audio/x-raw,format=F32LE,rate=48000,channels=1 ! "
+                    f"queue max-size-buffers=10 ! "
+                    f"avenc_aac bitrate=128000 ! aacparse ! mux.audio_0"
+                )
+                has_audio = True
+            except GLib.Error as exc:
+                audio_error = f"{source}: {exc.message}"
+
+        if recording_pipeline is None:
+            recording_pipeline = Gst.parse_launch(
                 f"appsrc name=recsrc is-live=true format=time "
                 f"caps=video/x-raw,format=BGRA,width={self._width},"
                 f"height={self._height},framerate={self._fps}/1 ! "
@@ -1200,34 +1265,104 @@ class VideoPipeline:
                 f"{encoder} ! "
                 f"h264parse ! "
                 f"mp4mux fragment-duration=1000 ! "
-                f"filesink location={filepath}"
+                f"filesink name=recfile"
             )
-            print("[NV Broadcast] Recording without audio (audio unavailable)")
-        self._rec_appsrc = self._recording_pipeline.get_by_name("recsrc")
-        self._recording_pipeline.set_state(Gst.State.PLAYING)
+            print(f"[NV Broadcast] Recording video only: {audio_error}", flush=True)
+
+        # Set this as a property: an unquoted path containing spaces otherwise
+        # makes Gst.parse_launch treat the next word as an element name.
+        recording_pipeline.get_by_name("recfile").set_property("location", filepath)
+        rec_appsrc = recording_pipeline.get_by_name("recsrc")
+        if recording_pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+            recording_pipeline.set_state(Gst.State.NULL)
+            raise RuntimeError("Recording pipeline could not start")
+        self._recording_pipeline = recording_pipeline
+        self._rec_appsrc = rec_appsrc
+        self._recording_has_audio = has_audio
+        self._recording_audio_error = audio_error
         self._recording = True
+        bus = recording_pipeline.get_bus()
+        bus.add_signal_watch()
+        self._recording_bus = bus
+        self._recording_bus_handler = bus.connect(
+            "message::error", self._on_recording_error, recording_pipeline
+        )
         print(f"[NV Broadcast] Recording started: {filepath}")
 
     def stop_recording(self):
         """Stop recording and finalize the MP4 file."""
         if not self._recording:
-            return
+            return False
         self._recording = False
-        if self._rec_appsrc:
-            self._rec_appsrc.emit("end-of-stream")
-        # Wait for EOS to propagate
-        if self._recording_pipeline:
-            self._recording_pipeline.get_bus().timed_pop_filtered(
-                2 * Gst.SECOND, Gst.MessageType.EOS
-            )
-            self._recording_pipeline.set_state(Gst.State.NULL)
+        self._remove_recording_bus_watch()
+        recording_pipeline = self._recording_pipeline
         self._recording_pipeline = None
         self._rec_appsrc = None
+        if recording_pipeline is None:
+            return False
+        self._recording_finalizing = True
+
+        finished = threading.Event()
+        result = {"finalized": False, "error": "Timed out finalizing the recording"}
+        finalize_callback = self._recording_finalize_callback
+
+        def _finalize():
+            # Both appsrc and the live audio source must receive EOS. Ending
+            # only appsrc leaves audio running until the timeout, producing an
+            # audio track up to two seconds longer than the video.
+            try:
+                if recording_pipeline.send_event(Gst.Event.new_eos()):
+                    message = recording_pipeline.get_bus().timed_pop_filtered(
+                        2 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR
+                    )
+                    if message is not None and message.type == Gst.MessageType.EOS:
+                        result["finalized"] = True
+                        result["error"] = ""
+                    elif message is not None:
+                        result["error"] = message.parse_error()[0].message
+                else:
+                    result["error"] = "Could not finalize the recording pipeline"
+            except Exception as exc:
+                result["error"] = str(exc)
+            finally:
+                try:
+                    recording_pipeline.set_state(Gst.State.NULL)
+                finally:
+                    self._recording_finalizing = False
+                    finished.set()
+                    if finalize_callback:
+                        GLib.idle_add(
+                            finalize_callback,
+                            result["finalized"], result["error"],
+                        )
+
+        threading.Thread(target=_finalize, daemon=True).start()
+        if not finished.wait(2.5):
+            self._recording_audio_error = "Recording finalization is still running"
+            print(f"[NV Broadcast] {self._recording_audio_error}", flush=True)
+            return False
+        if not result["finalized"]:
+            self._recording_audio_error = result["error"]
+            print(f"[NV Broadcast] Recording finalization failed: "
+                  f"{self._recording_audio_error}", flush=True)
         print("[NV Broadcast] Recording stopped")
+        return result["finalized"]
 
     @property
     def is_recording(self) -> bool:
         return self._recording
+
+    @property
+    def recording_finalizing(self) -> bool:
+        return self._recording_finalizing
+
+    @property
+    def recording_has_audio(self) -> bool:
+        return self._recording and self._recording_has_audio
+
+    @property
+    def recording_audio_error(self) -> str:
+        return self._recording_audio_error
 
     @property
     def virtual_camera_active(self) -> bool:
