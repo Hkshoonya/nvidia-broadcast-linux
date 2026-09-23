@@ -887,7 +887,8 @@ class VideoPipelineRecordingTests(unittest.TestCase):
         gi.require_version("GstPbutils", "1.0")
         from gi.repository import GstPbutils
 
-        required = ("audiotestsrc", "avenc_aac", "aacparse", "x264enc", "mp4mux")
+        required = ("audiotestsrc", "avenc_aac", "aacparse", "x264enc",
+                    "h264parse", "mp4mux")
         missing = [name for name in required if Gst.ElementFactory.find(name) is None]
         if missing:
             self.skipTest(f"GStreamer recording plugins unavailable: {missing}")
@@ -991,7 +992,7 @@ with mock.patch.object(p, '_has_gst_element', side_effect=lambda name: name == '
         import sys
 
         required = ("audiotestsrc", "identity", "avenc_aac", "aacparse",
-                    "x264enc", "mp4mux")
+                    "x264enc", "h264parse", "mp4mux")
         missing = [name for name in required if Gst.ElementFactory.find(name) is None]
         if missing:
             self.skipTest(f"GStreamer recording plugins unavailable: {missing}")
