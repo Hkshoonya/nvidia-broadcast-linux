@@ -342,6 +342,14 @@ python313Packages.buildPythonApplication (finalAttrs: {
       --replace-fail 'Path(sys.prefix) / "share"' \
         'Path("${placeholder "out"}") / "share"'
 
+    # Generated test helpers cannot use /usr/bin/env in the Nix build sandbox.
+    substituteInPlace scripts/source_runtime.py \
+      --replace-fail '"#!/usr/bin/env bash\nexec "' \
+        '"#!${stdenv.shell}\nexec "'
+    substituteInPlace tests/test_release_checksums.py \
+      --replace-fail '"#!/usr/bin/env python3\n"' \
+        '"#!${python313Packages.python.interpreter}\n"'
+
     # Upstream's fixed system PATH is empty in the Nix build sandbox.
     substituteInPlace scripts/native_package_upgrade.sh.in \
       --replace-fail 'PATH=/usr/sbin:/usr/bin:/sbin:/bin' \
