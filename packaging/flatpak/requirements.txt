@@ -1,0 +1,22 @@
+# Runtime inputs for the development Flatpak. Keep these constraints aligned
+# with pyproject.toml and src/nvbroadcast/runtime/variants.py.
+numpy>=1.26
+Pillow>=12.3.0
+opencv-contrib-python>=4.8.1.78,<5
+mediapipe>=1.0.0
+protobuf>=6.33.5,<7
+pyrnnoise>=0.4
+av>=16,<17
+onnx>=1.22.0
+click>=8.3.3
+psutil>=5.9
+scipy>=1.11
+packaging>=26.0
+onnxruntime>=1.24.4,<1.25
+faster-whisper==1.2.1
+ctranslate2
+huggingface-hub
+httpx
+tokenizers
+soundfile
+tqdm

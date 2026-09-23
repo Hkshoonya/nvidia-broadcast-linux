@@ -42,6 +42,11 @@ NVIDIA_RUNTIME_LIB_MODULES = (
 )
 
 
+def running_in_flatpak() -> bool:
+    """Return whether the current process is running inside Flatpak."""
+    return bool(os.environ.get("FLATPAK_ID")) or Path("/.flatpak-info").is_file()
+
+
 def _coerce_version_info(
     version_info: tuple[int, int] | None = None,
 ) -> tuple[int, int]:
@@ -196,7 +201,9 @@ def has_nvidia_gpu() -> bool:
         return False  # No NVIDIA on modern Macs
     if IS_LINUX and not supports_linux_gpu_stack():
         return False
-    return shutil.which("nvidia-smi") is not None
+    from nvbroadcast.core.gpu import detect_gpus
+
+    return bool(detect_gpus())
 
 
 def has_v4l2() -> bool:

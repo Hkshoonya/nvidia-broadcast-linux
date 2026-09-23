@@ -34,6 +34,7 @@ from nvbroadcast.core.platform import (
     has_cuda_inference_runtime,
     has_tensorrt_runtime,
     preload_nvidia_runtime_libs,
+    running_in_flatpak,
     supports_openai_whisper_python,
     supports_linux_gpu_stack,
     supports_tensorrt_python,
@@ -117,6 +118,12 @@ def _cuda_runtime_unsupported_reason() -> str:
             "reinstall or upgrade NVBroadcast through the system package manager "
             "to recreate its managed environment as CUDA."
         )
+    if running_in_flatpak():
+        return (
+            "This Flatpak was built with the CPU runtime variant. Flatpak "
+            "runtimes are immutable; update to a build that bundles CUDA or "
+            "use another supported package format for CUDA modes."
+        )
     return (
         "This environment uses the CPU runtime variant. Stop NVBroadcast and run "
         "./install.sh --runtime cuda, or recreate a user-owned source environment "
@@ -134,6 +141,11 @@ def _runtime_install_block_reason() -> str | None:
         return (
             "Optional runtimes cannot be installed inside the immutable Snap. "
             "Refresh the Snap to receive bundled runtime updates."
+        )
+    if running_in_flatpak():
+        return (
+            "Optional runtimes cannot be installed inside the immutable "
+            "Flatpak. Update the Flatpak to receive bundled runtime changes."
         )
 
     venv_root = Path(sys.prefix)
@@ -432,6 +444,19 @@ class DependencyInstaller(GObject.Object):
                 "cupy",
             )
         if (
+            running_in_flatpak()
+            and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
+            and not _has_cuda_mode_runtime()
+        ):
+            return _with_probe_failure(
+                (
+                    "CUDA modes are unavailable in this Flatpak build, and "
+                    "Flatpak runtimes cannot be changed after deployment. "
+                    "Update the Flatpak or use a mode whose runtime is bundled."
+                ),
+                "cupy",
+            )
+        if (
             mode_key in ("zeus", "killer")
             and not has_tensorrt_runtime()
             and not supports_tensorrt_python()
@@ -450,6 +475,19 @@ class DependencyInstaller(GObject.Object):
                     "TensorRT is unavailable in this Snap build, and strict Snaps "
                     "cannot install runtimes after deployment. Use DocZeus or a "
                     "CUDA mode instead."
+                ),
+                "tensorrt",
+            )
+        if (
+            running_in_flatpak()
+            and mode_key in ("zeus", "killer")
+            and not has_tensorrt_runtime()
+        ):
+            return _with_probe_failure(
+                (
+                    "TensorRT is unavailable in this Flatpak build, and "
+                    "Flatpak runtimes cannot be changed after deployment. "
+                    "Use DocZeus or another bundled mode instead."
                 ),
                 "tensorrt",
             )
