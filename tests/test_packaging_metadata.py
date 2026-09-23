@@ -1,7 +1,13 @@
 import json
+import os
 import re
+import shutil
 import stat
 import struct
+import subprocess
+import sys
+import tempfile
+import time
 import tomllib
 import unittest
 import xml.etree.ElementTree as ET
@@ -285,7 +291,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertLess(guard_calls[1], first_environment_mutation)
         self.assertIn("check_source_venv_processes.py", install_script)
         self.assertIn(
-            "Stop NVBroadcast and the virtual-camera service", install_script
+            "Stop NVBroadcast and any audio or virtual-camera service", install_script
         )
         self.assertIn(
             "systemctl --user stop nvbroadcast-vcam.service", install_script
@@ -445,6 +451,151 @@ class PackagingMetadataTests(unittest.TestCase):
 
         for relative in ("LICENSE", "NOTICE", "README.md", "CONTRIBUTORS.md"):
             self.assertEqual((REPO_ROOT / relative).stat().st_mode & stat.S_IXUSR, 0, relative)
+
+    @unittest.skipUnless(
+        sys.platform == "linux"
+        and shutil.which("dpkg-deb"),
+        "requires Linux dpkg-deb",
+    )
+    def test_direct_deb_builds_are_reproducible(self):
+        with tempfile.TemporaryDirectory(prefix="nvbroadcast-repro-deb-") as directory:
+            project = Path(directory)
+            for name in ("src", "data", "configs", "packaging", "scripts"):
+                shutil.copytree(REPO_ROOT / name, project / name)
+            for name in (
+                "build-packages.sh", "pyproject.toml", "LICENSE", "NOTICE",
+                "README.md", "CONTRIBUTORS.md",
+            ):
+                shutil.copy2(REPO_ROOT / name, project / name)
+
+            environment = os.environ.copy()
+            environment.pop("SOURCE_DATE_EPOCH", None)
+
+            def build() -> bytes:
+                subprocess.run(
+                    ["bash", "build-packages.sh", "deb"],
+                    cwd=project,
+                    env=environment,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                packages = list((project / "dist" / "deb").glob("nvbroadcast_*.deb"))
+                self.assertEqual(len(packages), 1)
+                return packages[0].read_bytes()
+
+            first = build()
+            time.sleep(1.1)
+            self.assertEqual(first, build())
+
+            environment["SOURCE_DATE_EPOCH"] = "1600000000"
+            self.assertNotEqual(first, build())
+            environment["SOURCE_DATE_EPOCH"] = "invalid"
+            with self.assertRaises(subprocess.CalledProcessError):
+                build()
+
+    @unittest.skipUnless(
+        sys.platform == "linux"
+        and shutil.which("rpmbuild")
+        and shutil.which("rpm"),
+        "requires Linux rpmbuild and rpm",
+    )
+    def test_direct_rpm_builds_are_reproducible(self):
+        with tempfile.TemporaryDirectory(prefix="nvbroadcast-repro-rpm-") as directory:
+            project = Path(directory)
+            for name in ("src", "data", "configs", "packaging", "scripts"):
+                shutil.copytree(REPO_ROOT / name, project / name)
+            for name in (
+                "build-packages.sh", "pyproject.toml", "LICENSE", "NOTICE",
+                "README.md", "CONTRIBUTORS.md",
+            ):
+                shutil.copy2(REPO_ROOT / name, project / name)
+
+            environment = os.environ.copy()
+            environment.pop("SOURCE_DATE_EPOCH", None)
+
+            def build() -> tuple[bytes, Path]:
+                subprocess.run(
+                    ["bash", "build-packages.sh", "rpm"],
+                    cwd=project,
+                    env=environment,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                packages = list((project / "dist" / "rpm").glob("nvbroadcast-*.rpm"))
+                self.assertEqual(len(packages), 1)
+                return packages[0].read_bytes(), packages[0]
+
+            first, package = build()
+            time.sleep(1.1)
+            self.assertEqual(first, build()[0])
+            header = subprocess.check_output(
+                ["rpm", "-qp", "--qf", "%{BUILDTIME} %{BUILDHOST}", str(package)],
+                text=True,
+            )
+            self.assertEqual(header.split()[1], "nvbroadcast")
+
+            environment["SOURCE_DATE_EPOCH"] = "1600000000"
+            self.assertNotEqual(first, build()[0])
+            environment["SOURCE_DATE_EPOCH"] = "invalid"
+            with self.assertRaises(subprocess.CalledProcessError):
+                build()
+
+    @unittest.skipUnless(sys.platform == "linux", "requires Linux shell tools")
+    def test_explicit_rpm_build_requires_tool_and_new_artifact(self):
+        with tempfile.TemporaryDirectory(prefix="nvbroadcast-rpm-errors-") as directory:
+            root = Path(directory)
+            missing_tool = root / "missing-tool"
+            missing_tool.mkdir()
+            for name in ("build-packages.sh", "pyproject.toml"):
+                shutil.copy2(REPO_ROOT / name, missing_tool / name)
+
+            limited_path = root / "limited-path"
+            limited_path.mkdir()
+            for name in ("bash", "dirname", "python3"):
+                (limited_path / name).symlink_to(shutil.which(name))
+            environment = os.environ.copy()
+            environment["PATH"] = str(limited_path)
+            result = subprocess.run(
+                ["bash", "build-packages.sh", "rpm"],
+                cwd=missing_tool,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("rpmbuild not found", result.stderr)
+
+            no_artifact = root / "no-artifact"
+            no_artifact.mkdir()
+            for name in ("src", "data", "configs", "packaging", "scripts"):
+                shutil.copytree(REPO_ROOT / name, no_artifact / name)
+            for name in (
+                "build-packages.sh", "pyproject.toml", "LICENSE", "NOTICE",
+                "README.md", "CONTRIBUTORS.md",
+            ):
+                shutil.copy2(REPO_ROOT / name, no_artifact / name)
+            stale = no_artifact / "dist" / "rpm" / "nvbroadcast-stale.rpm"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"old RPM")
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            fake_rpmbuild = fake_bin / "rpmbuild"
+            fake_rpmbuild.write_text("#!/bin/sh\nexit 0\n")
+            fake_rpmbuild.chmod(0o755)
+            environment["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
+            environment.pop("SOURCE_DATE_EPOCH", None)
+            result = subprocess.run(
+                ["bash", "build-packages.sh", "rpm"],
+                cwd=no_artifact,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("produced no RPM artifact", result.stderr)
+            self.assertEqual(stale.read_bytes(), b"old RPM")
 
     def test_canonical_notice_and_contributors_ship_in_package_payloads(self):
         records = ("NOTICE", "CONTRIBUTORS.md")
