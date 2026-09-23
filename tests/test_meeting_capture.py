@@ -21,6 +21,15 @@ from nvbroadcast.audio.meeting_capture import (
 )
 
 
+def _child_environment():
+    env = os.environ.copy()
+    source_path = str(Path(__file__).resolve().parents[1] / "src")
+    env["PYTHONPATH"] = os.pathsep.join(
+        path for path in (source_path, env.get("PYTHONPATH")) if path
+    )
+    return env
+
+
 class MeetingAudioCaptureTests(unittest.TestCase):
     def test_only_a_wav_with_pcm_frames_counts_as_recorded_audio(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -217,11 +226,9 @@ capture._running = True
 capture.stop()
 print('failed native state stopped without EOS', flush=True)
 """
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
         result = subprocess.run(
             [sys.executable, "-c", script], capture_output=True, text=True,
-            env=env, timeout=10, check=False,
+            env=_child_environment(), timeout=10, check=False,
         )
         if result.returncode == 77:
             self.skipTest("GStreamer did not reach the PLAYING/FAILURE race")
@@ -257,8 +264,7 @@ with tempfile.TemporaryDirectory() as directory:
     capture.stop()
     print('failed source stopped safely', flush=True)
 """
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+        env = _child_environment()
         env["PIPEWIRE_REMOTE"] = "nvb-issue112-nonexistent-remote"
         with tempfile.TemporaryDirectory() as runtime_dir:
             env["PIPEWIRE_RUNTIME_DIR"] = runtime_dir
