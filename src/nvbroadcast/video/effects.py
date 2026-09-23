@@ -3736,6 +3736,11 @@ class VideoEffects:
         preserve_detail = (
             is_replace and self._quality in self._DETAIL_QUALITY_PRESETS
         )
+        fine_remove = (
+            self._bg_mode == "remove"
+            and self._dilate_size <= 3
+            and self._blur_size <= 11
+        )
         preserve_holes = None
         preserve_slits = None
         restored_slits = None
@@ -3768,10 +3773,11 @@ class VideoEffects:
                 max_area_ratio=None,
                 reference_shape=reference_shape,
             )
-        # 2. Half-resolution close for Remove and non-detail Replace. Blur
-        #    skips this broad close so exterior hand/arm gaps stay open.
-        #    Quality Replace also skips it to preserve fine channels.
-        if not preserve_detail and not is_blur:
+        # 2. At ordinary Remove edge settings, the 25x25 half-resolution
+        #    close bridges the raw RVM gaps between moving fingers. Leave
+        #    those channels open; retain the broad ladder for deliberately
+        #    stronger Dilate/Softness settings and non-detail Replace.
+        if not preserve_detail and not is_blur and not fine_remove:
             h, w = a8.shape[:2]
             small = cv2.resize(a8, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
             close_size = 3 if is_replace else 25
@@ -3892,11 +3898,14 @@ class VideoEffects:
                 if self._blur_size > 1:
                     a8 = cv2.GaussianBlur(a8, self._blur_ksize, 0)
             else:
-                # Preserve Remove's 7x7 two-pass dilation at Dilate=3.
+                # A single narrow pass keeps open the gaps that survived the
+                # first close. Larger edge settings keep their existing ladder.
                 if self._dilate_size > 0:
-                    size = max(1, 2 * self._dilate_size + 1)
+                    size = (self._dilate_size | 1) if fine_remove else max(
+                        1, 2 * self._dilate_size + 1)
                     dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
-                    a8 = cv2.dilate(a8, dilate_k, iterations=2)
+                    a8 = cv2.dilate(a8, dilate_k,
+                                    iterations=1 if fine_remove else 2)
                 softness_sizes = self._edge_softness_sizes((17, 11, 7, 11))
                 for size in softness_sizes[:-1]:
                     if size > 1:

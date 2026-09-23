@@ -149,11 +149,10 @@ class RemoveDonorSupportTests(unittest.TestCase):
                         self.assertGreaterEqual(int(matte[y + 25, x - 5]), 250)
                         self.assertTrue(np.all(output[y + 25, x - 5, :3] == 240))
 
-    def test_ambiguous_weak_alpha_keeps_possible_fine_strand(self):
-        # With identical RGB and raw alpha, a one-pixel strand cannot be
-        # distinguished from camera background in the same finger channel.
-        # Keep weak model foreground rather than erase a potentially real
-        # strand solely because the channel has an exterior-gap shape.
+    def test_ambiguous_weak_alpha_channel_stays_partial(self):
+        # The model cannot distinguish a background-colored strand from a
+        # weak-alpha camera-background channel. Keep partial model support,
+        # but do not turn every such gap into opaque white foreground.
         h, w = 720, 1280
         y, x = 220, 550
         alpha = np.zeros((h, w), np.float32)
@@ -173,8 +172,25 @@ class RemoveDonorSupportTests(unittest.TestCase):
                     effects.process_frame_array(frame, w, h)
                     matte = effects.latest_final_matte_u8(w, h)
 
-                    self.assertGreaterEqual(int(matte[y + 50, x + 4]), 245)
-                    self.assertGreaterEqual(int(matte[y + 50, x + 2]), 245)
+                    self.assertGreater(int(matte[y + 50, x + 4]), 120)
+                    self.assertLess(int(matte[y + 50, x + 4]), 230)
+
+    def test_dark_hair_outside_finger_channels_remains_visible(self):
+        h, w = 720, 1280
+        y, x = 200, 500
+        alpha = np.zeros((h, w), np.float32)
+        alpha[y:y + 130, x + 1:x + 60] = 1.0
+        alpha[y:y + 130, x] = 0.5
+        frame = np.full((h, w, 4), 255, np.uint8)
+        frame[y:y + 130, x + 1:x + 60, :3] = 240
+        frame[y:y + 130, x, :3] = 64
+        effects = _make_effects(alpha)
+
+        output = effects.process_frame_array(frame, w, h)
+        matte = effects.latest_final_matte_u8(w, h)
+
+        self.assertGreaterEqual(int(matte[y + 50, x]), 200)
+        self.assertLess(int(output[y + 50, x, 0]), 150)
 
     def _gpu(self):
         if cp is None:
@@ -260,7 +276,7 @@ class RemoveDonorSupportTests(unittest.TestCase):
                 self.assertTrue(np.all(output[y + 5:y + 15, x:x + gap, :3]
                                        == (0, 255, 0)))
 
-    def test_fused_ambiguous_weak_alpha_matches_conservative_cpu_matte(self):
+    def test_fused_ambiguous_weak_alpha_matches_partial_cpu_matte(self):
         self._gpu()
         h, w = 720, 1280
         y, x = 220, 550
@@ -282,7 +298,7 @@ class RemoveDonorSupportTests(unittest.TestCase):
 
         np.testing.assert_array_equal(
             cpu.latest_final_matte_u8(w, h), gpu.latest_final_matte_u8(w, h))
-        self.assertGreaterEqual(int(cpu.latest_final_matte_u8(w, h)[y + 50, x + 4]), 245)
+        self.assertLess(int(cpu.latest_final_matte_u8(w, h)[y + 50, x + 4]), 230)
         error = np.abs(expected[:, :, :3].astype(np.int16)
                        - actual[:, :, :3].astype(np.int16))
         self.assertLessEqual(int(error[y + 5:y + 120, x:x + 8].max()), 2)
@@ -296,7 +312,7 @@ class RemoveDonorSupportTests(unittest.TestCase):
         frame[:, :, 3] = 255
         frame[alpha == 0, :3] = 255
         for scene in ("textured", "white_clothing"):
-            for dilate, softness in ((3, 5), (15, 25)):
+            for dilate, softness in ((3, 5), (3, 11), (15, 25)):
                 with self.subTest(scene=scene, dilate=dilate, softness=softness):
                     subject = frame.copy()
                     subject[h // 2:h - 40, w // 3 + 30:w * 2 // 3 - 30, :3] = 240
