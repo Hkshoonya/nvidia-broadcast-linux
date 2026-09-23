@@ -1237,24 +1237,34 @@ class VideoPipeline:
         recording_pipeline = None
         has_audio = False
         if source:
-            try:
-                # The libav AAC encoder accepts F32LE, not S16LE PCM.
-                recording_pipeline = Gst.parse_launch(
-                    f"mp4mux name=mux fragment-duration=1000 ! filesink name=recfile "
-                    f"appsrc name=recsrc is-live=true format=time "
-                    f"caps=video/x-raw,format=BGRA,width={self._width},"
-                    f"height={self._height},framerate={self._fps}/1 ! "
-                    f"queue max-size-buffers=3 leaky=downstream ! "
-                    f"{encoder} ! "
-                    f"h264parse ! mux.video_0 "
-                    f"{source} ! audioconvert ! audioresample ! "
-                    f"audio/x-raw,format=F32LE,rate=48000,channels=1 ! "
-                    f"queue max-size-buffers=10 ! "
-                    f"avenc_aac bitrate=128000 ! aacparse ! mux.audio_0"
-                )
+            # libav AAC accepts F32LE; VisualOn AAC accepts S16LE.
+            aac_errors = []
+            for aac_encoder, pcm_format in (("avenc_aac", "F32LE"),
+                                            ("voaacenc", "S16LE")):
+                if not self._has_gst_element(aac_encoder):
+                    continue
+                try:
+                    recording_pipeline = Gst.parse_launch(
+                        f"mp4mux name=mux fragment-duration=1000 ! filesink name=recfile "
+                        f"appsrc name=recsrc is-live=true format=time "
+                        f"caps=video/x-raw,format=BGRA,width={self._width},"
+                        f"height={self._height},framerate={self._fps}/1 ! "
+                        f"queue max-size-buffers=3 leaky=downstream ! "
+                        f"{encoder} ! "
+                        f"h264parse ! mux.video_0 "
+                        f"{source} ! audioconvert ! audioresample ! "
+                        f"audio/x-raw,format={pcm_format},rate=48000,channels=1 ! "
+                        f"queue max-size-buffers=10 ! "
+                        f"{aac_encoder} bitrate=128000 ! aacparse ! mux.audio_0"
+                    )
+                except GLib.Error as exc:
+                    aac_errors.append(f"{aac_encoder}: {exc.message}")
+                    continue
                 has_audio = True
-            except GLib.Error as exc:
-                audio_error = f"{source}: {exc.message}"
+                break
+            if not has_audio:
+                audio_error = (f"{source}: {'; '.join(aac_errors)}" if aac_errors
+                               else "No AAC recording encoder is installed")
 
         if recording_pipeline is None:
             recording_pipeline = Gst.parse_launch(
