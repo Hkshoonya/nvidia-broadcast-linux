@@ -67,11 +67,11 @@ def transition_problem(
 def recovery_guidance(source_venv: Path | None) -> str:
     if source_venv is not None:
         return (
-            "Stop NVBroadcast and the virtual-camera service, remove "
+            "Stop NVBroadcast and any audio or virtual-camera service, remove "
             f"{source_venv}, then recreate it with the requested setup target."
         )
     return (
-        "Stop NVBroadcast and the virtual-camera service, recreate the target "
+        "Stop NVBroadcast and any audio or virtual-camera service, recreate the target "
         "virtual environment, then rerun the installer."
     )
 
@@ -101,7 +101,7 @@ def guard_source_environment(project: Path, source_venv: Path) -> None:
     )
     if result.returncode == 1:
         raise RuntimeError(
-            "Source environment is in use. Stop NVBroadcast and the "
+            "Source environment is in use. Stop NVBroadcast and any audio or "
             "virtual-camera service, then rerun the setup target."
         )
     if result.returncode != 0:
