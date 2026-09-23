@@ -93,6 +93,8 @@ class ResponsiveWindowTests(unittest.TestCase):
             time.sleep(0.005)
 
     def _show(self, width, height=800):
+        if not self.window._responsive_breakpoints:
+            self.skipTest("compact layout requires libadwaita 1.4 breakpoints")
         self.window.set_default_size(width, height)
         self.window.present()
         self._settle()
