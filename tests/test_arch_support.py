@@ -74,7 +74,8 @@ class ArchSupportTests(unittest.TestCase):
 
     def test_tensorrt_python_support_range(self):
         self.assertTrue(supports_tensorrt_python((3, 13)))
-        self.assertFalse(supports_tensorrt_python((3, 14)))
+        self.assertTrue(supports_tensorrt_python((3, 14)))
+        self.assertFalse(supports_tensorrt_python((3, 15)))
         self.assertTrue(supports_openai_whisper_python((3, 13)))
         with mock.patch("importlib.metadata.version", side_effect=Exception("missing")):
             self.assertFalse(supports_openai_whisper_python((3, 14)))
@@ -95,11 +96,11 @@ class ArchSupportTests(unittest.TestCase):
              mock.patch("nvbroadcast.core.dependency_installer.supports_tensorrt_python", return_value=False), \
              mock.patch(
                  "nvbroadcast.core.dependency_installer.tensorrt_python_unsupported_reason",
-                 return_value=tensorrt_python_unsupported_reason((3, 14)),
+                 return_value=tensorrt_python_unsupported_reason((3, 15)),
              ):
             reason = installer.unsupported_reason_for_mode("zeus")
         self.assertIsNotNone(reason)
-        self.assertIn("Python 3.14", reason)
+        self.assertIn("Python 3.15", reason)
         self.assertIn("DocZeus", reason)
 
     def test_get_tensorrt_lib_dirs_accepts_current_cu12_package_name(self):
@@ -249,6 +250,8 @@ class ArchSupportTests(unittest.TestCase):
         self.assertEqual(key, "python-runtime-3.14")
         self.assertIn("Python 3.14", title)
         self.assertIn("Zeus and Killer", body)
+        self.assertIn("TensorRT 10 libraries", body)
+        self.assertNotIn("until NVIDIA ships", body)
         self.assertIn("faster-whisper", body)
 
     def test_python_runtime_advisory_mentions_installed_tensorrt_runtime(self):

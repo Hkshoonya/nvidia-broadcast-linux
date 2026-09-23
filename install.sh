@@ -292,7 +292,8 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     ERRORS+=("This installer only supports Linux")
 fi
 
-# The selector accepts only CPython 3.11-3.13 and validates venv support.
+# The selector accepts CPython 3.11-3.14 and validates venv support.
+# Desktop-binding compatibility is checked after installing distro packages.
 echo "  Python $PY_VER ($PYTHON_BIN) ... OK"
 
 # Recheck venv and its pip bootstrap defensively in case the selected
@@ -792,7 +793,7 @@ verify_tensorrt_execution() {
         return 0
     fi
 
-    echo "  WARNING: TensorRT is importable, but its execution provider failed the pinned-model probe."
+    echo "  WARNING: TensorRT libraries are present, but their execution provider failed the pinned-model probe."
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         echo "    $line"
@@ -804,11 +805,12 @@ TRT_INSTALLED=false
 TRT_SUPPORTED=false
 TRT_PROBE_FAILED=false
 TRT_UNVERIFIED=false
-if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 8 ] && [ "$PY_MINOR" -le 13 ]; then
+if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 11 ] && [ "$PY_MINOR" -le 14 ]; then
     TRT_SUPPORTED=true
 fi
 
-if "$VENV_DIR/bin/python" -c "import tensorrt" 2>/dev/null; then
+TRT_LIBS_VERSION="$("$VENV_DIR/bin/python" -c "from importlib.metadata import version; print(version('tensorrt-cu12-libs'))" 2>/dev/null || true)"
+if [ -n "$TRT_LIBS_VERSION" ]; then
     if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
         if verify_tensorrt_execution; then
             echo "  [installed] TensorRT — provider execution verified for Zeus/Killer modes"
@@ -820,10 +822,14 @@ if "$VENV_DIR/bin/python" -c "import tensorrt" 2>/dev/null; then
         echo "  [detected] TensorRT package — execution not verified without the CUDA runtime variant"
         TRT_UNVERIFIED=true
     fi
-else
-    echo "  2) TensorRT (~4GB) — Unlocks:"
-    echo "     - Optimized model inference (future TRT engine support)"
-    echo "     - Potential 2-5x inference speedup on supported models"
+fi
+
+# A failed probe with the pinned libraries needs its CUDA/driver diagnostic,
+# not another 4.3 GB download. Offer installation for missing or wrong-ABI libs.
+if [ "$TRT_INSTALLED" = false ] && [ "$TRT_UNVERIFIED" = false ] && [ "$TRT_LIBS_VERSION" != "10.16.0.72" ]; then
+    echo "  2) TensorRT libraries (~4.3GB) — Unlocks:"
+    echo "     - Optimized ONNX Runtime inference for Zeus and Killer"
+    echo "     - Cached engines for later runs at the same model and frame size"
     echo ""
     if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
         if [ "$TRT_SUPPORTED" = true ]; then
@@ -831,7 +837,7 @@ else
             install_trt="${install_trt:-N}"
             if [[ "$install_trt" =~ ^[Yy]$ ]]; then
                 echo "  Installing TensorRT (this may take several minutes)..."
-                if "$VENV_DIR/bin/pip" install tensorrt-cu12 onnx -q 2>&1; then
+                if "$VENV_DIR/bin/pip" install 'tensorrt-cu12-libs==10.16.0.72' -q 2>&1; then
                     if verify_tensorrt_execution; then
                         echo "  TensorRT installed and its execution provider was verified!"
                         TRT_INSTALLED=true
@@ -840,15 +846,15 @@ else
                     fi
                 else
                     echo "  WARNING: TensorRT installation failed. Skipping."
-                    echo "  Retry later: $VENV_DIR/bin/pip install tensorrt-cu12"
+                    echo "  Retry later: $VENV_DIR/bin/pip install tensorrt-cu12-libs==10.16.0.72"
                 fi
             else
-                echo "  Skipped. Install later: $VENV_DIR/bin/pip install tensorrt-cu12"
+                echo "  Skipped. Install later: $VENV_DIR/bin/pip install tensorrt-cu12-libs==10.16.0.72"
             fi
         else
-            echo "  [skipped] TensorRT wheels are not available for Python $PY_VER yet."
-            echo "            Supported Python versions: 3.8-3.13"
-            echo "            Use DocZeus or CUDA modes, or install Python 3.13 for TensorRT."
+            echo "  [skipped] TensorRT library runtime is not validated for Python $PY_VER."
+            echo "            Supported Python versions: 3.11-3.14"
+            echo "            Use DocZeus or CUDA modes instead."
         fi
     else
         echo "  [skipped] The CUDA runtime variant is not selected."
@@ -881,7 +887,7 @@ elif [ "$TRT_UNVERIFIED" = true ]; then
 elif [ "$TRT_SUPPORTED" = true ]; then
     echo "    TensorRT: NOT INSTALLED (optional for Zeus/Killer)"
 else
-    echo "    TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
+    echo "    TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.11-3.14)"
 fi
 
 # Set compositing based on what's installed
@@ -1119,7 +1125,7 @@ elif [ "$TRT_UNVERIFIED" = true ]; then
 elif [ "$TRT_SUPPORTED" = true ]; then
     echo "  TensorRT: NO (install later for Zeus/Killer optimization)"
 else
-    echo "  TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
+    echo "  TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.11-3.14)"
 fi
 if [ -n "$PY_RUNTIME_NOTICE" ]; then
     echo ""
@@ -1162,7 +1168,7 @@ echo ""
 echo "  To install optional packages later:"
 echo "    Runtime switch: stop NVBroadcast, then run $SCRIPT_DIR/install.sh --runtime cpu|cuda"
 echo "    CuPy:     $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
-echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt-cu12"
+echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt-cu12-libs==10.16.0.72"
 echo ""
 echo "  First run:"
 if [[ ":$PATH:" != *":$INSTALL_PREFIX/bin:"* ]]; then

@@ -246,20 +246,20 @@ PACKAGE_SPECS = {
     "tensorrt": {
         "title": "TensorRT Runtime",
         "subtitle": "Needed for Zeus and Killer premium modes",
-        "size": "~1.2 GB",
+        "size": "~4.3 GB",
         "summary": (
-            "Installs the TensorRT Python runtime used by premium inference modes "
-            "for faster ONNX execution."
+            "Installs TensorRT 10 libraries used by ONNX Runtime for "
+            "Zeus and Killer inference."
         ),
-        "install_args": ["install", "tensorrt-cu12"],
+        "install_args": ["install", "tensorrt-cu12-libs==10.16.0.72"],
         "supported": _supports_tensorrt_runtime,
         "check": lambda: has_tensorrt_runtime(),
         "verify": _verify_tensorrt_runtime_result,
         "requires_restart": True,
-        "help": "Retry later with: .venv/bin/pip install tensorrt-cu12",
+        "help": "Retry later with: .venv/bin/pip install tensorrt-cu12-libs==10.16.0.72",
         "unsupported_reason": (
             "TensorRT premium modes are currently available only on Linux x86_64 "
-            "with Python 3.8-3.13."
+            "with Python 3.11-3.14."
         ),
     },
     "whisper": {
@@ -302,7 +302,7 @@ PACKAGE_BUNDLES = {
     "premium_gpu_stack": {
         "title": "Premium GPU Runtime",
         "subtitle": "Needed for Zeus and Killer premium modes",
-        "size": "~2.0 GB",
+        "size": "~6.3 GB",
         "summary": (
             "Installs both CUDA compositing and TensorRT so premium GPU modes can "
             "run at full speed."

@@ -139,10 +139,19 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_install_script_uses_supported_tensorrt_command(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertIn("pip install tensorrt-cu12", install_script)
+        pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        requirement = "tensorrt-cu12-libs==10.16.0.72"
+        self.assertEqual(
+            pyproject["project"]["optional-dependencies"]["tensorrt"],
+            [requirement],
+        )
+        self.assertIn(f"pip\" install '{requirement}'", install_script)
+        self.assertIn("version('tensorrt-cu12-libs')", install_script)
+        self.assertIn(f"pip install {requirement}", install_script)
         self.assertNotIn("tensorrt-cu12-bindings", install_script)
-        self.assertNotIn("tensorrt-cu12-libs", install_script)
-        self.assertIn("requires Python 3.8-3.13", install_script)
+        self.assertNotIn("pip\" install tensorrt-cu12 onnx", install_script)
+        self.assertIn("requires Python 3.11-3.14", install_script)
+        self.assertIn("--variant cuda --provider tensorrt", install_script)
         self.assertIn("Python runtime notice", install_script)
         self.assertIn("some premium paths use safer defaults", install_script)
         self.assertIn('rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $rc)"', install_script)

@@ -379,11 +379,41 @@ def _prepare_rvm_tensorrt_model(model_path: Path,
 # ─── Fused CUDA Kernel (DocZeus/Killer modes) ──────────────────────────────────
 
 _FUSED_COMPOSITE_KERNEL = r'''
+__device__ __forceinline__ float clamp01(float value) {
+    return fminf(fmaxf(value, 0.0f), 1.0f);
+}
+
+__device__ __forceinline__ float sample_clean_color(
+    const unsigned char* clean, int clean_w, int clean_h,
+    float source_x, float source_y, int channel
+) {
+    int x0 = (int)floorf(source_x);
+    int y0 = (int)floorf(source_y);
+    float tx = source_x - floorf(source_x);
+    float ty = source_y - floorf(source_y);
+    int x1 = x0 + 1;
+    int y1 = y0 + 1;
+    x0 = x0 < 0 ? 0 : (x0 >= clean_w ? clean_w - 1 : x0);
+    x1 = x1 < 0 ? 0 : (x1 >= clean_w ? clean_w - 1 : x1);
+    y0 = y0 < 0 ? 0 : (y0 >= clean_h ? clean_h - 1 : y0);
+    y1 = y1 < 0 ? 0 : (y1 >= clean_h ? clean_h - 1 : y1);
+
+    float v00 = clean[(y0 * clean_w + x0) * 4 + channel];
+    float v01 = clean[(y0 * clean_w + x1) * 4 + channel];
+    float v10 = clean[(y1 * clean_w + x0) * 4 + channel];
+    float v11 = clean[(y1 * clean_w + x1) * 4 + channel];
+    float top = v00 + (v01 - v00) * tx;
+    float bottom = v10 + (v11 - v10) * tx;
+    return top + (bottom - top) * ty;
+}
+
 extern "C" __global__ void fused_composite(
     const unsigned char* fg, const unsigned char* bg,
-    const float* alpha, const unsigned char* face_mask,
+    const float* alpha, const unsigned char* clean_color,
+    const unsigned char* face_mask,
     const float* vignette, unsigned char* output,
-    int total_pixels,
+    int total_pixels, int frame_width,
+    int clean_width, int clean_height, int clean_scale, int despill,
     float enhance_i, float vignette_i, float brightness,
     float contrast, float warmth
 ) {
@@ -394,10 +424,56 @@ extern "C" __global__ void fused_composite(
     float a = alpha[idx];
     float ia = 1.0f - a;
 
+    float fb = (float)fg[px];
+    float fg_ = (float)fg[px+1];
+    float fr = (float)fg[px+2];
+
+    // Keep these thresholds and weights aligned with _despill_fringe_region.
+    if (despill && a > 0.025f && a < 0.94f) {
+        int x = idx % frame_width;
+        int y = idx / frame_width;
+        float source_x = ((x + 0.5f) / clean_scale) - 0.5f;
+        float source_y = ((y + 0.5f) / clean_scale) - 0.5f;
+        float cb = sample_clean_color(
+            clean_color, clean_width, clean_height, source_x, source_y, 0);
+        float cg = sample_clean_color(
+            clean_color, clean_width, clean_height, source_x, source_y, 1);
+        float cr = sample_clean_color(
+            clean_color, clean_width, clean_height, source_x, source_y, 2);
+        float color_delta = (
+            fabsf(fb - cb) + fabsf(fg_ - cg) + fabsf(fr - cr)
+        ) / 3.0f;
+
+        if (color_delta > 10.0f) {
+            float source_mean = (fb + fg_ + fr) / 3.0f;
+            float clean_mean = (cb + cg + cr) / 3.0f;
+            float chroma_delta = (
+                fabsf((fb - source_mean) - (cb - clean_mean))
+                + fabsf((fg_ - source_mean) - (cg - clean_mean))
+                + fabsf((fr - source_mean) - (cr - clean_mean))
+            ) / 3.0f;
+            float tone_delta = fabsf(source_mean - clean_mean);
+            float opacity_weight = clamp01((0.94f - a) / 0.915f);
+            float chroma_weight = clamp01((chroma_delta - 5.0f) / 45.0f);
+            float tone_weight = clamp01((tone_delta - 12.0f) / 90.0f);
+            float blend = fminf(
+                clamp01(
+                    0.62f * opacity_weight
+                    + 0.68f * chroma_weight
+                    + 0.55f * tone_weight
+                ),
+                0.92f
+            );
+            fb = fb * (1.0f - blend) + cb * blend;
+            fg_ = fg_ * (1.0f - blend) + cg * blend;
+            fr = fr * (1.0f - blend) + cr * blend;
+        }
+    }
+
     // Alpha blend
-    float b = (float)fg[px]   * a + (float)bg[px]   * ia;
-    float g = (float)fg[px+1] * a + (float)bg[px+1] * ia;
-    float r = (float)fg[px+2] * a + (float)bg[px+2] * ia;
+    float b = fb * a + (float)bg[px] * ia;
+    float g = fg_ * a + (float)bg[px+1] * ia;
+    float r = fr * a + (float)bg[px+2] * ia;
 
     // Enhance on face region (brightness + contrast + warmth)
     if (enhance_i > 0.0f && face_mask != NULL) {
@@ -428,6 +504,26 @@ extern "C" __global__ void fused_composite(
 '''
 
 _fused_kernel = None
+
+_HOST_TEMPORAL_EMA_OPERATION = r'''
+float w = bw;
+if (a > emin && a < emax) w = ew;
+if (a > fmin && a < fmax) w = fw;
+if (cap_first) w = fminf(fmaxf(w, 0.0f), cap);
+if (a < p - drop) w *= ds;
+if (!cap_first) w = fminf(fmaxf(w, 0.0f), cap);
+if (local_release) {
+    w *= fminf(fmaxf(__fdiv_rn(0.24f - fabsf(a - p), 0.16f), 0.0f), 1.0f);
+}
+// CuPy enables flush-to-zero. Keep the final NumPy blend's separate rounded
+// operations, including subnormal input/output values, without changing it.
+float ip, left, right;
+asm("sub.rn.f32 %0, 0f3f800000, %1;" : "=f"(ip) : "f"(w));
+asm("mul.rn.f32 %0, %1, %2;" : "=f"(left) : "f"(w), "f"(p));
+asm("mul.rn.f32 %0, %1, %2;" : "=f"(right) : "f"(ip), "f"(a));
+asm("add.rn.f32 %0, %1, %2;" : "=f"(out) : "f"(left), "f"(right));
+'''
+
 
 def _get_fused_kernel():
     """Lazy-load the fused CUDA kernel."""
@@ -849,6 +945,9 @@ class _RVMBackend:
             'r3i': self._r3, 'r4i': self._r4,
             'downsample_ratio': self._downsample_ratio,
         }
+        # The camera frame supplies foreground color. Fetch only the matte
+        # and recurrent states, avoiding an unused full-resolution RGB output.
+        output_names = ['pha', 'r1o', 'r2o', 'r3o', 'r4o']
         try:
             if self._trt_requested and not self._trt_disabled:
                 self._ensure_trt_state(src, infer_w, infer_h)
@@ -856,7 +955,7 @@ class _RVMBackend:
                 inputs['r2i'] = self._r2
                 inputs['r3i'] = self._r3
                 inputs['r4i'] = self._r4
-            outputs = self.session.run(None, inputs)
+            outputs = self.session.run(output_names, inputs)
             self._sync_runtime_provider_state()
         except Exception as exc:
             if self._active_trt:
@@ -865,7 +964,7 @@ class _RVMBackend:
                 inputs['r2i'] = self._r2
                 inputs['r3i'] = self._r3
                 inputs['r4i'] = self._r4
-                outputs = self.session.run(None, inputs)
+                outputs = self.session.run(output_names, inputs)
                 self._sync_runtime_provider_state()
             else:
                 # Shape mismatch from resolution change — reset and retry
@@ -879,19 +978,19 @@ class _RVMBackend:
                     inputs['r2i'] = self._r2
                     inputs['r3i'] = self._r3
                     inputs['r4i'] = self._r4
-                    outputs = self.session.run(None, inputs)
+                    outputs = self.session.run(output_names, inputs)
                 elif self._is_cuda_runtime_error(exc) and self._recover_cuda_session(exc):
                     inputs['r1i'] = self._r1
                     inputs['r2i'] = self._r2
                     inputs['r3i'] = self._r3
                     inputs['r4i'] = self._r4
-                    outputs = self.session.run(None, inputs)
+                    outputs = self.session.run(output_names, inputs)
                 else:
                     raise
 
-        alpha = outputs[1][0, 0]
-        self._r1, self._r2 = outputs[2], outputs[3]
-        self._r3, self._r4 = outputs[4], outputs[5]
+        alpha = outputs[0][0, 0]
+        self._r1, self._r2 = outputs[1], outputs[2]
+        self._r3, self._r4 = outputs[3], outputs[4]
         self._state_input_shape = (infer_w, infer_h)
 
         # Upscale to frame resolution if needed (low-res inference modes)
@@ -1521,6 +1620,8 @@ class VideoEffects:
         }
         self._compositing = "cpu"
         self._cupy = None  # Lazy-loaded cupy module
+        self._temporal_gpu_kernels = {}
+        self._temporal_gpu_failed_devices = set()
         if compositing != "cpu":
             self.set_compositing(compositing)
 
@@ -1539,6 +1640,10 @@ class VideoEffects:
         self._green_bg = None
         self._frame_counter = 0
         self._cached_alpha = None
+        # Keep the model's color-mixing confidence paired with its refined
+        # matte. Sharpened opacity no longer describes camera RGB mixtures.
+        self._cached_source_alpha = None
+        self._pending_source_alpha = None
         self._prev_alpha = None  # Previous frame's alpha for temporal smoothing
         self._stable_alpha = None  # Pre-tightened alpha for replacement smoothing
         self._cached_replace_matte = None
@@ -1589,6 +1694,8 @@ class VideoEffects:
         with self._state_lock:
             self._matte_version += 1
             self._cached_alpha = None
+            self._cached_source_alpha = None
+            self._pending_source_alpha = None
             self._prev_alpha = None
             self._prev_alpha_gpu = None
             self._stable_alpha = None
@@ -1603,6 +1710,7 @@ class VideoEffects:
         """Invalidate temporal state while keeping the last matte visible."""
         with self._state_lock:
             self._matte_version += 1
+            self._pending_source_alpha = None
             self._prev_alpha = None
             self._prev_alpha_gpu = None
             self._stable_alpha = None
@@ -1617,6 +1725,11 @@ class VideoEffects:
         """Return the current cached alpha and its generation."""
         with self._state_lock:
             return self._cached_alpha, self._matte_version
+
+    def _matte_color_snapshot(self):
+        """Read opacity and its source confidence together for CPU-frame paths."""
+        with self._state_lock:
+            return self._cached_alpha, self._cached_source_alpha, self._matte_version
 
     def latest_final_matte_u8(self, width: int, height: int) -> np.ndarray | None:
         """Return the most recent per-frame final matte, if it matches this frame size."""
@@ -1681,6 +1794,12 @@ class VideoEffects:
         with self._state_lock:
             if matte_version != self._matte_version:
                 return False
+            pending = self._pending_source_alpha
+            self._cached_source_alpha = (
+                pending[1] if pending is not None and pending[0] is alpha else None
+            )
+            if pending is not None and pending[0] is alpha:
+                self._pending_source_alpha = None
             self._cached_alpha = alpha
             self._cached_alpha_serial += 1
             return True
@@ -2097,6 +2216,15 @@ class VideoEffects:
         motion_gate = np.clip(1.0 - global_motion * 20.0, 0.15, 1.0)
         base_w = self._temporal_strength * motion_gate
 
+        gpu_result = self._try_temporal_blend_gpu(
+            alpha, prev, global_motion,
+            (base_w * base_scale, base_w * edge_scale, base_w * fringe_scale),
+            0.03, 0.97, fringe_min, fringe_max, max_weight, 0.05, drop_scale,
+            local_release=self._bg_mode == "replace", cap_first=True,
+        )
+        if gpu_result is not None:
+            return gpu_result
+
         # Three-tier smoothing weights:
         # Edge/transition (0.03-0.97): strongest — these jitter most
         # Core (>0.97): minimal — solid person
@@ -2114,7 +2242,91 @@ class VideoEffects:
         dropping = alpha < prev - 0.05
         weight[dropping] *= drop_scale
 
+        if self._bg_mode == "replace":
+            # A moving finger occupies too little of the frame to trip the
+            # global motion gate. Retain smoothing for small model jitter,
+            # but release history where the local silhouette clearly moved.
+            local_motion = np.abs(alpha - prev)
+            weight *= np.clip((0.24 - local_motion) / 0.16, 0.0, 1.0)
+
         return weight * prev + (1.0 - weight) * alpha
+
+    def _try_temporal_blend_gpu(
+        self,
+        alpha: np.ndarray,
+        prev: np.ndarray,
+        global_motion: float,
+        weights: tuple[float, float, float],
+        edge_min: float,
+        edge_max: float,
+        fringe_min: float,
+        fringe_max: float,
+        max_weight: float,
+        drop_threshold: float,
+        drop_scale: float,
+        *,
+        local_release: bool,
+        cap_first: bool,
+    ) -> np.ndarray | None:
+        """Accelerate host Replace mattes without owning temporal history.
+
+        Keep global reductions and scalar arithmetic on CPU. Only the pointwise
+        blend runs on the selected GPU, returning an independent NumPy array so
+        existing history, source pairing, and version checks retain ownership.
+        """
+        cp = self._cupy
+        gpu_index = self._gpu_index
+        if (
+            self._bg_mode != "replace"
+            or self._compositing != "cupy"
+            or cp is None
+            or gpu_index in self._temporal_gpu_failed_devices
+            or not isinstance(alpha, np.ndarray)
+            or not isinstance(prev, np.ndarray)
+            or alpha.dtype != np.float32
+            or prev.dtype != np.float32
+            or alpha.ndim != 2
+            or prev.shape != alpha.shape
+            or alpha.size < 640 * 360
+            or not np.isfinite(global_motion)
+        ):
+            return None
+        if not np.isfinite(alpha).all() or not np.isfinite(prev).all():
+            return None
+        with np.errstate(over="ignore", invalid="ignore"):
+            scalars = np.asarray(
+                (*weights, edge_min, edge_max, fringe_min, fringe_max,
+                 max_weight, drop_threshold, drop_scale),
+                dtype=np.float32,
+            )
+        if not np.isfinite(scalars).all():
+            return None
+
+        try:
+            with cp.cuda.Device(gpu_index):
+                kernel = self._temporal_gpu_kernels.get(gpu_index)
+                if kernel is None:
+                    kernel = cp.ElementwiseKernel(
+                        "float32 a, float32 p, float32 bw, float32 ew, float32 fw, "
+                        "float32 emin, float32 emax, float32 fmin, float32 fmax, "
+                        "float32 cap, float32 drop, float32 ds, "
+                        "bool local_release, bool cap_first",
+                        "float32 out",
+                        _HOST_TEMPORAL_EMA_OPERATION,
+                        "nvb_host_temporal_ema",
+                        options=("--fmad=false",),
+                    )
+                    self._temporal_gpu_kernels[gpu_index] = kernel
+                result = kernel(
+                    cp.asarray(alpha), cp.asarray(prev), *scalars,
+                    local_release, cap_first,
+                )
+                return cp.asnumpy(result)
+        except Exception as exc:
+            self._temporal_gpu_failed_devices.add(gpu_index)
+            print(f"[NV Broadcast] GPU temporal blend failed on GPU {gpu_index}; "
+                  f"using CPU: {exc}", flush=True)
+            return None
 
     def _temporal_smooth_gpu(self, alpha, matte_version: int | None = None):
         """GPU port of _temporal_smooth for the blur-mode matte pipeline.
@@ -2306,14 +2518,26 @@ class VideoEffects:
         if not added.any():
             return np.zeros_like(original_u8, dtype=bool)
 
+        # Only protect channels connected to the camera background. Compact
+        # enclosed holes may still be segmentation defects that need repair.
+        exterior = np.pad(original, 1, constant_values=0)
+        cv2.floodFill(exterior, None, (0, 0), 128)
+        added &= (exterior[1:-1, 1:-1] == 128).astype(np.uint8)
+        if not added.any():
+            return np.zeros_like(original_u8, dtype=bool)
+
         h, w = original_u8.shape[:2]
         ref_h, ref_w = reference_shape or (h, w)
-        min_long = max(3, int(max(ref_h, ref_w) * min_span_ratio))
+        # The close kernel bridges the same few pixels at every resolution.
+        # A 20px finger gap must not stop qualifying on a 720p/1080p frame.
+        min_long = max(3, min(6, int(max(ref_h, ref_w) * min_span_ratio)))
         max_short = max(2, min(12, int(min(ref_h, ref_w) * max_span_ratio)))
         max_area = None if max_area_ratio is None else max(8, int(ref_h * ref_w * max_area_ratio))
 
         preserve = np.zeros_like(original_u8, dtype=bool)
-        num, labels, stats, _centroids = cv2.connectedComponentsWithStats(added, connectivity=8)
+        crop_x, crop_y, crop_w, crop_h = cv2.boundingRect(added)
+        added_roi = added[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
+        num, labels, stats, _centroids = cv2.connectedComponentsWithStats(added_roi, connectivity=8)
         for idx in range(1, num):
             area = int(stats[idx, cv2.CC_STAT_AREA])
             span_w = int(stats[idx, cv2.CC_STAT_WIDTH])
@@ -2327,8 +2551,10 @@ class VideoEffects:
             if float(long_span) / float(short_span) < min_aspect_ratio:
                 continue
 
-            x0 = int(stats[idx, cv2.CC_STAT_LEFT])
-            y0 = int(stats[idx, cv2.CC_STAT_TOP])
+            local_x = int(stats[idx, cv2.CC_STAT_LEFT])
+            local_y = int(stats[idx, cv2.CC_STAT_TOP])
+            x0 = crop_x + local_x
+            y0 = crop_y + local_y
             x1 = min(w, x0 + span_w)
             y1 = min(h, y0 + span_h)
             if span_h >= span_w:
@@ -2342,7 +2568,17 @@ class VideoEffects:
                 if not (top.any() and bottom.any()):
                     continue
 
-            preserve |= labels == idx
+            preserve[y0:y1, x0:x1] |= labels[
+                local_y:local_y + span_h, local_x:local_x + span_w,
+            ] == idx
+        if preserve.any():
+            # The close leaves the first pixel at an opening untouched, but
+            # subsequent feathering can seal that mouth and turn the channel
+            # into an apparent internal hole. Retain its immediate background
+            # neighbors as well, without changing adjacent foreground/contact.
+            preserve = cv2.dilate(
+                preserve.astype(np.uint8), np.ones((3, 3), dtype=np.uint8),
+            ).astype(bool) & (exterior[1:-1, 1:-1] == 128)
         return preserve
 
     def _replacement_matte(self, alpha: np.ndarray,
@@ -2392,6 +2628,16 @@ class VideoEffects:
         base_weight = 0.05 if preserve_detail else 0.07
         edge_weight = 0.11 if preserve_detail else 0.15
         fringe_weight = 0.16 if preserve_detail else 0.21
+        gpu_result = self._try_temporal_blend_gpu(
+            alpha, prev, global_motion,
+            (base_weight * motion_gate, edge_weight * motion_gate,
+             fringe_weight * motion_gate),
+            0.02, 0.98, 0.02, 0.35, 0.24 if preserve_detail else 0.30,
+            0.04, 0.10 if preserve_detail else 0.18,
+            local_release=False, cap_first=False,
+        )
+        if gpu_result is not None:
+            return gpu_result
         weight = np.full_like(alpha, base_weight * motion_gate, dtype=np.float32)
         edge_mask = (alpha > 0.02) & (alpha < 0.98)
         fringe_mask = (alpha > 0.02) & (alpha < 0.35)
@@ -2416,6 +2662,7 @@ class VideoEffects:
         matte[matte > 0.985] = 1.0
 
         matte_u8 = np.clip(matte * 255.0, 0, 255).astype(np.uint8)
+        original_matte_u8 = matte_u8
         work_mask = matte_u8
         work_scale = 1
         if max(matte_u8.shape[:2]) >= 960 or min(matte_u8.shape[:2]) >= 540:
@@ -2464,16 +2711,42 @@ class VideoEffects:
             matte_u8 = work_mask
             preserve_holes = preserve_holes_small
 
-        matte = matte_u8.astype(np.float32) * (1.0 / 255.0)
-
-        mid = (matte > 0.04) & (matte < 0.55)
-        matte[mid] = np.clip((matte[mid] - 0.05) / 0.95, 0.0, 1.0)
-        fringe = (matte > 0.0) & (matte < 0.22)
-        matte[fringe] *= 0.72
+        preserve_slits = None
+        if work_scale > 1 or (self._bg_mode == "replace" and not preserve_detail):
+            # Downsampling or non-detail feathering can erase narrow exterior
+            # channels that survived inference refinement. Detect their shape
+            # with a local close, without applying that close to the matte.
+            # Comparing against every resized fringe would join the channel
+            # to the whole silhouette's interpolation rim instead.
+            gap_probe = cv2.morphologyEx(
+                original_matte_u8, cv2.MORPH_CLOSE,
+                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+            )
+            preserve_slits = self._preserve_narrow_exterior_gaps(
+                original_matte_u8, gap_probe,
+                binary_threshold=74,
+                min_span_ratio=0.025,
+                max_span_ratio=0.24,
+                reference_shape=reference_shape,
+            )
+        # Filtering has already quantized the matte to 256 values. Cache the
+        # exact float32 tone curve instead of remapping full-frame masks.
+        tone_lut = getattr(self, "_replacement_tone_lut", None)
+        if tone_lut is None:
+            tone_lut = np.arange(256, dtype=np.float32) * (1.0 / 255.0)
+            mid = (tone_lut > 0.04) & (tone_lut < 0.55)
+            tone_lut[mid] = np.clip((tone_lut[mid] - 0.05) / 0.95, 0.0, 1.0)
+            fringe = (tone_lut > 0.0) & (tone_lut < 0.22)
+            tone_lut[fringe] *= 0.72
+            tone_lut.flags.writeable = False
+            self._replacement_tone_lut = tone_lut
+        matte = cv2.LUT(matte_u8, tone_lut)
         solid = stable > 0.86
         matte[solid] = np.maximum(matte[solid], 0.995)
         if preserve_holes.any():
             matte[preserve_holes] = np.minimum(matte[preserve_holes], alpha[preserve_holes])
+        if preserve_slits is not None and preserve_slits.any():
+            matte[preserve_slits] = np.minimum(matte[preserve_slits], alpha[preserve_slits])
         matte[matte < 0.12] = 0.0
         return matte
 
@@ -2636,34 +2909,48 @@ class VideoEffects:
             grad = cv2.GaussianBlur(grad, (3, 3), 0)
             edge_strength = np.clip((grad - 0.03) / 0.20, 0.0, 1.0)
 
-        focus = edge_strength * transition.astype(np.float32)
+        # Only partial-opacity pixels can change here. Running logarithms,
+        # exponentials and fringe correction over solid foreground/background
+        # dominates this pass at HD sizes without changing those pixels.
+        partial = (matte > 0.0) & (matte < 1.0)
+        sparse = np.count_nonzero(partial) < matte.size // 2
+        selection = partial if sparse else Ellipsis
+        matte_values = matte[selection]
+        edge_values = edge_strength[selection]
+        focus = edge_values * transition[selection].astype(np.float32)
+        if not focus.size:
+            return matte
         if float(focus.max()) < 0.08:
             return matte
 
         eps = 1e-4
-        clipped = np.clip(matte, eps, 1.0 - eps)
+        clipped = np.clip(matte_values, eps, 1.0 - eps)
         logits = np.log(clipped / (1.0 - clipped))
         sharpen_gain = 1.95 if preserve_detail else 1.75
         sharpened = 1.0 / (1.0 + np.exp(-(logits * (1.0 + sharpen_gain * focus))))
 
         blend_cap = 0.88 if preserve_detail else 0.80
         blend = np.clip(focus * blend_cap, 0.0, blend_cap)
-        result = matte * (1.0 - blend) + sharpened * blend
+        result = matte_values * (1.0 - blend) + sharpened * blend
 
-        supported_fine_fringe = (matte > 0.05) & (matte < 0.18) & (edge_strength >= 0.10)
+        supported_fine_fringe = (matte_values > 0.05) & (matte_values < 0.18) & (edge_values >= 0.10)
         result[supported_fine_fringe] = np.maximum(
             result[supported_fine_fringe],
-            matte[supported_fine_fringe] * (0.52 if preserve_detail else 0.78),
+            matte_values[supported_fine_fringe] * (0.52 if preserve_detail else 0.78),
         )
         if preserve_detail:
-            thin_strong_edge_fringe = (matte > 0.05) & (matte < 0.16) & (edge_strength >= 0.18)
+            thin_strong_edge_fringe = (matte_values > 0.05) & (matte_values < 0.16) & (edge_values >= 0.18)
             result[thin_strong_edge_fringe] *= 0.92
 
-        weak_edge_fringe = (result > 0.0) & (result < 0.12) & (edge_strength < 0.12)
+        weak_edge_fringe = (result > 0.0) & (result < 0.12) & (edge_values < 0.12)
         result[weak_edge_fringe] *= 0.74 if preserve_detail else 0.82
-        result[(result < (0.05 if preserve_detail else 0.06)) & (edge_strength < 0.10)] = 0.0
+        result[(result < (0.05 if preserve_detail else 0.06)) & (edge_values < 0.10)] = 0.0
         result[result > 0.985] = 1.0
-        return result.astype(np.float32)
+        if sparse:
+            refined = matte.copy()
+            refined[partial] = result
+            return refined.astype(np.float32, copy=False)
+        return result.astype(np.float32, copy=False)
 
     def _greenscreen_matte(self, frame: np.ndarray, alpha: np.ndarray,
                            matte_version: int | None = None) -> np.ndarray:
@@ -2776,25 +3063,21 @@ class VideoEffects:
         if not self._bg_removal_enabled or not self._initialized:
             return frame
         self._remember_frame_size(width, height)
-        alpha, matte_version = self._matte_snapshot()
+        alpha, source_alpha, matte_version = self._matte_color_snapshot()
         if alpha is None:
             return frame
-
-        if alpha.shape[0] != height or alpha.shape[1] != width:
-            if self._cupy is not None and isinstance(alpha, self._cupy.ndarray):
-                alpha = self._cupy.asnumpy(alpha)
-            alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
         if not frame.flags.writeable and self._bg_mode != "blur":
             frame = frame.copy()
 
         return self._composite_array(frame, alpha, width, height, matte_version,
-                                     mirror=mirror)
+                                     mirror=mirror, source_alpha=source_alpha)
 
     def _composite_array(self, frame: np.ndarray, alpha: np.ndarray,
                          width: int, height: int,
                          matte_version: int | None = None,
-                         mirror: bool = False) -> np.ndarray:
+                         mirror: bool = False,
+                         source_alpha: np.ndarray | None = None) -> np.ndarray:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
         self.last_output_mirrored = False
         cp = self._cupy
@@ -2812,6 +3095,9 @@ class VideoEffects:
         # Ensure alpha matches frame dimensions
         if alpha.shape[0] != height or alpha.shape[1] != width:
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
+        if source_alpha is not None and source_alpha.shape != (height, width):
+            source_alpha = cv2.resize(
+                source_alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
         alpha = self._final_matte(frame, alpha, matte_version)
         with self._state_lock:
@@ -2829,7 +3115,8 @@ class VideoEffects:
 
         # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass
         if self._use_fused_kernel and self._cupy is not None:
-            result = self._composite_fused(frame, alpha, width, height, mirror=mirror)
+            result = self._composite_fused(
+                frame, alpha, width, height, mirror=mirror, source_alpha=source_alpha)
             if result is not None:
                 self.last_output_mirrored = mirror
                 return result
@@ -2844,7 +3131,8 @@ class VideoEffects:
         elif self._bg_mode == "remove":
             result = self._apply_green_screen(frame, alpha, width, height)
         else:
-            result = self._apply_replace(frame, alpha, width, height)
+            result = self._apply_replace(frame, alpha, width, height,
+                                         source_alpha=source_alpha)
         return result
 
     def _composite(self, frame: np.ndarray, alpha: np.ndarray,
@@ -2874,7 +3162,7 @@ class VideoEffects:
             frame = frame.copy()
 
         self._frame_counter += 1
-        alpha, matte_version = self._matte_snapshot()
+        alpha, source_alpha, matte_version = self._matte_color_snapshot()
 
         run_inference = (
             self._skip_interval <= 1
@@ -2884,19 +3172,15 @@ class VideoEffects:
         if run_inference:
             alpha = self._run_inference(frame, width, height, matte_version)
             if alpha is not None:
-                if not self._commit_alpha(alpha, matte_version):
-                    alpha, matte_version = self._matte_snapshot()
-            elif alpha is None:
-                alpha, matte_version = self._matte_snapshot()
-            if alpha is None:
-                return frame
-        elif alpha is None:
-            alpha, matte_version = self._matte_snapshot()
+                self._commit_alpha(alpha, matte_version)
+            # Use the latest committed pair even when inference was rejected
+            # or another worker completed between inference and this snapshot.
+            alpha, source_alpha, matte_version = self._matte_color_snapshot()
             if alpha is None:
                 return frame
 
         return self._composite_array(frame, alpha, width, height, matte_version,
-                                     mirror=mirror)
+                                     mirror=mirror, source_alpha=source_alpha)
 
     # ─── Device-resident frame path ──────────────────────────────────────
     #
@@ -3074,6 +3358,7 @@ class VideoEffects:
                         return None
                     alpha = backend.infer(frame, width, height)
             if alpha is not None:
+                source_alpha = alpha.copy() if self._bg_mode == "replace" else None
                 # Refine first, then temporal smooth on the FINAL output.
                 # RVM's raw edges jitter 6-8% — smoothing the final result
                 # directly stabilizes what the user sees.
@@ -3088,6 +3373,10 @@ class VideoEffects:
                     raw_refined = self._edge_refiner.refine(frame, alpha, width, height)
                     alpha = self._refine_alpha(raw_refined)
                 alpha = self._temporal_smooth(alpha, matte_version)
+                if source_alpha is not None:
+                    with self._state_lock:
+                        if matte_version is None or matte_version == self._matte_version:
+                            self._pending_source_alpha = (alpha, source_alpha)
             return alpha
         except Exception as e:
             print(f"[NV Broadcast] Inference error: {e}")
@@ -3102,8 +3391,9 @@ class VideoEffects:
             self._sigmoid_strength = edge_config.sigmoid_strength
             self._sigmoid_midpoint = edge_config.sigmoid_midpoint
         else:
-            self._dilate_size = 5
-            self._blur_size = 9
+            # Match EdgeConfig and the shipped processing presets.
+            self._dilate_size = 3
+            self._blur_size = 5
             self._sigmoid_strength = 12.0
             self._sigmoid_midpoint = 0.5
         ds = self._dilate_size if self._dilate_size % 2 == 1 else self._dilate_size + 1
@@ -3125,6 +3415,16 @@ class VideoEffects:
             self._sigmoid_strength = float(sigmoid_strength)
         if sigmoid_midpoint is not None:
             self._sigmoid_midpoint = float(sigmoid_midpoint)
+
+    def _edge_softness_sizes(self, baseline_sizes: tuple[int, ...]) -> tuple[int, ...]:
+        """Scale an established Gaussian ladder around Softness's default 5.
+
+        Scale radii rather than widths so the minimum setting (1) disables
+        each pass, while 5 preserves the existing mode-specific kernels.
+        """
+        scale = max(0, self._blur_size - 1) / 4.0
+        return tuple(max(1, round((size - 1) * scale) + 1) | 1
+                     for size in baseline_sizes)
 
     def _gpu_matte_eligible(self) -> bool:
         """Whether the matte can stay device-resident through refinement.
@@ -3187,7 +3487,6 @@ class VideoEffects:
         contour. For webcam scenes (one subject) this is equivalent; the
         area/span thresholds below are identical.
         """
-        import cupyx
         cp = self._cupy
         from cupyx.scipy import ndimage as cndi
 
@@ -3207,15 +3506,19 @@ class VideoEffects:
 
         areas = cp.bincount(labels.ravel(), minlength=int(num) + 1)
         ys, xs = cp.nonzero(holes)
-        lbl = labels[ys, xs]
-        min_y = cp.full(int(num) + 1, h, dtype=ys.dtype)
-        max_y = cp.zeros(int(num) + 1, dtype=ys.dtype)
-        min_x = cp.full(int(num) + 1, w, dtype=xs.dtype)
-        max_x = cp.zeros(int(num) + 1, dtype=xs.dtype)
-        cupyx.scatter_min(min_y, lbl, ys)
-        cupyx.scatter_max(max_y, lbl, ys)
-        cupyx.scatter_min(min_x, lbl, xs)
-        cupyx.scatter_max(max_x, lbl, xs)
+        # CuPy's indexed min/max reductions do not accept signed int64 data.
+        # Frame coordinates and component labels fit safely in int32.
+        ys = ys.astype(cp.int32, copy=False)
+        xs = xs.astype(cp.int32, copy=False)
+        lbl = labels[ys, xs].astype(cp.int32, copy=False)
+        min_y = cp.full(int(num) + 1, h, dtype=cp.int32)
+        max_y = cp.zeros(int(num) + 1, dtype=cp.int32)
+        min_x = cp.full(int(num) + 1, w, dtype=cp.int32)
+        max_x = cp.zeros(int(num) + 1, dtype=cp.int32)
+        cp.minimum.at(min_y, lbl, ys)
+        cp.maximum.at(max_y, lbl, ys)
+        cp.minimum.at(min_x, lbl, xs)
+        cp.maximum.at(max_x, lbl, xs)
 
         ok = (
             (areas <= max_area)
@@ -3244,29 +3547,33 @@ class VideoEffects:
         # 1. Small close: fill tiny holes in hair/fine detail
         a8 = cndi.grey_closing(a8, footprint=self._gpu_footprint(5))
 
-        # 2. Half-resolution close (2x2 box mean = exact INTER_AREA at 0.5)
-        h, w = a8.shape[:2]
-        if h % 2 == 0 and w % 2 == 0:
-            small = (a8.reshape(h // 2, 2, w // 2, 2)
-                     .astype(cp.float32).mean(axis=(1, 3)).astype(cp.uint8))
-            small = cndi.grey_closing(small, footprint=self._gpu_footprint(25))
-            a8 = cndi.zoom(small, 2, order=1, mode="mirror",
-                           grid_mode=True).astype(cp.uint8)
+        # 2. Do not broadly close Blur mattes. A 25x25 close at half
+        # resolution bridges legitimate exterior gaps between hands and arms.
 
         # 3. Fill interior holes
         a8 = self._fill_small_internal_holes_gpu(
             a8, binary_threshold=30, fill_cutoff=100, fill_value=220,
             max_area_ratio=0.0007, max_span_ratio=0.07)
 
-        # 4. Wide dilate: 2 passes with 7x7
-        fp7 = self._gpu_footprint(7)
-        a8 = cndi.grey_dilation(a8, footprint=fp7)
-        a8 = cndi.grey_dilation(a8, footprint=fp7)
+        # 4. Honor the live edge controls. The old fixed 7x7 two-pass
+        # dilation exposed an inflated silhouette in Blur mode.
+        if self._dilate_size > 0:
+            a8 = cndi.grey_dilation(
+                a8,
+                footprint=self._gpu_footprint(self._dilate_kernel.shape[0]),
+            )
 
-        # 5. Three-pass Gaussian: wide, smooth gradient
+        # 5. Apply the selected transition softness once.
+        if self._blur_size > 1:
+            a8 = cp.clip(
+                self._gpu_gaussian2d(
+                    a8.astype(cp.float32),
+                    self._blur_ksize[0],
+                ),
+                0,
+                255,
+            ).astype(cp.uint8)
         t = a8.astype(cp.float32)
-        for k in (17, 11, 7):
-            t = self._gpu_gaussian2d(t, k)
 
         # 6. Moderate sigmoid
         t = t * (1.0 / 255.0)
@@ -3280,10 +3587,37 @@ class VideoEffects:
         t[core] = 1.0 - (1.0 - t[core]) ** 2.0
         t[t < 0.02] = 0.0
 
-        # 8. Final feathering (quantize to u8 first, matching the CPU path)
+        # 8. Minimal final anti-aliasing (quantize first to match the CPU path)
         r = cp.clip(t * 255, 0, 255).astype(cp.uint8).astype(cp.float32)
-        r = self._gpu_gaussian2d(r, 11)
+        r = self._gpu_gaussian2d(r, 3)
         return (r * (1.0 / 255.0)).astype(cp.float32)
+
+    def _refinement_tone_lut(self, is_replace: bool,
+                             preserve_detail: bool) -> np.ndarray:
+        """Cache the float32 tone curve after its existing uint8 quantization."""
+        strength = self._sigmoid_strength
+        midpoint = self._sigmoid_midpoint
+        key = (is_replace, preserve_detail, strength, midpoint)
+        cached = getattr(self, "_refinement_tone_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+
+        # Spatial refinement has already reduced alpha to 256 possible values.
+        # Use the same float32 arithmetic as the former per-pixel mapping.
+        t = np.arange(256, dtype=np.float32) * (1.0 / 255.0)
+        sig_scale = (0.42 if preserve_detail else 0.60) if is_replace else 0.45
+        sig = strength * sig_scale
+        if sig > 0:
+            t = 1.0 / (1.0 + np.exp(-sig * (t - midpoint)))
+        core_threshold = (0.82 if preserve_detail else 0.78) if is_replace else 0.75
+        exponent = (1.8 if preserve_detail else 2.2) if is_replace else 2.0
+        noise_threshold = (0.025 if preserve_detail else 0.03) if is_replace else 0.02
+        core = t > core_threshold
+        t[core] = 1.0 - (1.0 - t[core]) ** exponent
+        t[t < noise_threshold] = 0.0
+        lut = np.clip(t * 255, 0, 255).astype(np.uint8)
+        self._refinement_tone_cache = (key, lut)
+        return lut
 
     def _refine_alpha_full(
         self,
@@ -3291,12 +3625,15 @@ class VideoEffects:
         reference_shape: tuple[int, int] | None = None,
     ) -> np.ndarray:
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
+        original_a8 = a8
         is_replace = self._bg_mode == "replace"
+        is_blur = self._bg_mode == "blur"
         preserve_detail = (
             is_replace and self._quality in self._DETAIL_QUALITY_PRESETS
         )
         preserve_holes = None
         preserve_slits = None
+        restored_slits = None
         if is_replace:
             preserve_holes = self._preserve_large_internal_holes(
                 a8,
@@ -3317,7 +3654,7 @@ class VideoEffects:
 
         if is_replace:
             preserve_slits = self._preserve_narrow_exterior_gaps(
-                np.clip(alpha * 255, 0, 255).astype(np.uint8),
+                original_a8,
                 a8,
                 binary_threshold=70,
                 min_span_ratio=0.025,
@@ -3326,18 +3663,49 @@ class VideoEffects:
                 max_area_ratio=None,
                 reference_shape=reference_shape,
             )
-        # 2. Half-resolution close: keep replacement tighter, keep blur/remove
-        #    more forgiving where wide feathering hides seams. Quality replace
-        #    mode skips this broad close and relies on final-matte cleanup so
-        #    narrow hair/finger channels stay visible.
-        if not preserve_detail:
+        # 2. Half-resolution close for Remove and non-detail Replace. Blur
+        #    skips this broad close so exterior hand/arm gaps stay open.
+        #    Quality Replace also skips it to preserve fine channels.
+        if not preserve_detail and not is_blur:
             h, w = a8.shape[:2]
             small = cv2.resize(a8, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
             close_size = 3 if is_replace else 25
             close_lg = cv2.getStructuringElement(
                 cv2.MORPH_ELLIPSE, (close_size, close_size)
             )
-            small = cv2.morphologyEx(small, cv2.MORPH_CLOSE, close_lg)
+            closed_small = cv2.morphologyEx(small, cv2.MORPH_CLOSE, close_lg)
+            if is_replace:
+                # Balanced/Performance can close wider finger gaps here than
+                # the first full-resolution close. Preserve this pass's own
+                # exterior-channel evidence before it is lost on upsampling.
+                half_slits = self._preserve_narrow_exterior_gaps(
+                    small, closed_small,
+                    binary_threshold=70,
+                    min_span_ratio=0.025,
+                    max_span_ratio=0.24,
+                    reference_shape=(h // 2, w // 2),
+                )
+                if half_slits.any():
+                    restored_slits = cv2.resize(
+                        half_slits.astype(np.uint8), (w, h),
+                        interpolation=cv2.INTER_NEAREST,
+                    )
+                    # A half-resolution boundary cell can mix one foreground
+                    # pixel with one gap pixel. Include that immediate margin
+                    # only where the original full-resolution mask is low.
+                    restored_slits = cv2.dilate(
+                        restored_slits, np.ones((3, 3), dtype=np.uint8),
+                    ).astype(bool)
+                    # Recheck connectivity at full resolution: downsampling
+                    # must not turn a closed segmentation hole into a channel.
+                    _, original_binary = cv2.threshold(
+                        original_a8, 70, 255, cv2.THRESH_BINARY,
+                    )
+                    exterior = np.pad(original_binary, 1, constant_values=0)
+                    cv2.floodFill(exterior, None, (0, 0), 128)
+                    restored_slits &= exterior[1:-1, 1:-1] == 128
+                    preserve_slits |= restored_slits
+            small = closed_small
             a8 = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
 
         # 3. Fill interior holes. Replacement mode is intentionally more
@@ -3356,66 +3724,87 @@ class VideoEffects:
         )
 
         if is_replace:
-            # 4. Keep replacement narrow. Inflating the silhouette is what
-            #    creates shoulder and ear halos against a swapped background.
-            if preserve_detail:
-                a8 = cv2.GaussianBlur(a8, (3, 3), 0)
-            else:
-                a8 = cv2.GaussianBlur(a8, (5, 5), 0)
-                a8 = cv2.GaussianBlur(a8, (3, 3), 0)
+            # 4. The default Dilate=3 keeps replacement's existing narrow
+            # outline. Adjusting it contracts/expands around that baseline;
+            # do not add default expansion that would reintroduce halos.
+            edge_offset = self._dilate_size - 3
+            if edge_offset:
+                size = (abs(edge_offset) + 1) | 1
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+                operation = cv2.dilate if edge_offset > 0 else cv2.erode
+                a8 = operation(a8, kernel, iterations=1)
 
-            # 5. Moderate-strong sigmoid
-            t = a8.astype(np.float32) * (1.0 / 255.0)
-            sig = self._sigmoid_strength * (0.42 if preserve_detail else 0.60)
-            mid = self._sigmoid_midpoint
-            if sig > 0:
-                t = 1.0 / (1.0 + np.exp(-sig * (t - mid)))
+            # Keep the replacement ladder narrower than Remove's at every
+            # setting, including its existing 3 or 5/3 kernels at Softness=5.
+            softness_sizes = self._edge_softness_sizes(
+                (3,) if preserve_detail else (5, 3, 3),
+            )
+            for size in softness_sizes[:1 if preserve_detail else 2]:
+                if size > 1:
+                    a8 = cv2.GaussianBlur(a8, (size, size), 0)
 
-            # 6. Core solidification
-            result = t
-            core = result > (0.82 if preserve_detail else 0.78)
-            result[core] = 1.0 - (1.0 - result[core]) ** (1.8 if preserve_detail else 2.2)
-            result[result < (0.025 if preserve_detail else 0.03)] = 0.0
+            # 5-6. Map sigmoid/core/noise values once per possible input byte.
+            r_u8 = cv2.LUT(a8, self._refinement_tone_lut(is_replace, preserve_detail))
+            # Quantization is monotonic, so preserve source openings directly
+            # in uint8 before feathering. Cast source values to float32 first,
+            # matching the old assignment into the float32 result array.
             if preserve_holes is not None and preserve_holes.any():
-                result[preserve_holes] = np.minimum(result[preserve_holes], alpha[preserve_holes])
+                source_u8 = np.clip(
+                    alpha[preserve_holes].astype(np.float32) * 255, 0, 255,
+                ).astype(np.uint8)
+                r_u8[preserve_holes] = np.minimum(r_u8[preserve_holes], source_u8)
             if preserve_slits is not None and preserve_slits.any():
-                result[preserve_slits] = np.minimum(result[preserve_slits], alpha[preserve_slits])
+                source_u8 = np.clip(
+                    alpha[preserve_slits].astype(np.float32) * 255, 0, 255,
+                ).astype(np.uint8)
+                r_u8[preserve_slits] = np.minimum(r_u8[preserve_slits], source_u8)
 
             # 7. Final feathering
-            r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
-            if not preserve_detail:
-                r_u8 = cv2.GaussianBlur(r_u8, (3, 3), 0)
+            if not preserve_detail and softness_sizes[-1] > 1:
+                size = softness_sizes[-1]
+                r_u8 = cv2.GaussianBlur(r_u8, (size, size), 0)
             result = r_u8.astype(np.float32) * (1.0 / 255.0)
+            if restored_slits is not None:
+                # Reopening a gap before feathering must not erase a thin
+                # finger alongside it. Retain strongly opaque source evidence
+                # only in the immediate foreground margin of these new gaps.
+                supported_foreground = cv2.dilate(
+                    restored_slits.astype(np.uint8), np.ones((3, 3), dtype=np.uint8),
+                ).astype(bool) & (original_a8 >= 250)
+                result[supported_foreground] = np.maximum(
+                    result[supported_foreground], alpha[supported_foreground],
+                )
             if preserve_holes is not None and preserve_holes.any():
                 result[preserve_holes] = np.minimum(result[preserve_holes], alpha[preserve_holes])
             if preserve_slits is not None and preserve_slits.any():
                 result[preserve_slits] = np.minimum(result[preserve_slits], alpha[preserve_slits])
         else:
-            # 4. Wide dilate for blur/remove: 2 passes with 7x7
-            dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-            a8 = cv2.dilate(a8, dilate_k, iterations=2)
+            if is_blur:
+                # Blur uses the live edge controls. A fixed wide dilation made
+                # the matte visible as a separate outline around the subject.
+                if self._dilate_size > 0:
+                    a8 = cv2.dilate(a8, self._dilate_kernel, iterations=1)
+                if self._blur_size > 1:
+                    a8 = cv2.GaussianBlur(a8, self._blur_ksize, 0)
+            else:
+                # Preserve Remove's 7x7 two-pass dilation at Dilate=3.
+                if self._dilate_size > 0:
+                    size = max(1, 2 * self._dilate_size + 1)
+                    dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+                    a8 = cv2.dilate(a8, dilate_k, iterations=2)
+                softness_sizes = self._edge_softness_sizes((17, 11, 7, 11))
+                for size in softness_sizes[:-1]:
+                    if size > 1:
+                        a8 = cv2.GaussianBlur(a8, (size, size), 0)
 
-            # 5. Three-pass Gaussian: wide, smooth gradient
-            a8 = cv2.GaussianBlur(a8, (17, 17), 0)
-            a8 = cv2.GaussianBlur(a8, (11, 11), 0)
-            a8 = cv2.GaussianBlur(a8, (7, 7), 0)
+            # 6-7. Map sigmoid/core/noise values once per possible input byte.
+            r_u8 = cv2.LUT(a8, self._refinement_tone_lut(is_replace, preserve_detail))
 
-            # 6. Moderate sigmoid
-            t = a8.astype(np.float32) * (1.0 / 255.0)
-            sig = self._sigmoid_strength * 0.45
-            mid = self._sigmoid_midpoint
-            if sig > 0:
-                t = 1.0 / (1.0 + np.exp(-sig * (t - mid)))
-
-            # 7. Core solidification + noise suppression
-            result = t
-            core = result > 0.75
-            result[core] = 1.0 - (1.0 - result[core]) ** 2.0
-            result[result < 0.02] = 0.0
-
-            # 8. Final feathering
-            r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
-            r_u8 = cv2.GaussianBlur(r_u8, (11, 11), 0)
+            # 8. Final feathering. Blur already applies the selected
+            # softness above, so retain only a minimal anti-alias pass.
+            final_size = 3 if is_blur else softness_sizes[-1]
+            if final_size > 1:
+                r_u8 = cv2.GaussianBlur(r_u8, (final_size, final_size), 0)
             result = r_u8.astype(np.float32) * (1.0 / 255.0)
 
         return result
@@ -3424,7 +3813,8 @@ class VideoEffects:
 
     def _composite_fused(self, frame: np.ndarray, alpha: np.ndarray,
                          width: int, height: int,
-                         mirror: bool = False) -> np.ndarray | None:
+                         mirror: bool = False,
+                         source_alpha: np.ndarray | None = None) -> np.ndarray | None:
         """Single-pass GPU composite: CPU frame in, CPU frame out."""
         kernel = _get_fused_kernel()
         if kernel is None:
@@ -3432,11 +3822,12 @@ class VideoEffects:
         try:
             cp = self._cupy
 
-            # Keep replace-mode foreground cleanup identical to the CPU/CuPy
-            # blend path so hair/edge fringe does not reappear only in
-            # DocZeus/Killer fused compositing.
+            # Keep replace cleanup aligned with the standard path. Remove-mode
+            # cleanup runs inside the fused GPU compositor so this path can
+            # still reuse the frame upload performed for inference.
             if self._bg_mode == "replace" and self._bg_image is not None:
-                frame = self._prepare_replace_foreground(frame, alpha)
+                frame = self._prepare_replace_foreground(
+                    frame, alpha if source_alpha is None else source_alpha)
             pending = self._pending_frame_gpu
             self._pending_frame_gpu = None
             if pending is not None and pending[0] is frame:
@@ -3493,6 +3884,16 @@ class VideoEffects:
             bg_gpu = self._fused_bg_gpu
 
         alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
+        if self._bg_mode == "remove":
+            clean_color_gpu, clean_scale = self._gpu_clean_color_reference(
+                fg_gpu, alpha_gpu)
+            despill = 1
+        else:
+            # RawKernel arguments cannot be None. The flag keeps this one-pixel
+            # placeholder unread in blur and replace modes.
+            clean_color_gpu = fg_gpu[:1, :1]
+            clean_scale = 1
+            despill = 0
         output_gpu = cp.empty_like(fg_gpu)
 
         face_mask = self._fused_face_mask
@@ -3517,9 +3918,14 @@ class VideoEffects:
         threads = 256
         blocks = (total + threads - 1) // threads
         kernel((blocks,), (threads,), (
-            fg_gpu, bg_gpu, alpha_gpu,
+            fg_gpu, bg_gpu, alpha_gpu, clean_color_gpu,
             face_mask_gpu, vignette_gpu, output_gpu,
             cp.int32(total),
+            cp.int32(width),
+            cp.int32(clean_color_gpu.shape[1]),
+            cp.int32(clean_color_gpu.shape[0]),
+            cp.int32(clean_scale),
+            cp.int32(despill),
             cp.float32(self._fused_enhance_intensity),
             cp.float32(self._fused_vignette_intensity),
             cp.float32(self._fused_brightness),
@@ -3530,6 +3936,44 @@ class VideoEffects:
             # Horizontal flip on-device so the caller can skip cv2.flip.
             output_gpu = cp.ascontiguousarray(output_gpu[:, ::-1, :])
         return output_gpu
+
+    def _gpu_clean_color_reference(self, fg_gpu, alpha_gpu):
+        """Build a compact foreground-color reference entirely on-device."""
+        cp = self._cupy
+        from cupyx.scipy import ndimage as cndi
+
+        height, width = alpha_gpu.shape
+        work_scale = (
+            8 if max(height, width) >= 960 or min(height, width) >= 540 else 2
+        )
+        work_scale = max(1, min(work_scale, height, width))
+        small_height = max(1, height // work_scale)
+        small_width = max(1, width // work_scale)
+
+        # Ignore only an incomplete trailing block on unusual frame sizes. The
+        # compositor clamps those edge pixels to the nearest reference sample.
+        ref_height = small_height * work_scale
+        ref_width = small_width * work_scale
+        fg_small = fg_gpu[:ref_height, :ref_width].reshape(
+            small_height, work_scale, small_width, work_scale, 4
+        ).mean(axis=(1, 3), dtype=cp.float32)
+        alpha_small = alpha_gpu[:ref_height, :ref_width].reshape(
+            small_height, work_scale, small_width, work_scale
+        ).mean(axis=(1, 3), dtype=cp.float32)
+
+        solid = (alpha_small > 0.94).astype(cp.float32)
+        weighted = fg_small * solid[:, :, cp.newaxis]
+        sigma = 1.0 if work_scale >= 8 else 2.0
+        weighted_sum = cndi.gaussian_filter(
+            weighted, sigma=(sigma, sigma, 0), truncate=2.0, mode="mirror")
+        weights = cndi.gaussian_filter(
+            solid, sigma=sigma, truncate=2.0, mode="mirror")
+        weights_3d = weights[:, :, cp.newaxis]
+        clean = weighted_sum / cp.maximum(weights_3d, 0.001)
+        # Where no solid subject color is nearby, preserving the local sample
+        # is safer than inventing a black edge.
+        clean = cp.where(weights_3d > 0.001, clean, fg_small)
+        return cp.clip(clean, 0, 255).astype(cp.uint8), work_scale
 
     def _gpu_blur_bgra(self, frame_gpu, sigma: float):
         """Background blur for a uint8 BGRA frame on GPU.
@@ -3689,6 +4133,10 @@ class VideoEffects:
     def set_compositing(self, backend: str):
         """Switch compositing backend (cpu, gstreamer_gl, cupy)."""
         self._compositing = backend
+        # Explicit reselection can retry a repaired device/runtime. Matte
+        # resets happen during normal use and must not repeat failed attempts.
+        self._temporal_gpu_kernels = {}
+        self._temporal_gpu_failed_devices = set()
         if backend in ("cupy", "gstreamer_gl") and self._cupy is None:
             try:
                 import cupy
@@ -3750,6 +4198,8 @@ class VideoEffects:
     def _clean_color_reference(self, fg: np.ndarray, alpha: np.ndarray,
                                solid_threshold: float = 0.88) -> np.ndarray:
         """Estimate clean foreground colors from solid subject pixels."""
+        if self._bg_mode == "replace":
+            return self._nearest_foreground_color(fg, alpha, solid_threshold)
         # Create a "clean color" reference by blurring only solid person pixels.
         # Process at half resolution for speed (32ms → ~4ms).
         h, w = fg.shape[:2]
@@ -3765,12 +4215,81 @@ class VideoEffects:
         clean_small = (weighted_sum / wt).astype(np.uint8)
         return cv2.resize(clean_small, (w, h), interpolation=cv2.INTER_LINEAR)
 
+    @staticmethod
+    def _nearest_foreground_color(fg: np.ndarray, alpha: np.ndarray,
+                                  solid_threshold: float) -> np.ndarray:
+        """Borrow only nearby opaque colors without averaging across clothing."""
+        solid = alpha > solid_threshold
+        if not solid.any():
+            return fg
+        fringe = (alpha > 0.025) & ~solid
+        if not fringe.any():
+            return fg
+        h, w = alpha.shape
+        regions = [(0, 0, h, w)]
+        pad = 0
+        if h * w > 256 * 1024:
+            # Large subject bounds include lots of opaque interior. Restrict
+            # distance transforms to edge tiles with enough surrounding pixels
+            # to preserve the same bounded donor search across tile seams.
+            tile, pad = 128, 12
+            tiled = np.pad(fringe, ((0, -h % tile), (0, -w % tile)))
+            occupied = tiled.reshape(
+                tiled.shape[0] // tile, tile, tiled.shape[1] // tile, tile,
+            ).any(axis=(1, 3))
+            regions = [
+                (int(ty) * tile, int(tx) * tile,
+                 min((int(ty) + 1) * tile, h), min((int(tx) + 1) * tile, w))
+                for ty, tx in zip(*np.nonzero(occupied))
+            ]
+        # Select donors at full resolution: downsampling can erase a narrow
+        # dark border beside white fabric and repaint the border white.
+        # The nearest solid pixel to any fringe must be on the solid boundary.
+        # Label only that boundary, avoiding a palette entry per interior pixel.
+        result = None
+        kernel = np.ones((3, 3), dtype=np.uint8)
+        for y0, x0, y1, x1 in regions:
+            top, left = max(0, y0 - pad), max(0, x0 - pad)
+            bottom, right = min(h, y1 + pad), min(w, x1 + pad)
+            # Only fringe pixels consume the reference. Keep the same tile
+            # boundary and donor padding, while trimming unused solid interior.
+            fx, fy, fw, fh = cv2.boundingRect(fringe[y0:y1, x0:x1].astype(np.uint8))
+            y0, x0 = y0 + fy, x0 + fx
+            y1, x1 = y0 + fh, x0 + fw
+            top, left = max(top, y0 - 12), max(left, x0 - 12)
+            bottom, right = min(bottom, y1 + 12), min(right, x1 + 12)
+            solid_roi = solid[top:bottom, left:right]
+            if not solid_roi.any():
+                continue
+            neighbors = cv2.dilate(
+                (~solid_roi).astype(np.uint8), kernel,
+                borderType=cv2.BORDER_CONSTANT, borderValue=0,
+            )
+            donors = solid_roi & (neighbors != 0)
+            distance, labels = cv2.distanceTransformWithLabels(
+                (~donors).astype(np.uint8), cv2.DIST_L2, 5,
+                labelType=cv2.DIST_LABEL_PIXEL,
+            )
+            center = (slice(y0 - top, y1 - top), slice(x0 - left, x1 - left))
+            center_labels = labels[center]
+            # Keep padded donors available but only write this tile's center.
+            # Adjacent tiles may resolve equally close donors differently.
+            nearby = fringe[y0:y1, x0:x1] & (distance[center] <= 10.0) & (center_labels > 0)
+            if not nearby.any():
+                continue
+            palette = np.empty((int(labels.max()) + 1, fg.shape[2]), dtype=fg.dtype)
+            palette[labels[donors]] = fg[top:bottom, left:right][donors]
+            if result is None:
+                result = fg.copy()
+            result[y0:y1, x0:x1][nearby] = palette[center_labels[nearby]]
+        return fg if result is None else result
+
     def _despill_fringe(self, fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
         """Remove webcam background color bleeding into hair/edge fringe.
 
         Fringe pixels are a blend of person + webcam background. The lower
         the alpha, the more contaminated. Strategy: pull fringe pixel colors
-        toward nearby solid person pixels using a weighted blur.
+        toward nearby solid person pixels.
         """
         # Soft matte pixels contain a mix of subject and the physical camera
         # background. Include near-solid boundary pixels as well: edge-aware
@@ -3780,7 +4299,7 @@ class VideoEffects:
         if not fringe.any() or not (alpha <= 0.025).any():
             return fg
         h, w = alpha.shape[:2]
-        active = fringe | (alpha > 0.72)
+        active = alpha > 0.025
         bounds = self._mask_roi_bounds(active, pad=self._edge_roi_pad(alpha.shape))
         if bounds is not None:
             x0, y0, x1, y1 = bounds
@@ -3903,13 +4422,15 @@ class VideoEffects:
         return self._despill_fringe(fg, alpha)
 
     def _apply_replace(self, frame: np.ndarray, alpha: np.ndarray,
-                       width: int, height: int) -> np.ndarray:
+                       width: int, height: int,
+                       source_alpha: np.ndarray | None = None) -> np.ndarray:
         if self._bg_image is None:
             return self._apply_blur(frame, alpha)
         if self._frame_size != (width, height):
             self._resized_bg = self._resize_bg(self._bg_image, width, height)
             self._frame_size = (width, height)
-        frame = self._prepare_replace_foreground(frame, alpha)
+        frame = self._prepare_replace_foreground(
+            frame, alpha if source_alpha is None else source_alpha)
         return self._blend(frame, self._resized_bg, alpha)
 
     def _resize_bg(self, bg: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
