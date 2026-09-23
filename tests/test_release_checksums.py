@@ -141,9 +141,9 @@ class ReleaseChecksumTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKSUMS.ManifestError, "cannot hash itself"):
             CHECKSUMS.generate_manifest((output, regular), output)
 
-    def test_release_guard_rejects_stale_omitted_snap_asset(self):
+    def test_release_guard_rejects_any_stale_snap_asset(self):
         workflow = (REPO_ROOT / ".github/workflows/snap.yml").read_text()
-        guard = workflow.split("      - name: Refuse stale omitted Snap assets\n", 1)[1]
+        guard = workflow.split("      - name: Refuse stale Snap assets\n", 1)[1]
         guard = guard.split("      - name: Attach snaps to GitHub Release\n", 1)[0]
         script = textwrap.dedent(guard.split("        run: |\n", 1)[1])
 
@@ -180,13 +180,23 @@ class ReleaseChecksumTests(unittest.TestCase):
             PATH=f"{mock_bin}:{environment['PATH']}",
         )
 
-        for mode, existing_names, expected_success in (
-            ("new", "", True),  # A new tag has no release yet.
-            ("existing", "unrelated.deb", True),
-            ("existing", "nvbroadcast_1.5.2_amd64.snap", False),
-            ("error", "", False),
+        for mode, staged_amd64, existing_names, expected_success in (
+            ("new", False, "", True),  # A new tag has no release yet.
+            ("existing", False, "unrelated.deb,SHA256SUMS.snap", True),
+            ("existing", False, "nvbroadcast_1.5.2_arm64.snap", True),
+            ("existing", False, "nvbroadcast_1.5.2_amd64.snap", False),
+            ("existing", False, "nvbroadcast_1.5.1_arm64.snap", False),
+            ("existing", True, "nvbroadcast_1.5.1_arm64.snap", False),
+            ("existing", True, "nvbroadcast_1.5.2_amd64.snap", True),
+            ("error", True, "", False),
         ):
-            with self.subTest(mode=mode, existing_names=existing_names):
+            with self.subTest(mode=mode, staged_amd64=staged_amd64,
+                              existing_names=existing_names):
+                amd64_asset = assets / "nvbroadcast_1.5.2_amd64.snap"
+                if staged_amd64:
+                    amd64_asset.write_bytes(b"amd64")
+                else:
+                    amd64_asset.unlink(missing_ok=True)
                 environment.update(MOCK_MODE=mode, MOCK_ASSETS=existing_names)
                 result = subprocess.run(
                     ("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script),
@@ -198,7 +208,7 @@ class ReleaseChecksumTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode == 0, expected_success, result.stderr)
                 if mode == "existing" and not expected_success:
-                    self.assertIn("Existing release contains omitted Snap asset", result.stderr)
+                    self.assertIn("Existing release contains stale Snap asset", result.stderr)
 
 
 if __name__ == "__main__":

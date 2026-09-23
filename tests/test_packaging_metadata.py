@@ -810,7 +810,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Snap artifact differs from its attested checksum manifest", snap_release)
         self.assertIn("GH_TOKEN: ${{ github.token }}", snap_release)
         self.assertLess(
-            snap_release.index("- name: Refuse stale omitted Snap assets"),
+            snap_release.index("- name: Refuse stale Snap assets"),
             snap_release.index("- name: Attach snaps to GitHub Release"),
         )
         snap_attachment = snap_release.split(

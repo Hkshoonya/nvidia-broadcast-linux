@@ -368,7 +368,7 @@ jobs:
             fi
           done
 
-      - name: Refuse stale omitted Snap assets
+      - name: Refuse stale Snap assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release-target.outputs.tag }}
@@ -381,11 +381,10 @@ jobs:
           from pathlib import Path
 
           manifest = Path("release-assets/SHA256SUMS.snap")
-          listed = {line.split("  ", 1)[1] for line in manifest.read_text().splitlines()}
-          staged = {path.name for path in Path("release-assets").glob("*.snap")}
-          omitted = listed - staged
-          if not omitted:
-              sys.exit(0)
+          staged = {
+              path.name for path in Path("release-assets").glob("*.snap")
+              if path.name != manifest.name
+          }
 
           tag = os.environ["RELEASE_TAG"]
           # The releases-by-tag endpoint hides drafts; the list includes them.
@@ -409,11 +408,16 @@ jobs:
               sys.exit(0)  # A new release has no stale assets.
           if len(releases) != 1 or releases[0].get("tag_name") != tag or not isinstance(releases[0].get("assets"), list):
               sys.exit("::error::Unexpected release response; refusing to attach checksums.")
-          existing = set(releases[0]["assets"])
-          stale = omitted & existing
+          assets = releases[0]["assets"]
+          if any(not isinstance(name, str) for name in assets):
+              sys.exit("::error::Malformed release assets; refusing to attach checksums.")
+          existing_snaps = {
+              name for name in assets if name.endswith(".snap") and name != manifest.name
+          }
+          stale = existing_snaps - staged
           if stale:
               names = ", ".join(sorted(stale))
-              sys.exit(f"::error::Existing release contains omitted Snap asset(s): {names}. Resolve manually before replacing SHA256SUMS.snap.")
+              sys.exit(f"::error::Existing release contains stale Snap asset(s): {names}. Resolve manually before replacing SHA256SUMS.snap.")
           PY
 
       - name: Attach snaps to GitHub Release
