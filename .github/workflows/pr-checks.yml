@@ -129,4 +129,5 @@ jobs:
             tests/test_tensorrt_rvm.py \
             tests/test_training_bundle.py \
             tests/test_updates.py \
-            tests/test_voice_fx.py
+            tests/test_voice_fx.py \
+            tests/test_whisper_model_trust.py

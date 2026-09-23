@@ -72,6 +72,26 @@ class MeetingTranscriberTests(unittest.TestCase):
         with mock.patch("nvbroadcast.ai.transcriber._has_supported_backend", return_value=False):
             self.assertFalse(transcriber.initialize())
 
+    def test_initialize_stops_worker_after_import_error(self):
+        transcriber = MeetingTranscriber("base")
+        executor = mock.Mock()
+        executor.submit.return_value.result.side_effect = ImportError("missing runtime")
+        with mock.patch("nvbroadcast.ai.transcriber._has_supported_backend", return_value=True), \
+             mock.patch("nvbroadcast.ai.transcriber.ProcessPoolExecutor", return_value=executor):
+            self.assertFalse(transcriber.initialize())
+        executor.shutdown.assert_called_once_with(wait=True, cancel_futures=True)
+        self.assertIsNone(transcriber._executor)
+
+    def test_worker_exit_poll_handles_early_join_return(self):
+        from nvbroadcast.ai.transcriber import _wait_for_worker_exit
+
+        worker = mock.Mock()
+        states = iter([True, True, True])
+        worker.is_alive.side_effect = lambda: next(states, False)
+        with mock.patch("nvbroadcast.ai.transcriber.time.sleep"):
+            self.assertTrue(_wait_for_worker_exit(worker, 1))
+        self.assertEqual(worker.join.call_count, 2)
+
     def test_missing_backend_help_mentions_optional_whisper(self):
         self.assertIn("openai-whisper", _missing_backend_help("whisper"))
 
