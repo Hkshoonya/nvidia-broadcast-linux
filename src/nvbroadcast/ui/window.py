@@ -175,13 +175,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._meeting_btn.add_css_class("idle")
         self._meeting_btn.set_tooltip_text("Record + transcribe meeting")
         self._meeting_btn.connect("clicked", self._on_meeting_toggle)
-        header.pack_end(self._meeting_btn)
 
         self._notes_sidebar_btn = Gtk.ToggleButton(label="Meeting Notes")
         self._notes_sidebar_btn.add_css_class("flat")
         self._notes_sidebar_btn.set_tooltip_text("Show or hide live transcript and meeting history")
         self._notes_sidebar_btn.connect("toggled", self._on_meeting_sidebar_toggled)
-        header.pack_end(self._notes_sidebar_btn)
 
         # Record button (video only)
         self._record_btn = Gtk.Button(label="Rec")
@@ -189,7 +187,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._record_btn.add_css_class("idle")
         self._record_btn.set_tooltip_text("Record to MP4")
         self._record_btn.connect("clicked", self._on_record_toggle)
-        header.pack_end(self._record_btn)
 
         # Profile selector
         self._profile_btn = Gtk.MenuButton(label="Profile")
@@ -223,7 +220,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._update_btn.set_visible(False)
         self._update_btn.set_tooltip_text("Open the recommended upgrade target")
         self._update_btn.connect("clicked", self._open_update_release)
-        header.pack_end(self._update_btn)
 
         gpu_btn = Gtk.MenuButton(icon_name="applications-graphics-symbolic",
                                  tooltip_text="GPU Information")
@@ -240,7 +236,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._update_gpu_info()
         main_box.append(header)
 
-        body_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        # A separate row keeps secondary actions visible without making the
+        # header, and therefore the whole window, as wide as all its labels.
+        header_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_actions.set_halign(Gtk.Align.END)
+        header_actions.set_margin_start(16)
+        header_actions.set_margin_end(16)
+        header_actions.set_margin_top(4)
+        header_actions.set_margin_bottom(4)
+        header_actions.append(self._record_btn)
+        header_actions.append(self._notes_sidebar_btn)
+        header_actions.append(self._meeting_btn)
+        header_actions.append(self._update_btn)
+        main_box.append(header_actions)
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         paned.set_vexpand(True)
@@ -315,11 +323,21 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         paned.set_end_child(scroll)
 
         paned.set_position(450)
-        body_box.append(paned)
-
         self._meeting_sidebar = self._build_meeting_sidebar()
-        body_box.append(self._meeting_sidebar)
-        main_box.append(body_box)
+        # Flap folds the notes over the content below their combined minimum
+        # width and remains available on older libadwaita installations.
+        self._body_flap = Adw.Flap()
+        self._body_flap.set_content(paned)
+        self._body_flap.set_flap(self._meeting_sidebar)
+        self._body_flap.set_flap_position(Gtk.PackType.END)
+        self._body_flap.set_fold_policy(Adw.FlapFoldPolicy.AUTO)
+        self._body_flap.set_fold_threshold_policy(Adw.FoldThresholdPolicy.MINIMUM)
+        self._body_flap.set_locked(True)
+        self._body_flap.set_modal(True)
+        self._body_flap.set_reveal_flap(False)
+        self._body_flap.connect("notify::reveal-flap", self._sync_meeting_flap_state)
+        self._body_flap.connect("notify::folded", self._sync_meeting_flap_state)
+        main_box.append(self._body_flap)
 
         footer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
@@ -1000,11 +1018,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         return box
 
     def _build_meeting_sidebar(self) -> Gtk.Widget:
-        self._meeting_sidebar_revealer = Gtk.Revealer()
-        self._meeting_sidebar_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_LEFT)
-        self._meeting_sidebar_revealer.set_transition_duration(180)
-        self._meeting_sidebar_revealer.set_reveal_child(False)
-
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         outer.set_margin_top(8)
         outer.set_margin_bottom(8)
@@ -1054,8 +1067,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         history_scroll.set_child(self._meeting_history)
         outer.append(history_scroll)
 
-        self._meeting_sidebar_revealer.set_child(outer)
-        return self._meeting_sidebar_revealer
+        sidebar_scroll = Gtk.ScrolledWindow()
+        sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar_scroll.set_min_content_width(380)
+        sidebar_scroll.set_max_content_width(380)
+        sidebar_scroll.set_child(outer)
+        return sidebar_scroll
 
     # --- Signals ---
     def _on_stream_toggle(self, btn):
@@ -1692,7 +1709,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self.set_status(f"Speaker: {device}")
 
     def _on_meeting_sidebar_toggled(self, btn):
-        self._meeting_sidebar_revealer.set_reveal_child(btn.get_active())
+        self._body_flap.set_reveal_flap(btn.get_active())
+
+    def _sync_meeting_flap_state(self, flap, _param):
+        self._notes_sidebar_btn.set_active(flap.get_reveal_flap())
+        # Libadwaita's modal overlay blocks pointer input, but GTK can still
+        # tab to covered controls unless the content is insensitive.
+        flap.get_content().set_sensitive(not (
+            flap.get_folded() and flap.get_reveal_flap()
+        ))
 
     def reset_live_meeting_view(self):
         self._notes_sidebar_btn.set_active(True)

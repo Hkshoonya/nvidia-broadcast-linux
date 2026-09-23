@@ -75,13 +75,15 @@ class ResponsiveWindowTests(unittest.TestCase):
             selector.set_devices([{"name": name, "device": device}])
         self.addCleanup(self.window.destroy)
         header = self.window.get_content().get_first_child()
-        self.paned = header.get_next_sibling().get_first_child()
+        self.actions = header.get_next_sibling()
+        self.body = self.actions.get_next_sibling()
+        self.paned = self.body.get_content()
         self.scroll = self.paned.get_end_child()
         self.controls = self.scroll.get_child().get_child()
 
     @staticmethod
-    def _settle():
-        deadline = time.monotonic() + 0.15
+    def _settle(duration=0.15):
+        deadline = time.monotonic() + duration
         context = GLib.MainContext.default()
         while time.monotonic() < deadline:
             while context.pending() and time.monotonic() < deadline:
@@ -94,7 +96,7 @@ class ResponsiveWindowTests(unittest.TestCase):
         self._settle()
 
     def test_sections_wrap_and_fit_portrait_widths(self):
-        for width, stacked in ((1280, False), (1080, True), (1024, True)):
+        for width, stacked in ((1280, False), (1080, True), (1024, True), (800, True)):
             with self.subTest(width=width):
                 self._show(width)
                 self.assertLessEqual(
@@ -117,6 +119,62 @@ class ResponsiveWindowTests(unittest.TestCase):
                         bounds.get_x() + bounds.get_width(),
                         self.controls.get_width(),
                     )
+
+    def test_header_actions_and_meeting_notes_fit_narrow_window(self):
+        self._show(1280)
+        self.window._notes_sidebar_btn.set_active(True)
+        self._settle(0.3)
+        self.assertFalse(self.body.get_folded())
+        self.assertTrue(self.body.get_reveal_flap())
+        self.assertTrue(self.paned.is_sensitive())
+
+        self._show(800)
+        self._settle(0.3)
+        self.assertTrue(self.body.get_folded())
+        self.assertLessEqual(self.window.get_width(), 800)
+        self.assertGreaterEqual(self.paned.get_width(), self.window.get_width() - 10)
+        self.assertFalse(self.paned.is_sensitive())
+
+        self._show(1280)
+        self._settle(0.3)
+        self.assertFalse(self.body.get_folded())
+        self.assertTrue(self.body.get_reveal_flap())
+        self.assertTrue(self.paned.is_sensitive())
+        self._show(800)
+        self._settle(0.3)
+        self.assertTrue(self.body.get_folded())
+        self.assertFalse(self.paned.is_sensitive())
+
+        self.window.set_update_available(
+            "1.5.3", "Update Available", "A new release", "https://example.com"
+        )
+        self._settle()
+        self.assertLessEqual(self.window.get_width(), 800)
+        content = self.window.get_content()
+        _, actions_bounds = self.actions.compute_bounds(content)
+        _, body_bounds = self.body.compute_bounds(content)
+        self.assertLessEqual(
+            actions_bounds.get_y() + actions_bounds.get_height(), body_bounds.get_y()
+        )
+        for button in (
+            self.window._record_btn,
+            self.window._notes_sidebar_btn,
+            self.window._meeting_btn,
+            self.window._update_btn,
+        ):
+            _, bounds = button.compute_bounds(self.actions)
+            self.assertGreater(button.get_width(), 0)
+            self.assertGreaterEqual(bounds.get_x(), 0)
+            self.assertLessEqual(
+                bounds.get_x() + bounds.get_width(), self.actions.get_width()
+            )
+
+        self.window._notes_sidebar_btn.grab_focus()
+        self.assertIs(self.window.get_focus(), self.window._notes_sidebar_btn)
+        self.window._notes_sidebar_btn.set_active(False)
+        self._settle(0.3)
+        self.assertFalse(self.body.get_reveal_flap())
+        self.assertTrue(self.paned.is_sensitive())
 
     def test_stacked_audio_is_reachable_by_tab_and_scrolling(self):
         self._show(1080, 640)
