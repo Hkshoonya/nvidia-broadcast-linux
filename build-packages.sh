@@ -207,8 +207,8 @@ build_rpm() {
     echo "[RPM] Building .rpm package..."
 
     if ! command -v rpmbuild &>/dev/null; then
-        echo "[RPM] SKIP: rpmbuild not found. Install with: sudo apt install rpm"
-        return
+        echo "[RPM] ERROR: rpmbuild not found. Install with: sudo apt install rpm" >&2
+        return 1
     fi
 
     local rpm_source_date_epoch
@@ -253,12 +253,22 @@ build_rpm() {
     fi
     tail -5 "$RPM_DIR/rpmbuild.log"
 
+    # Require an artifact produced by this invocation, even when dist/rpm
+    # contains a package from an earlier build.
+    local rpm_file
+    rpm_file="$(find "$RPM_DIR/RPMS" -type f \
+        -name "nvbroadcast-${VERSION}-${REV}*.noarch.rpm" -print -quit)"
+    if [ -z "$rpm_file" ] || [ ! -s "$rpm_file" ]; then
+        echo "[RPM] ERROR: rpmbuild produced no RPM artifact" >&2
+        rm -rf "$RPM_DIR"
+        return 1
+    fi
+
     # Copy output
     mkdir -p dist/rpm
-    find "$RPM_DIR/RPMS" -name "*.rpm" -exec cp {} dist/rpm/ \;
+    cp "$rpm_file" dist/rpm/
 
-    echo "[RPM] Built:"
-    ls -la dist/rpm/nvbroadcast-*.rpm 2>/dev/null || echo "  (no RPM found — check build errors above)"
+    echo "[RPM] Built: dist/rpm/$(basename "$rpm_file")"
 
     rm -rf "$RPM_DIR"
 }

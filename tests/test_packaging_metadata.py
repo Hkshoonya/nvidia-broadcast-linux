@@ -542,6 +542,61 @@ class PackagingMetadataTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 build()
 
+    @unittest.skipUnless(sys.platform == "linux", "requires Linux shell tools")
+    def test_explicit_rpm_build_requires_tool_and_new_artifact(self):
+        with tempfile.TemporaryDirectory(prefix="nvbroadcast-rpm-errors-") as directory:
+            root = Path(directory)
+            missing_tool = root / "missing-tool"
+            missing_tool.mkdir()
+            for name in ("build-packages.sh", "pyproject.toml"):
+                shutil.copy2(REPO_ROOT / name, missing_tool / name)
+
+            limited_path = root / "limited-path"
+            limited_path.mkdir()
+            for name in ("bash", "dirname", "python3"):
+                (limited_path / name).symlink_to(shutil.which(name))
+            environment = os.environ.copy()
+            environment["PATH"] = str(limited_path)
+            result = subprocess.run(
+                ["bash", "build-packages.sh", "rpm"],
+                cwd=missing_tool,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("rpmbuild not found", result.stderr)
+
+            no_artifact = root / "no-artifact"
+            no_artifact.mkdir()
+            for name in ("src", "data", "configs", "packaging", "scripts"):
+                shutil.copytree(REPO_ROOT / name, no_artifact / name)
+            for name in (
+                "build-packages.sh", "pyproject.toml", "LICENSE", "NOTICE",
+                "README.md", "CONTRIBUTORS.md",
+            ):
+                shutil.copy2(REPO_ROOT / name, no_artifact / name)
+            stale = no_artifact / "dist" / "rpm" / "nvbroadcast-stale.rpm"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"old RPM")
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            fake_rpmbuild = fake_bin / "rpmbuild"
+            fake_rpmbuild.write_text("#!/bin/sh\nexit 0\n")
+            fake_rpmbuild.chmod(0o755)
+            environment["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
+            environment.pop("SOURCE_DATE_EPOCH", None)
+            result = subprocess.run(
+                ["bash", "build-packages.sh", "rpm"],
+                cwd=no_artifact,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("produced no RPM artifact", result.stderr)
+            self.assertEqual(stale.read_bytes(), b"old RPM")
+
     def test_canonical_notice_and_contributors_ship_in_package_payloads(self):
         records = ("NOTICE", "CONTRIBUTORS.md")
         manifest = (REPO_ROOT / "MANIFEST.in").read_text()
