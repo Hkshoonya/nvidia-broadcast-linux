@@ -12,9 +12,11 @@
 .gitignore
 CHANGELOG.md
 CONTRIBUTING.md
+CONTRIBUTORS.md
 LICENSE
 MANIFEST.in
 Makefile
+NOTICE
 README.md
 SPONSORS.md
 build-packages.sh
@@ -30,6 +32,7 @@ data/icons/com.doczeus.NVBroadcast.png
 data/icons/com.doczeus.NVBroadcast.svg
 data/icons/doczeus-logo.svg
 docs/BACKGROUND_QUALITY_WORKFLOW.md
+docs/CANONICAL_PROJECT.md
 docs/CNAME
 docs/GITHUB_SPONSORS_PROFILE.md
 docs/MACOS_VIRTUAL_CAMERA.md
@@ -48,6 +51,9 @@ docs/RELEASE_NOTES_1.5.1.md
 docs/RELEASE_NOTES_1.5.2.md
 docs/RELEASE_VERIFICATION.md
 docs/index.html
+docs/og-image.png
+docs/robots.txt
+docs/sitemap.xml
 install.sh
 install_macos.sh
 macos/LICENSE
@@ -174,6 +180,7 @@ tests/test_config_persistence.py
 tests/test_contributors.py
 tests/test_deepfilter_model.py
 tests/test_dependency_installer.py
+tests/test_edge_refinement_controls.py
 tests/test_eye_contact.py
 tests/test_face_landmarks.py
 tests/test_global_hotkeys.py
@@ -189,10 +196,17 @@ tests/test_nix_source_files.py
 tests/test_packaging_metadata.py
 tests/test_perf_monitor.py
 tests/test_profile_select_handlers.py
+tests/test_project_identity.py
 tests/test_python_interpreter_selector.py
+tests/test_refinement_tone_lut.py
 tests/test_release_checksums.py
 tests/test_relighting.py
+tests/test_replace_color_reference.py
+tests/test_replace_hand_gaps.py
+tests/test_replace_hand_motion.py
+tests/test_replace_motion_halo.py
 tests/test_resources.py
+tests/test_responsive_window.py
 tests/test_runtime_artifact.py
 tests/test_runtime_install_activation.py
 tests/test_runtime_probe.py
@@ -202,6 +216,7 @@ tests/test_sni_tray.py
 tests/test_source_process_guard.py
 tests/test_speaker_monitor.py
 tests/test_summarizer.py
+tests/test_temporal_gpu_dispatch.py
 tests/test_tensorrt_rvm.py
 tests/test_training_bundle.py
 tests/test_transcriber.py
