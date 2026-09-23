@@ -18,6 +18,7 @@ from multiprocessing import get_context
 
 import numpy as np
 
+from nvbroadcast.ai.model_trust import ModelTrustError, verified_model_path
 from nvbroadcast.core.platform import supports_openai_whisper_python
 
 
@@ -99,7 +100,9 @@ def _init_transcriber_worker(model_size: str, device: str, backend_preference: s
 
     if backend_preference in {"auto", "faster-whisper"}:
         try:
-            from faster_whisper import WhisperModel
+            from faster_whisper import WhisperModel, __version__, download_model
+
+            model_path = verified_model_path(model_size, __version__, download_model)
 
             compute_type = "int8"
             if device == "cuda":
@@ -107,9 +110,13 @@ def _init_transcriber_worker(model_size: str, device: str, backend_preference: s
             elif device == "mps":
                 compute_type = "float32"
 
-            _WORKER_MODEL = WhisperModel(model_size, device=device, compute_type=compute_type)
+            _WORKER_MODEL = WhisperModel(
+                str(model_path), device=device, compute_type=compute_type
+            )
             _WORKER_BACKEND = "faster-whisper"
             return
+        except ModelTrustError:
+            raise
         except Exception:
             if backend_preference == "faster-whisper":
                 raise

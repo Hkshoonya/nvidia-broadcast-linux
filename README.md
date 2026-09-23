@@ -438,6 +438,14 @@ This installs support dependencies through project metadata, installs
 versions below 3.14. Native packages keep their lighter `faster-whisper` policy;
 the macOS installer keeps its best-effort OpenAI Whisper fallback.
 
+The default `faster-whisper` backend accepts the bundled model aliases and
+repository IDs only. It downloads a pinned revision and checks the size and
+SHA-256 of each model file before loading it. An explicitly configured local
+CTranslate2 model directory, such as
+`NVBROADCAST_TRANSCRIBER_MODEL=/path/to/model`, remains available and is trusted
+as a user-supplied file. Set `NVBROADCAST_TRANSCRIBER_BACKEND=whisper` to select
+the separate OpenAI Whisper backend explicitly.
+
 </details>
 
 ---
