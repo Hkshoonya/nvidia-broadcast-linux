@@ -434,39 +434,46 @@ extern "C" __global__ void fused_composite(
         int y = idx / frame_width;
         float source_x = ((x + 0.5f) / clean_scale) - 0.5f;
         float source_y = ((y + 0.5f) / clean_scale) - 0.5f;
-        float cb = sample_clean_color(
-            clean_color, clean_width, clean_height, source_x, source_y, 0);
-        float cg = sample_clean_color(
-            clean_color, clean_width, clean_height, source_x, source_y, 1);
-        float cr = sample_clean_color(
-            clean_color, clean_width, clean_height, source_x, source_y, 2);
-        float color_delta = (
-            fabsf(fb - cb) + fabsf(fg_ - cg) + fabsf(fr - cr)
-        ) / 3.0f;
-
-        if (color_delta > 10.0f) {
-            float source_mean = (fb + fg_ + fr) / 3.0f;
-            float clean_mean = (cb + cg + cr) / 3.0f;
-            float chroma_delta = (
-                fabsf((fb - source_mean) - (cb - clean_mean))
-                + fabsf((fg_ - source_mean) - (cg - clean_mean))
-                + fabsf((fr - source_mean) - (cr - clean_mean))
+        // The compact reference stores donor support in its alpha channel.
+        // Unsupported cells have zero RGB, never a downsampled camera pixel.
+        float support = sample_clean_color(
+            clean_color, clean_width, clean_height, source_x, source_y, 3
+        ) / 255.0f;
+        if (support > 0.5f) {
+            float cb = sample_clean_color(
+                clean_color, clean_width, clean_height, source_x, source_y, 0) / support;
+            float cg = sample_clean_color(
+                clean_color, clean_width, clean_height, source_x, source_y, 1) / support;
+            float cr = sample_clean_color(
+                clean_color, clean_width, clean_height, source_x, source_y, 2) / support;
+            float color_delta = (
+                fabsf(fb - cb) + fabsf(fg_ - cg) + fabsf(fr - cr)
             ) / 3.0f;
-            float tone_delta = fabsf(source_mean - clean_mean);
-            float opacity_weight = clamp01((0.94f - a) / 0.915f);
-            float chroma_weight = clamp01((chroma_delta - 5.0f) / 45.0f);
-            float tone_weight = clamp01((tone_delta - 12.0f) / 90.0f);
-            float blend = fminf(
-                clamp01(
-                    0.62f * opacity_weight
-                    + 0.68f * chroma_weight
-                    + 0.55f * tone_weight
-                ),
-                0.92f
-            );
-            fb = fb * (1.0f - blend) + cb * blend;
-            fg_ = fg_ * (1.0f - blend) + cg * blend;
-            fr = fr * (1.0f - blend) + cr * blend;
+
+            if (color_delta > 10.0f) {
+                float source_mean = (fb + fg_ + fr) / 3.0f;
+                float clean_mean = (cb + cg + cr) / 3.0f;
+                float chroma_delta = (
+                    fabsf((fb - source_mean) - (cb - clean_mean))
+                    + fabsf((fg_ - source_mean) - (cg - clean_mean))
+                    + fabsf((fr - source_mean) - (cr - clean_mean))
+                ) / 3.0f;
+                float tone_delta = fabsf(source_mean - clean_mean);
+                float opacity_weight = clamp01((0.94f - a) / 0.915f);
+                float chroma_weight = clamp01((chroma_delta - 5.0f) / 45.0f);
+                float tone_weight = clamp01((tone_delta - 12.0f) / 90.0f);
+                float blend = fminf(
+                    clamp01(
+                        0.62f * opacity_weight
+                        + 0.68f * chroma_weight
+                        + 0.55f * tone_weight
+                    ),
+                    0.92f
+                );
+                fb = fb * (1.0f - blend) + cb * blend;
+                fg_ = fg_ * (1.0f - blend) + cg * blend;
+                fr = fr * (1.0f - blend) + cr * blend;
+            }
         }
     }
 
@@ -3943,9 +3950,9 @@ class VideoEffects:
         from cupyx.scipy import ndimage as cndi
 
         height, width = alpha_gpu.shape
-        work_scale = (
-            8 if max(height, width) >= 960 or min(height, width) >= 540 else 2
-        )
+        # Match the CPU reference's half-resolution donor search. At 8:1,
+        # bright clothing can wash a dark edge into the wrong color at 720p.
+        work_scale = 2
         work_scale = max(1, min(work_scale, height, width))
         small_height = max(1, height // work_scale)
         small_width = max(1, width // work_scale)
@@ -3963,16 +3970,18 @@ class VideoEffects:
 
         solid = (alpha_small > 0.94).astype(cp.float32)
         weighted = fg_small * solid[:, :, cp.newaxis]
-        sigma = 1.0 if work_scale >= 8 else 2.0
+        sigma = 2.0
         weighted_sum = cndi.gaussian_filter(
-            weighted, sigma=(sigma, sigma, 0), truncate=2.0, mode="mirror")
+            weighted, sigma=(sigma, sigma, 0), truncate=2.5, mode="mirror")
         weights = cndi.gaussian_filter(
-            solid, sigma=sigma, truncate=2.0, mode="mirror")
+            solid, sigma=sigma, truncate=2.5, mode="mirror")
         weights_3d = weights[:, :, cp.newaxis]
+        supported = weights > 0.001
         clean = weighted_sum / cp.maximum(weights_3d, 0.001)
-        # Where no solid subject color is nearby, preserving the local sample
-        # is safer than inventing a black edge.
-        clean = cp.where(weights_3d > 0.001, clean, fg_small)
+        # Premultiply by binary support so bilinear interpolation cannot mix
+        # an unsupported cell's camera background into a supported donor.
+        clean = cp.where(supported[:, :, cp.newaxis], clean, 0)
+        clean[:, :, 3] = supported.astype(cp.float32) * 255.0
         return cp.clip(clean, 0, 255).astype(cp.uint8), work_scale
 
     def _gpu_blur_bgra(self, frame_gpu, sigma: float):
@@ -4196,8 +4205,12 @@ class VideoEffects:
         return self._blend(frame, self._green_bg, alpha)
 
     def _clean_color_reference(self, fg: np.ndarray, alpha: np.ndarray,
-                               solid_threshold: float = 0.88) -> np.ndarray:
-        """Estimate clean foreground colors from solid subject pixels."""
+                               solid_threshold: float = 0.88,
+                               sample_y: np.ndarray | None = None,
+                               sample_x: np.ndarray | None = None):
+        """Estimate donor colors; sampled Remove calls also return support."""
+        if (sample_y is None) != (sample_x is None):
+            raise ValueError("sample_y and sample_x must be supplied together")
         if self._bg_mode == "replace":
             return self._nearest_foreground_color(fg, alpha, solid_threshold)
         # Create a "clean color" reference by blurring only solid person pixels.
@@ -4213,7 +4226,33 @@ class VideoEffects:
         wt_2d = cv2.GaussianBlur(solid_2d, (11, 11), 0)
         wt = np.maximum(wt_2d[:, :, np.newaxis], 0.001)
         clean_small = (weighted_sum / wt).astype(np.uint8)
-        return cv2.resize(clean_small, (w, h), interpolation=cv2.INTER_LINEAR)
+        if sample_y is None or sample_x is None:
+            return cv2.resize(clean_small, (w, h), interpolation=cv2.INTER_LINEAR)
+
+        # The two Remove passes only consume fringe pixels. Sample those
+        # directly instead of expanding two float32 arrays to full frame size.
+        supported_small = wt_2d > 0.001
+        clean_small[~supported_small] = 0
+        clean_small[:, :, 3] = supported_small.astype(np.uint8) * 255
+        reference = clean_small.astype(np.float32)
+        samples = np.empty((sample_y.size, 4), dtype=np.float32)
+        for start in range(0, sample_y.size, 16000):
+            end = min(start + 16000, sample_y.size)
+            map_x = (
+                (sample_x[start:end].astype(np.float32) + 0.5) * (hw / w) - 0.5
+            )[:, None]
+            map_y = (
+                (sample_y[start:end].astype(np.float32) + 0.5) * (hh / h) - 0.5
+            )[:, None]
+            samples[start:end] = cv2.remap(
+                reference, map_x, map_y, interpolation=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_REPLICATE,
+            )[:, 0]
+        support = samples[:, 3] / 255.0
+        np.divide(samples[:, :3], np.maximum(support[:, None], 0.001),
+                  out=samples[:, :3])
+        samples[:, 3] = fg[sample_y, sample_x, 3]
+        return np.clip(samples, 0, 255).astype(np.uint8), support > 0.5
 
     @staticmethod
     def _nearest_foreground_color(fg: np.ndarray, alpha: np.ndarray,
@@ -4329,10 +4368,19 @@ class VideoEffects:
         if fringe_x.size == 0:
             return fg
 
-        clean_color = self._clean_color_reference(fg, alpha, solid_threshold=0.94)
+        if self._bg_mode == "remove":
+            clean_colors, supported = self._clean_color_reference(
+                fg, alpha, solid_threshold=0.94,
+                sample_y=fringe_y, sample_x=fringe_x)
+            fringe_y, fringe_x = fringe_y[supported], fringe_x[supported]
+            clean_colors = clean_colors[supported, :3].astype(np.float32)
+            if fringe_x.size == 0:
+                return fg
+        else:
+            clean_color = self._clean_color_reference(fg, alpha, solid_threshold=0.94)
+            clean_colors = clean_color[fringe_y, fringe_x, :3].astype(np.float32)
 
         source_colors = fg[fringe_y, fringe_x, :3].astype(np.float32)
-        clean_colors = clean_color[fringe_y, fringe_x, :3].astype(np.float32)
         color_delta = np.mean(np.abs(source_colors - clean_colors), axis=1)
         contaminated = color_delta > 10.0
         if not contaminated.any():
@@ -4374,12 +4422,11 @@ class VideoEffects:
         )
         blend = blend[:, np.newaxis].astype(np.float32)
         repaired = np.clip(
-            fg[fringe_y, fringe_x].astype(np.float32) * (1.0 - blend)
-            + clean_color[fringe_y, fringe_x].astype(np.float32) * blend,
+            source_colors * (1.0 - blend) + clean_colors * blend,
             0,
             255,
         ).astype(np.uint8)
-        result[fringe_y, fringe_x] = repaired
+        result[fringe_y, fringe_x, :3] = repaired
         return result
 
     def _prepare_greenscreen_foreground(self, fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
@@ -4388,6 +4435,33 @@ class VideoEffects:
         fringe = (alpha > 0.02) & (alpha < 0.55)
         if not fringe.any():
             return result
+
+        if self._bg_mode == "remove":
+            fringe_y, fringe_x = np.nonzero(fringe)
+            clean_colors, supported = self._clean_color_reference(
+                result, alpha, solid_threshold=0.9,
+                sample_y=fringe_y, sample_x=fringe_x)
+            source = result[fringe_y, fringe_x, :3].astype(np.float32)
+            delta = np.mean(np.abs(source - clean_colors[:, :3]), axis=1)
+            repair = supported & (delta > 6.0)
+            if not repair.any():
+                return result
+            fringe_y, fringe_x = fringe_y[repair], fringe_x[repair]
+            source = source[repair]
+            clean = clean_colors[repair, :3].astype(np.float32)
+            blend = np.clip((0.55 - alpha[fringe_y, fringe_x]) / 0.50,
+                            0.0, 1.0) * 0.78
+            luma = source @ np.array([0.114, 0.587, 0.299], np.float32)
+            clean_luma = clean @ np.array([0.114, 0.587, 0.299], np.float32)
+            dark_halo = luma + 10.0 < clean_luma
+            blend[dark_halo] = np.maximum(blend[dark_halo], 0.88)
+            repaired = np.clip(
+                source * (1.0 - blend[:, None]) + clean * blend[:, None],
+                0, 255,
+            ).astype(np.uint8)
+            output = result.copy()
+            output[fringe_y, fringe_x, :3] = repaired
+            return output
 
         clean_color = self._clean_color_reference(result, alpha, solid_threshold=0.9)
         color_delta = np.mean(
