@@ -11,7 +11,7 @@
 #
 # Output:
 #   dist/deb/nvbroadcast_<version>-<rev>_all.deb
-#   dist/rpm/nvbroadcast-<version>-<rev>.noarch.rpm
+#   dist/rpm/nvbroadcast-<version>-<rev>[.<dist>].noarch.rpm
 
 set -e
 
@@ -38,6 +38,7 @@ fi
 
 # Package revision is stable unless explicitly overridden by CI.
 REV="${PACKAGE_REV:-1}"
+BUILT_RPM_PATH=""
 
 package_source_date_epoch() {
     local epoch="${SOURCE_DATE_EPOCH:-}"
@@ -267,8 +268,9 @@ build_rpm() {
     # Copy output
     mkdir -p dist/rpm
     cp "$rpm_file" dist/rpm/
+    BUILT_RPM_PATH="dist/rpm/$(basename "$rpm_file")"
 
-    echo "[RPM] Built: dist/rpm/$(basename "$rpm_file")"
+    echo "[RPM] Built: $BUILT_RPM_PATH"
 
     rm -rf "$RPM_DIR"
 }
@@ -277,11 +279,26 @@ build_rpm() {
 
 build_upgrade_helper() {
     local DEB_PATH="dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb"
-    local RPM_PATH="dist/rpm/nvbroadcast-${VERSION}-${REV}.noarch.rpm"
+    local RPM_PATH="$BUILT_RPM_PATH"
+    local -a rpm_candidates=()
+
+    # `all` binds the RPM built in this invocation. A standalone helper build
+    # requires exactly one matching artifact, including any RPM dist suffix.
+    if [ -z "$RPM_PATH" ]; then
+        if [ -d dist/rpm ]; then
+            mapfile -d '' -t rpm_candidates < <(find dist/rpm -maxdepth 1 \
+                -type f -name "nvbroadcast-${VERSION}-${REV}*.noarch.rpm" -print0)
+        fi
+        if [ "${#rpm_candidates[@]}" -ne 1 ]; then
+            echo "[UPGRADE] ERROR: Expected one matching RPM artifact; found ${#rpm_candidates[@]}." >&2
+            return 1
+        fi
+        RPM_PATH="${rpm_candidates[0]}"
+    fi
 
     if [ ! -f "$DEB_PATH" ] || [ ! -f "$RPM_PATH" ]; then
         echo "[UPGRADE] ERROR: Build the exact .deb and .rpm before the upgrade helper."
-        exit 1
+        return 1
     fi
 
     python3 scripts/render_native_upgrade_helper.py \

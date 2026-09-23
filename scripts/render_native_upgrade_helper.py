@@ -57,16 +57,20 @@ def render_helper(
     if not _REVISION_PATTERN.fullmatch(revision):
         raise RenderError(f"unsafe package revision: {revision!r}")
 
-    expected_names = (
-        (deb, f"nvbroadcast_{version}-{revision}_all.deb"),
-        (rpm, f"nvbroadcast-{version}-{revision}.noarch.rpm"),
+    expected_deb_name = f"nvbroadcast_{version}-{revision}_all.deb"
+    if deb.name != expected_deb_name:
+        raise RenderError(
+            f"unexpected release artifact name {deb.name!r}; "
+            f"expected {expected_deb_name!r}"
+        )
+    rpm_name = re.fullmatch(
+        rf"nvbroadcast-{re.escape(version)}-"
+        rf"(?P<release>{re.escape(revision)}(?:\.[A-Za-z0-9_]+)*)"
+        r"\.noarch\.rpm",
+        rpm.name,
     )
-    for artifact, expected_name in expected_names:
-        if artifact.name != expected_name:
-            raise RenderError(
-                f"unexpected release artifact name {artifact.name!r}; "
-                f"expected {expected_name!r}"
-            )
+    if rpm_name is None:
+        raise RenderError(f"unexpected release artifact name {rpm.name!r}")
 
     if template.is_symlink() or not template.is_file():
         raise RenderError(f"upgrade helper template is not a regular file: {template}")
@@ -80,6 +84,7 @@ def render_helper(
     replacements = {
         "@TARGET_VERSION@": version,
         "@TARGET_REVISION@": revision,
+        "@TARGET_RPM_RELEASE@": rpm_name.group("release"),
         "@DEB_SHA256@": _sha256_regular_file(deb),
         "@RPM_SHA256@": _sha256_regular_file(rpm),
     }
