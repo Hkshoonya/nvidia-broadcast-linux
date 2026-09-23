@@ -361,14 +361,12 @@ needs:
 - v4l2loopback virtual camera setup
 - PipeWire with PulseAudio compatibility
 
-If your system does not already configure the NVIDIA driver, opt into the
-module's basic NVIDIA defaults. This configures the host driver; it does not
-add CUDA inference to this CPU-only package:
+If you use NVIDIA hardware, you can opt into the module's basic NVIDIA driver
+defaults. This configures the host driver; it does not add CUDA inference to
+this CPU-only package:
 
 ```nix
 {
-  hardware.nvidia.open = true;
-
   programs.nvbroadcast = {
     enable = true;
     nvidia.enable = true;
@@ -391,8 +389,10 @@ modules = [
 ];
 ```
 
-When using the package without the NixOS module, configure the NVIDIA driver,
-PipeWire with PulseAudio compatibility, and v4l2loopback host settings yourself.
+When using the package without the NixOS module, configure PipeWire with
+PulseAudio compatibility and v4l2loopback yourself. Configure the NVIDIA
+driver separately if your host needs it; it does not enable CUDA processing in
+this CPU-only package.
 
 ### Linux Installer Details
 
