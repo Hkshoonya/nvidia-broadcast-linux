@@ -66,7 +66,7 @@ class ResponsiveWindowTests(unittest.TestCase):
         ):
             self.patches.enter_context(mock.patch(name, return_value=result))
         self.window = NVBroadcastWindow(self.app)
-        self.window._profile_btn.set_label("Profile: Default")
+        self.window._set_profile_name("Default")
         for selector, name, device in (
             (self.window._camera_selector, "Test Camera", "/dev/video0"),
             (self.window._mic_selector, "Test Microphone", "test-mic"),
@@ -175,6 +175,19 @@ class ResponsiveWindowTests(unittest.TestCase):
         self._settle(0.3)
         self.assertFalse(self.body.get_reveal_flap())
         self.assertTrue(self.paned.is_sensitive())
+
+    def test_long_profile_name_does_not_block_resize(self):
+        name = "Wide Profile " * 8
+        self.window._set_profile_name(name)
+        self._show(800)
+        self.assertLessEqual(self.window.get_width(), 800)
+        self.assertEqual(self.window._profile_text.get_text(), f"Profile: {name}")
+        self.assertIn(name, self.window._profile_btn.get_tooltip_text())
+        self.assertLessEqual(self.window._profile_btn.get_width(), 200)
+        self.window._profile_btn.popup()
+        self._settle()
+        self.assertTrue(self.window._profile_popover.get_visible())
+        self.window._profile_btn.popdown()
 
     def test_stacked_audio_is_reachable_by_tab_and_scrolling(self):
         self._show(1080, 640)

@@ -10,7 +10,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gtk, Adw, Gio, GLib, Gdk
+gi.require_version("Pango", "1.0")
+from gi.repository import Gtk, Adw, Gio, GLib, Gdk, Pango
 
 from nvbroadcast.contributors import app_contributor_credits
 from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
@@ -107,6 +108,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._build_ui()
         self._populate_devices()
 
+    def _set_profile_name(self, name: str) -> None:
+        self._profile_text.set_text(f"Profile: {name}")
+        self._profile_btn.set_tooltip_text(f"Current profile: {name}. Switch profile")
+
     def _card_expanded(self, key: str, default: bool) -> bool:
         value = self._app.config.ui_card_expanded.get(key)
         return default if value is None else bool(value)
@@ -189,8 +194,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._record_btn.connect("clicked", self._on_record_toggle)
 
         # Profile selector
-        self._profile_btn = Gtk.MenuButton(label="Profile")
-        self._profile_btn.set_tooltip_text("Switch profile")
+        self._profile_btn = Gtk.MenuButton()
+        profile_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._profile_text = Gtk.Label()
+        self._profile_text.set_ellipsize(Pango.EllipsizeMode.END)
+        self._profile_text.set_max_width_chars(15)
+        profile_content.append(self._profile_text)
+        profile_content.append(Gtk.Image.new_from_icon_name("pan-down-symbolic"))
+        self._profile_btn.set_child(profile_content)
+        self._set_profile_name("Default")
         self._profile_popover = Gtk.Popover()
         self._profile_popover_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._profile_popover_box.set_margin_top(8)
@@ -2003,7 +2015,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.config.current_profile = name
         save_config(self._app.config)
         self._app.restore_current_config()
-        self._profile_btn.set_label(f"Profile: {name}")
+        self._set_profile_name(name)
         popover.popdown()
         self.set_status(f"Switched to {name} profile")
 
@@ -2021,7 +2033,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._app.restore_current_config()
             if loaded.auto_mode:
                 self._app.set_auto_mode_enabled(True)
-            self._profile_btn.set_label(f"Profile: {name}")
+            self._set_profile_name(name)
             popover.popdown()
             self.set_status(f"Switched to {name} profile")
             # The application owns pipeline state. Keep the controls aligned
@@ -2069,7 +2081,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 save_profile(name, self._app.config)
                 self._app.config.current_profile = name
                 save_config(self._app.config)
-                self._profile_btn.set_label(f"Profile: {name}")
+                self._set_profile_name(name)
                 self.set_status(f"Profile saved: {name}")
                 self._rebuild_profile_popover()
         dialog.destroy()
@@ -2083,7 +2095,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.restore_current_config()
         if reset.auto_mode:
             self._app.set_auto_mode_enabled(True)
-        self._profile_btn.set_label("Profile: Default")
+        self._set_profile_name("Default")
         popover.popdown()
         self.set_status("Settings reset to defaults")
 
@@ -2169,7 +2181,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 if speaker["device"] == a.speaker_device:
                     self._speaker_selector.set_selected_index(i)
                     break
-        self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
+        self._set_profile_name(config.current_profile or "Default")
         self._app._update_pipeline_mode()
         print(f"[NV Broadcast] Profile applied: bg={v.background_removal}, eye={v.eye_contact}, relight={v.relighting}, beauty={v.beauty.enabled}")
 
@@ -2345,7 +2357,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Mirror
         self._mirror_toggle.active = v.mirror
         self._power_save_toggle.active = getattr(config, "auto_idle", True)
-        self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
+        self._set_profile_name(config.current_profile or "Default")
         self.sync_hotkey_settings()
 
     def sync_video_input_controls(self, config):
