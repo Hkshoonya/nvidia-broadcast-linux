@@ -81,6 +81,51 @@ class MeetingAudioCaptureTests(unittest.TestCase):
         self.assertIsNone(capture._pipeline)
         self.assertFalse(capture.running)
 
+    def test_stale_numeric_microphone_uses_probed_pulse_default(self):
+        capture = MeetingAudioCapture()
+        if Gst.ElementFactory.find("pulsesrc") is None:
+            self.skipTest("pulsesrc unavailable")
+        with mock.patch(
+            "nvbroadcast.audio.meeting_capture.probe_audio_source",
+            return_value=("pulsesrc", ""),
+        ), mock.patch(
+            "nvbroadcast.audio.meeting_capture.resolve_pulse_source_name",
+            return_value="",
+        ), mock.patch(
+            "nvbroadcast.audio.meeting_capture.resolve_speaker_monitor_name",
+            return_value="",
+        ):
+            capture.build("123", "", "/tmp/meeting.wav")
+        try:
+            self.assertFalse(
+                capture._pipeline.get_by_name("mic-src").get_property("device")
+            )
+            self.assertIn("saved microphone unavailable", capture.route_warning)
+        finally:
+            capture.stop()
+
+    def test_stale_numeric_speaker_omits_monitor_but_keeps_microphone(self):
+        capture = MeetingAudioCapture()
+        if Gst.ElementFactory.find("pulsesrc") is None:
+            self.skipTest("pulsesrc unavailable")
+        with mock.patch(
+            "nvbroadcast.audio.meeting_capture.probe_audio_source",
+            return_value=("pulsesrc", ""),
+        ), mock.patch(
+            "nvbroadcast.audio.meeting_capture.resolve_pulse_source_name",
+            return_value="alsa_input.demo",
+        ), mock.patch(
+            "nvbroadcast.audio.meeting_capture.resolve_speaker_monitor_name",
+            return_value="",
+        ):
+            capture.build("59", "123", "/tmp/meeting.wav")
+        try:
+            self.assertIsNotNone(capture._pipeline.get_by_name("mic-src"))
+            self.assertIsNone(capture._pipeline.get_by_name("speaker-src"))
+            self.assertIn("WAV captures microphone only", capture.route_warning)
+        finally:
+            capture.stop()
+
     def test_error_clears_running_and_stop_skips_eos(self):
         capture = MeetingAudioCapture()
         pipeline = mock.Mock()

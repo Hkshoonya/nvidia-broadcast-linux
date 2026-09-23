@@ -51,6 +51,7 @@ class MeetingAudioCapture:
         self._last_error = ""
         self._error_callback = None
         self._output_path = ""
+        self._route_warning = ""
 
     def set_sample_callback(self, callback):
         self._sample_callback = callback
@@ -65,10 +66,19 @@ class MeetingAudioCapture:
         self._source_backend = source_backend
         self._last_error = ""
         self._output_path = output_path
+        self._route_warning = ""
         self._pipeline = Gst.Pipeline.new("nvbroadcast-meeting-capture")
         if source_backend == "pulsesrc":
             mic_target = resolve_pulse_source_name(mic_device)
             speaker_target = resolve_speaker_monitor_name(speaker_device)
+            warnings = []
+            if mic_device.isdigit() and not mic_target:
+                warnings.append("saved microphone unavailable; using default")
+            if speaker_device.isdigit() and not speaker_target:
+                warnings.append("saved speaker unavailable; WAV captures microphone only")
+            self._route_warning = "; ".join(warnings)
+            if self._route_warning:
+                print(f"[NV Broadcast Meeting] {self._route_warning}")
         else:
             mic_target = resolve_pipewire_target(mic_device)
             speaker_target = resolve_speaker_monitor(speaker_device)
@@ -248,3 +258,7 @@ class MeetingAudioCapture:
     @property
     def last_error(self) -> str:
         return self._last_error
+
+    @property
+    def route_warning(self) -> str:
+        return self._route_warning

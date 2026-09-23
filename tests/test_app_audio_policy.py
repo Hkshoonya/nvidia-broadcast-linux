@@ -213,6 +213,25 @@ class AppAudioPolicyTests(unittest.TestCase):
             "Meeting transcription audio stopped; check audio devices"
         )
 
+    def test_meeting_status_reports_stale_speaker_route(self):
+        app = SimpleNamespace(
+            meeting_audio_capture_present=True,
+            recording_has_audio=True,
+            meeting_audio_route_warning=(
+                "saved speaker unavailable; WAV captures microphone only"
+            ),
+        )
+        window = SimpleNamespace(_app=app)
+        self.assertEqual(
+            NVBroadcastWindow._meeting_recording_status(window, "meeting.mp4"),
+            "Meeting audio: saved speaker unavailable; WAV captures microphone only",
+        )
+        app.recording_has_audio = False
+        self.assertIn(
+            "saved speaker unavailable",
+            NVBroadcastWindow._meeting_recording_status(window, "meeting.mp4"),
+        )
+
     def test_meeting_capture_start_failure_releases_failed_pipeline(self):
         import tempfile
         from pathlib import Path

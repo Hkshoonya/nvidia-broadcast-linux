@@ -1648,7 +1648,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if not self._app.meeting_audio_capture_present:
             return "Meeting started without transcription audio; check audio devices"
         if not self._app.recording_has_audio:
-            return "Meeting MP4 is video only; verify the separate audio capture"
+            status = "Meeting MP4 is video only; verify the separate audio capture"
+            if self._app.meeting_audio_route_warning:
+                status += f"; {self._app.meeting_audio_route_warning}"
+            return status
+        if self._app.meeting_audio_route_warning:
+            return f"Meeting audio: {self._app.meeting_audio_route_warning}"
         return f"Meeting MP4 recording: {filepath}; transcription audio unverified"
 
     # --- Mic Selection ---

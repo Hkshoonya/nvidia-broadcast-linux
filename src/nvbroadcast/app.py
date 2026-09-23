@@ -2545,6 +2545,10 @@ class NVBroadcastApp(Adw.Application):
     def meeting_audio_capture_present(self) -> bool:
         return bool(self._meeting_capture and self._meeting_capture.running)
 
+    @property
+    def meeting_audio_route_warning(self) -> str:
+        return self._meeting_capture.route_warning if self._meeting_capture else ""
+
     def _on_meeting_capture_error(self, capture, error: str) -> None:
         if capture is not self._meeting_capture:
             return

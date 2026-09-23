@@ -27,6 +27,15 @@ class AudioDeviceResolverTests(unittest.TestCase):
                 devices.resolve_pulse_source_name("alsa_input.usb-demo"),
                 "alsa_input.usb-demo",
             )
+            self.assertEqual(devices.resolve_pulse_source_name("123"), "")
+
+    def test_stale_numeric_pulse_sink_omits_monitor_branch(self):
+        with mock.patch.object(devices, "_pactl_short", return_value=[
+            ("7", "alsa_output.usb-demo"),
+        ]):
+            self.assertEqual(
+                devices.resolve_pulse_sink_name("123"), ""
+            )
 
     def test_resolve_speaker_monitor_name_maps_numeric_sink_without_pipewire(self):
         with mock.patch.object(devices, "_pw_nodes", return_value=[]), \

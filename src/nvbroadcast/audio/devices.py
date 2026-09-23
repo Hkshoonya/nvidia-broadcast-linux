@@ -180,21 +180,22 @@ def resolve_pipewire_target(device: str) -> str:
 
 
 def resolve_pulse_source_name(device: str) -> str:
-    """Map a saved numeric source selection to its PulseAudio source name."""
+    """Map a saved Pulse source ID, using the probed default if it is stale."""
     if device.isdigit():
         for source_id, source_name in _pactl_short("sources"):
             if source_id == device:
                 return source_name
+        return ""
     return device
 
 
 def resolve_pulse_sink_name(device: str) -> str:
-    """Map a saved numeric sink selection to its PulseAudio sink name."""
+    """Map a saved Pulse sink ID, omitting a stale selection."""
     if device.isdigit():
         for sink_id, sink_name in _pactl_short("sinks"):
             if sink_id == device:
                 return sink_name
-        return default_speaker_device()
+        return ""
     return device
 
 
