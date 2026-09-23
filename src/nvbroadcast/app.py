@@ -2540,7 +2540,16 @@ class NVBroadcastApp(Adw.Application):
 
     @property
     def meeting_audio_capture_present(self) -> bool:
-        return self._meeting_capture is not None
+        return bool(self._meeting_capture and self._meeting_capture.running)
+
+    def _on_meeting_capture_error(self, capture, error: str) -> None:
+        if capture is not self._meeting_capture:
+            return
+        print(f"[NV Broadcast] Meeting transcription audio stopped: {error}")
+        if self._meeting_active and self._window:
+            self._window.set_status(
+                "Meeting transcription audio stopped; check audio devices"
+            )
 
     # --- Meeting (Recording + AI Transcription) ---
 
@@ -2589,6 +2598,10 @@ class NVBroadcastApp(Adw.Application):
 
         self._meeting_capture = MeetingAudioCapture()
         self._meeting_capture.set_sample_callback(self._transcriber.feed_audio)
+        capture = self._meeting_capture
+        capture.set_error_callback(
+            lambda error: self._on_meeting_capture_error(capture, error)
+        )
         speaker_device = self.config.audio.speaker_device
         if self._window and getattr(self._window, "_speaker_selector", None):
             selected_speaker = self._window._speaker_selector.get_selected_device()
@@ -2603,7 +2616,12 @@ class NVBroadcastApp(Adw.Application):
             self._meeting_capture.start()
         except Exception as exc:
             print(f"[NV Broadcast] Meeting audio capture unavailable: {exc}")
-            self._meeting_capture = None
+            try:
+                self._meeting_capture.stop()
+            except Exception as cleanup_exc:
+                print(f"[NV Broadcast] Meeting audio cleanup failed: {cleanup_exc}")
+            finally:
+                self._meeting_capture = None
 
         if not self._transcriber.start():
             if self._meeting_capture:

@@ -201,6 +201,45 @@ class AppAudioPolicyTests(unittest.TestCase):
         ))
         window.on_recording_finalized.assert_not_called()
 
+    def test_meeting_capture_error_warns_without_claiming_audio(self):
+        capture = SimpleNamespace(running=False)
+        window = SimpleNamespace(set_status=mock.Mock())
+        app = SimpleNamespace(
+            _meeting_capture=capture, _meeting_active=True, _window=window,
+        )
+        self.assertFalse(NVBroadcastApp.meeting_audio_capture_present.fget(app))
+        NVBroadcastApp._on_meeting_capture_error(app, capture, "can't connect")
+        window.set_status.assert_called_once_with(
+            "Meeting transcription audio stopped; check audio devices"
+        )
+
+    def test_meeting_capture_start_failure_releases_failed_pipeline(self):
+        import tempfile
+        from pathlib import Path
+
+        capture = mock.Mock()
+        capture.start.side_effect = RuntimeError("source could not start")
+        pipeline = mock.Mock(is_recording=False, recording_finalizing=False)
+        transcriber = mock.Mock()
+        transcriber.start.return_value = True
+        app = SimpleNamespace(
+            _video_pipeline=pipeline, _meeting_finalizing=False,
+            _meeting_active=False, _window=None, _transcriber=transcriber,
+            config=SimpleNamespace(audio=SimpleNamespace(
+                mic_device="", speaker_device=""
+            )),
+        )
+        with tempfile.TemporaryDirectory() as directory, mock.patch(
+            "nvbroadcast.app.create_session",
+            return_value=("session", Path(directory)),
+        ), mock.patch(
+            "nvbroadcast.app.MeetingAudioCapture", return_value=capture,
+        ):
+            self.assertTrue(NVBroadcastApp.start_meeting(app))
+
+        capture.stop.assert_called_once_with()
+        self.assertIsNone(app._meeting_capture)
+
     def test_missing_h264_encoder_is_reported_to_recording_ui(self):
         import tempfile
         from pathlib import Path

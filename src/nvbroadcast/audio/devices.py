@@ -179,6 +179,15 @@ def resolve_pipewire_target(device: str) -> str:
     return device
 
 
+def resolve_pulse_source_name(device: str) -> str:
+    """Map a saved numeric source selection to its PulseAudio source name."""
+    if device.isdigit():
+        for source_id, source_name in _pactl_short("sources"):
+            if source_id == device:
+                return source_name
+    return device
+
+
 def resolve_speaker_sink(device: str) -> str:
     """Resolve a speaker selection to a concrete sink target."""
     resolved = device or default_speaker_device()

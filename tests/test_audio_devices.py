@@ -16,6 +16,18 @@ class AudioDeviceResolverTests(unittest.TestCase):
         with mock.patch.object(devices, "_pw_nodes", return_value=fake_nodes):
             self.assertEqual(devices.resolve_pipewire_target("33"), "alsa_input.demo")
 
+    def test_resolve_pulse_source_name_maps_saved_numeric_id(self):
+        with mock.patch.object(devices, "_pactl_short", return_value=[
+            ("59", "alsa_input.usb-demo"),
+        ]):
+            self.assertEqual(
+                devices.resolve_pulse_source_name("59"), "alsa_input.usb-demo"
+            )
+            self.assertEqual(
+                devices.resolve_pulse_source_name("alsa_input.usb-demo"),
+                "alsa_input.usb-demo",
+            )
+
     def test_resolve_speaker_monitor_returns_monitor_source_id(self):
         fake_sources = "228\talsa_output.demo.monitor\tPipeWire\ts16le 2ch 48000Hz\tRUNNING\n"
         with mock.patch.object(devices, "resolve_pipewire_target", return_value="alsa_output.demo"):

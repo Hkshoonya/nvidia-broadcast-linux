@@ -15,7 +15,6 @@ import threading
 import time
 import subprocess
 import os
-import sys
 
 import gi
 
@@ -30,6 +29,7 @@ from nvbroadcast.core.constants import (
     DEFAULT_FPS,
     VIRTUAL_CAM_DEVICE,
 )
+from nvbroadcast.audio.source_probe import probe_audio_source
 
 
 # Formats cudaconvert handles reliably for the up/convert/download segment.
@@ -1165,53 +1165,8 @@ class VideoPipeline:
 
     @staticmethod
     def _recording_audio_source() -> tuple[str | None, str]:
-        """Find a source that can actually capture, not just one installed.
-
-        Flatpak grants the PulseAudio socket but not the PipeWire socket. A
-        one-buffer probe catches that runtime difference before the MP4 starts.
-        Run it in a child because some failing sources hang during teardown.
-        """
-        probe_code = (
-            "import gi, sys\n"
-            "gi.require_version('Gst', '1.0')\n"
-            "from gi.repository import Gst\n"
-            "Gst.init(None)\n"
-            "pipe = Gst.parse_launch(sys.argv[1] + "
-            "' num-buffers=1 ! audio/x-raw ! fakesink sync=false')\n"
-            "if pipe.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:\n"
-            "    sys.exit('audio source could not start')\n"
-            "msg = pipe.get_bus().timed_pop_filtered(\n"
-            "    Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)\n"
-            "if msg is None:\n"
-            "    sys.exit('audio source did not produce a buffer')\n"
-            "if msg.type == Gst.MessageType.ERROR:\n"
-            "    sys.exit(msg.parse_error()[0].message)\n"
-            "pipe.set_state(Gst.State.NULL)\n"
-        )
-        failures = []
-        for source in ("pulsesrc", "pipewiresrc"):
-            if Gst.ElementFactory.find(source) is None:
-                failures.append(f"{source} is not installed")
-                continue
-            if source == "pipewiresrc":
-                runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-                remote = os.environ.get("PIPEWIRE_REMOTE", "pipewire-0")
-                if not os.path.exists(os.path.join(runtime_dir, remote)):
-                    failures.append("PipeWire socket is unavailable")
-                    continue
-            try:
-                result = subprocess.run(
-                    [sys.executable, "-c", probe_code, source],
-                    capture_output=True, text=True, timeout=2, check=False,
-                )
-                if result.returncode == 0:
-                    return source, ""
-                failures.append(f"{source}: {result.stderr.strip() or 'capture failed'}")
-            except subprocess.TimeoutExpired:
-                failures.append(f"{source} capture probe timed out")
-            except OSError as exc:
-                failures.append(f"{source} capture probe failed: {exc}")
-        return None, "; ".join(failures)
+        """Use the same live source check as Meeting's separate WAV capture."""
+        return probe_audio_source()
 
     def set_recording_error_callback(self, callback):
         self._recording_error_callback = callback

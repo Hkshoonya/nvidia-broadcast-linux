@@ -816,12 +816,12 @@ class VideoPipelineRecordingTests(unittest.TestCase):
         failed_pulse = SimpleNamespace(returncode=1, stderr="connection refused")
         working_pipewire = SimpleNamespace(returncode=0, stderr="")
         with mock.patch(
-            "nvbroadcast.video.pipeline.Gst.ElementFactory.find",
+            "nvbroadcast.audio.source_probe.Gst.ElementFactory.find",
             return_value=object(),
         ), mock.patch(
-            "nvbroadcast.video.pipeline.os.path.exists", return_value=True
+            "nvbroadcast.audio.source_probe.os.path.exists", return_value=True
         ), mock.patch(
-            "nvbroadcast.video.pipeline.subprocess.run",
+            "nvbroadcast.audio.source_probe.subprocess.run",
             side_effect=[failed_pulse, working_pipewire],
         ) as run:
             source, error = pipeline._recording_audio_source()
