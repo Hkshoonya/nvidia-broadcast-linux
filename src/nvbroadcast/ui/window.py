@@ -1315,7 +1315,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             missing = self._app.dependency_installer.missing_for_mode(mode_key)
             if unsupported:
                 if mode_key in ("zeus", "killer") and not has_trt and not supports_tensorrt_python():
-                    label += " (requires Python 3.8-3.13)"
+                    label += " (requires Python 3.11-3.14)"
                 else:
                     label += " (not available on this system)"
                 devices.append({"name": label, "device": mode_key})

@@ -94,7 +94,9 @@ meeting-support = [
     "tqdm",
 ]
 maxine = ["nvidia-vfx"]
-tensorrt = ["tensorrt", "tensorrt-cu12", "onnx"]
+# ONNX Runtime 1.24.4 loads TensorRT ABI 10 directly; Python bindings are not
+# needed, and the unpinned tensorrt-cu12 package now selects incompatible ABI 11.
+tensorrt = ["tensorrt-cu12-libs==10.16.0.72"]
 
 [project.scripts]
 nvbroadcast = "nvbroadcast.__main__:main"
