@@ -16,6 +16,8 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --socket=pulseaudio
+  # The recorder currently saves to ~/Videos; expose only that destination.
+  - --filesystem=~/Videos:create
   # Direct V4L2 camera capture and v4l2loopback output are not portal APIs.
   - --device=all
   - --talk-name=org.kde.StatusNotifierWatcher

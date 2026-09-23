@@ -28,9 +28,12 @@ The manifest grants network access for release checks, checksum-verified
 app-owned model downloads, and faster-whisper model retrieval, plus Wayland
 with X11 fallback, PulseAudio compatibility, and access to the StatusNotifier
 watcher. The faster-whisper model path is not hash-pinned by this packaging work
-and remains a public-distribution security gate. The manifest does not grant
-host filesystem access, a session-bus wildcard, the system bus, or permission
-to run host commands.
+and remains a public-distribution security gate. Recording currently writes to
+`~/Videos`, so the manifest grants only `--filesystem=~/Videos:create` to keep
+those files visible after the app exits. A custom XDG Videos directory is not
+used by the current recorder and needs a separate path-selection change. The
+manifest does not grant the rest of the host home, a session-bus wildcard, the
+system bus, or permission to run host commands.
 
 `--device=all` is currently required because the app reads physical
 `/dev/video*` devices and writes to a host-created v4l2loopback device. Flatpak

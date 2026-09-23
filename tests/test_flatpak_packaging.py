@@ -34,6 +34,7 @@ class FlatpakPackagingTests(unittest.TestCase):
             "--socket=wayland",
             "--socket=fallback-x11",
             "--socket=pulseaudio",
+            "--filesystem=~/Videos:create",
             "--device=all",
             "--talk-name=org.kde.StatusNotifierWatcher",
         ):
