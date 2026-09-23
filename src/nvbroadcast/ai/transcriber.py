@@ -49,7 +49,17 @@ def _model_load_timeout_s(model_name: str, backend_preference: str) -> int:
     return min(_MODEL_LOAD_MAX_SECONDS, _MODEL_LOAD_BASE_SECONDS + transfer_seconds)
 
 
-def _terminate_executor(executor: ProcessPoolExecutor) -> None:
+def _wait_for_worker_exit(worker, timeout_s: float) -> bool:
+    """Poll until a child is reaped; one join can return early on Python 3.11."""
+    deadline = time.monotonic() + timeout_s
+    while worker.is_alive() and time.monotonic() < deadline:
+        worker.join(timeout=min(0.1, max(0.0, deadline - time.monotonic())))
+        if worker.is_alive():
+            time.sleep(0.01)
+    return not worker.is_alive()
+
+
+def _terminate_executor(executor: ProcessPoolExecutor) -> bool:
     """Stop a timed-out worker; shutdown(wait=False) alone leaves it running."""
     workers = tuple((getattr(executor, "_processes", None) or {}).values())
     terminate_workers = getattr(executor, "terminate_workers", None)
@@ -61,11 +71,12 @@ def _terminate_executor(executor: ProcessPoolExecutor) -> None:
             if worker.is_alive():
                 worker.terminate()
         executor.shutdown(wait=False, cancel_futures=True)
+    stopped = True
     for worker in workers:
-        worker.join(timeout=2)
-        if worker.is_alive():
+        if not _wait_for_worker_exit(worker, 2):
             worker.kill()
-            worker.join(timeout=2)
+            stopped = _wait_for_worker_exit(worker, 2) and stopped
+    return stopped
 
 
 def _await_worker_result(executor, future, timeout_s: int | float, purpose: str):
@@ -74,9 +85,10 @@ def _await_worker_result(executor, future, timeout_s: int | float, purpose: str)
     except FutureTimeoutError as exc:
         if future.done():
             raise
-        _terminate_executor(executor)
+        stopped = _terminate_executor(executor)
+        status = "worker was terminated" if stopped else "worker termination was requested"
         raise WorkerDeadlineExceeded(
-            f"{purpose} exceeded {timeout_s} seconds; transcription worker was terminated"
+            f"{purpose} exceeded {timeout_s} seconds; transcription {status}"
         ) from exc
 
 
