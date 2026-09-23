@@ -97,12 +97,27 @@ class ResponsiveWindowTests(unittest.TestCase):
             self.skipTest("compact layout requires libadwaita 1.4 breakpoints")
         self.window.set_default_size(width, height)
         self.window.present()
-        self._settle()
+        deadline = time.monotonic() + 1.5
+        while time.monotonic() < deadline:
+            self._settle(0.025)
+            if (
+                width - 16 <= self.window.get_width() <= width
+                and height - 16 <= self.window.get_height() <= height
+            ):
+                # Let breakpoint signals and the following allocation settle
+                # before asserting sizes after a multi-step resize.
+                self._settle(0.2)
+                return
+        self.fail(
+            f"window did not reach {width}x{height}: "
+            f"got {self.window.get_width()}x{self.window.get_height()}"
+        )
 
     def test_sections_wrap_and_fit_portrait_widths(self):
         for width, stacked in (
             (1280, False), (1080, None), (1024, None),
-            (800, True), (600, "switch"), (480, "switch"), (420, "switch"),
+            (900, False), (850, "switch"), (800, "switch"),
+            (600, "switch"), (480, "switch"), (420, "switch"),
         ):
             with self.subTest(width=width):
                 self._show(width)
@@ -275,14 +290,17 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.assertTrue(self.window._stream_btn.is_ancestor(self.actions))
         self.assertLessEqual(self.window._preview.get_height(), 220)
 
-        self._show(760, 720)
+        self._show(880, 720)
         self.assertTrue(self.window._stream_btn.is_ancestor(self.actions))
-        self._show(780, 720)
+        self._show(900, 720)
         self.assertFalse(self.window._stream_btn.is_ancestor(self.actions))
-        self._show(760, 720)
+        self._show(880, 720)
         self.assertTrue(self.window._stream_btn.is_ancestor(self.actions))
 
         self._show(800, 800)
+        self.assertTrue(self.window._stream_btn.is_ancestor(self.actions))
+        self.assertTrue(self.section_nav.get_visible())
+        self._show(900, 800)
         self.assertFalse(self.window._stream_btn.is_ancestor(self.actions))
         self.assertFalse(self.section_nav.get_visible())
         self.assertTrue(self.controls.get_child_at_index(1).get_visible())
@@ -378,7 +396,13 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.assertTrue(self.window._audio_section_btn.get_active())
         self.assertTrue(audio.get_visible())
         self.assertFalse(self.controls.get_child_at_index(0).get_visible())
-        self.assertTrue(self.window.get_focus().is_ancestor(audio))
+        focus = self.window.get_focus()
+        self.assertTrue(
+            focus is self.window._audio_section_btn or focus.is_ancestor(audio)
+        )
+        if focus is self.window._audio_section_btn:
+            self.assertTrue(self.window.child_focus(Gtk.DirectionType.TAB_FORWARD))
+            self.assertTrue(self.window.get_focus().is_ancestor(audio))
 
         self._show(540, 800)
         self.assertTrue(self.window._audio_section_btn.get_active())
@@ -393,7 +417,7 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.addCleanup(settings.set_property, "gtk-xft-dpi", previous_dpi)
         self.window._record_btn.set_label("Stop Rec")
 
-        for scale in (1.5, 2.0):
+        for scale in (1.0, 1.5, 2.0):
             with self.subTest(scale=scale):
                 settings.set_property("gtk-xft-dpi", int(96 * 1024 * scale))
                 self._show(420, 540)
@@ -406,9 +430,23 @@ class ResponsiveWindowTests(unittest.TestCase):
                     ).minimum,
                     self.window.get_width(),
                 )
+                self.window._audio_section_btn.set_active(True)
+                self._settle()
+                self.assertLessEqual(
+                    self.window.get_content().measure(
+                        Gtk.Orientation.HORIZONTAL, -1
+                    ).minimum,
+                    self.window.get_width(),
+                )
+                self.window._camera_section_btn.set_active(True)
 
                 self._show(1280, 900)
-                self.assertEqual(self.window._meeting_btn.get_label(), "End Meeting")
+                self.assertEqual(
+                    self.window._meeting_btn.get_label(),
+                    "End" if self.window._compact_controls else "End Meeting",
+                )
+                if scale == 1.0:
+                    self.assertFalse(self.window._compact_controls)
                 self._show(420, 540)
                 self.assertEqual(self.window._meeting_btn.get_label(), "End")
 
@@ -426,7 +464,10 @@ class ResponsiveWindowTests(unittest.TestCase):
                     self.window.get_width(),
                 )
                 self._show(1280, 900)
-                self.assertEqual(self.window._meeting_btn.get_label(), "Finalizing...")
+                self.assertEqual(
+                    self.window._meeting_btn.get_label(),
+                    "Saving…" if self.window._compact_controls else "Finalizing...",
+                )
                 self._show(420, 540)
                 self.assertEqual(self.window._meeting_btn.get_label(), "Saving…")
 

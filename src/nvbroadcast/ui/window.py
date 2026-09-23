@@ -123,6 +123,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._compact_controls = False
         self._switching_section = False
         self._meeting_button_state = "idle"
+        self._layout_reconcile_pending = False
         self._build_ui()
         self._populate_devices()
 
@@ -390,6 +391,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         controls.set_margin_end(16)
         controls.set_margin_top(12)
         controls.set_margin_bottom(8)
+        self._controls_flow = controls
 
         cam = self._build_camera_section()
         cam.set_hexpand(True)
@@ -399,6 +401,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         controls.append(aud)
         self._camera_flow_child = controls.get_child_at_index(0)
         self._audio_flow_child = controls.get_child_at_index(1)
+        self._camera_flow_child.set_focusable(False)
+        self._audio_flow_child.set_focusable(False)
 
         scroll.set_child(controls)
         self._controls_scroll = scroll
@@ -435,17 +439,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # windows reserve space for controls; wide landscape keeps the large
         # desktop preview and the user can still drag the divider in any mode.
         layout_regions = (
-            ("max-width: 760px and min-height: 701px", True, 300),
+            ("max-width: 880sp and min-height: 701px", True, 300),
             (
-                "min-width: 761px and min-height: 701px "
+                "min-width: 881sp and min-height: 701px "
                 "and max-aspect-ratio: 6/5", False, 300,
             ),
-            ("max-height: 700px and min-width: 761px", False, 220),
+            ("max-height: 700px and min-width: 881sp", False, 220),
             (
                 "min-height: 601px and max-height: 700px "
-                "and max-width: 760px", True, 220,
+                "and max-width: 880sp", True, 220,
             ),
-            ("max-height: 600px and max-width: 760px", True, 160),
+            ("max-height: 600px and max-width: 880sp", True, 160),
         )
         breakpoints = []
         if self._responsive_breakpoints:
@@ -538,7 +542,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Reconcile from libadwaita's current breakpoint. The callbacks do
         # not infer state from apply/unapply order, so a late unapply cannot
         # restore an obsolete header or divider state during resizing.
-        def reconcile_layout(*_args):
+        def apply_layout():
             current = self.get_current_breakpoint()
             compact, preview_position = next(
                 (
@@ -560,6 +564,22 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             else:
                 self._preview.remove_css_class("compact-tiny")
             paned.set_position(preview_position)
+
+        def reconcile_layout(*_args):
+            apply_layout()
+            if self._layout_reconcile_pending:
+                return
+            # Apply/unapply may run before the selected breakpoint changes.
+            # Re-read it after the signal batch so the final resize cannot
+            # retain the previous divider position.
+            self._layout_reconcile_pending = True
+
+            def after_signal_batch():
+                self._layout_reconcile_pending = False
+                apply_layout()
+                return GLib.SOURCE_REMOVE
+
+            GLib.idle_add(after_signal_batch)
 
         if self._responsive_breakpoints:
             self.connect("notify::current-breakpoint", reconcile_layout)
@@ -622,6 +642,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             ):
                 self._active_section = "camera"
         self._compact_controls = compact
+        self._controls_flow.set_margin_start(4 if compact else 16)
+        self._controls_flow.set_margin_end(4 if compact else 16)
         self._switching_section = True
         try:
             self._camera_section_btn.set_active(self._active_section == "camera")
@@ -635,26 +657,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._audio_flow_child.set_visible(
             not compact or self._active_section == "audio"
         )
-        if previous_focus is not None and previous_focus.get_mapped():
-            previous_focus.grab_focus()
         if entering_compact and previous_focus is not None:
-            # GTK may focus the newly activated section tab during the next
-            # allocation. Restore the control after that allocation, provided
-            # it still belongs to the visible section.
-            def restore_focus():
-                selected_child = (
-                    self._audio_flow_child if self._active_section == "audio"
-                    else self._camera_flow_child
+            selected_child = (
+                self._audio_flow_child if self._active_section == "audio"
+                else self._camera_flow_child
+            )
+            if previous_focus.is_ancestor(selected_child):
+                # The section tab remains visible through reallocation and
+                # gives keyboard users a direct next stop in their section.
+                selected_tab = (
+                    self._audio_section_btn if self._active_section == "audio"
+                    else self._camera_section_btn
                 )
-                if (
-                    self._compact_controls
-                    and previous_focus.get_mapped()
-                    and previous_focus.is_ancestor(selected_child)
-                ):
-                    previous_focus.grab_focus()
-                return GLib.SOURCE_REMOVE
-
-            GLib.idle_add(restore_focus)
+                selected_tab.grab_focus()
 
     def _on_section_selected(self, button, section):
         if self._switching_section or not button.get_active():
