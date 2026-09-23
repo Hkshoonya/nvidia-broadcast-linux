@@ -28,6 +28,12 @@ class DeviceSelector(Gtk.Box):
 
         self._dropdown = Gtk.DropDown()
         self._dropdown.set_hexpand(True)
+        # A closed selector is allowed to shrink to the row width. The popup
+        # still exposes the complete name, while the selected item and its
+        # tooltip carry the readable/ellipsized form. Without an explicit
+        # zero width request, newer GTK runtimes can use a long model item to
+        # widen the entire compact window past its tested minimum.
+        self._dropdown.set_size_request(0, -1)
         # The selected item must not give the whole window the width of a
         # verbose device or format name. Keep the full names in the popup and
         # tooltip, while allowing the closed selector to ellipsize.
