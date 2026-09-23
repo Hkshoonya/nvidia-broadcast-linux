@@ -1,5 +1,6 @@
 import hashlib
 import importlib.util
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -134,6 +135,7 @@ class NativePackageUpgradeTests(unittest.TestCase):
 
         self.assertEqual(content, self.output.read_text(encoding="ascii"))
         self.assertIn("readonly TARGET_VERSION='9.8.7'", content)
+        self.assertIn("readonly TARGET_RPM_RELEASE='1'", content)
         self.assertIn(hashlib.sha256(self.deb.read_bytes()).hexdigest(), content)
         self.assertIn(hashlib.sha256(self.rpm.read_bytes()).hexdigest(), content)
         self.assertNotRegex(content, r"@(TARGET_|DEB_SHA256|RPM_SHA256)")
@@ -145,6 +147,68 @@ class NativePackageUpgradeTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+    def test_renderer_binds_fedora_rpm_release_exactly(self):
+        fedora_rpm = self.rpm.with_name("nvbroadcast-9.8.7-1.fc43.noarch.rpm")
+        self.rpm.rename(fedora_rpm)
+        self.rpm = fedora_rpm
+
+        content = self.render()
+
+        self.assertIn("readonly TARGET_RPM_RELEASE='1.fc43'", content)
+        self.assertIn(hashlib.sha256(self.rpm.read_bytes()).hexdigest(), content)
+        self.assertIn('"$package_release" == "$TARGET_RPM_RELEASE"', content)
+        self.assertIn('"${TARGET_VERSION}-${TARGET_RPM_RELEASE}"', content)
+
+    def test_renderer_rejects_unsafe_rpm_dist_suffix(self):
+        unsafe_rpm = self.rpm.with_name("nvbroadcast-9.8.7-1.fc43;bad.noarch.rpm")
+        self.rpm.rename(unsafe_rpm)
+        self.rpm = unsafe_rpm
+
+        with self.assertRaisesRegex(RENDERER.RenderError, "unexpected release artifact"):
+            self.render()
+
+    def test_standalone_helper_selects_one_dist_suffixed_rpm(self):
+        project = self.root / "project"
+        project.mkdir()
+        shutil.copy2(REPO_ROOT / "build-packages.sh", project / "build-packages.sh")
+        (project / "pyproject.toml").write_text(
+            '[project]\nversion = "9.8.7"\n', encoding="ascii"
+        )
+        scripts = project / "scripts"
+        scripts.mkdir()
+        for name in ("render_native_upgrade_helper.py", "native_package_upgrade.sh.in"):
+            shutil.copy2(REPO_ROOT / "scripts" / name, scripts / name)
+        deb_dir = project / "dist" / "deb"
+        rpm_dir = project / "dist" / "rpm"
+        deb_dir.mkdir(parents=True)
+        rpm_dir.mkdir(parents=True)
+        (deb_dir / self.deb.name).write_bytes(self.deb.read_bytes())
+        (rpm_dir / "nvbroadcast-9.8.7-1.fc43.noarch.rpm").write_bytes(
+            self.rpm.read_bytes()
+        )
+
+        result = subprocess.run(
+            ["bash", "build-packages.sh", "upgrade-helper"],
+            cwd=project,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        helper = project / "dist" / "nvbroadcast-native-upgrade"
+        content = helper.read_text()
+        self.assertIn("readonly TARGET_RPM_RELEASE='1.fc43'", content)
+
+        (rpm_dir / "nvbroadcast-9.8.7-1.el9.noarch.rpm").write_bytes(b"other")
+        result = subprocess.run(
+            ["bash", "build-packages.sh", "upgrade-helper"],
+            cwd=project,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Expected one matching RPM artifact; found 2", result.stderr)
+        self.assertEqual(helper.read_text(), content)
 
     def test_renderer_rejects_symlink_artifact_without_replacing_output(self):
         target = self.root / "target.deb"

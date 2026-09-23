@@ -67,7 +67,10 @@ from nvbroadcast.core.meeting_store import (
 )
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
-from nvbroadcast.audio.meeting_capture import MeetingAudioCapture
+from nvbroadcast.audio.meeting_capture import (
+    MeetingAudioCapture,
+    has_recorded_meeting_audio,
+)
 from nvbroadcast.audio.virtual_mic import has_virtual_mic_backend
 from nvbroadcast.ui.window import NVBroadcastWindow
 from nvbroadcast import __version__
@@ -176,6 +179,7 @@ class NVBroadcastApp(Adw.Application):
         self._meeting_video_path = ""
         self._meeting_active = False
         self._meeting_finalizing = False
+        self._recording_start_error = ""
         self._transcriber_preload_started = False
         self._vcam_device = None
         self._vcam_available = False
@@ -1316,6 +1320,7 @@ class NVBroadcastApp(Adw.Application):
 
         self._video_pipeline.set_effect_callback(self._process_frame)
         self._video_pipeline.set_alpha_callback(self._update_alpha)
+        self._video_pipeline.set_recording_error_callback(self._on_recording_error)
         self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
         self._sync_gpu_frame_path(output_format)
         startup_trace.mark("gpu frame path ready")
@@ -2460,24 +2465,98 @@ class NVBroadcastApp(Adw.Application):
         """Start recording to ~/Videos/NVBroadcast_<timestamp>.mp4."""
         import time
         from pathlib import Path
+        self._recording_start_error = ""
+        if (self._video_pipeline and self._video_pipeline.recording_finalizing
+                and self._video_pipeline.recording_audio_error):
+            self._recording_start_error = (
+                "Recording cleanup is still running; restart the app if this persists"
+            )
+            return ""
+        if self._meeting_active or self._meeting_finalizing or (self._video_pipeline and (
+            self._video_pipeline.is_recording or self._video_pipeline.recording_finalizing
+        )):
+            self._recording_start_error = "Another recording is active"
+            print("[NV Broadcast] Stop the current recording before starting Rec", flush=True)
+            return ""
         videos_dir = Path.home() / "Videos"
         videos_dir.mkdir(exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filepath = str(videos_dir / f"NVBroadcast_{timestamp}.mp4")
         if self._idle_active:
             self._exit_idle("recording started")
-        if self._video_pipeline:
+        if not self._video_pipeline:
+            self._recording_start_error = "Camera pipeline unavailable"
+            return ""
+        try:
             self._video_pipeline.start_recording(filepath)
+            self._video_pipeline.set_recording_finalize_callback(
+                lambda success, error: self._on_recording_finalized(
+                    "rec", success, error
+                )
+            )
+        except Exception as exc:
+            self._recording_start_error = (
+                "H.264 encoder missing" if str(exc) ==
+                "No H.264 recording encoder is installed" else "Recording could not start"
+            )
+            print(f"[NV Broadcast] Recording could not start: {exc}", flush=True)
+            return ""
         self._last_recording_path = filepath
         return filepath
 
     def stop_recording(self):
+        if self._meeting_active:
+            print("[NV Broadcast] End the meeting before stopping its recording", flush=True)
+            return False
         if self._video_pipeline:
-            self._video_pipeline.stop_recording()
+            return self._video_pipeline.stop_recording()
+        return False
+
+    def _on_recording_error(self, message: str):
+        self._last_recording_path = ""
+        if self._meeting_active:
+            self._meeting_video_path = ""
+        if self._window:
+            self._window.on_recording_error(message)
+
+    def _on_recording_finalized(self, owner: str, success: bool, error: str):
+        if (owner == "rec" and self._window and not self._meeting_active
+                and not self._meeting_finalizing and not self.is_recording):
+            self._window.on_recording_finalized(success, error)
+        return False
 
     @property
     def is_recording(self) -> bool:
         return self._video_pipeline and self._video_pipeline.is_recording
+
+    @property
+    def recording_has_audio(self) -> bool:
+        return bool(self._video_pipeline and self._video_pipeline.recording_has_audio)
+
+    @property
+    def recording_finalizing(self) -> bool:
+        return bool(self._video_pipeline and self._video_pipeline.recording_finalizing)
+
+    @property
+    def recording_start_error(self) -> str:
+        return self._recording_start_error
+
+    @property
+    def meeting_audio_capture_present(self) -> bool:
+        return bool(self._meeting_capture and self._meeting_capture.running)
+
+    @property
+    def meeting_audio_route_warning(self) -> str:
+        return self._meeting_capture.route_warning if self._meeting_capture else ""
+
+    def _on_meeting_capture_error(self, capture, error: str) -> None:
+        if capture is not self._meeting_capture:
+            return
+        print(f"[NV Broadcast] Meeting transcription audio stopped: {error}")
+        if self._meeting_active and self._window:
+            self._window.set_status(
+                "Meeting transcription audio stopped; check audio devices"
+            )
 
     # --- Meeting (Recording + AI Transcription) ---
 
@@ -2485,17 +2564,51 @@ class NVBroadcastApp(Adw.Application):
         """Start meeting: records video+audio and transcribes speech."""
         from pathlib import Path
 
+        self._recording_start_error = ""
+        if (self._video_pipeline and self._video_pipeline.recording_finalizing
+                and self._video_pipeline.recording_audio_error):
+            self._recording_start_error = (
+                "Recording cleanup is still running; restart the app if this persists"
+            )
+            return ""
+        if self._meeting_finalizing or not self._video_pipeline or \
+                self._video_pipeline.is_recording or \
+                self._video_pipeline.recording_finalizing:
+            self._recording_start_error = "Camera unavailable or another recording is active"
+            print("[NV Broadcast] Stop the current recording before starting Meeting",
+                  flush=True)
+            return ""
         self._meeting_session_id, self._meeting_session_dir = create_session()
         self._meeting_video_path = str(self._meeting_session_dir / "meeting.mp4")
         self._meeting_audio_path = str(self._meeting_session_dir / "meeting_audio.wav")
 
         filepath = self._meeting_video_path
-        if self._video_pipeline:
+        try:
             self._video_pipeline.start_recording(filepath)
+            self._video_pipeline.set_recording_finalize_callback(
+                lambda success, error: self._on_recording_finalized(
+                    "meeting", success, error
+                )
+            )
+        except Exception as exc:
+            self._recording_start_error = (
+                "H.264 encoder missing" if str(exc) ==
+                "No H.264 recording encoder is installed" else "Meeting video could not start"
+            )
+            print(f"[NV Broadcast] Meeting video could not start: {exc}", flush=True)
+            self._meeting_session_id = ""
+            self._meeting_session_dir = None
+            self._meeting_audio_path = ""
+            self._meeting_video_path = ""
+            return ""
         self._last_recording_path = filepath
 
         self._meeting_capture = MeetingAudioCapture()
         self._meeting_capture.set_sample_callback(self._transcriber.feed_audio)
+        capture = self._meeting_capture
+        capture.set_error_callback(
+            lambda error: self._on_meeting_capture_error(capture, error)
+        )
         speaker_device = self.config.audio.speaker_device
         if self._window and getattr(self._window, "_speaker_selector", None):
             selected_speaker = self._window._speaker_selector.get_selected_device()
@@ -2510,7 +2623,12 @@ class NVBroadcastApp(Adw.Application):
             self._meeting_capture.start()
         except Exception as exc:
             print(f"[NV Broadcast] Meeting audio capture unavailable: {exc}")
-            self._meeting_capture = None
+            try:
+                self._meeting_capture.stop()
+            except Exception as cleanup_exc:
+                print(f"[NV Broadcast] Meeting audio cleanup failed: {cleanup_exc}")
+            finally:
+                self._meeting_capture = None
 
         if not self._transcriber.start():
             if self._meeting_capture:
@@ -2540,11 +2658,15 @@ class NVBroadcastApp(Adw.Application):
             self._meeting_capture.stop()
             self._meeting_capture = None
         segments = self._transcriber.stop()
-        if self._meeting_audio_path and Path(self._meeting_audio_path).exists():
+        audio_path = (
+            self._meeting_audio_path
+            if has_recorded_meeting_audio(self._meeting_audio_path) else ""
+        )
+        if audio_path:
             try:
                 if self._window:
                     self._window.set_status("Finalizing high-accuracy meeting transcript...")
-                final_segments = self._transcriber.transcribe_file(self._meeting_audio_path)
+                final_segments = self._transcriber.transcribe_file(audio_path)
                 if final_segments:
                     segments = final_segments
                     self._transcriber.replace_segments(final_segments)
@@ -2576,7 +2698,7 @@ class NVBroadcastApp(Adw.Application):
                 notes_path=notes_path,
                 transcript_path=transcript_path,
                 transcript_srt_path=transcript_srt_path,
-                audio_path=self._meeting_audio_path,
+                audio_path=audio_path,
                 video_path=self._meeting_video_path,
             )
             save_session(session)
@@ -2610,6 +2732,8 @@ class NVBroadcastApp(Adw.Application):
             self._meeting_capture.stop()
             self._meeting_capture = None
         segments = self._transcriber.stop()
+        if not has_recorded_meeting_audio(meeting_audio_path):
+            meeting_audio_path = ""
 
         self._meeting_session_id = ""
         self._meeting_session_dir = None
@@ -2618,7 +2742,10 @@ class NVBroadcastApp(Adw.Application):
 
         def _worker():
             result_path = ""
-            status = "Meeting ended"
+            status = (
+                "Meeting ended" if meeting_audio_path
+                else "Meeting ended without a usable transcription WAV"
+            )
             session = None
             try:
                 result_path, session = self._finalize_meeting_outputs(
@@ -2628,7 +2755,10 @@ class NVBroadcastApp(Adw.Application):
                     meeting_video_path,
                     segments,
                 )
-                status = f"Meeting saved: {result_path}" if result_path else "Meeting ended"
+                if result_path:
+                    status = f"Meeting saved: {result_path}"
+                    if not meeting_audio_path:
+                        status += "; transcription WAV unavailable"
             except Exception as exc:
                 print(f"[NV Broadcast] Meeting finalization failed: {exc}")
                 status = "Meeting ended, but transcript finalization failed"
@@ -2660,7 +2790,9 @@ class NVBroadcastApp(Adw.Application):
         if meeting_session_dir is None:
             return "", None
 
-        if meeting_audio_path and Path(meeting_audio_path).exists():
+        if not has_recorded_meeting_audio(meeting_audio_path):
+            meeting_audio_path = ""
+        if meeting_audio_path:
             try:
                 final_segments = self._transcriber.transcribe_file(meeting_audio_path)
                 if final_segments:

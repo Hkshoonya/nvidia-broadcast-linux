@@ -107,6 +107,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "nvbroadcast.ui" = ["style.css"]
+"nvbroadcast.ai" = ["whisper-models.json"]
 
 [tool.setuptools.data-files]
 "share/doc/nvbroadcast" = [
