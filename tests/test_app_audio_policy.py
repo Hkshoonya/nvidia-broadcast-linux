@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from nvbroadcast.app import NVBroadcastApp
+from nvbroadcast.ui.window import NVBroadcastWindow
 
 
 class AppAudioPolicyTests(unittest.TestCase):
@@ -119,6 +120,104 @@ class AppAudioPolicyTests(unittest.TestCase):
 
         self.assertFalse(NVBroadcastApp._stop_headless_vcam_service(app))
         run.assert_called_once()
+
+    def test_meeting_cannot_replace_an_active_rec_file(self):
+        pipeline = mock.Mock(is_recording=True)
+        app = SimpleNamespace(_video_pipeline=pipeline, _meeting_finalizing=False)
+        with mock.patch("nvbroadcast.app.create_session") as create_session:
+            self.assertEqual(NVBroadcastApp.start_meeting(app), "")
+        create_session.assert_not_called()
+        pipeline.start_recording.assert_not_called()
+        pipeline.stop_recording.assert_not_called()
+
+    def test_rec_cannot_replace_an_active_meeting_file(self):
+        pipeline = mock.Mock(is_recording=True)
+        app = SimpleNamespace(_meeting_active=True, _meeting_finalizing=False,
+                              _video_pipeline=pipeline)
+        self.assertEqual(NVBroadcastApp.start_recording(app), "")
+        NVBroadcastApp.stop_recording(app)
+        pipeline.start_recording.assert_not_called()
+        pipeline.stop_recording.assert_not_called()
+
+    def test_record_button_cannot_stop_a_meeting(self):
+        app = SimpleNamespace(meeting_active=True, is_recording=True,
+                              stop_recording=mock.Mock())
+        window = SimpleNamespace(_app=app, set_status=mock.Mock())
+        NVBroadcastWindow._on_record_toggle(window, None)
+        app.stop_recording.assert_not_called()
+        window.set_status.assert_called_once_with("End the meeting before using Rec")
+
+    def test_meeting_button_requires_stopping_rec_first(self):
+        app = SimpleNamespace(meeting_finalizing=False, meeting_active=False,
+                              is_recording=True, recording_finalizing=False,
+                              start_meeting=mock.Mock())
+        window = SimpleNamespace(_app=app, set_status=mock.Mock())
+        NVBroadcastWindow._on_meeting_toggle(window, None)
+        app.start_meeting.assert_not_called()
+        window.set_status.assert_called_once_with(
+            "Stop or finish Rec before starting a meeting"
+        )
+
+    def test_recording_error_clears_failed_meeting_video_path(self):
+        window = SimpleNamespace(on_recording_error=mock.Mock())
+        app = SimpleNamespace(_meeting_active=True, _meeting_video_path="meeting.mp4",
+                              _last_recording_path="meeting.mp4", _window=window)
+        NVBroadcastApp._on_recording_error(app, "audio source disconnected")
+        self.assertEqual(app._meeting_video_path, "")
+        self.assertEqual(app._last_recording_path, "")
+        window.on_recording_error.assert_called_once_with("audio source disconnected")
+
+    def test_recording_error_resets_rec_button(self):
+        button = mock.Mock()
+        window = SimpleNamespace(
+            _app=SimpleNamespace(meeting_active=False), _record_btn=button,
+            set_status=mock.Mock(),
+        )
+        NVBroadcastWindow.on_recording_error(window, "audio source disconnected")
+        button.set_label.assert_called_once_with("Rec")
+        window.set_status.assert_called_once_with(
+            "Recording stopped after an audio/video error; "
+            "restart the app if Rec remains unavailable"
+        )
+
+    def test_rec_explains_cleanup_block_after_recording_error(self):
+        pipeline = SimpleNamespace(
+            is_recording=False, recording_finalizing=True,
+            recording_audio_error="Microphone disconnected",
+        )
+        app = SimpleNamespace(
+            _meeting_active=False, _meeting_finalizing=False,
+            _video_pipeline=pipeline,
+        )
+        self.assertEqual(NVBroadcastApp.start_recording(app), "")
+        self.assertIn("restart the app", app._recording_start_error)
+
+    def test_meeting_video_finalize_does_not_replace_transcription_status(self):
+        window = SimpleNamespace(on_recording_finalized=mock.Mock())
+        app = SimpleNamespace(_window=window, _meeting_active=False,
+                              _meeting_finalizing=True, is_recording=False)
+        self.assertFalse(NVBroadcastApp._on_recording_finalized(
+            app, "meeting", True, ""
+        ))
+        window.on_recording_finalized.assert_not_called()
+
+    def test_missing_h264_encoder_is_reported_to_recording_ui(self):
+        import tempfile
+        from pathlib import Path
+
+        pipeline = mock.Mock(is_recording=False, recording_finalizing=False)
+        pipeline.start_recording.side_effect = RuntimeError(
+            "No H.264 recording encoder is installed"
+        )
+        app = SimpleNamespace(
+            _meeting_active=False, _meeting_finalizing=False,
+            _video_pipeline=pipeline, _idle_active=False,
+        )
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            Path, "home", return_value=Path(directory)
+        ):
+            self.assertEqual(NVBroadcastApp.start_recording(app), "")
+        self.assertEqual(app._recording_start_error, "H.264 encoder missing")
 
 
 if __name__ == "__main__":

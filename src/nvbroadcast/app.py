@@ -176,6 +176,7 @@ class NVBroadcastApp(Adw.Application):
         self._meeting_video_path = ""
         self._meeting_active = False
         self._meeting_finalizing = False
+        self._recording_start_error = ""
         self._transcriber_preload_started = False
         self._vcam_device = None
         self._vcam_available = False
@@ -1316,6 +1317,7 @@ class NVBroadcastApp(Adw.Application):
 
         self._video_pipeline.set_effect_callback(self._process_frame)
         self._video_pipeline.set_alpha_callback(self._update_alpha)
+        self._video_pipeline.set_recording_error_callback(self._on_recording_error)
         self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
         self._sync_gpu_frame_path(output_format)
         startup_trace.mark("gpu frame path ready")
@@ -2460,24 +2462,85 @@ class NVBroadcastApp(Adw.Application):
         """Start recording to ~/Videos/NVBroadcast_<timestamp>.mp4."""
         import time
         from pathlib import Path
+        self._recording_start_error = ""
+        if (self._video_pipeline and self._video_pipeline.recording_finalizing
+                and self._video_pipeline.recording_audio_error):
+            self._recording_start_error = (
+                "Recording cleanup is still running; restart the app if this persists"
+            )
+            return ""
+        if self._meeting_active or self._meeting_finalizing or (self._video_pipeline and (
+            self._video_pipeline.is_recording or self._video_pipeline.recording_finalizing
+        )):
+            self._recording_start_error = "Another recording is active"
+            print("[NV Broadcast] Stop the current recording before starting Rec", flush=True)
+            return ""
         videos_dir = Path.home() / "Videos"
         videos_dir.mkdir(exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filepath = str(videos_dir / f"NVBroadcast_{timestamp}.mp4")
         if self._idle_active:
             self._exit_idle("recording started")
-        if self._video_pipeline:
+        if not self._video_pipeline:
+            self._recording_start_error = "Camera pipeline unavailable"
+            return ""
+        try:
             self._video_pipeline.start_recording(filepath)
+            self._video_pipeline.set_recording_finalize_callback(
+                lambda success, error: self._on_recording_finalized(
+                    "rec", success, error
+                )
+            )
+        except Exception as exc:
+            self._recording_start_error = (
+                "H.264 encoder missing" if str(exc) ==
+                "No H.264 recording encoder is installed" else "Recording could not start"
+            )
+            print(f"[NV Broadcast] Recording could not start: {exc}", flush=True)
+            return ""
         self._last_recording_path = filepath
         return filepath
 
     def stop_recording(self):
+        if self._meeting_active:
+            print("[NV Broadcast] End the meeting before stopping its recording", flush=True)
+            return False
         if self._video_pipeline:
-            self._video_pipeline.stop_recording()
+            return self._video_pipeline.stop_recording()
+        return False
+
+    def _on_recording_error(self, message: str):
+        self._last_recording_path = ""
+        if self._meeting_active:
+            self._meeting_video_path = ""
+        if self._window:
+            self._window.on_recording_error(message)
+
+    def _on_recording_finalized(self, owner: str, success: bool, error: str):
+        if (owner == "rec" and self._window and not self._meeting_active
+                and not self._meeting_finalizing and not self.is_recording):
+            self._window.on_recording_finalized(success, error)
+        return False
 
     @property
     def is_recording(self) -> bool:
         return self._video_pipeline and self._video_pipeline.is_recording
+
+    @property
+    def recording_has_audio(self) -> bool:
+        return bool(self._video_pipeline and self._video_pipeline.recording_has_audio)
+
+    @property
+    def recording_finalizing(self) -> bool:
+        return bool(self._video_pipeline and self._video_pipeline.recording_finalizing)
+
+    @property
+    def recording_start_error(self) -> str:
+        return self._recording_start_error
+
+    @property
+    def meeting_audio_capture_present(self) -> bool:
+        return self._meeting_capture is not None
 
     # --- Meeting (Recording + AI Transcription) ---
 
@@ -2485,13 +2548,43 @@ class NVBroadcastApp(Adw.Application):
         """Start meeting: records video+audio and transcribes speech."""
         from pathlib import Path
 
+        self._recording_start_error = ""
+        if (self._video_pipeline and self._video_pipeline.recording_finalizing
+                and self._video_pipeline.recording_audio_error):
+            self._recording_start_error = (
+                "Recording cleanup is still running; restart the app if this persists"
+            )
+            return ""
+        if self._meeting_finalizing or not self._video_pipeline or \
+                self._video_pipeline.is_recording or \
+                self._video_pipeline.recording_finalizing:
+            self._recording_start_error = "Camera unavailable or another recording is active"
+            print("[NV Broadcast] Stop the current recording before starting Meeting",
+                  flush=True)
+            return ""
         self._meeting_session_id, self._meeting_session_dir = create_session()
         self._meeting_video_path = str(self._meeting_session_dir / "meeting.mp4")
         self._meeting_audio_path = str(self._meeting_session_dir / "meeting_audio.wav")
 
         filepath = self._meeting_video_path
-        if self._video_pipeline:
+        try:
             self._video_pipeline.start_recording(filepath)
+            self._video_pipeline.set_recording_finalize_callback(
+                lambda success, error: self._on_recording_finalized(
+                    "meeting", success, error
+                )
+            )
+        except Exception as exc:
+            self._recording_start_error = (
+                "H.264 encoder missing" if str(exc) ==
+                "No H.264 recording encoder is installed" else "Meeting video could not start"
+            )
+            print(f"[NV Broadcast] Meeting video could not start: {exc}", flush=True)
+            self._meeting_session_id = ""
+            self._meeting_session_dir = None
+            self._meeting_audio_path = ""
+            self._meeting_video_path = ""
+            return ""
         self._last_recording_path = filepath
 
         self._meeting_capture = MeetingAudioCapture()
