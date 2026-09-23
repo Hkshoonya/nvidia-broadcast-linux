@@ -8,7 +8,7 @@
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GObject
+from gi.repository import Gtk, GObject, Pango
 
 
 class DeviceSelector(Gtk.Box):
@@ -28,6 +28,17 @@ class DeviceSelector(Gtk.Box):
 
         self._dropdown = Gtk.DropDown()
         self._dropdown.set_hexpand(True)
+        # The selected item must not give the whole window the width of a
+        # verbose device or format name. Keep the full names in the popup and
+        # tooltip, while allowing the closed selector to ellipsize.
+        selected_factory = Gtk.SignalListItemFactory()
+        selected_factory.connect("setup", self._setup_selected_item)
+        selected_factory.connect("bind", self._bind_selected_item)
+        self._dropdown.set_factory(selected_factory)
+        list_factory = Gtk.SignalListItemFactory()
+        list_factory.connect("setup", self._setup_list_item)
+        list_factory.connect("bind", self._bind_list_item)
+        self._dropdown.set_list_factory(list_factory)
         self.append(self._dropdown)
 
         self._devices: list[dict[str, str]] = []
@@ -44,6 +55,7 @@ class DeviceSelector(Gtk.Box):
             self._dropdown.handler_block(self._handler_id)
         string_list = Gtk.StringList.new(names)
         self._dropdown.set_model(string_list)
+        self._update_tooltip()
         if self._handler_id:
             self._dropdown.handler_unblock(self._handler_id)
         elif self._devices:
@@ -64,10 +76,43 @@ class DeviceSelector(Gtk.Box):
             if self._handler_id:
                 self._dropdown.handler_block(self._handler_id)
             self._dropdown.set_selected(index)
+            self._update_tooltip()
             if self._handler_id:
                 self._dropdown.handler_unblock(self._handler_id)
 
     def _on_selection_changed(self, dropdown, _pspec):
+        self._update_tooltip()
         device = self.get_selected_device()
         if device:
             self.emit("device-changed", device)
+
+    @staticmethod
+    def _setup_selected_item(_factory, item):
+        label = Gtk.Label(xalign=0)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        label.set_width_chars(10)
+        item.set_child(label)
+
+    @staticmethod
+    def _bind_selected_item(_factory, item):
+        item.get_child().set_text(item.get_item().get_string())
+
+    @staticmethod
+    def _setup_list_item(_factory, item):
+        label = Gtk.Label(xalign=0)
+        label.set_wrap(True)
+        label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        label.set_max_width_chars(32)
+        item.set_child(label)
+
+    @staticmethod
+    def _bind_list_item(_factory, item):
+        name = item.get_item().get_string()
+        item.get_child().set_text(name)
+        item.get_child().set_tooltip_text(name)
+
+    def _update_tooltip(self):
+        index = self._dropdown.get_selected()
+        self._dropdown.set_tooltip_text(
+            self._devices[index]["name"] if 0 <= index < len(self._devices) else None
+        )

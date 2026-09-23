@@ -40,6 +40,16 @@ _APP_SPONSORS = [
 ]
 
 
+def _supports_responsive_breakpoints(window):
+    """Older supported libadwaita releases predate the 1.4 breakpoint API."""
+    return all((
+        hasattr(Adw, "Breakpoint"),
+        hasattr(Adw, "BreakpointCondition"),
+        hasattr(window, "add_breakpoint"),
+        hasattr(window, "get_current_breakpoint"),
+    ))
+
+
 def _collapsible_card(
     title: str,
     content: Gtk.Widget,
@@ -94,6 +104,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title=APP_NAME)
         self.set_default_size(1280, 900)
+        # Libadwaita breakpoints remove the inferred minimum size. Keep a
+        # tested compact size that fits the controls and the folded sidebar.
+        self._responsive_breakpoints = _supports_responsive_breakpoints(self)
+        self.set_size_request(430 if self._responsive_breakpoints else 730, 420)
         self._app = app
         self._streaming = False
         self._installer = None
@@ -105,6 +119,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._card_revealers: dict[str, Gtk.Revealer] = {}
         self._card_chevrons: dict[str, Gtk.Image] = {}
         self._card_defaults: dict[str, bool] = {}
+        self._active_section = "camera"
+        self._compact_controls = False
+        self._switching_section = False
+        self._meeting_button_state = "idle"
         self._build_ui()
         self._populate_devices()
 
@@ -245,21 +263,70 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._gpu_popover.set_child(self._gpu_label)
         gpu_btn.set_popover(self._gpu_popover)
         header.pack_start(gpu_btn)
+        # Keep the desktop header intact. On a narrow window the secondary
+        # icons move into one menu, leaving the profile and broadcast action
+        # at readable sizes instead of imposing the desktop header's width.
+        compact_menu = Gtk.MenuButton(
+            icon_name="open-menu-symbolic", tooltip_text="More options"
+        )
+        compact_menu.set_visible(False)
+        compact_popover = Gtk.Popover()
+        compact_items = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        compact_items.set_margin_top(10)
+        compact_items.set_margin_bottom(10)
+        compact_items.set_margin_start(10)
+        compact_items.set_margin_end(10)
+        self._compact_gpu_label = Gtk.Label(xalign=0)
+        self._compact_gpu_label.add_css_class("gpu-label")
+        self._compact_gpu_label.set_wrap(True)
+        self._compact_gpu_label.set_max_width_chars(32)
+        compact_items.append(self._compact_gpu_label)
+        compact_items.append(Gtk.Separator())
+        compact_about = Gtk.Button(label="About")
+        def show_compact_about(button):
+            compact_popover.popdown()
+            self._show_about(button)
+        compact_about.connect("clicked", show_compact_about)
+        compact_items.append(compact_about)
+        compact_quit = Gtk.Button(label="Quit")
+        compact_quit.connect("clicked", lambda _: self._app.quit())
+        compact_items.append(compact_quit)
+        compact_popover.set_child(compact_items)
+        compact_menu.set_popover(compact_popover)
+        self._compact_menu = compact_menu
+        self._compact_popover = compact_popover
+        header.pack_end(compact_menu)
+
         self._update_gpu_info()
         main_box.append(header)
 
-        # A separate row keeps secondary actions visible without making the
-        # header, and therefore the whole window, as wide as all its labels.
-        header_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        header_actions.set_halign(Gtk.Align.END)
+        # Keep secondary actions in the existing row on desktop. The primary
+        # broadcast button gets its own row on compact screens; update status
+        # gets a separate row only when present, so neither widens the window.
+        header_actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         header_actions.set_margin_start(16)
         header_actions.set_margin_end(16)
         header_actions.set_margin_top(4)
         header_actions.set_margin_bottom(4)
-        header_actions.append(self._record_btn)
-        header_actions.append(self._notes_sidebar_btn)
-        header_actions.append(self._meeting_btn)
-        header_actions.append(self._update_btn)
+        compact_stream_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        compact_stream_row.set_halign(Gtk.Align.END)
+        compact_stream_row.set_visible(False)
+        header_actions.append(compact_stream_row)
+        secondary_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        secondary_actions.set_halign(Gtk.Align.END)
+        secondary_actions.append(self._record_btn)
+        secondary_actions.append(self._notes_sidebar_btn)
+        secondary_actions.append(self._meeting_btn)
+        header_actions.append(secondary_actions)
+        update_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        update_row.set_halign(Gtk.Align.END)
+        update_row.set_visible(False)
+        update_row.append(self._update_btn)
+        self._update_btn.connect(
+            "notify::visible",
+            lambda button, _pspec: update_row.set_visible(button.get_visible()),
+        )
+        header_actions.append(update_row)
         main_box.append(header_actions)
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
@@ -278,7 +345,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         preview_frame.set_margin_top(8)
         self._preview = VideoPreview()
         self._preview.set_vexpand(True)
-        self._preview.set_size_request(-1, 200)  # Minimum height
+        self._preview.set_size_request(-1, 160)
         preview_frame.set_child(self._preview)
         self._preview_frame = preview_frame
         preview_box.append(preview_frame)
@@ -310,9 +377,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
 
-        # Keep both sections visible on portrait monitors and narrow windows.
-        # FlowBox requests only one column as its minimum width and wraps the
-        # second section below the first when two columns no longer fit.
+        # Desktop keeps both sections in columns. At compact widths, switch
+        # directly between Camera and Audio instead of scrolling past every
+        # Camera card to reach the first Audio control.
         controls = Gtk.FlowBox()
         controls.set_selection_mode(Gtk.SelectionMode.NONE)
         controls.set_min_children_per_line(1)
@@ -330,11 +397,62 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         aud = self._build_audio_section()
         aud.set_hexpand(True)
         controls.append(aud)
+        self._camera_flow_child = controls.get_child_at_index(0)
+        self._audio_flow_child = controls.get_child_at_index(1)
 
         scroll.set_child(controls)
-        paned.set_end_child(scroll)
+        self._controls_scroll = scroll
+        section_nav = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        section_nav.set_homogeneous(True)
+        section_nav.set_margin_start(16)
+        section_nav.set_margin_end(16)
+        section_nav.set_margin_top(6)
+        section_nav.set_margin_bottom(2)
+        self._camera_section_btn = Gtk.ToggleButton(label="Camera")
+        self._camera_section_btn.add_css_class("section-tab")
+        self._camera_section_btn.set_active(True)
+        self._camera_section_btn.connect(
+            "toggled", self._on_section_selected, "camera"
+        )
+        section_nav.append(self._camera_section_btn)
+        self._audio_section_btn = Gtk.ToggleButton(label="Audio")
+        self._audio_section_btn.add_css_class("section-tab")
+        self._audio_section_btn.set_group(self._camera_section_btn)
+        self._audio_section_btn.connect(
+            "toggled", self._on_section_selected, "audio"
+        )
+        section_nav.append(self._audio_section_btn)
+        section_nav.set_visible(False)
+        self._section_nav = section_nav
+        controls_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        controls_pane.append(section_nav)
+        controls_pane.append(scroll)
+        paned.set_end_child(controls_pane)
 
         paned.set_position(450)
+        # These regions are mutually exclusive, so a resize cannot leave an
+        # old header state or divider position active. Portrait and short
+        # windows reserve space for controls; wide landscape keeps the large
+        # desktop preview and the user can still drag the divider in any mode.
+        layout_regions = (
+            ("max-width: 760px and min-height: 701px", True, 300),
+            (
+                "min-width: 761px and min-height: 701px "
+                "and max-aspect-ratio: 6/5", False, 300,
+            ),
+            ("max-height: 700px and min-width: 761px", False, 220),
+            (
+                "min-height: 601px and max-height: 700px "
+                "and max-width: 760px", True, 220,
+            ),
+            ("max-height: 600px and max-width: 760px", True, 160),
+        )
+        breakpoints = []
+        if self._responsive_breakpoints:
+            for condition, compact, preview_position in layout_regions:
+                breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(condition))
+                self.add_breakpoint(breakpoint)
+                breakpoints.append((breakpoint, compact, preview_position))
         self._meeting_sidebar = self._build_meeting_sidebar()
         # Flap folds the notes over the content below their combined minimum
         # width and remains available on older libadwaita installations.
@@ -416,6 +534,135 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         GLib.timeout_add_seconds(1, _update_perf)
 
         self.set_content(main_box)
+
+        # Reconcile from libadwaita's current breakpoint. The callbacks do
+        # not infer state from apply/unapply order, so a late unapply cannot
+        # restore an obsolete header or divider state during resizing.
+        def reconcile_layout(*_args):
+            current = self.get_current_breakpoint()
+            compact, preview_position = next(
+                (
+                    (compact, preview_position)
+                    for breakpoint, compact, preview_position in breakpoints
+                    if breakpoint == current
+                ),
+                (False, 450),
+            )
+            self._set_compact_header(
+                compact, header, compact_stream_row, secondary_actions,
+                gpu_btn, about_btn, quit_btn, compact_menu,
+            )
+            self._set_compact_sections(compact)
+            tiny_preview = compact and preview_position == 160
+            self._preview.set_size_request(-1, 100 if tiny_preview else 160)
+            if tiny_preview:
+                self._preview.add_css_class("compact-tiny")
+            else:
+                self._preview.remove_css_class("compact-tiny")
+            paned.set_position(preview_position)
+
+        if self._responsive_breakpoints:
+            self.connect("notify::current-breakpoint", reconcile_layout)
+            self.connect("map", reconcile_layout)
+            for breakpoint, _compact, _position in breakpoints:
+                breakpoint.connect("apply", reconcile_layout)
+                breakpoint.connect("unapply", reconcile_layout)
+
+    def _set_compact_header(
+        self, compact, header, stream_row, secondary_actions,
+        gpu_btn, about_btn, quit_btn, menu_btn
+    ):
+        if compact and self._stream_btn.get_parent() is not stream_row:
+            header.remove(self._stream_btn)
+            stream_row.append(self._stream_btn)
+        elif not compact and self._stream_btn.get_parent() is stream_row:
+            stream_row.remove(self._stream_btn)
+            header.pack_end(self._stream_btn)
+        stream_row.set_visible(compact)
+        stream_row.set_halign(Gtk.Align.FILL if compact else Gtk.Align.END)
+        self._stream_btn.set_hexpand(compact)
+        secondary_actions.set_halign(Gtk.Align.FILL if compact else Gtk.Align.END)
+        self._notes_sidebar_btn.set_label("Notes" if compact else "Meeting Notes")
+        self._refresh_meeting_button_label(compact)
+        for button in (
+            self._record_btn, self._notes_sidebar_btn, self._meeting_btn
+        ):
+            button.set_hexpand(compact)
+        for button in (gpu_btn, about_btn, quit_btn):
+            button.set_visible(not compact)
+        menu_btn.set_visible(compact)
+
+    def _refresh_meeting_button_label(self, compact):
+        labels = {
+            "idle": ("Start Meeting", "Meeting", "Start meeting recording and transcription"),
+            "active": ("End Meeting", "End", "End meeting and save the transcript"),
+            "finalizing": ("Finalizing...", "Saving…", "Saving meeting transcript"),
+        }
+        full, short, description = labels[self._meeting_button_state]
+        self._meeting_btn.set_label(short if compact else full)
+        self._meeting_btn.set_tooltip_text(description)
+        self._meeting_btn.update_property(
+            [Gtk.AccessibleProperty.LABEL], [description]
+        )
+
+    def _set_meeting_button_state(self, state):
+        self._meeting_button_state = state
+        self._refresh_meeting_button_label(self._compact_controls)
+
+    def _set_compact_sections(self, compact):
+        previous_focus = self.get_focus()
+        entering_compact = compact and not self._compact_controls
+        if compact and not self._compact_controls:
+            if previous_focus is not None and previous_focus.is_ancestor(
+                self._audio_flow_child
+            ):
+                self._active_section = "audio"
+            elif previous_focus is not None and previous_focus.is_ancestor(
+                self._camera_flow_child
+            ):
+                self._active_section = "camera"
+        self._compact_controls = compact
+        self._switching_section = True
+        try:
+            self._camera_section_btn.set_active(self._active_section == "camera")
+            self._audio_section_btn.set_active(self._active_section == "audio")
+        finally:
+            self._switching_section = False
+        self._section_nav.set_visible(compact)
+        self._camera_flow_child.set_visible(
+            not compact or self._active_section == "camera"
+        )
+        self._audio_flow_child.set_visible(
+            not compact or self._active_section == "audio"
+        )
+        if previous_focus is not None and previous_focus.get_mapped():
+            previous_focus.grab_focus()
+        if entering_compact and previous_focus is not None:
+            # GTK may focus the newly activated section tab during the next
+            # allocation. Restore the control after that allocation, provided
+            # it still belongs to the visible section.
+            def restore_focus():
+                selected_child = (
+                    self._audio_flow_child if self._active_section == "audio"
+                    else self._camera_flow_child
+                )
+                if (
+                    self._compact_controls
+                    and previous_focus.get_mapped()
+                    and previous_focus.is_ancestor(selected_child)
+                ):
+                    previous_focus.grab_focus()
+                return GLib.SOURCE_REMOVE
+
+            GLib.idle_add(restore_focus)
+
+    def _on_section_selected(self, button, section):
+        if self._switching_section or not button.get_active():
+            return
+        self._active_section = section
+        if self._compact_controls:
+            self._set_compact_sections(True)
+            self._controls_scroll.get_vadjustment().set_value(0)
 
     def _build_camera_section(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -965,7 +1212,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Mic Test card
         test_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        test_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        test_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         test_row.set_margin_start(16)
         test_row.set_margin_end(16)
 
@@ -991,13 +1238,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._test_rec_btn = Gtk.Button(label="Record 30s")
         self._test_rec_btn.add_css_class("flat")
         self._test_rec_btn.connect("clicked", self._on_test_record)
-        test_row.append(self._test_rec_btn)
+        test_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        test_buttons.append(self._test_rec_btn)
 
         self._test_play_btn = Gtk.Button(label="Play Back")
         self._test_play_btn.add_css_class("flat")
         self._test_play_btn.set_sensitive(False)
         self._test_play_btn.connect("clicked", self._on_test_play)
-        test_row.append(self._test_play_btn)
+        test_buttons.append(self._test_play_btn)
+        test_row.append(test_buttons)
 
         self._test_status = Gtk.Label(label="Ready")
         self._test_status.add_css_class("device-label")
@@ -1628,20 +1877,20 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             return
 
         if self._app.meeting_active:
-            self._meeting_btn.set_label("Finalizing...")
+            self._set_meeting_button_state("finalizing")
             self._meeting_btn.set_sensitive(False)
             self.set_status("Finalizing high-accuracy meeting transcript...")
 
             def _on_finished(notes_path: str, status: str):
                 self._meeting_btn.set_sensitive(True)
-                self._meeting_btn.set_label("Start Meeting")
+                self._set_meeting_button_state("idle")
                 self._meeting_btn.add_css_class("idle")
                 self._meeting_btn.remove_css_class("recording-btn")
                 self.set_status(status)
 
             if not self._app.stop_meeting_async(_on_finished):
                 self._meeting_btn.set_sensitive(True)
-                self._meeting_btn.set_label("Start Meeting")
+                self._set_meeting_button_state("idle")
                 self._meeting_btn.add_css_class("idle")
                 self._meeting_btn.remove_css_class("recording-btn")
                 self.set_status("Meeting ended")
@@ -1668,7 +1917,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             if not filepath:
                 self.set_status(self._app.recording_start_error or "Meeting could not start")
                 return
-            self._meeting_btn.set_label("End Meeting")
+            self._set_meeting_button_state("active")
             self._meeting_btn.remove_css_class("idle")
             self._meeting_btn.add_css_class("recording-btn")
             self.set_status(self._meeting_recording_status(filepath))
@@ -2273,6 +2522,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._gpu_label.set_text("\n".join(lines))
         else:
             self._gpu_label.set_text("No NVIDIA GPUs detected")
+        self._compact_gpu_label.set_text(self._gpu_label.get_text())
 
     def restore_settings(self, config):
         """Restore saved settings to all UI controls."""
@@ -2669,7 +2919,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             if not filepath:
                 self.set_status(self._app.recording_start_error or "Meeting could not start")
                 return
-            self._meeting_btn.set_label("End Meeting")
+            self._set_meeting_button_state("active")
             self._meeting_btn.remove_css_class("idle")
             self._meeting_btn.add_css_class("recording-btn")
             self.set_status(self._meeting_recording_status(filepath))

@@ -65,7 +65,7 @@ class HotkeyRow(Adw.ActionRow):
     def __init__(self, title: str):
         super().__init__(title=title)
         self._binding_label = Gtk.Label(label="Not set")
-        self._binding_label.set_width_chars(14)
+        self._binding_label.set_width_chars(8)
         self._binding_label.set_max_width_chars(24)
         self._binding_label.set_xalign(1)
         self._binding_label.set_ellipsize(3)
@@ -96,6 +96,7 @@ class HotkeyRow(Adw.ActionRow):
 
     def set_binding(self, label: str) -> None:
         self._binding_label.set_text(label or "Not set")
+        self._binding_label.set_tooltip_text(label or "Not set")
         self._clear_button.set_visible(bool(label))
 
     def set_inline_editable(self, editable: bool) -> None:
@@ -184,34 +185,39 @@ class BackgroundImagePicker(Gtk.Box):
     }
 
     def __init__(self):
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.set_margin_start(16)
         self.set_margin_end(16)
 
+        choice_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         lbl = Gtk.Label(label="Image")
         lbl.set_xalign(0)
         lbl.set_size_request(80, -1)
-        self.append(lbl)
+        choice_row.append(lbl)
 
         self._bundled_paths = find_bundled_backgrounds()
         self._bundled_model = ["Bundled examples"] + [
             self._background_label(path) for path in self._bundled_paths
         ]
         self._bundled_dropdown = Gtk.DropDown.new_from_strings(self._bundled_model)
+        self._bundled_dropdown.set_hexpand(True)
         self._bundled_dropdown.set_selected(0)
         self._bundled_dropdown.connect("notify::selected", self._on_bundled_changed)
-        self.append(self._bundled_dropdown)
+        choice_row.append(self._bundled_dropdown)
+        self.append(choice_row)
 
+        file_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self._path_label = Gtk.Label(label="None selected")
         self._path_label.set_hexpand(True)
         self._path_label.set_xalign(0)
         self._path_label.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
         self._path_label.set_opacity(0.7)
-        self.append(self._path_label)
+        file_row.append(self._path_label)
 
         btn = Gtk.Button(label="Browse")
         btn.connect("clicked", self._on_browse)
-        self.append(btn)
+        file_row.append(btn)
+        self.append(file_row)
 
         self._selected_path = ""
         if self._bundled_paths:

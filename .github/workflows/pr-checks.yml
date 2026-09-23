@@ -56,6 +56,8 @@ jobs:
             python3-venv \
             python3-gi \
             python3-gi-cairo \
+            xvfb \
+            xauth \
             gir1.2-gtk-4.0 \
             gir1.2-adw-1 \
             gir1.2-gstreamer-1.0 \
@@ -86,6 +88,14 @@ jobs:
           .venv/bin/python -m pytest -q --ignore=tests/test_integration.py
           .venv/bin/python scripts/release_smoke.py
           git diff --exit-code
+
+      - name: Check responsive GTK layout under Xvfb
+        env:
+          NVBROADCAST_TEST_LAYOUT: "1"
+          PYTHONPATH: src
+        run: |
+          xvfb-run -a -s '-screen 0 1600x1200x24' \
+            .venv/bin/python -m pytest -q tests/test_responsive_window.py
 
   python:
     name: Python ${{ matrix.python-version }}
