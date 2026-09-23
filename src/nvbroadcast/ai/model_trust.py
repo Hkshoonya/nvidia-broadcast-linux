@@ -87,14 +87,13 @@ def verified_model_path(
     download_model: Callable[..., str],
 ) -> Path:
     """Verify a pinned Hub snapshot, or use an explicitly named local directory."""
-    # An absolute path or a ./../ path is an explicit local model selection.
-    # This preserves user-provided CTranslate2 directories without treating an
-    # unknown Hub ID as permission to download arbitrary remote weights.
-    if Path(model_name).is_absolute() or model_name.startswith(("./", "../")):
-        local_path = Path(model_name)
-        if not local_path.is_dir():
-            raise ModelTrustError(f"Local faster-whisper model directory not found: {model_name}")
+    # faster-whisper gives existing directories precedence over model aliases.
+    # Keep that behavior, including a relative directory named "tiny".
+    local_path = Path(model_name)
+    if local_path.is_dir():
         return local_path
+    if local_path.is_absolute() or model_name.startswith(("./", "../")):
+        raise ModelTrustError(f"Local faster-whisper model directory not found: {model_name}")
 
     repo_id, entry = _model_entry(model_name, installed_version)
     try:
@@ -129,3 +128,18 @@ def verified_model_path(
     except OSError as exc:
         raise ModelTrustError(f"Cannot verify faster-whisper snapshot for {repo_id}") from exc
     return snapshot
+
+
+def expected_model_bytes(model_name: str, installed_version: str) -> int | None:
+    """Estimate the cold model-load budget without downloading any model data."""
+    local_path = Path(model_name)
+    if local_path.is_dir():
+        try:
+            return (local_path / "model.bin").stat().st_size
+        except OSError:
+            return None
+    try:
+        _, entry = _model_entry(model_name, installed_version)
+    except ModelTrustError:
+        return None
+    return sum(file["size"] for file in entry["files"].values())

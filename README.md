@@ -443,8 +443,16 @@ repository IDs only. It downloads a pinned revision and checks the size and
 SHA-256 of each model file before loading it. An explicitly configured local
 CTranslate2 model directory, such as
 `NVBROADCAST_TRANSCRIBER_MODEL=/path/to/model`, remains available and is trusted
-as a user-supplied file. Set `NVBROADCAST_TRANSCRIBER_BACKEND=whisper` to select
-the separate OpenAI Whisper backend explicitly.
+as a user-supplied file. An existing relative directory also takes precedence
+over a model alias with the same name. Set
+`NVBROADCAST_TRANSCRIBER_BACKEND=whisper` to select the separate OpenAI Whisper
+backend explicitly. A cold model load allows time for a 1 MiB/s download plus
+five minutes for hashing and startup, with a one-hour cap; a timed-out worker
+is terminated.
+
+The Hugging Face cache is writable by the same user. A process with write
+access to that cache could replace a file between verification and the native
+model loader opening it. The hash check does not prevent that race.
 
 </details>
 

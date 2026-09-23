@@ -1,12 +1,18 @@
 """Model downloads may only be loaded from pinned, checked snapshots."""
 
 import hashlib
+import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import types
 import unittest
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import redirect_stdout
+from multiprocessing import get_context
 from unittest import mock
 
 from nvbroadcast.ai import model_trust, transcriber
@@ -110,6 +116,72 @@ class WhisperModelTrustTests(unittest.TestCase):
             self.snapshot,
         )
         download.assert_not_called()
+
+    def test_existing_relative_directory_takes_precedence_over_alias(self):
+        original_directory = Path.cwd()
+        os.chdir(self.root)
+        self.addCleanup(os.chdir, original_directory)
+        Path("tiny").mkdir()
+        Path("custom-model").mkdir()
+        download = mock.Mock()
+
+        self.assertEqual(
+            model_trust.verified_model_path("tiny", "1.2.1", download), Path("tiny")
+        )
+        self.assertEqual(
+            model_trust.verified_model_path("custom-model", "1.2.1", download),
+            Path("custom-model"),
+        )
+        download.assert_not_called()
+
+    def test_cold_large_model_budget_includes_download_and_hashing(self):
+        with mock.patch.object(transcriber, "expected_model_bytes", return_value=3_090_835_702):
+            timeout_s = transcriber._model_load_timeout_s("large", "faster-whisper")
+        self.assertGreaterEqual(timeout_s, 3000)
+        self.assertLessEqual(timeout_s, 3600)
+
+    def test_timeout_terminates_real_worker(self):
+        executor = ProcessPoolExecutor(max_workers=1, mp_context=get_context("spawn"))
+        future = executor.submit(time.sleep, 30)
+        workers = tuple(executor._processes.values())
+        try:
+            with self.assertRaisesRegex(
+                transcriber.WorkerDeadlineExceeded, "worker was terminated"
+            ):
+                transcriber._await_worker_result(executor, future, 0.1, "Test model")
+            self.assertTrue(workers)
+            self.assertTrue(all(not worker.is_alive() for worker in workers))
+        finally:
+            for worker in workers:
+                if worker.is_alive():
+                    worker.terminate()
+                worker.join(timeout=2)
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    def test_initialize_reports_trust_error_from_spawned_worker(self):
+        # A real spawn, with a tiny fake faster-whisper distribution, proves
+        # that initialize receives the trust error instead of BrokenProcessPool.
+        fake_package = self.root / "fake-package"
+        fake_package.mkdir()
+        (fake_package / "faster_whisper.py").write_text(
+            '__version__ = "1.2.1"\n'
+            'def download_model(*args, **kwargs):\n'
+            '    raise AssertionError("unexpected model download")\n'
+            'class WhisperModel:\n'
+            '    pass\n',
+            encoding="utf-8",
+        )
+        output = io.StringIO()
+        meeting = transcriber.MeetingTranscriber("unlisted-model")
+        meeting._backend_preference = "faster-whisper"
+        with mock.patch.object(sys, "path", [str(fake_package), *sys.path]), \
+             mock.patch.object(transcriber, "_has_supported_backend", return_value=True), \
+             redirect_stdout(output):
+            self.assertFalse(meeting.initialize())
+
+        self.assertIn("Unpinned faster-whisper model", output.getvalue())
+        self.assertNotIn("process pool was terminated abruptly", output.getvalue())
+        self.assertIsNone(meeting._executor)
 
     def test_auto_trust_failure_cannot_fall_back_to_openai(self):
         weight = self.snapshot / "model.bin"

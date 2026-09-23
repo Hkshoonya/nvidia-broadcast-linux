@@ -12,18 +12,72 @@ import time
 import threading
 import warnings
 import wave
-from concurrent.futures import ProcessPoolExecutor, wait
+from concurrent.futures import ProcessPoolExecutor, TimeoutError as FutureTimeoutError, wait
 from dataclasses import dataclass
 from multiprocessing import get_context
 
 import numpy as np
 
-from nvbroadcast.ai.model_trust import ModelTrustError, verified_model_path
+from nvbroadcast.ai.model_trust import (
+    ModelTrustError,
+    expected_model_bytes,
+    verified_model_path,
+)
 from nvbroadcast.core.platform import supports_openai_whisper_python
+from nvbroadcast.runtime.variants import FASTER_WHISPER_VERSION
 
 
 _WORKER_BACKEND = ""
 _WORKER_MODEL = None
+_MODEL_LOAD_BASE_SECONDS = 300
+_MODEL_LOAD_MAX_SECONDS = 3600
+_MODEL_LOAD_BYTES_PER_SECOND = 1024 * 1024
+
+
+class WorkerDeadlineExceeded(TimeoutError):
+    """A transcription worker exceeded its deadline and was terminated."""
+
+
+def _model_load_timeout_s(model_name: str, backend_preference: str) -> int:
+    """Allow a 1 MiB/s cold download plus five minutes, capped at one hour."""
+    if backend_preference == "whisper":
+        return _MODEL_LOAD_MAX_SECONDS
+    size = expected_model_bytes(model_name, FASTER_WHISPER_VERSION)
+    if size is None:
+        return _MODEL_LOAD_MAX_SECONDS
+    transfer_seconds = (size + _MODEL_LOAD_BYTES_PER_SECOND - 1) // _MODEL_LOAD_BYTES_PER_SECOND
+    return min(_MODEL_LOAD_MAX_SECONDS, _MODEL_LOAD_BASE_SECONDS + transfer_seconds)
+
+
+def _terminate_executor(executor: ProcessPoolExecutor) -> None:
+    """Stop a timed-out worker; shutdown(wait=False) alone leaves it running."""
+    workers = tuple((getattr(executor, "_processes", None) or {}).values())
+    terminate_workers = getattr(executor, "terminate_workers", None)
+    if callable(terminate_workers):
+        terminate_workers()
+    else:
+        # Python 3.11-3.13 do not expose terminate_workers().
+        for worker in workers:
+            if worker.is_alive():
+                worker.terminate()
+        executor.shutdown(wait=False, cancel_futures=True)
+    for worker in workers:
+        worker.join(timeout=2)
+        if worker.is_alive():
+            worker.kill()
+            worker.join(timeout=2)
+
+
+def _await_worker_result(executor, future, timeout_s: int | float, purpose: str):
+    try:
+        return future.result(timeout=timeout_s)
+    except FutureTimeoutError as exc:
+        if future.done():
+            raise
+        _terminate_executor(executor)
+        raise WorkerDeadlineExceeded(
+            f"{purpose} exceeded {timeout_s} seconds; transcription worker was terminated"
+        ) from exc
 
 
 def _module_spec_exists(name: str) -> bool:
@@ -114,7 +168,7 @@ def _init_transcriber_worker(model_size: str, device: str, backend_preference: s
                 str(model_path), device=device, compute_type=compute_type
             )
             _WORKER_BACKEND = "faster-whisper"
-            return
+            return _WORKER_BACKEND
         except ModelTrustError:
             raise
         except Exception:
@@ -132,10 +186,7 @@ def _init_transcriber_worker(model_size: str, device: str, backend_preference: s
 
     _WORKER_MODEL = whisper.load_model(model_size, device=device)
     _WORKER_BACKEND = "openai-whisper"
-
-
-def _worker_ping() -> str:
-    return _WORKER_BACKEND or "unknown"
+    return _WORKER_BACKEND
 
 
 def _decode_with_worker(
@@ -288,7 +339,7 @@ class MeetingTranscriber:
             return list(self._segments)
 
     def initialize(self) -> bool:
-        """Load Whisper model. Downloads on first use (~74MB for base)."""
+        """Load Whisper in a worker, downloading a pinned model on first use."""
         if self._initialized:
             return True
         try:
@@ -314,27 +365,37 @@ class MeetingTranscriber:
             self._executor = ProcessPoolExecutor(
                 max_workers=1,
                 mp_context=ctx,
-                initializer=_init_transcriber_worker,
-                initargs=(self._model_size, self._device, self._backend_preference),
             )
-            # Force worker startup now so meeting start fails fast instead of
-            # crashing later in the middle of a live capture.
-            self._backend_name = self._executor.submit(_worker_ping).result(timeout=120)
+            # Load as a task so a trust error is returned to this process rather
+            # than turning an initializer failure into BrokenProcessPool.
+            future = self._executor.submit(
+                _init_transcriber_worker,
+                self._model_size,
+                self._device,
+                self._backend_preference,
+            )
+            self._backend_name = _await_worker_result(
+                self._executor,
+                future,
+                _model_load_timeout_s(self._model_size, self._backend_preference),
+                "Model loading",
+            )
             self._initialized = True
             print(
                 f"[Transcriber] Model loaded ({self._model_size}, {self._device}, {self._backend_name})"
             )
             return True
-        except ImportError:
-            print(
-                "[Transcriber] No meeting transcription backend installed. "
-                + _missing_backend_help(self._backend_preference)
-            )
-            return False
         except Exception as e:
             if self._executor is not None:
-                self._executor.shutdown(wait=False, cancel_futures=True)
+                if not isinstance(e, WorkerDeadlineExceeded):
+                    self._executor.shutdown(wait=True, cancel_futures=True)
                 self._executor = None
+            if isinstance(e, ImportError):
+                print(
+                    "[Transcriber] No meeting transcription backend installed. "
+                    + _missing_backend_help(self._backend_preference)
+                )
+                return False
             print(f"[Transcriber] Failed to load model: {e}")
             return False
 
@@ -468,11 +529,18 @@ class MeetingTranscriber:
         executor = ProcessPoolExecutor(
             max_workers=1,
             mp_context=ctx,
-            initializer=_init_transcriber_worker,
-            initargs=(model_name, device_name, self._backend_preference),
         )
+        timed_out = False
         try:
-            backend = executor.submit(_worker_ping).result(timeout=180)
+            load_future = executor.submit(
+                _init_transcriber_worker, model_name, device_name, self._backend_preference
+            )
+            backend = _await_worker_result(
+                executor,
+                load_future,
+                _model_load_timeout_s(model_name, self._backend_preference),
+                "Final-pass model loading",
+            )
             print(
                 f"[Transcriber] Final pass backend: {backend} "
                 f"({model_name}, {device_name})"
@@ -488,10 +556,16 @@ class MeetingTranscriber:
                 True,
             )
             timeout = max(3600, int(self._estimate_audio_duration(audio_path) * 6))
-            segments = future.result(timeout=timeout)
+            segments = _await_worker_result(
+                executor, future, timeout, "Final-pass transcription"
+            )
             return [TranscriptSegment(**seg) for seg in segments]
+        except WorkerDeadlineExceeded:
+            timed_out = True
+            raise
         finally:
-            executor.shutdown(wait=True, cancel_futures=True)
+            if not timed_out:
+                executor.shutdown(wait=True, cancel_futures=True)
 
     def _load_audio_source(self, audio_path: str) -> np.ndarray | str:
         """Load meeting WAV files directly so final passes do not depend on ffmpeg."""
