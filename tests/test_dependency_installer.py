@@ -67,6 +67,15 @@ class DependencyInstallerTests(unittest.TestCase):
              mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CUDA):
             self.assertTrue(dependency_installer._supports_cuda_runtime())
 
+    def test_cuda_support_install_rejects_duplicate_runtime_distributions(self):
+        installer = dependency_installer.DependencyInstaller()
+        for versions in (("1.24.4", "1.24.4"), ("1.24.4", "1.30.0")):
+            with self.subTest(versions=versions), \
+                 mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+                 mock.patch("nvbroadcast.runtime.variants.current_distribution_inventory",
+                            return_value={"onnxruntime-gpu": versions}):
+                self.assertFalse(installer.is_supported("cupy"))
+
     def test_cpu_source_runtime_directs_user_to_source_installer(self):
         installer = dependency_installer.DependencyInstaller()
         with mock.patch.object(installer, "is_available", return_value=False), \
