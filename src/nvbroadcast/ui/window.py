@@ -290,7 +290,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
 
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        # Keep both sections visible on portrait monitors and narrow windows.
+        # FlowBox requests only one column as its minimum width and wraps the
+        # second section below the first when two columns no longer fit.
+        controls = Gtk.FlowBox()
+        controls.set_selection_mode(Gtk.SelectionMode.NONE)
+        controls.set_min_children_per_line(1)
+        controls.set_max_children_per_line(2)
+        controls.set_column_spacing(16)
+        controls.set_row_spacing(16)
         controls.set_margin_start(16)
         controls.set_margin_end(16)
         controls.set_margin_top(12)
@@ -299,7 +307,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         cam = self._build_camera_section()
         cam.set_hexpand(True)
         controls.append(cam)
-        controls.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         aud = self._build_audio_section()
         aud.set_hexpand(True)
         controls.append(aud)
