@@ -450,7 +450,43 @@ extern "C" __global__ void fused_composite(
                 fabsf(fb - cb) + fabsf(fg_ - cg) + fabsf(fr - cr)
             ) / 3.0f;
 
-            if (color_delta > 10.0f) {
+            // Only pull a fringe toward the opaque donor when its color is
+            // consistent with spill from the nearby physical camera background.
+            // A dark hair strand against a white shirt can be much farther
+            // from that background than the shirt is; repainting it is wrong.
+            float camera_b = 0.0f, camera_g = 0.0f, camera_r = 0.0f;
+            bool background_found = false;
+            const int radii[5] = {1, 2, 4, 8, 16};
+            for (int step = 0; step < 5 && !background_found; ++step) {
+                int radius = radii[step];
+                int candidates[4] = {
+                    x >= radius ? idx - radius : -1,
+                    x + radius < frame_width ? idx + radius : -1,
+                    y >= radius ? idx - radius * frame_width : -1,
+                    y + radius < total_pixels / frame_width
+                        ? idx + radius * frame_width : -1
+                };
+                for (int direction = 0; direction < 4; ++direction) {
+                    int candidate = candidates[direction];
+                    if (candidate >= 0 && alpha[candidate] <= 0.025f) {
+                        int camera_px = candidate * 4;
+                        camera_b = (float)fg[camera_px];
+                        camera_g = (float)fg[camera_px + 1];
+                        camera_r = (float)fg[camera_px + 2];
+                        background_found = true;
+                        break;
+                    }
+                }
+            }
+            float source_background_delta = (
+                fabsf(fb - camera_b) + fabsf(fg_ - camera_g)
+                + fabsf(fr - camera_r));
+            float donor_background_delta = (
+                fabsf(cb - camera_b) + fabsf(cg - camera_g)
+                + fabsf(cr - camera_r));
+            bool plausible_spill = !background_found
+                || source_background_delta <= donor_background_delta + 36.0f;
+            if (color_delta > 10.0f && plausible_spill) {
                 float source_mean = (fb + fg_ + fr) / 3.0f;
                 float clean_mean = (cb + cg + cr) / 3.0f;
                 float chroma_delta = (
@@ -3044,7 +3080,8 @@ class VideoEffects:
         return matte
 
     def _final_matte(self, frame: np.ndarray, alpha: np.ndarray,
-                     matte_version: int | None = None) -> np.ndarray:
+                     matte_version: int | None = None,
+                     source_alpha: np.ndarray | None = None) -> np.ndarray:
         if self._bg_mode == "replace":
             matte = self._replacement_matte_cached(alpha, matte_version)
             matte = self._edge_aware_replace_matte(frame, matte)
@@ -3052,8 +3089,60 @@ class VideoEffects:
             return self._stabilize_replace_matte_edges(matte)
         if self._bg_mode == "remove":
             matte = self._greenscreen_matte(frame, alpha, matte_version)
-            return self._apply_learned_refiner("remove", frame, matte)
+            matte = self._apply_learned_refiner("remove", frame, matte)
+            if source_alpha is not None:
+                matte = self._restore_remove_exterior_gaps(matte, source_alpha)
+            return matte
         return alpha
+
+    def _restore_remove_exterior_gaps(
+        self, matte: np.ndarray, source_alpha: np.ndarray,
+    ) -> np.ndarray:
+        """Reopen narrow camera-background channels after Remove's broad close."""
+        source_is_u8 = source_alpha.dtype == np.uint8
+        active_threshold = 6 if source_is_u8 else 0.025
+        bounds = self._mask_roi_bounds(source_alpha > active_threshold, pad=20)
+        if bounds is None:
+            return matte
+        roi_x0, roi_y0, roi_x1, roi_y1 = bounds
+        source = source_alpha[roi_y0:roi_y1, roi_x0:roi_x1]
+        source_u8 = source if source_is_u8 else cv2.multiply(
+            source, 255, dtype=cv2.CV_8U)
+        probe = cv2.morphologyEx(
+            source_u8, cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13)),
+        )
+        slits = self._preserve_narrow_exterior_gaps(
+            source_u8, probe, binary_threshold=70,
+            min_span_ratio=0.025, max_span_ratio=0.24,
+            reference_shape=source_alpha.shape,
+        )
+        if not slits.any():
+            return matte
+
+        # The Remove dilation can seal the first few pixels at a finger-gap
+        # mouth. Extend only along each channel's long axis, and only through
+        # camera-background pixels in the original inference mask.
+        restored = np.zeros_like(slits)
+        count, labels, stats, _ = cv2.connectedComponentsWithStats(
+            slits.astype(np.uint8), connectivity=8)
+        for index in range(1, count):
+            x, y, width, height, _area = stats[index]
+            radius = 8
+            x0, x1 = max(0, x - radius), min(slits.shape[1], x + width + radius)
+            y0, y1 = max(0, y - radius), min(slits.shape[0], y + height + radius)
+            component = (labels[y0:y1, x0:x1] == index).astype(np.uint8)
+            kernel = np.ones((17, 1) if height >= width else (1, 17), np.uint8)
+            restored[y0:y1, x0:x1] |= cv2.dilate(component, kernel).astype(bool)
+        restored &= source <= active_threshold
+        result = matte.copy()
+        matte_roi = result[roi_y0:roi_y1, roi_x0:roi_x1]
+        if source_is_u8:
+            matte_roi[restored] = np.minimum(
+                matte_roi[restored], source[restored] * (1.0 / 255.0))
+        else:
+            matte_roi[restored] = np.minimum(matte_roi[restored], source[restored])
+        return result
 
     def composite_only(self, frame_data: bytes, width: int, height: int) -> bytes:
         """Composite current frame with cached alpha. Fast — no inference."""
@@ -3106,7 +3195,8 @@ class VideoEffects:
             source_alpha = cv2.resize(
                 source_alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
-        alpha = self._final_matte(frame, alpha, matte_version)
+        alpha = self._final_matte(frame, alpha, matte_version,
+                                  source_alpha=source_alpha)
         with self._state_lock:
             if matte_version is None or matte_version == self._matte_version:
                 if alpha_is_gpu:
@@ -3365,7 +3455,15 @@ class VideoEffects:
                         return None
                     alpha = backend.infer(frame, width, height)
             if alpha is not None:
-                source_alpha = alpha.copy() if self._bg_mode == "replace" else None
+                if self._bg_mode == "remove":
+                    # Only source-mask geometry is needed to reopen exterior
+                    # channels; a compact byte mask avoids a second 720p
+                    # float copy and repeated full-frame conversion.
+                    source_alpha = cv2.multiply(alpha, 255, dtype=cv2.CV_8U)
+                elif self._bg_mode == "replace":
+                    source_alpha = alpha.copy()
+                else:
+                    source_alpha = None
                 # Refine first, then temporal smooth on the FINAL output.
                 # RVM's raw edges jitter 6-8% — smoothing the final result
                 # directly stabilizes what the user sees.
@@ -4323,6 +4421,40 @@ class VideoEffects:
             result[y0:y1, x0:x1][nearby] = palette[center_labels[nearby]]
         return fg if result is None else result
 
+    @staticmethod
+    def _plausible_camera_spill(
+        fg: np.ndarray, alpha: np.ndarray, fringe_y: np.ndarray,
+        fringe_x: np.ndarray, source: np.ndarray, donor: np.ndarray,
+    ) -> np.ndarray:
+        """Reject cleanup when the fringe is farther from camera BG than its donor.
+
+        Alpha alone cannot tell a real dark strand from a dark camera edge.
+        Under an ordinary background-color mixture, a contaminated fringe
+        moves *toward* the nearby physical background. Preserve it if the
+        proposed donor already resembles that background more closely.
+        """
+        count = fringe_y.size
+        camera = np.zeros((count, 3), dtype=np.float32)
+        found = np.zeros(count, dtype=bool)
+        height, width = alpha.shape
+        for radius in (1, 2, 4, 8, 16):
+            for dy, dx in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                yy = fringe_y + dy * radius
+                xx = fringe_x + dx * radius
+                eligible = (~found) & (yy >= 0) & (yy < height) & (xx >= 0) & (xx < width)
+                if not eligible.any():
+                    continue
+                positions = np.flatnonzero(eligible)
+                background = alpha[yy[positions], xx[positions]] <= 0.025
+                positions = positions[background]
+                camera[positions] = fg[yy[positions], xx[positions], :3]
+                found[positions] = True
+            if found.all():
+                break
+        source_delta = np.abs(source - camera).sum(axis=1)
+        donor_delta = np.abs(donor - camera).sum(axis=1)
+        return (~found) | (source_delta <= donor_delta + 36.0)
+
     def _despill_fringe(self, fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
         """Remove webcam background color bleeding into hair/edge fringe.
 
@@ -4383,6 +4515,11 @@ class VideoEffects:
         source_colors = fg[fringe_y, fringe_x, :3].astype(np.float32)
         color_delta = np.mean(np.abs(source_colors - clean_colors), axis=1)
         contaminated = color_delta > 10.0
+        if self._bg_mode == "remove" and contaminated.any():
+            candidates = np.flatnonzero(contaminated)
+            contaminated[candidates] &= self._plausible_camera_spill(
+                fg, alpha, fringe_y[candidates], fringe_x[candidates],
+                source_colors[candidates], clean_colors[candidates])
         if not contaminated.any():
             return fg
 
@@ -4444,6 +4581,12 @@ class VideoEffects:
             source = result[fringe_y, fringe_x, :3].astype(np.float32)
             delta = np.mean(np.abs(source - clean_colors[:, :3]), axis=1)
             repair = supported & (delta > 6.0)
+            if repair.any():
+                candidates = np.flatnonzero(repair)
+                repair[candidates] &= self._plausible_camera_spill(
+                    fg, alpha, fringe_y[candidates], fringe_x[candidates],
+                    source[candidates],
+                    clean_colors[candidates, :3].astype(np.float32))
             if not repair.any():
                 return result
             fringe_y, fringe_x = fringe_y[repair], fringe_x[repair]

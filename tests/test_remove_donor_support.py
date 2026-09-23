@@ -76,6 +76,39 @@ class RemoveDonorSupportTests(unittest.TestCase):
         self.assertLess(int(cleaned[24, 11, 0]), int(frame[24, 11, 0]) - 40)
         self.assertTrue(np.array_equal(cleaned[24, 20], frame[24, 20]))
 
+    def test_dark_strand_touching_white_clothing_is_not_repainted(self):
+        h, w = 360, 640
+        alpha = np.zeros((h, w), np.float32)
+        alpha[80:180, 150] = 0.5
+        alpha[80:180, 151:200] = 1.0
+        frame = np.full((h, w, 4), 255, np.uint8)
+        frame[80:180, 150, :3] = 64
+        frame[80:180, 151:200, :3] = 240
+        effects = _make_effects(alpha)
+
+        cleaned = effects._prepare_greenscreen_foreground(frame, alpha)
+
+        np.testing.assert_array_equal(cleaned[80:180, 150, :3],
+                                      frame[80:180, 150, :3])
+        np.testing.assert_array_equal(cleaned[80:180, 151:200],
+                                      frame[80:180, 151:200])
+
+    def test_bright_camera_spill_on_dark_edge_is_still_repaired(self):
+        h, w = 360, 640
+        alpha = np.zeros((h, w), np.float32)
+        alpha[80:180, 150] = 0.5
+        alpha[80:180, 151:200] = 1.0
+        frame = np.full((h, w, 4), 255, np.uint8)
+        frame[80:180, 150, :3] = 180
+        frame[80:180, 151:200, :3] = 36
+        effects = _make_effects(alpha)
+
+        cleaned = effects._prepare_greenscreen_foreground(frame, alpha)
+
+        self.assertLess(int(cleaned[120, 150, 0]), 100)
+        np.testing.assert_array_equal(cleaned[80:180, 151:200],
+                                      frame[80:180, 151:200])
+
     def test_large_unsupported_fringe_retains_source_across_sampling_chunks(self):
         alpha = np.zeros((300, 300), np.float32)
         alpha[20:280, 20:280] = 0.5
@@ -86,6 +119,35 @@ class RemoveDonorSupportTests(unittest.TestCase):
         cleaned = effects._prepare_greenscreen_foreground(frame, alpha)
 
         self.assertTrue(np.array_equal(cleaned, frame))
+
+    def test_moving_remove_finger_gaps_stay_open_without_reopening_palm_hole(self):
+        for h, w in ((360, 640), (720, 1280)):
+            for gap in (1, 2, 4, 8):
+                effects = None
+                for shift in (0, 1, 3, 1):
+                    with self.subTest(size=(w, h), gap=gap, shift=shift):
+                        y, x = h // 3, w // 3 + shift
+                        alpha = np.zeros((h, w), np.float32)
+                        alpha[y:y + 20, x - 12:x] = 1.0
+                        alpha[y:y + 20, x + gap:x + gap + 12] = 1.0
+                        alpha[y + 20:y + 32, x - 12:x + gap + 12] = 1.0
+                        alpha[y + 24:y + 27, x - 6:x - 3] = 0.0
+                        frame = np.full((h, w, 4), 255, np.uint8)
+                        frame[alpha > 0, :3] = 64
+                        frame[y + 24:y + 27, x - 6:x - 3, :3] = 240
+                        if effects is None:
+                            effects = _make_effects(alpha)
+                        else:
+                            effects._backend.alpha = alpha
+
+                        output = effects.process_frame_array(frame, w, h)
+                        matte = effects.latest_final_matte_u8(w, h)
+
+                        self.assertTrue(np.all(matte[y + 5:y + 15, x:x + gap] == 0))
+                        self.assertTrue(np.all(output[y + 5:y + 15, x:x + gap, :3]
+                                               == (0, 255, 0)))
+                        self.assertGreaterEqual(int(matte[y + 25, x - 5]), 250)
+                        self.assertTrue(np.all(output[y + 25, x - 5, :3] == 240))
 
     def _gpu(self):
         if cp is None:
@@ -110,6 +172,66 @@ class RemoveDonorSupportTests(unittest.TestCase):
         self.assertIsInstance(output, cp.ndarray)
         self.assertTrue(np.array_equal(cp.asnumpy(output)[120, 150, :3],
                                        np.array([32, 159, 32], dtype=np.uint8)))
+
+    def test_fused_remove_background_gate_matches_cpu_on_both_color_directions(self):
+        self._gpu()
+        h, w = 360, 640
+        alpha = np.zeros((h, w), np.float32)
+        alpha[80:180, 150] = 0.5
+        alpha[80:180, 151:200] = 1.0
+        for scene, background, fringe, donor in (
+            ("dark_strand_white_background", 255, 64, 240),
+            ("bright_spill_white_background", 255, 180, 36),
+            ("dark_spill_dark_background", 24, 64, 240),
+        ):
+            with self.subTest(scene=scene):
+                frame = np.full((h, w, 4), background, np.uint8)
+                frame[:, :, 3] = 255
+                frame[80:180, 150, :3] = fringe
+                frame[80:180, 151:200, :3] = donor
+                cpu = _make_effects(alpha)
+                gpu = _make_effects(alpha, fused=True)
+                cleaned = cpu._despill_fringe(frame, alpha)
+                green = np.zeros_like(frame)
+                green[:, :, 1] = 255
+                green[:, :, 3] = 255
+                expected = cpu._blend_cpu(cleaned, green, alpha)
+                actual = cp.asnumpy(gpu._composite_fused_gpu(
+                    cp.asarray(frame), alpha, w, h))
+
+                error = np.abs(expected[:, :, :3].astype(np.int16)
+                               - actual[:, :, :3].astype(np.int16))
+                self.assertLessEqual(int(error.max()), 2)
+                if scene.startswith("dark_strand"):
+                    self.assertEqual(int(cleaned[120, 150, 0]), 64)
+                else:
+                    self.assertNotEqual(int(cleaned[120, 150, 0]), fringe)
+
+    def test_fused_moving_remove_gap_uses_restored_matte(self):
+        self._gpu()
+        h, w, gap = 720, 1280, 2
+        effects = None
+        for shift in (0, 1, 3, 1):
+            with self.subTest(shift=shift):
+                y, x = h // 3, w // 3 + shift
+                alpha = np.zeros((h, w), np.float32)
+                alpha[y:y + 20, x - 12:x] = 1.0
+                alpha[y:y + 20, x + gap:x + gap + 12] = 1.0
+                alpha[y + 20:y + 32, x - 12:x + gap + 12] = 1.0
+                frame = np.full((h, w, 4), 255, np.uint8)
+                frame[alpha > 0, :3] = 64
+                if effects is None:
+                    effects = _make_effects(alpha, fused=True)
+                else:
+                    effects._backend.alpha = alpha
+
+                with mock.patch.object(effects, "_apply_green_screen",
+                                       side_effect=AssertionError("CPU fallback")):
+                    output = effects.process_frame_array(frame, w, h)
+                matte = effects.latest_final_matte_u8(w, h)
+                self.assertTrue(np.all(matte[y + 5:y + 15, x:x + gap] == 0))
+                self.assertTrue(np.all(output[y + 5:y + 15, x:x + gap, :3]
+                                       == (0, 255, 0)))
 
     def test_fused_textured_720p_matches_cpu_with_same_final_matte(self):
         self._gpu()
