@@ -149,6 +149,33 @@ class RemoveDonorSupportTests(unittest.TestCase):
                         self.assertGreaterEqual(int(matte[y + 25, x - 5]), 250)
                         self.assertTrue(np.all(output[y + 25, x - 5, :3] == 240))
 
+    def test_ambiguous_weak_alpha_keeps_possible_fine_strand(self):
+        # With identical RGB and raw alpha, a one-pixel strand cannot be
+        # distinguished from camera background in the same finger channel.
+        # Keep weak model foreground rather than erase a potentially real
+        # strand solely because the channel has an exterior-gap shape.
+        h, w = 720, 1280
+        y, x = 220, 550
+        alpha = np.zeros((h, w), np.float32)
+        alpha[y:y + 130, x - 20:x] = 1.0
+        alpha[y:y + 130, x + 8:x + 28] = 1.0
+        alpha[y + 130:y + 180, x - 20:x + 28] = 1.0
+        for weak_alpha in (0.03, 0.10):
+            alpha[y:y + 130, x:x + 8] = weak_alpha
+            for background, foreground in ((20, 240), (255, 50), (255, 245)):
+                with self.subTest(alpha=weak_alpha, background=background,
+                                  foreground=foreground):
+                    frame = np.full((h, w, 4), background, np.uint8)
+                    frame[:, :, 3] = 255
+                    frame[alpha >= 0.95, :3] = foreground
+                    effects = _make_effects(alpha)
+
+                    effects.process_frame_array(frame, w, h)
+                    matte = effects.latest_final_matte_u8(w, h)
+
+                    self.assertGreaterEqual(int(matte[y + 50, x + 4]), 245)
+                    self.assertGreaterEqual(int(matte[y + 50, x + 2]), 245)
+
     def _gpu(self):
         if cp is None:
             self.skipTest("CuPy unavailable")
@@ -232,6 +259,33 @@ class RemoveDonorSupportTests(unittest.TestCase):
                 self.assertTrue(np.all(matte[y + 5:y + 15, x:x + gap] == 0))
                 self.assertTrue(np.all(output[y + 5:y + 15, x:x + gap, :3]
                                        == (0, 255, 0)))
+
+    def test_fused_ambiguous_weak_alpha_matches_conservative_cpu_matte(self):
+        self._gpu()
+        h, w = 720, 1280
+        y, x = 220, 550
+        alpha = np.zeros((h, w), np.float32)
+        alpha[y:y + 130, x - 20:x] = 1.0
+        alpha[y:y + 130, x + 8:x + 28] = 1.0
+        alpha[y + 130:y + 180, x - 20:x + 28] = 1.0
+        alpha[y:y + 130, x:x + 8] = 0.10
+        frame = np.full((h, w, 4), 20, np.uint8)
+        frame[:, :, 3] = 255
+        frame[alpha >= 0.95, :3] = 240
+        cpu = _make_effects(alpha)
+        gpu = _make_effects(alpha, fused=True)
+
+        expected = cpu.process_frame_array(frame.copy(), w, h)
+        with mock.patch.object(gpu, "_apply_green_screen",
+                               side_effect=AssertionError("CPU fallback")):
+            actual = gpu.process_frame_array(frame.copy(), w, h)
+
+        np.testing.assert_array_equal(
+            cpu.latest_final_matte_u8(w, h), gpu.latest_final_matte_u8(w, h))
+        self.assertGreaterEqual(int(cpu.latest_final_matte_u8(w, h)[y + 50, x + 4]), 245)
+        error = np.abs(expected[:, :, :3].astype(np.int16)
+                       - actual[:, :, :3].astype(np.int16))
+        self.assertLessEqual(int(error[y + 5:y + 120, x:x + 8].max()), 2)
 
     def test_fused_textured_720p_matches_cpu_with_same_final_matte(self):
         self._gpu()
