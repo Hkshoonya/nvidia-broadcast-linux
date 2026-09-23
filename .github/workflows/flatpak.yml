@@ -81,7 +81,7 @@ jobs:
             -w /workspace \
             "$BUILDER_IMAGE" \
             flatpak build --runtime --readonly flatpak-build python3 -c \
-            'import cv2, mediapipe, onnxruntime, pyrnnoise, faster_whisper, nvbroadcast; from pathlib import Path; from nvbroadcast.core.platform import running_in_flatpak; from nvbroadcast.core.resources import find_app_icon, find_app_icon_png, find_bundled_backgrounds; assert running_in_flatpak(); assert find_app_icon(); assert find_app_icon_png(); assert len(find_bundled_backgrounds()) == 3; assert Path("/app/share/doc/nvbroadcast/NOTICE").is_file(); assert Path("/app/share/doc/nvbroadcast/CONTRIBUTORS.md").is_file()'
+            'import cv2, mediapipe, onnxruntime, pyrnnoise, faster_whisper, nvbroadcast; from pathlib import Path; from nvbroadcast.ai.model_trust import _model_entry; from nvbroadcast.core.platform import running_in_flatpak; from nvbroadcast.core.resources import find_app_icon, find_app_icon_png, find_bundled_backgrounds; assert running_in_flatpak(); assert find_app_icon(); assert find_app_icon_png(); assert len(find_bundled_backgrounds()) == 3; assert _model_entry("base", faster_whisper.__version__)[1]["files"]["model.bin"]["sha256"]; assert Path("/app/share/doc/nvbroadcast/NOTICE").is_file(); assert Path("/app/share/doc/nvbroadcast/CONTRIBUTORS.md").is_file()'
 
       - name: Validate AppStream metadata
         run: |

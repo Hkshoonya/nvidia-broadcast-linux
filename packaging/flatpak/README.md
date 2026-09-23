@@ -25,15 +25,17 @@ been validated in the sandbox.
 ## Sandbox permissions
 
 The manifest grants network access for release checks, checksum-verified
-app-owned model downloads, and faster-whisper model retrieval, plus Wayland
-with X11 fallback, PulseAudio compatibility, and access to the StatusNotifier
-watcher. The faster-whisper model path is not hash-pinned by this packaging work
-and remains a public-distribution security gate. Recording currently writes to
-`~/Videos`, so the manifest grants only `--filesystem=~/Videos:create` to keep
-those files visible after the app exits. A custom XDG Videos directory is not
-used by the current recorder and needs a separate path-selection change. The
-manifest does not grant the rest of the host home, a session-bus wildcard, the
-system bus, or permission to run host commands.
+app-owned model downloads, and pinned, SHA-256-verified faster-whisper model
+retrieval, plus Wayland with X11 fallback, PulseAudio compatibility, and access
+to the StatusNotifier watcher. The finished-runtime smoke check verifies that
+the faster-whisper trust manifest is packaged; first-use download and inference
+in an ordinary-user Flatpak session still need testing. Recording currently
+writes to `~/Videos`, so the manifest grants only
+`--filesystem=~/Videos:create` to keep those files visible after the app exits.
+A custom XDG Videos directory is not used by the current recorder and needs a
+separate path-selection change. The manifest does not grant the rest of the
+host home, a session-bus wildcard, the system bus, or permission to run host
+commands.
 
 `--device=all` is currently required because the app reads physical
 `/dev/video*` devices and writes to a host-created v4l2loopback device. Flatpak
@@ -128,8 +130,8 @@ Before any Flatpak release, all of these gates must be closed:
    close the current `metainfo-missing-screenshots` linter error.
 5. Review the name, icon, screenshots, and description for NVIDIA trademark and
    affiliation clarity.
-6. Pin and verify the faster-whisper model revision or document and approve its
-   external model-download trust policy.
+6. Exercise first-use faster-whisper download, pinned-file verification,
+   corrupted-cache rejection, and inference in an ordinary-user Flatpak session.
 7. Validate CUDA and TensorRT from the NVIDIA driver through a real model
    execution, then decide whether their binary wheels may be redistributed.
 8. Build and test a separate `aarch64` dependency set; do not infer support from
