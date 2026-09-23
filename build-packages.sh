@@ -39,6 +39,28 @@ fi
 # Package revision is stable unless explicitly overridden by CI.
 REV="${PACKAGE_REV:-1}"
 
+package_source_date_epoch() {
+    local epoch="${SOURCE_DATE_EPOCH:-}"
+    if [ -z "$epoch" ]; then
+        epoch="$(python3 - <<'PY'
+from email.utils import parsedate_to_datetime
+from pathlib import Path
+
+entry = next(
+    line for line in Path("packaging/debian/changelog").read_text().splitlines()
+    if line.startswith(" -- ")
+)
+print(int(parsedate_to_datetime(entry.rsplit("  ", 1)[-1]).timestamp()))
+PY
+)"
+    fi
+    if [[ ! "$epoch" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: SOURCE_DATE_EPOCH must be a non-negative Unix timestamp" >&2
+        return 1
+    fi
+    printf '%s\n' "$epoch"
+}
+
 echo "========================================="
 echo "  NV Broadcast Package Builder"
 echo "  Version: ${VERSION}-${REV}"
@@ -167,24 +189,8 @@ SVC
     mkdir -p dist/deb
     # dpkg-deb uses SOURCE_DATE_EPOCH to clamp generated file and archive
     # timestamps. Use the Debian changelog date for direct local builds too.
-    local deb_source_date_epoch="${SOURCE_DATE_EPOCH:-}"
-    if [ -z "$deb_source_date_epoch" ]; then
-        deb_source_date_epoch="$(python3 - <<'PY'
-from email.utils import parsedate_to_datetime
-from pathlib import Path
-
-entry = next(
-    line for line in Path("packaging/debian/changelog").read_text().splitlines()
-    if line.startswith(" -- ")
-)
-print(int(parsedate_to_datetime(entry.rsplit("  ", 1)[-1]).timestamp()))
-PY
-)"
-    fi
-    if [[ ! "$deb_source_date_epoch" =~ ^[0-9]+$ ]]; then
-        echo "ERROR: SOURCE_DATE_EPOCH must be a non-negative Unix timestamp" >&2
-        exit 1
-    fi
+    local deb_source_date_epoch
+    deb_source_date_epoch="$(package_source_date_epoch)"
     SOURCE_DATE_EPOCH="$deb_source_date_epoch" dpkg-deb -Zxz --root-owner-group --build \
         "$PKG_DIR" \
         "dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb"
@@ -204,6 +210,9 @@ build_rpm() {
         echo "[RPM] SKIP: rpmbuild not found. Install with: sudo apt install rpm"
         return
     fi
+
+    local rpm_source_date_epoch
+    rpm_source_date_epoch="$(package_source_date_epoch)"
 
     local RPM_DIR
     RPM_DIR=$(mktemp -d "${TMPDIR:-/tmp}/nvbroadcast-rpm-build.XXXXXX")
@@ -229,11 +238,20 @@ build_rpm() {
         sed "s/^Release:.*/Release:        ${REV}%{?dist}/" > "$RPM_DIR/SPECS/nvbroadcast.spec"
 
     # Build
-    rpmbuild \
+    if ! SOURCE_DATE_EPOCH="$rpm_source_date_epoch" rpmbuild \
         --nodeps \
         --define "_topdir $RPM_DIR" \
         --define "_userunitdir /usr/lib/systemd/user" \
-        -bb "$RPM_DIR/SPECS/nvbroadcast.spec" 2>&1 | tail -5
+        --define "_buildhost nvbroadcast" \
+        --define "source_date_epoch_from_changelog 0" \
+        --define "use_source_date_epoch_as_buildtime 1" \
+        --define "clamp_mtime_to_source_date_epoch 1" \
+        -bb "$RPM_DIR/SPECS/nvbroadcast.spec" > "$RPM_DIR/rpmbuild.log" 2>&1; then
+        tail -30 "$RPM_DIR/rpmbuild.log" >&2
+        rm -rf "$RPM_DIR"
+        return 1
+    fi
+    tail -5 "$RPM_DIR/rpmbuild.log"
 
     # Copy output
     mkdir -p dist/rpm

@@ -494,6 +494,54 @@ class PackagingMetadataTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 build()
 
+    @unittest.skipUnless(
+        sys.platform == "linux"
+        and shutil.which("rpmbuild")
+        and shutil.which("rpm"),
+        "requires Linux rpmbuild and rpm",
+    )
+    def test_direct_rpm_builds_are_reproducible(self):
+        with tempfile.TemporaryDirectory(prefix="nvbroadcast-repro-rpm-") as directory:
+            project = Path(directory)
+            for name in ("src", "data", "configs", "packaging", "scripts"):
+                shutil.copytree(REPO_ROOT / name, project / name)
+            for name in (
+                "build-packages.sh", "pyproject.toml", "LICENSE", "NOTICE",
+                "README.md", "CONTRIBUTORS.md",
+            ):
+                shutil.copy2(REPO_ROOT / name, project / name)
+
+            environment = os.environ.copy()
+            environment.pop("SOURCE_DATE_EPOCH", None)
+
+            def build() -> tuple[bytes, Path]:
+                subprocess.run(
+                    ["bash", "build-packages.sh", "rpm"],
+                    cwd=project,
+                    env=environment,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                packages = list((project / "dist" / "rpm").glob("nvbroadcast-*.rpm"))
+                self.assertEqual(len(packages), 1)
+                return packages[0].read_bytes(), packages[0]
+
+            first, package = build()
+            time.sleep(1.1)
+            self.assertEqual(first, build()[0])
+            header = subprocess.check_output(
+                ["rpm", "-qp", "--qf", "%{BUILDTIME} %{BUILDHOST}", str(package)],
+                text=True,
+            )
+            self.assertEqual(header.split()[1], "nvbroadcast")
+
+            environment["SOURCE_DATE_EPOCH"] = "1600000000"
+            self.assertNotEqual(first, build()[0])
+            environment["SOURCE_DATE_EPOCH"] = "invalid"
+            with self.assertRaises(subprocess.CalledProcessError):
+                build()
+
     def test_canonical_notice_and_contributors_ship_in_package_payloads(self):
         records = ("NOTICE", "CONTRIBUTORS.md")
         manifest = (REPO_ROOT / "MANIFEST.in").read_text()
