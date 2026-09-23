@@ -181,6 +181,35 @@ class RuntimeVariantTests(unittest.TestCase):
             )
         )
 
+    def test_detect_rejects_duplicate_distributions_of_the_same_owner(self):
+        for owner in ("onnxruntime", "onnxruntime-gpu"):
+            for versions in (("1.24.4", "1.24.4"), ("1.24.4", "1.30.0")):
+                with self.subTest(owner=owner, versions=versions):
+                    self.assertIsNone(detect_runtime_variant({owner: versions}))
+        self.assertIsNone(detect_runtime_variant({
+            "onnxruntime-gpu": ("1.24.4",),
+            "onnxruntime_gpu": ("1.24.4",),
+        }))
+
+    def test_duplicate_metadata_on_distinct_import_paths_is_not_a_valid_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for index, version in enumerate(("1.24.4", "1.30.0")):
+                site = Path(tmp) / f"site-{index}"
+                dist_info = site / f"onnxruntime_gpu-{version}.dist-info"
+                dist_info.mkdir(parents=True)
+                (dist_info / "METADATA").write_text(
+                    "Metadata-Version: 2.1\n"
+                    "Name: onnxruntime-gpu\n"
+                    f"Version: {version}\n"
+                )
+                paths.append(str(site))
+            with mock.patch.object(sys, "path", paths):
+                self.assertEqual(current_distribution_inventory(), {
+                    "onnxruntime-gpu": ("1.24.4", "1.30.0"),
+                })
+                self.assertIsNone(detect_runtime_variant())
+
     def test_installer_uses_support_extra_before_no_deps_backend(self):
         with (
             mock.patch.object(

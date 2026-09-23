@@ -77,11 +77,12 @@ def detect_runtime_variant(
 ) -> RuntimeVariant | None:
     """Return variant only when exactly one runtime distribution owns environment."""
     inventory = installed if installed is not None else current_distribution_inventory()
-    owners = {
+    owners = [
         _canonicalize_name(name)
         for name, versions in inventory.items()
-        if versions and _canonicalize_name(name) in RUNTIME_DISTRIBUTIONS
-    }
+        if _canonicalize_name(name) in RUNTIME_DISTRIBUTIONS
+        for _version in versions
+    ]
     if len(owners) != 1:
         return None
     owner = owners.pop()
