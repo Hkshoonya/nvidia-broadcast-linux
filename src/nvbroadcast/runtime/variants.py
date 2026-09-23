@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from importlib import metadata
 from pathlib import Path
+import re
 import sys
 from typing import Iterable, Mapping
 
@@ -50,7 +51,7 @@ RUNTIME_CONTRACTS = {
 }
 
 def _canonicalize_name(name: str) -> str:
-    return name.lower().replace("_", "-").replace(".", "-")
+    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 RUNTIME_DISTRIBUTIONS = frozenset(
@@ -92,19 +93,17 @@ def detect_runtime_variant(
     return None
 
 
-def runtime_ownership_problems(
-    variant: RuntimeVariant,
-    installed: Mapping[str, tuple[str, ...]],
-    providers: Iterable[str],
+def _runtime_distribution_problems(
+    variant: RuntimeVariant, installed: Mapping[str, tuple[str, ...]]
 ) -> list[str]:
-    """Return violations of selected runtime's ownership/provider contract."""
+    """Check distribution ownership without importing the shared runtime tree."""
     contract = RUNTIME_CONTRACTS[variant]
     expected_owner = _canonicalize_name(contract.distribution)
-    runtime_inventory = {
-        _canonicalize_name(name): tuple(versions)
-        for name, versions in installed.items()
-        if _canonicalize_name(name) in RUNTIME_DISTRIBUTIONS and versions
-    }
+    runtime_inventory: dict[str, list[str]] = {}
+    for name, versions in installed.items():
+        canonical_name = _canonicalize_name(name)
+        if canonical_name in RUNTIME_DISTRIBUTIONS and versions:
+            runtime_inventory.setdefault(canonical_name, []).extend(versions)
     problems: list[str] = []
 
     expected_versions = runtime_inventory.get(expected_owner, ())
@@ -119,6 +118,17 @@ def runtime_ownership_problems(
         problems.append(
             "unexpected runtime distribution(s): " + ", ".join(unexpected)
         )
+    return problems
+
+
+def runtime_ownership_problems(
+    variant: RuntimeVariant,
+    installed: Mapping[str, tuple[str, ...]],
+    providers: Iterable[str],
+) -> list[str]:
+    """Return violations of selected runtime's ownership/provider contract."""
+    contract = RUNTIME_CONTRACTS[variant]
+    problems = _runtime_distribution_problems(variant, installed)
 
     available_providers = set(providers)
     missing = sorted(contract.required_providers - available_providers)
@@ -132,10 +142,26 @@ def runtime_ownership_problems(
 
 def validate_current_runtime(variant: RuntimeVariant) -> list[str]:
     """Validate current interpreter against selected runtime contract."""
-    import onnxruntime
+    inventory = current_distribution_inventory()
+    ownership_problems = _runtime_distribution_problems(variant, inventory)
+    if ownership_problems:
+        return ownership_problems
+
+    try:
+        import onnxruntime
+    except Exception as error:
+        return [f"cannot import onnxruntime: {type(error).__name__}: {error}"]
+
+    try:
+        providers = onnxruntime.get_available_providers()
+    except Exception as error:
+        return [
+            "cannot query onnxruntime execution providers: "
+            f"{type(error).__name__}: {error}"
+        ]
 
     return runtime_ownership_problems(
         variant,
-        current_distribution_inventory(),
-        onnxruntime.get_available_providers(),
+        inventory,
+        providers,
     )
