@@ -21,5 +21,5 @@ Created by doczeus (https://github.com/Hkshoonya)
 __version__ = "1.5.2"
 __author__ = "doczeus"
 __license__ = "GPL-3.0"
-__url__ = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
+__url__ = "https://nvbroadcast.com"
 __copyright__ = "Copyright (c) 2026 doczeus"

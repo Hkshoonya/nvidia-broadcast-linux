@@ -102,16 +102,16 @@ def supports_linux_gpu_stack() -> bool:
 
 
 def supports_tensorrt_python(version_info: tuple[int, int] | None = None) -> bool:
-    """Return whether NVIDIA publishes TensorRT Python wheels for this version."""
+    """Return whether the pinned TensorRT 10 libraries support this runtime."""
     major, minor = _coerce_version_info(version_info)
-    return major == 3 and 8 <= minor <= 13
+    return major == 3 and 11 <= minor <= 14
 
 
 def tensorrt_python_unsupported_reason(version_info: tuple[int, int] | None = None) -> str:
-    """Human-readable reason when TensorRT wheels are unavailable for Python."""
+    """Human-readable reason when this Python runtime is not validated."""
     major, minor = _coerce_version_info(version_info)
     return (
-        "TensorRT Python wheels are currently available only for Python 3.8-3.13 "
+        "The TensorRT 10 library runtime is validated for Python 3.11-3.14 "
         f"on Linux x86_64. This system is running Python {major}.{minor}."
     )
 
@@ -168,7 +168,7 @@ def python_runtime_advisory(
         )
     else:
         lines.append(
-            "Zeus and Killer TensorRT installs are reduced until NVIDIA ships matching Python wheels."
+            "Zeus and Killer need the optional TensorRT 10 libraries and a successful provider probe."
         )
     if supports_openai_whisper_python((major, minor)):
         lines.append(

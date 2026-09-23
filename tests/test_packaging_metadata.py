@@ -1,7 +1,10 @@
+import json
 import re
 import stat
+import struct
 import tomllib
 import unittest
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
@@ -37,26 +40,118 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f'<release version="{current}" date="2026-09-04">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
-        # Direct website downloads follow the latest published release until
-        # the candidate is promoted, so release preparation cannot create 404s.
-        published = "1.4.0"
+        # Direct website downloads follow the latest published release only
+        # after its artifacts and Store revisions are public.
+        published = "1.5.2"
         self.assertIn(f"nvbroadcast_{published}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{published}-1.noarch.rpm", docs_index)
         self.assertIn(f"NVBroadcast-{published}-1.pkg", docs_index)
         self.assertIn(f"such as v{current}", snap_workflow)
         self.assertIn(f"# NV Broadcast v{current}", release_notes)
 
+    def test_published_native_downloads_protect_legacy_upgrades(self):
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+        commands = website.split("const commands = {", 1)[1].split("};", 1)[0]
+
+        self.assertNotIn("sudo dpkg -i", commands)
+        self.assertIn("nvbroadcast-native-upgrade", commands)
+        self.assertIn("SHA256SUMS.packages | sha256sum -c -", commands)
+        self.assertEqual(commands.count("set -euo pipefail"), 2)
+        self.assertEqual(commands.count("WORKDIR=$(mktemp -d)"), 2)
+        self.assertEqual(commands.count("wget --https-only"), 2)
+        self.assertIn("if dpkg-query", commands)
+        self.assertIn("if rpm -q nvbroadcast", commands)
+        self.assertIn("sudo apt-get install --yes --no-remove", commands)
+        self.assertIn("sudo dnf install --assumeyes", commands)
+
+    def test_public_homepage_and_search_metadata_are_canonical(self):
+        canonical = "https://nvbroadcast.com"
+        retired = "nvbroadcast.domjarvis.com"
+        homepage_files = (
+            "README.md",
+            "pyproject.toml",
+            "build-packages.sh",
+            "packaging/debian/control",
+            "packaging/rpm/nvbroadcast.spec",
+            "snap/snapcraft.yaml",
+            "data/com.doczeus.NVBroadcast.metainfo.xml",
+            "src/nvbroadcast/__init__.py",
+            "src/nvbroadcast/ui/window.py",
+            "docs/index.html",
+        )
+
+        for relative in homepage_files:
+            content = (REPO_ROOT / relative).read_text()
+            self.assertIn(canonical, content, relative)
+            self.assertNotIn(retired, content, relative)
+
+        self.assertEqual((REPO_ROOT / "docs" / "CNAME").read_text().strip(), "nvbroadcast.com")
+
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+        self.assertIn('<link rel="canonical" href="https://nvbroadcast.com/">', website)
+        self.assertIn('<meta property="og:url" content="https://nvbroadcast.com/">', website)
+        self.assertIn(
+            '<meta property="og:image" content="https://nvbroadcast.com/og-image.png">',
+            website,
+        )
+        self.assertIn('<meta name="twitter:card" content="summary_large_image">', website)
+        self.assertNotIn('<meta name="keywords"', website)
+
+        structured = website.split('<script type="application/ld+json">', 1)[1].split(
+            "</script>", 1
+        )[0]
+        graph = json.loads(structured)["@graph"]
+        nodes = {node["@type"]: node for node in graph}
+        self.assertEqual(nodes["WebSite"]["url"], f"{canonical}/")
+        application = nodes["SoftwareApplication"]
+        self.assertEqual(application["softwareVersion"], "1.5.2")
+        self.assertEqual(application["applicationCategory"], "MultimediaApplication")
+        self.assertEqual(application["offers"]["price"], "0")
+
+        robots = (REPO_ROOT / "docs" / "robots.txt").read_text()
+        self.assertIn("User-agent: *\nAllow: /", robots)
+        self.assertIn(f"Sitemap: {canonical}/sitemap.xml", robots)
+
+        sitemap = ET.parse(REPO_ROOT / "docs" / "sitemap.xml").getroot()
+        namespace = {"sitemap": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        self.assertEqual(
+            sitemap.findtext("sitemap:url/sitemap:loc", namespaces=namespace),
+            f"{canonical}/",
+        )
+
+        image = (REPO_ROOT / "docs" / "og-image.png").read_bytes()
+        self.assertEqual(image[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(struct.unpack(">II", image[16:24]), (1200, 630))
+
     def test_snap_description_stays_within_store_limit(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         description = self._snap_description(snapcraft)
         self.assertLessEqual(len(description), 4096)
 
+    def test_snap_summary_stays_descriptive_between_releases(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        summary = re.search(r"^summary: (.+)$", snapcraft, flags=re.MULTILINE).group(1)
+
+        self.assertLessEqual(len(summary), 79)
+        self.assertIn("virtual camera", summary.lower())
+        self.assertIn("background", summary.lower())
+        self.assertNotRegex(summary, r"\bv?\d+\.\d+")
+
     def test_install_script_uses_supported_tensorrt_command(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertIn("pip install tensorrt-cu12", install_script)
+        pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        requirement = "tensorrt-cu12-libs==10.16.0.72"
+        self.assertEqual(
+            pyproject["project"]["optional-dependencies"]["tensorrt"],
+            [requirement],
+        )
+        self.assertIn(f"pip\" install '{requirement}'", install_script)
+        self.assertIn("version('tensorrt-cu12-libs')", install_script)
+        self.assertIn(f"pip install {requirement}", install_script)
         self.assertNotIn("tensorrt-cu12-bindings", install_script)
-        self.assertNotIn("tensorrt-cu12-libs", install_script)
-        self.assertIn("requires Python 3.8-3.13", install_script)
+        self.assertNotIn("pip\" install tensorrt-cu12 onnx", install_script)
+        self.assertIn("requires Python 3.11-3.14", install_script)
+        self.assertIn("--variant cuda --provider tensorrt", install_script)
         self.assertIn("Python runtime notice", install_script)
         self.assertIn("some premium paths use safer defaults", install_script)
         self.assertIn('rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $rc)"', install_script)
@@ -190,7 +285,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertLess(guard_calls[1], first_environment_mutation)
         self.assertIn("check_source_venv_processes.py", install_script)
         self.assertIn(
-            "Stop NVBroadcast and the virtual-camera service", install_script
+            "Stop NVBroadcast and any audio or virtual-camera service", install_script
         )
         self.assertIn(
             "systemctl --user stop nvbroadcast-vcam.service", install_script
@@ -343,10 +438,36 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("packaging/debian/changelog", build_script)
         self.assertIn("/^#DEBHELPER#$/d", build_script)
         self.assertIn("%{buildroot}/opt/nvbroadcast -type f -exec chmod 644 {} +", rpm_spec)
-        self.assertIn("chmod 644 LICENSE README.md", rpm_spec)
+        self.assertIn(
+            "chmod 644 LICENSE NOTICE README.md CONTRIBUTORS.md",
+            rpm_spec,
+        )
 
-        for relative in ("LICENSE", "README.md"):
+        for relative in ("LICENSE", "NOTICE", "README.md", "CONTRIBUTORS.md"):
             self.assertEqual((REPO_ROOT / relative).stat().st_mode & stat.S_IXUSR, 0, relative)
+
+    def test_canonical_notice_and_contributors_ship_in_package_payloads(self):
+        records = ("NOTICE", "CONTRIBUTORS.md")
+        manifest = (REPO_ROOT / "MANIFEST.in").read_text()
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        build_script = (REPO_ROOT / "build-packages.sh").read_text()
+        debian_rules = (REPO_ROOT / "packaging" / "debian" / "rules").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        macos_installer = (REPO_ROOT / "install_macos.sh").read_text()
+        build_workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+
+        self.assertIn('"share/doc/nvbroadcast"', pyproject)
+        for record in records:
+            with self.subTest(record=record):
+                self.assertIn(f"include {record}", manifest)
+                self.assertIn(f'"{record}"', pyproject)
+                self.assertIn(record, build_script)
+                self.assertIn(record, debian_rules)
+                self.assertIn(record, rpm_spec)
+                self.assertIn(record, macos_installer)
+                self.assertIn(f"/opt/nvbroadcast/{record}", build_workflow)
 
     def test_advertised_shell_entrypoints_are_executable(self):
         for relative in ("build-packages.sh", "install.sh", "install_macos.sh"):

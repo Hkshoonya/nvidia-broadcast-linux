@@ -145,6 +145,11 @@ in the release notes.
 - Run the metadata tests and verify each published website download URL returns
   the expected file rather than an error page.
 - Merge the website update and confirm the GitHub Pages deployment succeeds.
+- Confirm the canonical URL, Open Graph image, `robots.txt`, and `sitemap.xml`
+  all use `https://nvbroadcast.com`, and reject retired public-site domains in
+  metadata tests.
+- Verify HTTP redirects to HTTPS on the canonical domain and the previous
+  public hostname returns a permanent redirect to the matching canonical URL.
 - Verify upgrade discovery from the previous release and check the Snap stable
   listing from a logged-out browser session.
 - Update the release tracking issue and relevant bug reports with concise,

@@ -67,6 +67,15 @@ class DependencyInstallerTests(unittest.TestCase):
              mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CUDA):
             self.assertTrue(dependency_installer._supports_cuda_runtime())
 
+    def test_cuda_support_install_rejects_duplicate_runtime_distributions(self):
+        installer = dependency_installer.DependencyInstaller()
+        for versions in (("1.24.4", "1.24.4"), ("1.24.4", "1.30.0")):
+            with self.subTest(versions=versions), \
+                 mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+                 mock.patch("nvbroadcast.runtime.variants.current_distribution_inventory",
+                            return_value={"onnxruntime-gpu": versions}):
+                self.assertFalse(installer.is_supported("cupy"))
+
     def test_cpu_source_runtime_directs_user_to_source_installer(self):
         installer = dependency_installer.DependencyInstaller()
         with mock.patch.object(installer, "is_available", return_value=False), \
@@ -314,6 +323,18 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertIsNotNone(reason)
         self.assertIn("unavailable in this Snap", reason)
         self.assertIsNone(install_key)
+
+    def test_tensorrt_optional_install_uses_ort_abi_10_libraries(self):
+        spec = dependency_installer.PACKAGE_SPECS["tensorrt"]
+        self.assertEqual(
+            spec["install_args"],
+            ["install", "tensorrt-cu12-libs==10.16.0.72"],
+        )
+        self.assertEqual(spec["size"], "~4.3 GB")
+        self.assertEqual(
+            dependency_installer.PACKAGE_BUNDLES["premium_gpu_stack"]["size"],
+            "~6.3 GB",
+        )
 
     def test_snap_installer_rejects_direct_runtime_mutation(self):
         installer = dependency_installer.DependencyInstaller()

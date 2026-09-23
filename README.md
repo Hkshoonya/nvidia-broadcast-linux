@@ -13,14 +13,18 @@
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-76b900?style=for-the-badge&labelColor=1a1a1a" alt="License"></a>
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"><img src="https://img.shields.io/github/issues/Hkshoonya/nvidia-broadcast-linux?style=for-the-badge&color=76b900&labelColor=1a1a1a" alt="Issues"></a>
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/workflows/build-packages.yml"><img src="https://img.shields.io/github/actions/workflow/status/Hkshoonya/nvidia-broadcast-linux/build-packages.yml?style=for-the-badge&color=76b900&labelColor=1a1a1a&label=Build" alt="Build"></a>
+  <a href="https://nvbroadcast.com"><img src="https://img.shields.io/badge/Website-nvbroadcast.com-76b900?style=for-the-badge&labelColor=1a1a1a" alt="Website"></a>
   <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme"><img src="https://img.shields.io/badge/Sponsor-DocZeus-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor"></a>
 </p>
 
 <p align="center">
-  <em>NV Broadcast — Unofficial NV Broadcast and other OS. Open source. GPU accelerated. Built with passion.</em>
+  <em>Open-source, unofficial NVIDIA Broadcast alternative for Linux and macOS. AI-powered virtual camera and audio tools.</em>
 </p>
 
 ---
+
+> [!IMPORTANT]
+> **Canonical upstream:** [Hkshoonya/nvidia-broadcast-linux](https://github.com/Hkshoonya/nvidia-broadcast-linux), created and maintained by [DocZeus](https://github.com/Hkshoonya). Forks and mirrors are welcome under the project license, but downstream versions should identify themselves clearly, link to this repository, and preserve the required author attribution. See [Canonical Project and Attribution](docs/CANONICAL_PROJECT.md).
 
 ## Why I Built This
 
@@ -245,7 +249,7 @@ When Edge Refine is toggled ON (Zeus/Killer modes):
 
 ### Software
 - **Linux** with NVIDIA driver 525+ (Pop!_OS, Ubuntu, Fedora, Arch, openSUSE, etc.)
-- **Python** 3.11+ (the Linux source installer uses CPython 3.11-3.13 for the current broad-feature runtime)
+- **Python** 3.11+ (the Linux source installer supports CPython 3.11-3.14 with compatible GTK4/Libadwaita/GStreamer bindings; Python 3.12/3.13 currently give the broadest premium-feature compatibility, see [Python runtime notice](#optional-tensorrt-for-zeuskiller-modes))
 - **PipeWire** (virtual microphone)
 - **PulseAudio utilities** (`pactl`) for speaker-monitor routing and device resolution
 - **GStreamer** 1.20+ with plugins-base, plugins-good, plugins-bad
@@ -266,8 +270,10 @@ cd nvidia-broadcast-linux
 ```
 
 The Linux source installer uses an already-installed compatible interpreter in
-this order: CPython 3.13, 3.12, then 3.11. It creates only the repository's
-`.venv`; it does not replace the distro's system Python or add a package
+this order: CPython 3.13, 3.12, 3.11, then 3.14, followed by a compatible
+`python3`. This preserves the current broad-feature preference while
+supporting distros whose desktop bindings target Python 3.14. It creates only
+the repository's `.venv`; it does not replace the distro's system Python or add a package
 repository. Compatibility includes `venv`/`ensurepip` support and access to the
 distro's GTK4, Libadwaita, and GStreamer Python bindings. To select a specific
 compatible interpreter:
@@ -275,6 +281,12 @@ compatible interpreter:
 ```bash
 ./install.sh --python /usr/bin/python3.12
 ```
+
+Use `--python /usr/bin/python3.14` to choose Python 3.14 explicitly when that
+interpreter can import the desktop bindings. TensorRT modes also work with the
+pinned TensorRT 10 libraries after the provider execution probe succeeds.
+Newer Python versions need runtime-wheel validation before the source installer
+accepts them.
 
 If no compatible interpreter with `venv` support is installed, the installer
 stops before changing the system and prints guidance for the detected distro.
@@ -411,13 +423,24 @@ reproducibility limits.
 
 ### Optional: TensorRT (for Zeus/Killer modes)
 
+Use the CUDA runtime variant, then install the TensorRT 10 libraries and verify
+that ONNX Runtime actually executes its pinned probe graph on TensorRT:
+
 ```bash
-.venv/bin/pip install tensorrt-cu12 onnx
+./install.sh --runtime cuda
+.venv/bin/pip install 'tensorrt-cu12-libs==10.16.0.72'
+.venv/bin/python -m nvbroadcast.runtime --variant cuda --provider tensorrt
 ```
 
-TensorRT Python wheels are currently published for Python `3.8` through `3.13`
-on Linux `x86_64`. If you are on Python `3.14+`, use `DocZeus` or the CUDA
-modes instead.
+The ONNX Runtime GPU wheel used here requires TensorRT 10 shared libraries;
+TensorRT Python bindings are not needed for Zeus or Killer. The pinned library
+wheel is about 4.3 GB and is retrieved from NVIDIA's package index by the PyPI
+installer stub. It supports the source installer's Python `3.11` through
+`3.14` range on Linux `x86_64`. The installer also requires GTK4, Libadwaita,
+and GStreamer bindings for the selected interpreter, so choose a distro Python
+that can import them. The first use of each mode or frame size builds and caches
+an engine; the preview or window can appear unresponsive for several minutes
+during that build.
 
 ### Supported Distros
 
@@ -517,6 +540,8 @@ nvbroadcast          # Launch GUI (first time: setup wizard)
 | **Mode** | 9 modes: Killer, Zeus, DocZeus, CUDA, CPU |
 | **Mirror** | Horizontal flip on/off |
 | **Edge Refine** | Neural edge refinement (Zeus/Killer) |
+| **Dilate** | Adjust the subject boundary in Blur, Replace, and Remove. Default: 3. In Replace, lower values contract the established outline and higher values expand it. |
+| **Softness** | Adjust the edge transition in every background mode. Default: 5. Replace retains a narrower transition than Remove at the same setting. |
 | **Pause View** | Freeze preview display |
 | **Hide Preview** | Collapse preview for more control space |
 | **Drag Divider** | Resize preview vs controls area |
@@ -615,8 +640,9 @@ CUDA-owned environment, run:
 .venv/bin/python -m nvbroadcast.runtime --variant cuda --provider tensorrt
 ```
 
-On Python `3.14+`, TensorRT may still be unavailable, but CUDA modes can run
-when the default CUDA probe succeeds.
+On Python `3.14`, the optional TensorRT 10 libraries and a successful TensorRT
+probe enable Zeus and Killer. CUDA modes remain available when the CUDA probe
+succeeds.
 
 The amd64 Snap includes CUDA inference, compositing, and frame conversion, but
 intentionally uses GStreamer's CPU MJPEG decoder. Bundling the optional
@@ -726,6 +752,12 @@ nvidia-broadcast-linux/
 
 Contributions, feedback, and ideas are **warmly welcome**.
 
+Recognized external contributors receive cumulative credit in every later app
+release and in [CONTRIBUTORS.md](CONTRIBUTORS.md), including a public record of
+the work or technical finding behind each credit. Original project authorship,
+external contributions, community testing, and financial sponsorship are
+recognized separately so that one form of support never replaces another.
+
 ### How to Contribute
 
 1. **Fork** this repository
@@ -749,6 +781,16 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 - [ ] NVIDIA Maxine SDK integration
 - [ ] Flatpak packaging
 - [x] Snap packaging
+
+### Recognized Contributors
+
+The permanent contributor record currently recognizes
+[John Maingi](https://github.com/JohnMaingi-IXP),
+[Jon Fuller](https://github.com/perfectra1n),
+[Cédric Prezelin](https://github.com/Tenshock), and
+[Cenkay Çoban](https://github.com/pastor0711). See
+[CONTRIBUTORS.md](CONTRIBUTORS.md) for the contribution summary and source
+references behind each credit.
 
 ## Future Upgrades
 

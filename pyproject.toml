@@ -51,7 +51,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
+Homepage = "https://nvbroadcast.com"
 Repository = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
 Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 
@@ -94,7 +94,9 @@ meeting-support = [
     "tqdm",
 ]
 maxine = ["nvidia-vfx"]
-tensorrt = ["tensorrt", "tensorrt-cu12", "onnx"]
+# ONNX Runtime 1.24.4 loads TensorRT ABI 10 directly; Python bindings are not
+# needed, and the unpinned tensorrt-cu12 package now selects incompatible ABI 11.
+tensorrt = ["tensorrt-cu12-libs==10.16.0.72"]
 
 [project.scripts]
 nvbroadcast = "nvbroadcast.__main__:main"
@@ -107,6 +109,10 @@ where = ["src"]
 "nvbroadcast.ui" = ["style.css"]
 
 [tool.setuptools.data-files]
+"share/doc/nvbroadcast" = [
+    "CONTRIBUTORS.md",
+    "NOTICE",
+]
 "share/applications" = ["data/com.doczeus.NVBroadcast.desktop"]
 "share/metainfo" = ["data/com.doczeus.NVBroadcast.metainfo.xml"]
 "share/icons/hicolor/scalable/apps" = ["data/icons/com.doczeus.NVBroadcast.svg"]

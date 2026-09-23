@@ -3,7 +3,7 @@ Version:        1.5.2
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
-URL:            https://github.com/Hkshoonya/nvidia-broadcast-linux
+URL:            https://nvbroadcast.com
 Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      noarch
@@ -50,12 +50,13 @@ Requires NVIDIA GPU with driver 525+ for GPU acceleration.
 
 %prep
 %autosetup -n %{name}-%{version}
-chmod 644 LICENSE README.md
+chmod 644 LICENSE NOTICE README.md CONTRIBUTORS.md
 
 %install
 # Application
 install -d %{buildroot}/opt/nvbroadcast
-cp -r src pyproject.toml LICENSE README.md %{buildroot}/opt/nvbroadcast/
+cp -r src pyproject.toml LICENSE NOTICE README.md CONTRIBUTORS.md \
+    %{buildroot}/opt/nvbroadcast/
 install -Dm 755 scripts/install_runtime_variant.py \
     %{buildroot}/opt/nvbroadcast/scripts/install_runtime_variant.py
 install -d %{buildroot}/opt/nvbroadcast/models
@@ -180,7 +181,8 @@ fi
 %config(noreplace) /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
 %config(noreplace) /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
 %license LICENSE
-%doc README.md
+%license NOTICE
+%doc README.md CONTRIBUTORS.md
 
 %changelog
 * Fri Sep 04 2026 doczeus <harshit@kshoonya.com> - 1.5.2-1

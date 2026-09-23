@@ -10,7 +10,8 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gtk, Adw, Gio, GLib, Gdk
+gi.require_version("Pango", "1.0")
+from gi.repository import Gtk, Adw, Gio, GLib, Gdk, Pango
 
 from nvbroadcast.contributors import app_contributor_credits
 from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
@@ -107,6 +108,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._build_ui()
         self._populate_devices()
 
+    def _set_profile_name(self, name: str) -> None:
+        self._profile_text.set_text(f"Profile: {name}")
+        self._profile_btn.set_tooltip_text(f"Current profile: {name}. Switch profile")
+
     def _card_expanded(self, key: str, default: bool) -> bool:
         value = self._app.config.ui_card_expanded.get(key)
         return default if value is None else bool(value)
@@ -175,13 +180,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._meeting_btn.add_css_class("idle")
         self._meeting_btn.set_tooltip_text("Record + transcribe meeting")
         self._meeting_btn.connect("clicked", self._on_meeting_toggle)
-        header.pack_end(self._meeting_btn)
 
         self._notes_sidebar_btn = Gtk.ToggleButton(label="Meeting Notes")
         self._notes_sidebar_btn.add_css_class("flat")
         self._notes_sidebar_btn.set_tooltip_text("Show or hide live transcript and meeting history")
         self._notes_sidebar_btn.connect("toggled", self._on_meeting_sidebar_toggled)
-        header.pack_end(self._notes_sidebar_btn)
 
         # Record button (video only)
         self._record_btn = Gtk.Button(label="Rec")
@@ -189,11 +192,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._record_btn.add_css_class("idle")
         self._record_btn.set_tooltip_text("Record to MP4")
         self._record_btn.connect("clicked", self._on_record_toggle)
-        header.pack_end(self._record_btn)
 
         # Profile selector
-        self._profile_btn = Gtk.MenuButton(label="Profile")
-        self._profile_btn.set_tooltip_text("Switch profile")
+        self._profile_btn = Gtk.MenuButton()
+        profile_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._profile_text = Gtk.Label()
+        self._profile_text.set_ellipsize(Pango.EllipsizeMode.END)
+        self._profile_text.set_max_width_chars(15)
+        profile_content.append(self._profile_text)
+        profile_content.append(Gtk.Image.new_from_icon_name("pan-down-symbolic"))
+        self._profile_btn.set_child(profile_content)
+        self._set_profile_name("Default")
         self._profile_popover = Gtk.Popover()
         self._profile_popover_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._profile_popover_box.set_margin_top(8)
@@ -223,7 +232,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._update_btn.set_visible(False)
         self._update_btn.set_tooltip_text("Open the recommended upgrade target")
         self._update_btn.connect("clicked", self._open_update_release)
-        header.pack_end(self._update_btn)
 
         gpu_btn = Gtk.MenuButton(icon_name="applications-graphics-symbolic",
                                  tooltip_text="GPU Information")
@@ -240,7 +248,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._update_gpu_info()
         main_box.append(header)
 
-        body_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        # A separate row keeps secondary actions visible without making the
+        # header, and therefore the whole window, as wide as all its labels.
+        header_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_actions.set_halign(Gtk.Align.END)
+        header_actions.set_margin_start(16)
+        header_actions.set_margin_end(16)
+        header_actions.set_margin_top(4)
+        header_actions.set_margin_bottom(4)
+        header_actions.append(self._record_btn)
+        header_actions.append(self._notes_sidebar_btn)
+        header_actions.append(self._meeting_btn)
+        header_actions.append(self._update_btn)
+        main_box.append(header_actions)
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         paned.set_vexpand(True)
@@ -290,7 +310,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
 
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        # Keep both sections visible on portrait monitors and narrow windows.
+        # FlowBox requests only one column as its minimum width and wraps the
+        # second section below the first when two columns no longer fit.
+        controls = Gtk.FlowBox()
+        controls.set_selection_mode(Gtk.SelectionMode.NONE)
+        controls.set_min_children_per_line(1)
+        controls.set_max_children_per_line(2)
+        controls.set_column_spacing(16)
+        controls.set_row_spacing(16)
         controls.set_margin_start(16)
         controls.set_margin_end(16)
         controls.set_margin_top(12)
@@ -299,7 +327,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         cam = self._build_camera_section()
         cam.set_hexpand(True)
         controls.append(cam)
-        controls.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         aud = self._build_audio_section()
         aud.set_hexpand(True)
         controls.append(aud)
@@ -308,11 +335,21 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         paned.set_end_child(scroll)
 
         paned.set_position(450)
-        body_box.append(paned)
-
         self._meeting_sidebar = self._build_meeting_sidebar()
-        body_box.append(self._meeting_sidebar)
-        main_box.append(body_box)
+        # Flap folds the notes over the content below their combined minimum
+        # width and remains available on older libadwaita installations.
+        self._body_flap = Adw.Flap()
+        self._body_flap.set_content(paned)
+        self._body_flap.set_flap(self._meeting_sidebar)
+        self._body_flap.set_flap_position(Gtk.PackType.END)
+        self._body_flap.set_fold_policy(Adw.FlapFoldPolicy.AUTO)
+        self._body_flap.set_fold_threshold_policy(Adw.FoldThresholdPolicy.MINIMUM)
+        self._body_flap.set_locked(True)
+        self._body_flap.set_modal(True)
+        self._body_flap.set_reveal_flap(False)
+        self._body_flap.connect("notify::reveal-flap", self._sync_meeting_flap_state)
+        self._body_flap.connect("notify::folded", self._sync_meeting_flap_state)
+        main_box.append(self._body_flap)
 
         footer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
@@ -993,11 +1030,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         return box
 
     def _build_meeting_sidebar(self) -> Gtk.Widget:
-        self._meeting_sidebar_revealer = Gtk.Revealer()
-        self._meeting_sidebar_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_LEFT)
-        self._meeting_sidebar_revealer.set_transition_duration(180)
-        self._meeting_sidebar_revealer.set_reveal_child(False)
-
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         outer.set_margin_top(8)
         outer.set_margin_bottom(8)
@@ -1047,8 +1079,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         history_scroll.set_child(self._meeting_history)
         outer.append(history_scroll)
 
-        self._meeting_sidebar_revealer.set_child(outer)
-        return self._meeting_sidebar_revealer
+        sidebar_scroll = Gtk.ScrolledWindow()
+        sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar_scroll.set_min_content_width(380)
+        sidebar_scroll.set_max_content_width(380)
+        sidebar_scroll.set_child(outer)
+        return sidebar_scroll
 
     # --- Signals ---
     def _on_stream_toggle(self, btn):
@@ -1308,7 +1344,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             missing = self._app.dependency_installer.missing_for_mode(mode_key)
             if unsupported:
                 if mode_key in ("zeus", "killer") and not has_trt and not supports_tensorrt_python():
-                    label += " (requires Python 3.8-3.13)"
+                    label += " (requires Python 3.11-3.14)"
                 else:
                     label += " (not available on this system)"
                 devices.append({"name": label, "device": mode_key})
@@ -1685,7 +1721,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self.set_status(f"Speaker: {device}")
 
     def _on_meeting_sidebar_toggled(self, btn):
-        self._meeting_sidebar_revealer.set_reveal_child(btn.get_active())
+        self._body_flap.set_reveal_flap(btn.get_active())
+
+    def _sync_meeting_flap_state(self, flap, _param):
+        self._notes_sidebar_btn.set_active(flap.get_reveal_flap())
+        # Libadwaita's modal overlay blocks pointer input, but GTK can still
+        # tab to covered controls unless the content is insensitive.
+        flap.get_content().set_sensitive(not (
+            flap.get_folded() and flap.get_reveal_flap()
+        ))
 
     def reset_live_meeting_view(self):
         self._notes_sidebar_btn.set_active(True)
@@ -1971,7 +2015,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.config.current_profile = name
         save_config(self._app.config)
         self._app.restore_current_config()
-        self._profile_btn.set_label(f"Profile: {name}")
+        self._set_profile_name(name)
         popover.popdown()
         self.set_status(f"Switched to {name} profile")
 
@@ -1989,7 +2033,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._app.restore_current_config()
             if loaded.auto_mode:
                 self._app.set_auto_mode_enabled(True)
-            self._profile_btn.set_label(f"Profile: {name}")
+            self._set_profile_name(name)
             popover.popdown()
             self.set_status(f"Switched to {name} profile")
             # The application owns pipeline state. Keep the controls aligned
@@ -2037,7 +2081,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 save_profile(name, self._app.config)
                 self._app.config.current_profile = name
                 save_config(self._app.config)
-                self._profile_btn.set_label(f"Profile: {name}")
+                self._set_profile_name(name)
                 self.set_status(f"Profile saved: {name}")
                 self._rebuild_profile_popover()
         dialog.destroy()
@@ -2051,7 +2095,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.restore_current_config()
         if reset.auto_mode:
             self._app.set_auto_mode_enabled(True)
-        self._profile_btn.set_label("Profile: Default")
+        self._set_profile_name("Default")
         popover.popdown()
         self.set_status("Settings reset to defaults")
 
@@ -2137,7 +2181,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 if speaker["device"] == a.speaker_device:
                     self._speaker_selector.set_selected_index(i)
                     break
-        self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
+        self._set_profile_name(config.current_profile or "Default")
         self._app._update_pipeline_mode()
         print(f"[NV Broadcast] Profile applied: bg={v.background_removal}, eye={v.eye_contact}, relight={v.relighting}, beauty={v.beauty.enabled}")
 
@@ -2313,7 +2357,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Mirror
         self._mirror_toggle.active = v.mirror
         self._power_save_toggle.active = getattr(config, "auto_idle", True)
-        self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
+        self._set_profile_name(config.current_profile or "Default")
         self.sync_hotkey_settings()
 
     def sync_video_input_controls(self, config):
@@ -2389,7 +2433,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             application_icon=icon_name,
             version=__import__("nvbroadcast").__version__,
             developer_name="doczeus",
-            website="https://github.com/Hkshoonya/nvidia-broadcast-linux",
+            website="https://nvbroadcast.com",
             support_url="https://github.com/sponsors/Hkshoonya",
             issue_url="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues",
             license_type=Gtk.License.GPL_3_0,

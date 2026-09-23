@@ -537,7 +537,7 @@ class BackgroundOverlayTests(unittest.TestCase):
             "replacement temporal smoothing should not keep narrow gaps shut after they open",
         )
 
-    def test_quality_replace_matte_reopens_gap_more_tightly_than_performance(self):
+    def test_quality_and_performance_replace_mattes_reopen_fine_gaps(self):
         quality = self._make_effects()
         quality._bg_mode = "replace"
         quality._quality = "quality"
@@ -557,11 +557,13 @@ class BackgroundOverlayTests(unittest.TestCase):
         quality_gap = quality._replacement_matte(alpha_open)
         performance_gap = performance._replacement_matte(alpha_open)
 
-        self.assertLess(
-            float(quality_gap[4, 7]),
-            float(performance_gap[4, 7]),
-            "quality replace mode should preserve fine reopened gaps more tightly than performance mode",
-        )
+        for preset, matte in (("quality", quality_gap), ("performance", performance_gap)):
+            with self.subTest(preset=preset):
+                self.assertLess(
+                    float(matte[4, 7]), 0.12,
+                    "both presets should reopen a detected background gap",
+                )
+                self.assertGreater(float(matte[10, 7]), 0.90)
 
     def test_refine_alpha_preserves_narrow_exterior_finger_gap(self):
         effects = self._make_effects()
@@ -768,10 +770,13 @@ class BackgroundOverlayTests(unittest.TestCase):
             return cleaned
         effects._prepare_replace_foreground = prepare_replace
 
+        kernel_calls = []
+
         def fake_kernel(_grid, _block, args):
             fg_gpu = args[0]
-            output_gpu = args[5]
+            output_gpu = args[6]
             output_gpu[:] = fg_gpu
+            kernel_calls.append(int(args[12]))
 
         original_kernel = self.effects_module._get_fused_kernel
         self.effects_module._get_fused_kernel = lambda: fake_kernel
@@ -781,8 +786,112 @@ class BackgroundOverlayTests(unittest.TestCase):
             self.effects_module._get_fused_kernel = original_kernel
 
         self.assertEqual(calls, [((4, 4, 4), (4, 4))])
+        self.assertEqual(kernel_calls, [0])
         self.assertIsNotNone(out)
         self.assertEqual(int(out[2, 2, 2]), 220)
+
+    def test_fused_remove_enables_gpu_fringe_cleanup(self):
+        effects = self._make_effects()
+        effects._bg_mode = "remove"
+        effects._cupy = self._FakeCupy()
+
+        fg = np.zeros((4, 4, 4), dtype=np.uint8)
+        fg[:, :, 2] = 40
+        fg[:, :, 3] = 255
+        alpha = np.ones((4, 4), dtype=np.float32)
+
+        clean_color = np.zeros((2, 2, 4), dtype=np.uint8)
+        clean_color[:, :, 2] = 220
+        clean_color[:, :, 3] = 255
+        reference_calls = []
+        kernel_calls = []
+
+        def gpu_clean_reference(fg_arg, alpha_arg):
+            reference_calls.append((fg_arg.shape, alpha_arg.shape))
+            return clean_color, 2
+
+        effects._gpu_clean_color_reference = gpu_clean_reference
+
+        def fake_kernel(_grid, _block, args):
+            fg_gpu = args[0]
+            output_gpu = args[6]
+            output_gpu[:] = fg_gpu
+            kernel_calls.append(
+                {
+                    "clean_color": args[3],
+                    "frame_width": int(args[8]),
+                    "clean_width": int(args[9]),
+                    "clean_height": int(args[10]),
+                    "clean_scale": int(args[11]),
+                    "despill": int(args[12]),
+                }
+            )
+            if int(args[12]):
+                output_gpu[:, :, 2] = args[3][0, 0, 2]
+
+        original_kernel = self.effects_module._get_fused_kernel
+        self.effects_module._get_fused_kernel = lambda: fake_kernel
+        try:
+            out = effects._composite_fused(fg, alpha, 4, 4)
+        finally:
+            self.effects_module._get_fused_kernel = original_kernel
+
+        self.assertEqual(reference_calls, [((4, 4, 4), (4, 4))])
+        self.assertEqual(len(kernel_calls), 1)
+        self.assertIs(kernel_calls[0]["clean_color"], clean_color)
+        argument_names = (
+            "frame_width",
+            "clean_width",
+            "clean_height",
+            "clean_scale",
+            "despill",
+        )
+        self.assertEqual(
+            {key: kernel_calls[0][key] for key in argument_names},
+            {
+                "frame_width": 4,
+                "clean_width": 2,
+                "clean_height": 2,
+                "clean_scale": 2,
+                "despill": 1,
+            },
+        )
+        self.assertIsNotNone(out)
+        self.assertEqual(int(out[2, 2, 2]), 220)
+
+    def test_fused_blur_preserves_soft_edge_without_gpu_fringe_cleanup(self):
+        effects = self._make_effects()
+        effects._bg_mode = "blur"
+        effects._cupy = self._FakeCupy()
+        effects._gpu_blur_bgra = lambda fg_arg, _sigma: np.zeros_like(fg_arg)
+
+        fg = np.zeros((4, 4, 4), dtype=np.uint8)
+        fg[:, :, 3] = 255
+        alpha = np.ones((4, 4), dtype=np.float32)
+        clean_color = np.zeros((2, 2, 4), dtype=np.uint8)
+        reference_calls = []
+        kernel_flags = []
+
+        def gpu_clean_reference(fg_arg, alpha_arg):
+            reference_calls.append((fg_arg.shape, alpha_arg.shape))
+            return clean_color, 2
+
+        effects._gpu_clean_color_reference = gpu_clean_reference
+
+        def fake_kernel(_grid, _block, args):
+            args[6][:] = args[0]
+            kernel_flags.append(int(args[12]))
+
+        original_kernel = self.effects_module._get_fused_kernel
+        self.effects_module._get_fused_kernel = lambda: fake_kernel
+        try:
+            out = effects._composite_fused(fg, alpha, 4, 4)
+        finally:
+            self.effects_module._get_fused_kernel = original_kernel
+
+        self.assertEqual(reference_calls, [])
+        self.assertEqual(kernel_flags, [0])
+        self.assertIsNotNone(out)
 
     def test_edge_aware_replace_matte_hardens_transition_on_real_edges(self):
         effects = self._make_effects()
@@ -861,6 +970,42 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertLess(float(refined[280, 510]), float(matte[280, 510]), "ROI edge should still tighten entry fringe")
         self.assertGreater(float(refined[280, 512]), float(matte[280, 512]), "ROI edge should still harden exit fringe")
         self.assertEqual(float(refined[12, 12]), float(matte[12, 12]), "solid pixels outside the ROI must be untouched")
+
+    def test_edge_refinement_is_local_with_sparse_or_dense_partial_opacity(self):
+        effects = self._make_effects()
+        frame = np.zeros((64, 96, 4), dtype=np.uint8)
+        frame[:, 48:, :3] = 230
+        frame[:, :, 3] = 255
+        sparse = np.zeros((64, 96), dtype=np.float32)
+        sparse[:, 48:] = 1.0
+        sparse[:, 44:52] = np.array(
+            [0.02, 0.07, 0.11, 0.34, 0.66, 0.82, 0.97, 0.99], dtype=np.float32,
+        )
+        dense = sparse.copy()
+        dense[:, :44] = 0.25
+        dense[:, 52:] = 0.75
+        # Unrelated partial-opacity pixels must not change the shared edge.
+        # Read-only inputs also catch accidental in-place cleanup.
+        frame.setflags(write=False)
+        sparse.setflags(write=False)
+        dense.setflags(write=False)
+        for preserve_detail in (False, True):
+            for downsample in (False, True):
+                with self.subTest(detail=preserve_detail, downsample=downsample):
+                    results = []
+                    for matte in (sparse, dense):
+                        transition = (matte > 0.05) & (matte < 0.95)
+                        results.append(effects._edge_aware_replace_matte_region(
+                            frame, matte, transition, preserve_detail, downsample,
+                        ))
+                    np.testing.assert_allclose(
+                        results[0][:, 44:52], results[1][:, 44:52],
+                        rtol=0, atol=1e-7,
+                    )
+                    self.assertTrue(np.all(results[0][:, :44] == 0))
+                    self.assertTrue(np.all(results[0][:, 52:] == 1))
+                    self.assertTrue(np.all(sparse[:, :44] == 0))
+                    self.assertTrue(np.all(dense[:, :44] == 0.25))
 
     def test_greenscreen_matte_is_tighter_than_replace_matte(self):
         effects = self._make_effects()
