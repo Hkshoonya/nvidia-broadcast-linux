@@ -90,7 +90,7 @@ class DeviceSelector(Gtk.Box):
     def _setup_selected_item(_factory, item):
         label = Gtk.Label(xalign=0)
         label.set_ellipsize(Pango.EllipsizeMode.END)
-        label.set_width_chars(10)
+        label.set_width_chars(6)
         item.set_child(label)
 
     @staticmethod

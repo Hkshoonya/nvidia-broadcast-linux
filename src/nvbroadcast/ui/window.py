@@ -107,7 +107,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Libadwaita breakpoints remove the inferred minimum size. Keep a
         # tested compact size that fits the controls and the folded sidebar.
         self._responsive_breakpoints = _supports_responsive_breakpoints(self)
-        self.set_size_request(430 if self._responsive_breakpoints else 730, 420)
+        self.set_size_request(
+            430 if self._responsive_breakpoints else 730,
+            540 if self._responsive_breakpoints else 420,
+        )
         self._app = app
         self._streaming = False
         self._installer = None
@@ -122,13 +125,22 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._active_section = "camera"
         self._compact_controls = False
         self._switching_section = False
+        self._profile_name = "Default"
         self._meeting_button_state = "idle"
         self._layout_reconcile_pending = False
+        self._tiny_preview_active = False
+        self._preview_auto_hidden = False
+        self._applying_auto_preview = False
+        self._update_full_label = "Update Available"
         self._build_ui()
         self._populate_devices()
 
     def _set_profile_name(self, name: str) -> None:
-        self._profile_text.set_text(f"Profile: {name}")
+        self._profile_name = name
+        self._profile_text.set_text(
+            name if getattr(self, "_compact_controls", False)
+            else f"Profile: {name}"
+        )
         self._profile_btn.set_tooltip_text(f"Current profile: {name}. Switch profile")
 
     def _card_expanded(self, key: str, default: bool) -> bool:
@@ -181,11 +193,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         header.add_css_class("flat")
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
         title_lbl = Gtk.Label(label=APP_NAME)
+        title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        title_lbl.set_max_width_chars(12)
         title_lbl.add_css_class("app-title")
         title_box.append(title_lbl)
         sub_lbl = Gtk.Label(label=APP_SUBTITLE)
         sub_lbl.add_css_class("app-subtitle")
         title_box.append(sub_lbl)
+        title_box.set_tooltip_text(f"{APP_NAME} — {APP_SUBTITLE}")
+        self._subtitle_label = sub_lbl
         header.set_title_widget(title_box)
 
         self._stream_btn = Gtk.Button(label="Start Broadcast")
@@ -331,6 +347,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         main_box.append(header_actions)
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        self._preview_paned = paned
+        self._responsive_preview_position = 450
+        self._preview_restore_position = 450
         paned.set_vexpand(True)
         paned.set_shrink_start_child(True)
         paned.set_shrink_end_child(False)
@@ -441,17 +460,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # windows reserve space for controls; wide landscape keeps the large
         # desktop preview and the user can still drag the divider in any mode.
         layout_regions = (
-            ("max-width: 880sp and min-height: 701px", True, 300),
+            ("max-width: 960sp and min-height: 701px", True, 300),
             (
-                "min-width: 880sp and min-height: 701px "
-                "and max-aspect-ratio: 6/5", False, 300,
+                "min-width: 960sp and min-height: 701px "
+                "and max-aspect-ratio: 4/3", False, 300,
             ),
-            ("max-height: 700px and min-width: 880sp", False, 220),
+            ("max-height: 700px and min-width: 960sp", False, 220),
             (
                 "min-height: 601px and max-height: 700px "
-                "and max-width: 880sp", True, 220,
+                "and max-width: 960sp", True, 220,
             ),
-            ("max-height: 600px and max-width: 880sp", True, 160),
+            ("max-height: 600px and max-width: 960sp", True, 160),
         )
         breakpoints = []
         if self._responsive_breakpoints:
@@ -565,7 +584,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 self._preview.add_css_class("compact-tiny")
             else:
                 self._preview.remove_css_class("compact-tiny")
-            paned.set_position(preview_position)
+            if preview_position != self._responsive_preview_position:
+                self._preview_restore_position = preview_position
+            self._responsive_preview_position = preview_position
+            self._set_tiny_preview(tiny_preview)
+            paned.set_position(40 if self._hide_btn.get_active() else preview_position)
 
         def reconcile_layout(*_args):
             apply_layout()
@@ -590,6 +613,27 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 breakpoint.connect("apply", reconcile_layout)
                 breakpoint.connect("unapply", reconcile_layout)
 
+    def _set_tiny_preview(self, tiny):
+        if tiny == self._tiny_preview_active:
+            return
+        self._tiny_preview_active = tiny
+        if tiny and not self._hide_btn.get_active():
+            # A short window needs the first selector more than a 100px video
+            # thumbnail. The visible Show Preview control lets users opt in.
+            self._applying_auto_preview = True
+            try:
+                self._hide_btn.set_active(True)
+            finally:
+                self._applying_auto_preview = False
+            self._preview_auto_hidden = True
+        elif not tiny and self._preview_auto_hidden:
+            self._applying_auto_preview = True
+            try:
+                self._hide_btn.set_active(False)
+            finally:
+                self._applying_auto_preview = False
+            self._preview_auto_hidden = False
+
     def _set_compact_header(
         self, compact, header, stream_row, secondary_actions,
         gpu_btn, about_btn, quit_btn, menu_btn
@@ -605,6 +649,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._stream_btn.set_hexpand(compact)
         secondary_actions.set_halign(Gtk.Align.FILL if compact else Gtk.Align.END)
         self._notes_sidebar_btn.set_label("Notes" if compact else "Meeting Notes")
+        self._subtitle_label.set_visible(not compact)
+        self._profile_text.set_text(
+            self._profile_name if compact else f"Profile: {self._profile_name}"
+        )
+        self._refresh_update_button_label(compact)
         self._refresh_meeting_button_label(compact)
         for button in (
             self._record_btn, self._notes_sidebar_btn, self._meeting_btn
@@ -618,7 +667,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         labels = {
             "idle": ("Start Meeting", "Meeting", "Start meeting recording and transcription"),
             "active": ("End Meeting", "End", "End meeting and save the transcript"),
-            "finalizing": ("Finalizing...", "Saving…", "Saving meeting transcript"),
+            "finalizing": ("Finalizing...", "Saving", "Saving meeting transcript"),
         }
         full, short, description = labels[self._meeting_button_state]
         self._meeting_btn.set_label(short if compact else full)
@@ -630,6 +679,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _set_meeting_button_state(self, state):
         self._meeting_button_state = state
         self._refresh_meeting_button_label(self._compact_controls)
+
+    def _refresh_update_button_label(self, compact):
+        self._update_btn.set_label("Update" if compact else self._update_full_label)
+        self._update_btn.update_property(
+            [Gtk.AccessibleProperty.LABEL], [self._update_full_label]
+        )
 
     def _set_compact_sections(self, compact):
         previous_focus = self.get_focus()
@@ -646,6 +701,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._compact_controls = compact
         self._controls_flow.set_margin_start(4 if compact else 16)
         self._controls_flow.set_margin_end(4 if compact else 16)
+        self._controls_flow.set_min_children_per_line(1 if compact else 2)
         self._controls_flow.set_max_children_per_line(1 if compact else 2)
         self._controls_flow.set_homogeneous(compact)
         self._switching_section = True
@@ -2783,10 +2839,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def set_update_available(self, version: str, label: str, tooltip: str, url: str):
         self._update_url = url
         if version and version not in label:
-            self._update_btn.set_label(f"{label} v{version}")
+            self._update_full_label = f"{label} v{version}"
         else:
-            self._update_btn.set_label(label)
-        self._update_btn.set_tooltip_text(tooltip)
+            self._update_full_label = label
+        self._refresh_update_button_label(self._compact_controls)
+        self._update_btn.set_tooltip_text(f"{self._update_full_label}. {tooltip}")
         self._update_btn.set_visible(True)
 
     def rebuild_mode_selector(self, compositing: str, profile: str):
@@ -2805,9 +2862,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_hide_toggled(self, btn):
         hidden = btn.get_active()
+        if self._tiny_preview_active and not self._applying_auto_preview:
+            # A manual choice takes precedence when this short layout ends.
+            self._preview_auto_hidden = False
+        if hidden and not self._applying_auto_preview:
+            self._preview_restore_position = self._preview_paned.get_position()
         self._preview_frame.set_visible(not hidden)
         btn.set_label("Show Preview" if hidden else "Hide Preview")
         self._freeze_btn.set_sensitive(not hidden)
+        self._preview_paned.set_position(
+            40 if hidden else self._preview_restore_position
+        )
 
     def update_preview(self, texture):
         if not self._preview_frozen:

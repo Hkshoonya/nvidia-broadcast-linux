@@ -28,6 +28,11 @@ class ResponsiveWindowTests(unittest.TestCase):
             flags=Gio.ApplicationFlags.NON_UNIQUE,
         )
         cls.app.register(None)
+        # DejaVu Sans is the runner's fallback and has wider glyphs than the
+        # desktop's Noto Sans. Keep allocation checks on the stricter font.
+        cls.settings = Gtk.Settings.get_default()
+        cls.previous_font = cls.settings.get_property("gtk-font-name")
+        cls.settings.set_property("gtk-font-name", "DejaVu Sans 10")
         cls.css = Gtk.CssProvider()
         cls.css.load_from_path(str(
             Path(__file__).parents[1] / "src/nvbroadcast/ui/style.css"
@@ -39,6 +44,7 @@ class ResponsiveWindowTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        cls.settings.set_property("gtk-font-name", cls.previous_font)
         Gtk.StyleContext.remove_provider_for_display(
             Gdk.Display.get_default(), cls.css,
         )
@@ -116,7 +122,7 @@ class ResponsiveWindowTests(unittest.TestCase):
     def test_sections_wrap_and_fit_portrait_widths(self):
         for width, stacked in (
             (1280, False), (1080, None), (1024, None),
-            (900, False), (850, "switch"), (800, "switch"),
+            (980, False), (900, "switch"), (850, "switch"), (800, "switch"),
             (600, "switch"), (480, "switch"), (420, "switch"),
         ):
             with self.subTest(width=width):
@@ -160,6 +166,33 @@ class ResponsiveWindowTests(unittest.TestCase):
                         bounds.get_x() + bounds.get_width(),
                         self.controls.get_width(),
                     )
+
+    def test_wide_layout_keeps_both_sections_in_view_with_wider_fonts(self):
+        settings = Gtk.Settings.get_default()
+        previous_font = settings.get_property("gtk-font-name")
+        self.addCleanup(settings.set_property, "gtk-font-name", previous_font)
+        camera = self.controls.get_child_at_index(0)
+        audio = self.controls.get_child_at_index(1)
+        for size in (10, 11, 12, 14):
+            with self.subTest(font_size=size):
+                settings.set_property("gtk-font-name", f"DejaVu Sans {size}")
+                self._show(980)
+                self.assertFalse(self.section_nav.get_visible())
+                self.assertTrue(camera.get_visible())
+                self.assertTrue(audio.get_visible())
+                _, camera_bounds = camera.compute_bounds(self.controls)
+                _, audio_bounds = audio.compute_bounds(self.controls)
+                self.assertEqual(camera_bounds.get_y(), audio_bounds.get_y())
+                self.assertLessEqual(
+                    audio_bounds.get_x() + audio_bounds.get_width(),
+                    self.controls.get_width(),
+                )
+                self.assertLessEqual(
+                    self.window.get_content().measure(
+                        Gtk.Orientation.HORIZONTAL, -1
+                    ).minimum,
+                    self.window.get_width(),
+                )
 
     def test_header_actions_and_meeting_notes_fit_narrow_window(self):
         self._show(1280)
@@ -222,13 +255,76 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.window._set_profile_name(name)
         self._show(480)
         self.assertLessEqual(self.window.get_width(), 480)
-        self.assertEqual(self.window._profile_text.get_text(), f"Profile: {name}")
+        self.assertEqual(self.window._profile_text.get_text(), name)
         self.assertIn(name, self.window._profile_btn.get_tooltip_text())
         self.assertLessEqual(self.window._profile_btn.get_width(), 200)
         self.window._profile_btn.popup()
         self._settle()
         self.assertTrue(self.window._profile_popover.get_visible())
         self.window._profile_btn.popdown()
+
+    def test_minimum_height_shows_first_control_with_update_and_large_text(self):
+        settings = Gtk.Settings.get_default()
+        previous_dpi = settings.get_property("gtk-xft-dpi")
+        self.addCleanup(settings.set_property, "gtk-xft-dpi", previous_dpi)
+        self.window.set_update_available(
+            "1.5.3", "Update Available", "A new release", "https://example.com"
+        )
+        for scale in (1.0, 2.0):
+            with self.subTest(scale=scale):
+                settings.set_property("gtk-xft-dpi", int(96 * 1024 * scale))
+                self._show(420, 540)
+                self.assertEqual(self.window.get_size_request()[1], 540)
+                self.assertTrue(self.window._hide_btn.get_active())
+                self.assertLessEqual(self.paned.get_position(), 40)
+                self.assertFalse(
+                    self.window._profile_text.get_layout().is_ellipsized()
+                )
+                self.assertLessEqual(
+                    self.window.get_content().measure(
+                        Gtk.Orientation.HORIZONTAL, -1
+                    ).minimum,
+                    self.window.get_width(),
+                )
+                for tab, dropdown in (
+                    (self.window._camera_section_btn, self.window._camera_selector._dropdown),
+                    (self.window._audio_section_btn, self.window._mic_selector._dropdown),
+                ):
+                    tab.set_active(True)
+                    self._settle()
+                    success, bounds = dropdown.compute_bounds(self.scroll)
+                    self.assertTrue(success)
+                    self.assertGreaterEqual(bounds.get_y(), 0)
+                    self.assertLessEqual(
+                        bounds.get_y() + bounds.get_height(),
+                        self.scroll.get_height(),
+                    )
+
+    def test_preview_auto_hide_respects_manual_choice_and_divider(self):
+        self._show(420, 540)
+        self.assertTrue(self.window._hide_btn.get_active())
+        self.assertFalse(self.window._preview_frame.get_visible())
+        self._show(1280, 900)
+        self.assertFalse(self.window._hide_btn.get_active())
+        self.assertTrue(self.window._preview_frame.get_visible())
+
+        self.paned.set_position(300)
+        self._settle()
+        self.window._hide_btn.set_active(True)
+        self._settle()
+        self.assertLessEqual(self.paned.get_position(), 40)
+        self.window._hide_btn.set_active(False)
+        self._settle()
+        self.assertEqual(self.paned.get_position(), 300)
+
+        self._show(420, 540)
+        self.window._hide_btn.set_active(False)
+        self._settle()
+        self.assertTrue(self.window._preview_frame.get_visible())
+        self.window._hide_btn.set_active(True)
+        self._show(1280, 900)
+        self.assertTrue(self.window._hide_btn.get_active())
+        self.assertFalse(self.window._preview_frame.get_visible())
 
     def test_compact_audio_is_reachable_by_switcher_and_tab(self):
         self._show(600, 640)
@@ -295,20 +391,22 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.assertTrue(self.window._stream_btn.is_ancestor(self.actions))
         self.assertLessEqual(self.window._preview.get_height(), 220)
 
-        self._show(880, 720)
+        self._show(960, 720)
         self.assertTrue(self.window._stream_btn.is_ancestor(self.actions))
-        self._show(900, 720)
+        self._show(980, 720)
         self.assertFalse(self.window._stream_btn.is_ancestor(self.actions))
-        self._show(880, 720)
+        self._show(960, 720)
         self.assertTrue(self.window._stream_btn.is_ancestor(self.actions))
 
         self._show(800, 800)
         self.assertTrue(self.window._stream_btn.is_ancestor(self.actions))
         self.assertTrue(self.section_nav.get_visible())
-        self._show(900, 800)
+        self._show(980, 800)
         self.assertFalse(self.window._stream_btn.is_ancestor(self.actions))
         self.assertFalse(self.section_nav.get_visible())
         self.assertTrue(self.controls.get_child_at_index(1).get_visible())
+        self.assertLessEqual(self.window._preview.get_height(), 320)
+        self._show(980, 900)
         self.assertLessEqual(self.window._preview.get_height(), 320)
         self._show(1280, 900)
         self.assertFalse(self.window._stream_btn.is_ancestor(self.actions))
@@ -415,6 +513,13 @@ class ResponsiveWindowTests(unittest.TestCase):
         self._show(1280, 900)
         self.assertTrue(audio.get_visible())
         self.assertTrue(self.controls.get_child_at_index(0).get_visible())
+        for width, height in ((850, 800), (1080, 900), (420, 540)):
+            with self.subTest(width=width):
+                self._show(width, height)
+                self.assertTrue(audio.get_visible())
+                self.assertTrue(self.window.get_focus().get_mapped())
+                if self.section_nav.get_visible():
+                    self.assertTrue(self.window._audio_section_btn.get_active())
 
     def test_large_text_and_meeting_states_fit_compact_width(self):
         settings = Gtk.Settings.get_default()
@@ -460,7 +565,7 @@ class ResponsiveWindowTests(unittest.TestCase):
                 self.app.stop_meeting_async = mock.Mock(return_value=True)
                 self.window._on_meeting_toggle(self.window._meeting_btn)
                 self._settle()
-                self.assertEqual(self.window._meeting_btn.get_label(), "Saving…")
+                self.assertEqual(self.window._meeting_btn.get_label(), "Saving")
                 self.assertFalse(self.window._meeting_btn.get_sensitive())
                 self.assertLessEqual(
                     self.window.get_content().measure(
@@ -471,10 +576,10 @@ class ResponsiveWindowTests(unittest.TestCase):
                 self._show(1280, 900)
                 self.assertEqual(
                     self.window._meeting_btn.get_label(),
-                    "Saving…" if self.window._compact_controls else "Finalizing...",
+                    "Saving" if self.window._compact_controls else "Finalizing...",
                 )
                 self._show(420, 540)
-                self.assertEqual(self.window._meeting_btn.get_label(), "Saving…")
+                self.assertEqual(self.window._meeting_btn.get_label(), "Saving")
 
                 self.app.stop_meeting_async.call_args.args[0]("", "Meeting saved")
                 self.assertEqual(self.window._meeting_btn.get_label(), "Meeting")
@@ -503,7 +608,7 @@ class ResponsiveWindowTests(unittest.TestCase):
         previous_dpi = settings.get_property("gtk-xft-dpi")
         self.addCleanup(settings.set_property, "gtk-xft-dpi", previous_dpi)
         settings.set_property("gtk-xft-dpi", int(96 * 1024 * 1.5))
-        for width in (1330, 1331, 1332):
+        for width in (1450, 1451, 1452):
             with self.subTest(width=width):
                 self._show(width, 640)
                 self.assertIsNotNone(self.window.get_current_breakpoint())
