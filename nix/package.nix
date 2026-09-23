@@ -284,12 +284,13 @@ python313Packages.buildPythonApplication (finalAttrs: {
 
   src = lib.fileset.toSource {
     root = ../.;
-    fileset = lib.fileset.difference (lib.fileset.gitTracked ../.) (
-      lib.fileset.unions [
-        ../flake.lock
-        ../flake.nix
-        ../nix
-      ]
+    # Flake sources can already be in the store (for example, path:/src),
+    # where gitTracked cannot inspect Git's index. Keep an explicit list so
+    # local, untracked files cannot enter the package source in that case.
+    fileset = lib.fileset.unions (
+      map (path: ../. + "/${path}") (
+        lib.splitString "\n" (lib.removeSuffix "\n" (builtins.readFile ./source-files.txt))
+      )
     );
   };
 
