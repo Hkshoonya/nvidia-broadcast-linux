@@ -3391,8 +3391,9 @@ class VideoEffects:
             self._sigmoid_strength = edge_config.sigmoid_strength
             self._sigmoid_midpoint = edge_config.sigmoid_midpoint
         else:
-            self._dilate_size = 5
-            self._blur_size = 9
+            # Match EdgeConfig and the shipped processing presets.
+            self._dilate_size = 3
+            self._blur_size = 5
             self._sigmoid_strength = 12.0
             self._sigmoid_midpoint = 0.5
         ds = self._dilate_size if self._dilate_size % 2 == 1 else self._dilate_size + 1
@@ -3414,6 +3415,16 @@ class VideoEffects:
             self._sigmoid_strength = float(sigmoid_strength)
         if sigmoid_midpoint is not None:
             self._sigmoid_midpoint = float(sigmoid_midpoint)
+
+    def _edge_softness_sizes(self, baseline_sizes: tuple[int, ...]) -> tuple[int, ...]:
+        """Scale an established Gaussian ladder around Softness's default 5.
+
+        Scale radii rather than widths so the minimum setting (1) disables
+        each pass, while 5 preserves the existing mode-specific kernels.
+        """
+        scale = max(0, self._blur_size - 1) / 4.0
+        return tuple(max(1, round((size - 1) * scale) + 1) | 1
+                     for size in baseline_sizes)
 
     def _gpu_matte_eligible(self) -> bool:
         """Whether the matte can stay device-resident through refinement.
@@ -3713,13 +3724,24 @@ class VideoEffects:
         )
 
         if is_replace:
-            # 4. Keep replacement narrow. Inflating the silhouette is what
-            #    creates shoulder and ear halos against a swapped background.
-            if preserve_detail:
-                a8 = cv2.GaussianBlur(a8, (3, 3), 0)
-            else:
-                a8 = cv2.GaussianBlur(a8, (5, 5), 0)
-                a8 = cv2.GaussianBlur(a8, (3, 3), 0)
+            # 4. The default Dilate=3 keeps replacement's existing narrow
+            # outline. Adjusting it contracts/expands around that baseline;
+            # do not add default expansion that would reintroduce halos.
+            edge_offset = self._dilate_size - 3
+            if edge_offset:
+                size = (abs(edge_offset) + 1) | 1
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+                operation = cv2.dilate if edge_offset > 0 else cv2.erode
+                a8 = operation(a8, kernel, iterations=1)
+
+            # Keep the replacement ladder narrower than Remove's at every
+            # setting, including its existing 3 or 5/3 kernels at Softness=5.
+            softness_sizes = self._edge_softness_sizes(
+                (3,) if preserve_detail else (5, 3, 3),
+            )
+            for size in softness_sizes[:1 if preserve_detail else 2]:
+                if size > 1:
+                    a8 = cv2.GaussianBlur(a8, (size, size), 0)
 
             # 5-6. Map sigmoid/core/noise values once per possible input byte.
             r_u8 = cv2.LUT(a8, self._refinement_tone_lut(is_replace, preserve_detail))
@@ -3738,8 +3760,9 @@ class VideoEffects:
                 r_u8[preserve_slits] = np.minimum(r_u8[preserve_slits], source_u8)
 
             # 7. Final feathering
-            if not preserve_detail:
-                r_u8 = cv2.GaussianBlur(r_u8, (3, 3), 0)
+            if not preserve_detail and softness_sizes[-1] > 1:
+                size = softness_sizes[-1]
+                r_u8 = cv2.GaussianBlur(r_u8, (size, size), 0)
             result = r_u8.astype(np.float32) * (1.0 / 255.0)
             if restored_slits is not None:
                 # Reopening a gap before feathering must not erase a thin
@@ -3764,20 +3787,24 @@ class VideoEffects:
                 if self._blur_size > 1:
                     a8 = cv2.GaussianBlur(a8, self._blur_ksize, 0)
             else:
-                # Preserve Remove's established green-screen matte behavior.
-                dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-                a8 = cv2.dilate(a8, dilate_k, iterations=2)
-                a8 = cv2.GaussianBlur(a8, (17, 17), 0)
-                a8 = cv2.GaussianBlur(a8, (11, 11), 0)
-                a8 = cv2.GaussianBlur(a8, (7, 7), 0)
+                # Preserve Remove's 7x7 two-pass dilation at Dilate=3.
+                if self._dilate_size > 0:
+                    size = max(1, 2 * self._dilate_size + 1)
+                    dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+                    a8 = cv2.dilate(a8, dilate_k, iterations=2)
+                softness_sizes = self._edge_softness_sizes((17, 11, 7, 11))
+                for size in softness_sizes[:-1]:
+                    if size > 1:
+                        a8 = cv2.GaussianBlur(a8, (size, size), 0)
 
             # 6-7. Map sigmoid/core/noise values once per possible input byte.
             r_u8 = cv2.LUT(a8, self._refinement_tone_lut(is_replace, preserve_detail))
 
             # 8. Final feathering. Blur already applies the selected
             # softness above, so retain only a minimal anti-alias pass.
-            final_ksize = (3, 3) if is_blur else (11, 11)
-            r_u8 = cv2.GaussianBlur(r_u8, final_ksize, 0)
+            final_size = 3 if is_blur else softness_sizes[-1]
+            if final_size > 1:
+                r_u8 = cv2.GaussianBlur(r_u8, (final_size, final_size), 0)
             result = r_u8.astype(np.float32) * (1.0 / 255.0)
 
         return result

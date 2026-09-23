@@ -454,6 +454,8 @@ nvbroadcast          # Launch GUI (first time: setup wizard)
 | **Mode** | 9 modes: Killer, Zeus, DocZeus, CUDA, CPU |
 | **Mirror** | Horizontal flip on/off |
 | **Edge Refine** | Neural edge refinement (Zeus/Killer) |
+| **Dilate** | Adjust the subject boundary in Blur, Replace, and Remove. Default: 3. In Replace, lower values contract the established outline and higher values expand it. |
+| **Softness** | Adjust the edge transition in every background mode. Default: 5. Replace retains a narrower transition than Remove at the same setting. |
 | **Pause View** | Freeze preview display |
 | **Hide Preview** | Collapse preview for more control space |
 | **Drag Divider** | Resize preview vs controls area |
