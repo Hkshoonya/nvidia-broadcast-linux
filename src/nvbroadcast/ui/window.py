@@ -372,6 +372,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Preview controls bar
         preview_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        preview_bar.set_hexpand(True)
         preview_bar.set_margin_end(16)
         preview_bar.set_margin_top(2)
         preview_bar.append(Gtk.Box(hexpand=True))
@@ -542,6 +543,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         self._perf_label = Gtk.Label(label="")
         self._perf_label.add_css_class("status-gpu")
+        # Live GPU/VRAM text can be wider than the compact window. Allow the
+        # label to give that space back instead of making every row overflow;
+        # the tooltip below retains the complete reading.
+        self._perf_label.set_ellipsize(Pango.EllipsizeMode.END)
         status_box.append(self._perf_label)
 
         credit = Gtk.Label(label="by doczeus")
@@ -554,7 +559,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         def _update_perf():
             if self.get_mapped():
                 pm = self._app.perf_monitor
-                self._perf_label.set_text(pm.format_status())
+                status = pm.format_status()
+                self._perf_label.set_text(status)
+                self._perf_label.set_tooltip_text(status or None)
             return True
         GLib.timeout_add_seconds(1, _update_perf)
 
@@ -578,6 +585,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 gpu_btn, about_btn, quit_btn, compact_menu,
             )
             self._set_compact_sections(compact)
+            # The tiny-preview transition may toggle the hide button while
+            # the compact flag is changing. Refresh once more after the
+            # section state is settled so its short label cannot be replaced
+            # by the desktop label during that signal batch.
+            self._refresh_freeze_button_label(compact)
+            self._refresh_hide_button_label(compact)
             tiny_preview = compact and preview_position == 160
             self._preview.set_size_request(-1, 100 if tiny_preview else 160)
             if tiny_preview:
@@ -658,10 +671,33 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         for button in (
             self._record_btn, self._notes_sidebar_btn, self._meeting_btn
         ):
-            button.set_hexpand(compact)
+            # Let the compact row use each button's natural width. Expanding
+            # all three buttons makes their combined minimum exceed the
+            # 430px content target under newer GTK font metrics, clipping the
+            # right edge of the Meeting action on a portrait window.
+            button.set_hexpand(False)
+        self._refresh_freeze_button_label(compact)
+        self._refresh_hide_button_label(compact)
         for button in (gpu_btn, about_btn, quit_btn):
             button.set_visible(not compact)
         menu_btn.set_visible(compact)
+
+    def _refresh_freeze_button_label(self, compact=None):
+        if compact is None:
+            compact = self._compact_controls
+        self._freeze_btn.set_label(
+            ("Resume" if self._preview_frozen else "Pause")
+            if compact
+            else ("Resume View" if self._preview_frozen else "Pause View")
+        )
+
+    def _refresh_hide_button_label(self, compact=None):
+        # Keep the action name explicit even in compact mode; the companion
+        # Pause button uses the short label when space is tight, leaving this
+        # primary control unambiguous and still inside the preview bar.
+        self._hide_btn.set_label(
+            "Show Preview" if self._hide_btn.get_active() else "Hide Preview"
+        )
 
     def _refresh_meeting_button_label(self, compact):
         labels = {
@@ -703,7 +739,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._controls_flow.set_margin_end(4 if compact else 16)
         self._controls_flow.set_min_children_per_line(1 if compact else 2)
         self._controls_flow.set_max_children_per_line(1 if compact else 2)
-        self._controls_flow.set_homogeneous(compact)
+        # A hidden Audio child can still contribute its natural width to a
+        # homogeneous FlowBox on newer GTK. Compact mode shows one section at
+        # a time, so avoid homogeneous measurement there and let the active
+        # section use the available row width.
+        self._controls_flow.set_homogeneous(False)
         self._switching_section = True
         try:
             self._camera_section_btn.set_active(self._active_section == "camera")
@@ -2855,7 +2895,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def _on_freeze_toggled(self, btn):
         self._preview_frozen = btn.get_active()
-        btn.set_label("Resume View" if self._preview_frozen else "Pause View")
+        self._refresh_freeze_button_label()
         # Pause the actual pipeline (freeze vcam output + skip processing)
         if self._app._video_pipeline:
             self._app._video_pipeline.set_paused(self._preview_frozen)
@@ -2868,7 +2908,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if hidden and not self._applying_auto_preview:
             self._preview_restore_position = self._preview_paned.get_position()
         self._preview_frame.set_visible(not hidden)
-        btn.set_label("Show Preview" if hidden else "Hide Preview")
+        self._refresh_hide_button_label()
+        # A hidden preview cannot be paused. Removing the disabled secondary
+        # action gives the primary Show Preview button the full compact row,
+        # including on the packaged GTK runtime where the content width is
+        # tighter than the host layout test.
+        self._freeze_btn.set_visible(not hidden)
         self._freeze_btn.set_sensitive(not hidden)
         self._preview_paned.set_position(
             40 if hidden else self._preview_restore_position

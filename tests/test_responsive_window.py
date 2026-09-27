@@ -326,6 +326,74 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.assertTrue(self.window._hide_btn.get_active())
         self.assertFalse(self.window._preview_frame.get_visible())
 
+    def test_compact_actions_and_preview_buttons_fit_client_bounds(self):
+        """Compact controls must remain clickable at the content minimum."""
+        self.window._camera_selector.set_devices([{
+            "name": "EMEET SmartCam S600: EMEET SmartCam (usb-0000:03:00.0-2)",
+            "device": "/dev/video0",
+        }])
+        self.window._format_selector.set_devices([{
+            "name": "YUY2 — Chrome, Edge, Zoom, Discord, Meet and WebRTC clients",
+            "device": "YUY2",
+        }])
+        self.window._mic_selector.set_devices([{
+            "name": "Blue Microphones: Blue Yeti X USB Audio Device",
+            "device": "test-mic",
+        }])
+        self.window._speaker_selector.set_devices([{
+            "name": "NVIDIA High Definition Audio Digital Stereo Output",
+            "device": "test-speaker",
+        }])
+        self.window._perf_label.set_text(
+            "8 fps  |  GPU 0 20%  |  VRAM 2310MB/10240MB  |  50°C"
+        )
+        self._show(420, 540)
+        self._settle(0.25)
+        content = self.window.get_content()
+
+        def assert_inside(widget, parent, label):
+            self.assertTrue(widget.get_visible(), label)
+            _, bounds = widget.compute_bounds(parent)
+            self.assertGreaterEqual(bounds.get_x(), 0, label)
+            self.assertGreaterEqual(bounds.get_y(), 0, label)
+            self.assertLessEqual(
+                bounds.get_x() + bounds.get_width(), parent.get_width(), label
+            )
+            self.assertLessEqual(
+                bounds.get_y() + bounds.get_height(), parent.get_height(), label
+            )
+            _, content_bounds = widget.compute_bounds(content)
+            self.assertGreaterEqual(content_bounds.get_x(), 0, label)
+            self.assertLessEqual(
+                content_bounds.get_x() + content_bounds.get_width(),
+                content.get_width(),
+                label,
+            )
+
+        for button, label in (
+            (self.window._record_btn, "Record"),
+            (self.window._notes_sidebar_btn, "Notes"),
+            (self.window._meeting_btn, "Meeting"),
+        ):
+            assert_inside(button, self.actions, label)
+
+        self.assertLessEqual(content.get_width(), self.window.get_width())
+        self.assertLessEqual(
+            content.measure(Gtk.Orientation.HORIZONTAL, -1).minimum,
+            self.window.get_width(),
+        )
+
+        preview_bar = self.window._hide_btn.get_parent()
+        self.assertFalse(self.window._freeze_btn.get_visible())
+        assert_inside(self.window._hide_btn, preview_bar, "Show Preview")
+
+        self.window._hide_btn.set_active(False)
+        self._settle(0.25)
+        self.assertTrue(self.window._preview_frame.get_visible())
+        self.assertGreaterEqual(self.window._preview.get_height(), 100)
+        assert_inside(self.window._freeze_btn, preview_bar, "Pause View shown")
+        assert_inside(self.window._hide_btn, preview_bar, "Hide Preview")
+
     def test_compact_audio_is_reachable_by_switcher_and_tab(self):
         self._show(600, 640)
         camera = self.controls.get_child_at_index(0)
