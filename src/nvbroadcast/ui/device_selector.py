@@ -52,8 +52,17 @@ class DeviceSelector(Gtk.Box):
         if devices:
             self.set_devices(devices)
 
-    def set_devices(self, devices: list[dict[str, str]]):
-        """Set available devices. Each dict has 'name' and 'device' keys."""
+    def set_devices(self, devices: list[dict[str, str]]) -> bool:
+        """Set available devices, preserving selection when possible.
+
+        Returns whether the backing model changed. Reusing an identical model
+        avoids closing an open dropdown or needlessly resetting its selection
+        during periodic device discovery.
+        """
+        if devices == self._devices:
+            return False
+
+        selected_device = self.get_selected_device()
         self._devices = devices
         names = [d["name"] for d in devices]
         # Block handler during model change to prevent spurious signals
@@ -61,6 +70,16 @@ class DeviceSelector(Gtk.Box):
             self._dropdown.handler_block(self._handler_id)
         string_list = Gtk.StringList.new(names)
         self._dropdown.set_model(string_list)
+        if self._devices:
+            selected_index = next(
+                (
+                    index
+                    for index, device in enumerate(self._devices)
+                    if device["device"] == selected_device
+                ),
+                0,
+            )
+            self._dropdown.set_selected(selected_index)
         self._update_tooltip()
         if self._handler_id:
             self._dropdown.handler_unblock(self._handler_id)
@@ -68,6 +87,7 @@ class DeviceSelector(Gtk.Box):
             self._handler_id = self._dropdown.connect(
                 "notify::selected", self._on_selection_changed
             )
+        return True
 
     def get_selected_device(self) -> str:
         """Return the device path of the selected device."""
@@ -85,6 +105,14 @@ class DeviceSelector(Gtk.Box):
             self._update_tooltip()
             if self._handler_id:
                 self._dropdown.handler_unblock(self._handler_id)
+
+    def set_selected_device(self, device: str) -> bool:
+        """Select a device by its stable identifier without firing callbacks."""
+        for index, candidate in enumerate(self._devices):
+            if candidate["device"] == device:
+                self.set_selected_index(index)
+                return True
+        return False
 
     def _on_selection_changed(self, dropdown, _pspec):
         self._update_tooltip()
