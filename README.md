@@ -355,19 +355,23 @@ that ONNX Runtime actually executes its pinned probe graph on TensorRT:
 
 ```bash
 ./install.sh --runtime cuda
-.venv/bin/pip install 'tensorrt-cu12-libs==10.16.0.72'
+.venv/bin/pip install --index-url https://pypi.nvidia.com \
+  --only-binary tensorrt-cu12-libs 'tensorrt-cu12-libs==10.16.0.72'
 .venv/bin/python -m nvbroadcast.runtime --variant cuda --provider tensorrt
 ```
 
 The ONNX Runtime GPU wheel used here requires TensorRT 10 shared libraries;
 TensorRT Python bindings are not needed for Zeus or Killer. The pinned library
-wheel is about 4.3 GB and is retrieved from NVIDIA's package index by the PyPI
-installer stub. It supports the source installer's Python `3.11` through
-`3.14` range on Linux `x86_64`. The installer also requires GTK4, Libadwaita,
-and GStreamer bindings for the selected interpreter, so choose a distro Python
-that can import them. The first use of each mode or frame size builds and caches
-an engine; the preview or window can appear unresponsive for several minutes
-during that build.
+wheel is about 4.3 GB and is retrieved directly from NVIDIA's package index so
+pip can identify the download instead of appearing to stop while preparing the
+PyPI forwarding stub's metadata. The binary-only constraint prevents pip from
+silently falling back to that stub if NVIDIA's wheel index is unavailable. It
+supports the source installer's Python `3.11` through `3.14` range on Linux
+`x86_64`. The installer also requires GTK4, Libadwaita, and GStreamer bindings
+for the selected interpreter, so choose a distro Python that can import them.
+The first use of each mode or frame size builds and caches an engine; the
+preview or window can appear unresponsive for several minutes during that
+build.
 
 ### Supported Distros
 

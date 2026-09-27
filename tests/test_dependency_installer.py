@@ -328,8 +328,18 @@ class DependencyInstallerTests(unittest.TestCase):
         spec = dependency_installer.PACKAGE_SPECS["tensorrt"]
         self.assertEqual(
             spec["install_args"],
-            ["install", "tensorrt-cu12-libs==10.16.0.72"],
+            [
+                "install",
+                "--index-url",
+                "https://pypi.nvidia.com",
+                "--only-binary",
+                "tensorrt-cu12-libs",
+                "tensorrt-cu12-libs==10.16.0.72",
+            ],
         )
+        self.assertIn("--index-url", spec["help"])
+        self.assertIn("--only-binary tensorrt-cu12-libs", spec["help"])
+        self.assertIn("https://pypi.nvidia.com", spec["help"])
         self.assertEqual(spec["size"], "~4.3 GB")
         self.assertEqual(
             dependency_installer.PACKAGE_BUNDLES["premium_gpu_stack"]["size"],

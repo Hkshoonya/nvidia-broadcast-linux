@@ -61,6 +61,9 @@ CUDA_RUNTIME_PACKAGES = [
 ]
 CUDA_RUNTIME_HELP_PACKAGES = CUDA_RUNTIME_PACKAGES
 
+TENSORRT_LIBS_REQUIREMENT = "tensorrt-cu12-libs==10.16.0.72"
+TENSORRT_INDEX_URL = "https://pypi.nvidia.com"
+
 
 def _has_cupy() -> bool:
     try:
@@ -251,12 +254,28 @@ PACKAGE_SPECS = {
             "Installs TensorRT 10 libraries used by ONNX Runtime for "
             "Zeus and Killer inference."
         ),
-        "install_args": ["install", "tensorrt-cu12-libs==10.16.0.72"],
+        # PyPI publishes this package as a small source stub. Building that
+        # stub downloads the 4.3 GB wheel from NVIDIA while pip continues to
+        # report "Preparing metadata", which makes the installer look hung.
+        # Expose NVIDIA's official index so pip selects the wheel directly and
+        # reports the real download before transferring it.
+        "install_args": [
+            "install",
+            "--index-url",
+            TENSORRT_INDEX_URL,
+            "--only-binary",
+            "tensorrt-cu12-libs",
+            TENSORRT_LIBS_REQUIREMENT,
+        ],
         "supported": _supports_tensorrt_runtime,
         "check": lambda: has_tensorrt_runtime(),
         "verify": _verify_tensorrt_runtime_result,
         "requires_restart": True,
-        "help": "Retry later with: .venv/bin/pip install tensorrt-cu12-libs==10.16.0.72",
+        "help": (
+            "Retry later with: .venv/bin/pip install --index-url "
+            f"{TENSORRT_INDEX_URL} --only-binary tensorrt-cu12-libs "
+            f"{TENSORRT_LIBS_REQUIREMENT}"
+        ),
         "unsupported_reason": (
             "TensorRT premium modes are currently available only on Linux x86_64 "
             "with Python 3.11-3.14."

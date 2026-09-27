@@ -147,13 +147,28 @@ class PackagingMetadataTests(unittest.TestCase):
         install_script = (REPO_ROOT / "install.sh").read_text()
         pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
         requirement = "tensorrt-cu12-libs==10.16.0.72"
+        wheel_requirement = (
+            "tensorrt-cu12-libs @ https://pypi.nvidia.com/tensorrt-cu12-libs/"
+            "tensorrt_cu12_libs-10.16.0.72-py3-none-manylinux_2_28_x86_64.whl"
+            "#sha256=a337c55b2ab34c097e14bd8be3e11bce67ee6705a4083604736ee6573f102bf5"
+            " ; sys_platform == 'linux' and platform_machine == 'x86_64'"
+        )
         self.assertEqual(
             pyproject["project"]["optional-dependencies"]["tensorrt"],
-            [requirement],
+            [wheel_requirement],
         )
-        self.assertIn(f"pip\" install '{requirement}'", install_script)
+        self.assertIn('TENSORRT_INDEX_URL="https://pypi.nvidia.com"', install_script)
+        self.assertIn(
+            'pip\" install --index-url "$TENSORRT_INDEX_URL"',
+            install_script,
+        )
+        self.assertIn('--only-binary tensorrt-cu12-libs "$TENSORRT_REQUIREMENT"', install_script)
         self.assertIn("version('tensorrt-cu12-libs')", install_script)
-        self.assertIn(f"pip install {requirement}", install_script)
+        self.assertIn(
+            r"pip\" install --index-url $TENSORRT_INDEX_URL --only-binary "
+            r"tensorrt-cu12-libs $TENSORRT_REQUIREMENT",
+            install_script,
+        )
         self.assertNotIn("tensorrt-cu12-bindings", install_script)
         self.assertNotIn("pip\" install tensorrt-cu12 onnx", install_script)
         self.assertIn("requires Python 3.11-3.14", install_script)
