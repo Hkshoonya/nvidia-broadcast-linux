@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Visible TensorRT Downloads** - Source and in-app installs resolve the pinned
+  TensorRT 10 library wheel directly from NVIDIA's package index and refuse the
+  PyPI forwarding stub. Pip now identifies the 4.3 GB transfer as a download
+  instead of appearing stuck at `Preparing metadata` ([Issue #120](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/120)).
 - **Reject Ambiguous Runtime Ownership** - Runtime selection now rejects multiple installed copies of the same ONNX Runtime distribution, including identical versions, before treating an environment as a valid CPU or CUDA variant. This also blocks CUDA support installation into those ambiguous environments; transactional candidate activation and rollback remain follow-up work ([Issue #53](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/53)).
 - **TensorRT on Python 3.14** - Zeus and Killer can use pinned TensorRT 10 shared libraries without Python bindings. Source and in-app installers verify real ONNX Runtime provider execution before enabling the modes, and the README explains the first engine build delay ([Issue #35](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/35)).
 - **Working Edge Controls in Every Background Mode** - Dilate and Softness now adjust Replace and Remove mattes as well as Blur. The shipped values (3 and 5) preserve each mode's existing output; Replace adjusts around its narrow outline to avoid adding a default halo ([Issue #106](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/106)).

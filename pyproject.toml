@@ -96,7 +96,11 @@ meeting-support = [
 maxine = ["nvidia-vfx"]
 # ONNX Runtime 1.24.4 loads TensorRT ABI 10 directly; Python bindings are not
 # needed, and the unpinned tensorrt-cu12 package now selects incompatible ABI 11.
-tensorrt = ["tensorrt-cu12-libs==10.16.0.72"]
+# Use NVIDIA's hash-pinned wheel directly because the PyPI source stub downloads
+# the same 4.3 GB file while pip still reports that it is preparing metadata.
+tensorrt = [
+    "tensorrt-cu12-libs @ https://pypi.nvidia.com/tensorrt-cu12-libs/tensorrt_cu12_libs-10.16.0.72-py3-none-manylinux_2_28_x86_64.whl#sha256=a337c55b2ab34c097e14bd8be3e11bce67ee6705a4083604736ee6573f102bf5 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 
 [project.scripts]
 nvbroadcast = "nvbroadcast.__main__:main"

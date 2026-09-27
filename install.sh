@@ -14,6 +14,8 @@ VENV_DIR="${SCRIPT_DIR}/.venv"
 RUNTIME_REQUEST="auto"
 WITH_MEETING=false
 PYTHON_REQUEST=""
+TENSORRT_REQUIREMENT="tensorrt-cu12-libs==10.16.0.72"
+TENSORRT_INDEX_URL="https://pypi.nvidia.com"
 
 usage() {
     echo "Usage: $0 [--runtime auto|cpu|cuda] [--with-meeting] [--python /path/to/python]"
@@ -836,8 +838,9 @@ if [ "$TRT_INSTALLED" = false ] && [ "$TRT_UNVERIFIED" = false ] && [ "$TRT_LIBS
             read -rp "  Install TensorRT? [y/N] " install_trt
             install_trt="${install_trt:-N}"
             if [[ "$install_trt" =~ ^[Yy]$ ]]; then
-                echo "  Installing TensorRT (this may take several minutes)..."
-                if "$VENV_DIR/bin/pip" install 'tensorrt-cu12-libs==10.16.0.72' -q 2>&1; then
+                echo "  Downloading TensorRT from NVIDIA (~4.3GB; this may take several minutes)..."
+                if "$VENV_DIR/bin/pip" install --index-url "$TENSORRT_INDEX_URL" \
+                    --only-binary tensorrt-cu12-libs "$TENSORRT_REQUIREMENT" 2>&1; then
                     if verify_tensorrt_execution; then
                         echo "  TensorRT installed and its execution provider was verified!"
                         TRT_INSTALLED=true
@@ -846,10 +849,10 @@ if [ "$TRT_INSTALLED" = false ] && [ "$TRT_UNVERIFIED" = false ] && [ "$TRT_LIBS
                     fi
                 else
                     echo "  WARNING: TensorRT installation failed. Skipping."
-                    echo "  Retry later: $VENV_DIR/bin/pip install tensorrt-cu12-libs==10.16.0.72"
+                    echo "  Retry later: \"$VENV_DIR/bin/pip\" install --index-url $TENSORRT_INDEX_URL --only-binary tensorrt-cu12-libs $TENSORRT_REQUIREMENT"
                 fi
             else
-                echo "  Skipped. Install later: $VENV_DIR/bin/pip install tensorrt-cu12-libs==10.16.0.72"
+                echo "  Skipped. Install later: \"$VENV_DIR/bin/pip\" install --index-url $TENSORRT_INDEX_URL --only-binary tensorrt-cu12-libs $TENSORRT_REQUIREMENT"
             fi
         else
             echo "  [skipped] TensorRT library runtime is not validated for Python $PY_VER."
@@ -1168,7 +1171,7 @@ echo ""
 echo "  To install optional packages later:"
 echo "    Runtime switch: stop NVBroadcast, then run $SCRIPT_DIR/install.sh --runtime cpu|cuda"
 echo "    CuPy:     $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
-echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt-cu12-libs==10.16.0.72"
+echo "    TensorRT: \"$VENV_DIR/bin/pip\" install --index-url $TENSORRT_INDEX_URL --only-binary tensorrt-cu12-libs $TENSORRT_REQUIREMENT"
 echo ""
 echo "  First run:"
 if [[ ":$PATH:" != *":$INSTALL_PREFIX/bin:"* ]]; then
