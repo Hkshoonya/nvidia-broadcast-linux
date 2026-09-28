@@ -683,6 +683,13 @@ def _get_v4l2_device_info(device: str) -> str:
         return ""
 
 
+def clear_camera_probe_cache() -> None:
+    """Invalidate cached camera modes and V4L2 device information."""
+    list_camera_format_modes.cache_clear()
+    list_camera_modes.cache_clear()
+    _get_v4l2_device_info.cache_clear()
+
+
 def _device_caps_text(info: str) -> str:
     marker = "Device Caps"
     if marker not in info:
@@ -763,6 +770,7 @@ def list_camera_devices() -> list[dict[str, str]]:
             ["v4l2-ctl", "--list-devices"],
             capture_output=True,
             text=True,
+            timeout=3,
         )
         if result.returncode != 0:
             return []
@@ -795,7 +803,7 @@ def list_camera_devices() -> list[dict[str, str]]:
                 dev = line.strip()
                 group_devices.append(dev)
         add_current_group()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
     return cameras

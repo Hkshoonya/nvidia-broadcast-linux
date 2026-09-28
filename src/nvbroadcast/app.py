@@ -3123,6 +3123,8 @@ class NVBroadcastApp(Adw.Application):
 
     def do_shutdown(self):
         save_config(self.config)
+        if self._window is not None and hasattr(self._window, "stop_camera_refresh"):
+            self._window.stop_camera_refresh(shutdown=True)
         if self._hotkey_manager is not None:
             self._hotkey_manager.close()
             self._hotkey_manager = None

@@ -58,7 +58,7 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.app.set_vcam_device = mock.Mock(return_value=True)
         self.patches = self.enterContext(ExitStack())
         for method in (
-            "_populate_devices", "_populate_mics", "_populate_speakers",
+            "_request_camera_refresh", "_populate_mics", "_populate_speakers",
             "_update_gpu_info", "_rebuild_profile_popover", "sync_hotkey_settings",
         ):
             self.patches.enter_context(mock.patch.object(NVBroadcastWindow, method))

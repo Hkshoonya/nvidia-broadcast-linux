@@ -5,6 +5,10 @@
 #
 """Main window - NVIDIA Broadcast layout."""
 
+import threading
+import weakref
+from typing import NamedTuple
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -27,7 +31,8 @@ from nvbroadcast.ui.controls import (
 )
 from nvbroadcast.ui.device_selector import DeviceSelector
 from nvbroadcast.video.virtual_camera import (
-    list_camera_devices, list_camera_modes,
+    clear_camera_probe_cache, list_camera_devices, list_camera_modes,
+    select_camera_mode,
     get_firefox_profiles, is_firefox_pipewire_disabled, set_firefox_pipewire,
 )
 from nvbroadcast.core.platform import IS_LINUX, has_tensorrt_runtime, supports_tensorrt_python
@@ -38,6 +43,79 @@ from nvbroadcast.core.resources import find_app_icon
 _APP_SPONSORS = [
     "Mattsky — GitHub Sponsor https://github.com/Mattsky",
 ]
+
+_CAMERA_REFRESH_RETRY_SECONDS = 3
+_CAMERA_RETRY_STATUS = "No usable camera found. Retrying discovery..."
+_RESOLUTION_LABELS = {
+    (640, 360): "360p",
+    (640, 480): "480p",
+    (800, 600): "600p",
+    (1024, 576): "576p",
+    (960, 720): "720p 4:3",
+    (1280, 720): "720p",
+    (1280, 960): "960p",
+    (1920, 1080): "1080p",
+    (2560, 1440): "1440p",
+    (3840, 2160): "4K",
+}
+
+
+class _CameraModeSnapshot(NamedTuple):
+    width: int
+    height: int
+    fps: tuple[int, ...]
+
+
+class _CameraCapabilitySnapshot(NamedTuple):
+    device: str
+    modes: tuple[_CameraModeSnapshot, ...]
+    display_mode: tuple[int, int, int]
+
+
+class _CameraRefreshSnapshot(NamedTuple):
+    cameras: tuple[tuple[str, str], ...]
+    capabilities: tuple[_CameraCapabilitySnapshot, ...]
+    requested_mode: tuple[int, int, int]
+
+
+def _probe_camera_refresh(
+    requested_mode: tuple[int, int, int],
+) -> _CameraRefreshSnapshot:
+    """Collect immutable camera identities and capabilities off the GTK thread."""
+    clear_camera_probe_cache()
+    cameras = list_camera_devices()
+    identities = tuple(
+        (camera["name"], camera["device"])
+        for camera in cameras
+    )
+    width, height, fps = requested_mode
+    capabilities = []
+    for _name, device in identities:
+        probed_modes = list_camera_modes(device)
+        modes = tuple(
+            _CameraModeSnapshot(
+                int(mode["width"]),
+                int(mode["height"]),
+                tuple(int(value) for value in mode["fps"]),
+            )
+            for mode in probed_modes
+        )
+        display_mode = requested_mode
+        if modes:
+            supported = select_camera_mode(device, width, height, fps)
+            display_mode = (
+                int(supported["width"]),
+                int(supported["height"]),
+                int(supported["fps"]),
+            )
+        capabilities.append(
+            _CameraCapabilitySnapshot(device, modes, display_mode)
+        )
+    return _CameraRefreshSnapshot(
+        identities,
+        tuple(capabilities),
+        requested_mode,
+    )
 
 
 def _supports_responsive_breakpoints(window):
@@ -132,8 +210,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._preview_auto_hidden = False
         self._applying_auto_preview = False
         self._update_full_label = "Update Available"
+        self._camera_refresh_source_id = 0
+        self._camera_refresh_generation = 0
+        self._camera_refresh_in_flight = False
+        self._camera_refresh_pending_reason: str | None = None
+        self._camera_refresh_mapped = False
+        self._camera_refresh_shutdown = False
         self._build_ui()
-        self._populate_devices()
+        self.connect("map", self._on_camera_refresh_mapped)
+        self.connect("unmap", self._on_camera_refresh_unmapped)
 
     def _set_profile_name(self, name: str) -> None:
         self._profile_name = name
@@ -790,9 +875,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Input settings in a compact card
         input_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
 
+        camera_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self._camera_selector = DeviceSelector("Source")
+        self._camera_selector.set_hexpand(True)
         self._camera_selector.connect("device-changed", self._on_camera_changed)
-        input_card.append(self._camera_selector)
+        camera_row.append(self._camera_selector)
+        self._camera_refresh_btn = Gtk.Button(
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Refresh cameras",
+        )
+        self._camera_refresh_btn.add_css_class("flat")
+        self._camera_refresh_btn.connect("clicked", self._on_camera_refresh_clicked)
+        camera_row.append(self._camera_refresh_btn)
+        input_card.append(camera_row)
 
         # Query camera capabilities
         cam_device = self._app.config.video.camera_device
@@ -801,31 +896,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Resolution selector (from camera capabilities)
         self._res_selector = DeviceSelector("Resolution")
-        res_devices = []
-        _RES_LABELS = {
-            (640, 360): "360p", (640, 480): "480p", (800, 600): "600p",
-            (1024, 576): "576p", (960, 720): "720p 4:3",
-            (1280, 720): "720p", (1280, 960): "960p",
-            (1920, 1080): "1080p", (2560, 1440): "1440p",
-            (3840, 2160): "4K",
-        }
-        for mode in self._camera_modes:
-            w, h = mode["width"], mode["height"]
-            label = _RES_LABELS.get((w, h), f"{w}x{h}")
-            max_fps = max(mode["fps"]) if mode["fps"] else 30
-            res_devices.append({
-                "name": f"{label} ({w}x{h}) {max_fps}fps",
-                "device": f"{w}x{h}",
-            })
-        if not res_devices:
-            res_devices = [{"name": "1280x720", "device": "1280x720"}]
+        res_devices = self._camera_resolution_devices()
         self._res_selector.set_devices(res_devices)
         # Select current resolution
         current_res = f"{self._app.config.video.width}x{self._app.config.video.height}"
-        for i, d in enumerate(res_devices):
-            if d["device"] == current_res:
-                self._res_selector.set_selected_index(i)
-                break
+        self._res_selector.set_selected_device(current_res)
         self._res_selector.connect("device-changed", self._on_resolution_changed)
         input_card.append(self._res_selector)
 
@@ -1802,26 +1877,53 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             return
         self._app.switch_camera(device)
 
-    def _refresh_fps_options(self):
+    def _camera_resolution_devices(self) -> list[dict[str, str]]:
+        devices = []
+        for mode in self._camera_modes:
+            width, height = mode["width"], mode["height"]
+            label = _RESOLUTION_LABELS.get(
+                (width, height),
+                f"{width}x{height}",
+            )
+            max_fps = max(mode["fps"]) if mode["fps"] else 30
+            devices.append({
+                "name": f"{label} ({width}x{height}) {max_fps}fps",
+                "device": f"{width}x{height}",
+            })
+        return devices or [{"name": "1280x720", "device": "1280x720"}]
+
+    def _refresh_fps_options(
+        self,
+        width: int | None = None,
+        height: int | None = None,
+        fps: int | None = None,
+    ):
         """Rebuild FPS dropdown for the current resolution. Blocks signal cascade."""
-        w, h = self._app.config.video.width, self._app.config.video.height
+        w = self._app.config.video.width if width is None else width
+        h = self._app.config.video.height if height is None else height
         available_fps = [30]
         for mode in self._camera_modes:
             if mode["width"] == w and mode["height"] == h:
                 available_fps = mode["fps"]
                 break
+        was_updating = self._updating_ui
         self._updating_ui = True  # Block signal cascade
-        devices = [{"name": f"{fps} fps", "device": str(fps)} for fps in available_fps]
-        self._fps_selector.set_devices(devices)
-        # Select current fps or highest available
-        current = self._app.config.video.fps
-        best_idx = len(devices) - 1  # Default to highest
-        for i, d in enumerate(devices):
-            if int(d["device"]) == current:
-                best_idx = i
-                break
-        self._fps_selector.set_selected_index(best_idx)
-        self._updating_ui = False
+        try:
+            devices = [
+                {"name": f"{fps} fps", "device": str(fps)}
+                for fps in available_fps
+            ]
+            self._fps_selector.set_devices(devices)
+            # Select current fps or highest available
+            current = self._app.config.video.fps if fps is None else fps
+            best_idx = len(devices) - 1  # Default to highest
+            for i, d in enumerate(devices):
+                if int(d["device"]) == current:
+                    best_idx = i
+                    break
+            self._fps_selector.set_selected_index(best_idx)
+        finally:
+            self._updating_ui = was_updating
 
     def _on_resolution_changed(self, selector, res_str):
         if self._updating_ui:
@@ -2620,10 +2722,201 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.set_speaker_denoise(active)
 
     # --- Public ---
-    def _populate_devices(self):
-        cameras = list_camera_devices()
-        if cameras:
-            self._camera_selector.set_devices(cameras)
+    def _apply_camera_devices(self, snapshot: _CameraRefreshSnapshot) -> bool:
+        """Reconcile a completed camera probe on the GTK main thread."""
+        cameras = [
+            {"name": name, "device": device}
+            for name, device in snapshot.cameras
+        ]
+        capabilities = {
+            capability.device: capability
+            for capability in snapshot.capabilities
+        }
+        selected = self._camera_selector.get_selected_device()
+        self._camera_selector.set_devices(cameras)
+        available = {camera["device"] for camera in cameras}
+
+        desired = ""
+        if selected in available:
+            desired = selected
+        elif self._app.config.video.camera_device in available:
+            desired = self._app.config.video.camera_device
+        elif cameras:
+            desired = cameras[0]["device"]
+
+        if desired:
+            self._camera_selector.set_selected_device(desired)
+            # Replacing a selector model intentionally blocks its callback, so
+            # synchronize camera capabilities here instead of switching the
+            # live pipeline or overwriting the user's saved preferred camera.
+            capability = capabilities[desired]
+            self.sync_video_input_controls(
+                self._app.config,
+                camera_device=desired,
+                camera_modes=capability.modes,
+                supported_mode=capability.display_mode,
+            )
+        return bool(cameras)
+
+    def _request_camera_refresh(self, reason: str) -> bool:
+        """Start one serialized camera probe outside the GTK main thread."""
+        if self._camera_refresh_shutdown or not self._camera_refresh_mapped:
+            return False
+        if self._camera_refresh_in_flight:
+            # Preserve an explicit user request when map/retry requests overlap.
+            if self._camera_refresh_pending_reason != "manual" or reason == "manual":
+                self._camera_refresh_pending_reason = reason
+            return False
+
+        self._camera_refresh_in_flight = True
+        generation = self._camera_refresh_generation
+        requested_mode = (
+            int(self._app.config.video.width),
+            int(self._app.config.video.height),
+            int(self._app.config.video.fps),
+        )
+        window_ref = weakref.ref(self)
+
+        def _probe() -> None:
+            try:
+                snapshot = _probe_camera_refresh(requested_mode)
+            except Exception as exc:
+                print(f"[NV Broadcast] Camera enumeration failed: {exc}")
+                snapshot = _CameraRefreshSnapshot((), (), requested_mode)
+
+            window = window_ref()
+            if window is not None:
+                GLib.idle_add(
+                    window._finish_camera_refresh,
+                    generation,
+                    reason,
+                    snapshot,
+                )
+
+        threading.Thread(
+            target=_probe,
+            name="nvbroadcast-camera-refresh",
+            daemon=True,
+        ).start()
+        return True
+
+    def _finish_camera_refresh(
+        self,
+        generation: int,
+        reason: str,
+        snapshot: _CameraRefreshSnapshot,
+    ) -> bool:
+        """Apply a worker result unless its window lifecycle is stale."""
+        self._camera_refresh_in_flight = False
+        pending_reason = self._camera_refresh_pending_reason
+        self._camera_refresh_pending_reason = None
+
+        current = (
+            generation == self._camera_refresh_generation
+            and self._camera_refresh_mapped
+            and not self._camera_refresh_shutdown
+        )
+        requested_mode = (
+            int(self._app.config.video.width),
+            int(self._app.config.video.height),
+            int(self._app.config.video.fps),
+        )
+        if current and snapshot.requested_mode != requested_mode:
+            # A control change made this worker's capability choice obsolete.
+            # Queue a fresh worker instead of probing from GTK or applying an
+            # old supported-mode choice to the current controls.
+            current = False
+            pending_reason = pending_reason or reason
+        found = False
+        had_cameras = bool(getattr(self._camera_selector, "_devices", []))
+        if current:
+            found = self._apply_camera_devices(snapshot)
+            if reason == "manual":
+                if found:
+                    self.set_status("Camera list refreshed")
+                else:
+                    self.set_status(_CAMERA_RETRY_STATUS)
+            elif (
+                found
+                and not had_cameras
+                and (
+                    reason == "retry"
+                    or (
+                        reason == "map"
+                        and self._status_bar.get_text() == _CAMERA_RETRY_STATUS
+                    )
+                )
+            ):
+                self.set_status("Camera detected. Source list refreshed.")
+
+        if (
+            pending_reason is not None
+            and self._camera_refresh_mapped
+            and not self._camera_refresh_shutdown
+        ):
+            self._request_camera_refresh(pending_reason)
+        elif current and not found:
+            self._schedule_camera_refresh()
+        return False
+
+    def _schedule_camera_refresh(self) -> None:
+        if (
+            self._camera_refresh_source_id
+            or self._camera_refresh_shutdown
+            or not self._camera_refresh_mapped
+        ):
+            return
+
+        window_ref = weakref.ref(self)
+
+        def _retry() -> bool:
+            window = window_ref()
+            if window is None:
+                return False
+            window._camera_refresh_source_id = 0
+            return window._retry_camera_refresh()
+
+        self._camera_refresh_source_id = GLib.timeout_add_seconds(
+            _CAMERA_REFRESH_RETRY_SECONDS,
+            _retry,
+        )
+
+    def _retry_camera_refresh(self) -> bool:
+        self._request_camera_refresh("retry")
+        return False
+
+    def _on_camera_refresh_mapped(self, *_args) -> None:
+        if self._camera_refresh_shutdown:
+            return
+        self._camera_refresh_mapped = True
+        self._camera_refresh_generation += 1
+        self._cancel_camera_refresh_timer()
+        self._request_camera_refresh("map")
+
+    def _on_camera_refresh_unmapped(self, *_args) -> None:
+        self._camera_refresh_mapped = False
+        self.stop_camera_refresh()
+
+    def _on_camera_refresh_clicked(self, _button) -> None:
+        self._cancel_camera_refresh_timer()
+        if self._camera_refresh_shutdown or not self._camera_refresh_mapped:
+            return
+        self.set_status("Refreshing camera list...")
+        self._request_camera_refresh("manual")
+
+    def _cancel_camera_refresh_timer(self) -> None:
+        if self._camera_refresh_source_id:
+            GLib.source_remove(self._camera_refresh_source_id)
+            self._camera_refresh_source_id = 0
+
+    def stop_camera_refresh(self, *, shutdown: bool = False) -> None:
+        """Invalidate scheduled and in-flight discovery for this lifecycle."""
+        self._cancel_camera_refresh_timer()
+        self._camera_refresh_generation += 1
+        self._camera_refresh_pending_reason = None
+        if shutdown:
+            self._camera_refresh_shutdown = True
+            self._camera_refresh_mapped = False
 
     def _update_gpu_info(self):
         gpus = detect_gpus()
@@ -2773,53 +3066,59 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._set_profile_name(config.current_profile or "Default")
         self.sync_hotkey_settings()
 
-    def sync_video_input_controls(self, config):
+    def sync_video_input_controls(
+        self,
+        config,
+        camera_device: str | None = None,
+        *,
+        camera_modes: tuple[_CameraModeSnapshot, ...] | None = None,
+        supported_mode: tuple[int, int, int] | None = None,
+    ):
         """Sync camera, resolution, FPS, and format selectors from config."""
         self._updating_ui = True
         try:
-            camera_device = config.video.camera_device
-            for i, d in enumerate(getattr(self._camera_selector, "_devices", [])):
-                if d["device"] == camera_device:
-                    self._camera_selector.set_selected_index(i)
-                    break
+            camera_device = camera_device or config.video.camera_device
+            self._camera_selector.set_selected_device(camera_device)
 
-            self._camera_modes = list_camera_modes(camera_device)
-            res_devices = []
-            for mode in self._camera_modes:
-                w, h = mode["width"], mode["height"]
-                label = {
-                    (640, 360): "360p",
-                    (640, 480): "480p",
-                    (800, 600): "600p",
-                    (1024, 576): "576p",
-                    (960, 720): "720p 4:3",
-                    (1280, 720): "720p",
-                    (1280, 960): "960p",
-                    (1920, 1080): "1080p",
-                    (2560, 1440): "1440p",
-                    (3840, 2160): "4K",
-                }.get((w, h), f"{w}x{h}")
-                max_fps = max(mode["fps"]) if mode["fps"] else 30
-                res_devices.append({
-                    "name": f"{label} ({w}x{h}) {max_fps}fps",
-                    "device": f"{w}x{h}",
-                })
-            if not res_devices:
-                res_devices = [{"name": "1280x720", "device": "1280x720"}]
+            if camera_modes is None:
+                self._camera_modes = list_camera_modes(camera_device)
+            else:
+                self._camera_modes = [
+                    {
+                        "width": mode.width,
+                        "height": mode.height,
+                        "fps": list(mode.fps),
+                    }
+                    for mode in camera_modes
+                ]
+            control_width = config.video.width
+            control_height = config.video.height
+            control_fps = config.video.fps
+            if supported_mode is not None:
+                control_width, control_height, control_fps = supported_mode
+            elif self._camera_modes:
+                supported = select_camera_mode(
+                    camera_device,
+                    control_width,
+                    control_height,
+                    control_fps,
+                )
+                control_width = supported["width"]
+                control_height = supported["height"]
+                control_fps = supported["fps"]
+
+            res_devices = self._camera_resolution_devices()
             self._res_selector.set_devices(res_devices)
+            self._res_selector.set_selected_device(
+                f"{control_width}x{control_height}"
+            )
 
-            current_res = f"{config.video.width}x{config.video.height}"
-            for i, d in enumerate(res_devices):
-                if d["device"] == current_res:
-                    self._res_selector.set_selected_index(i)
-                    break
-
-            self._refresh_fps_options()
-            current_fps = str(config.video.fps)
-            for i, d in enumerate(getattr(self._fps_selector, "_devices", [])):
-                if d["device"] == current_fps:
-                    self._fps_selector.set_selected_index(i)
-                    break
+            self._refresh_fps_options(
+                width=control_width,
+                height=control_height,
+                fps=control_fps,
+            )
+            self._fps_selector.set_selected_device(str(control_fps))
 
             fmt_map = {"YUY2": 0, "I420": 1, "NV12": 2}
             if config.video.output_format in fmt_map:
