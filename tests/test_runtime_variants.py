@@ -15,6 +15,7 @@ from nvbroadcast.runtime.variants import (
     current_distribution_inventory,
     detect_runtime_variant,
     runtime_ownership_problems,
+    validate_current_runtime,
 )
 
 
@@ -126,6 +127,21 @@ class RuntimeVariantTests(unittest.TestCase):
 
         self.assertEqual(inventory, {"onnxruntime": ("1.24.4",)})
 
+    def test_inventory_recognizes_canonical_gpu_name_with_repeated_separators(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site_packages = Path(tmp) / "site-packages"
+            dist_info = site_packages / "onnxruntime__gpu-1.24.4.dist-info"
+            dist_info.mkdir(parents=True)
+            (dist_info / "METADATA").write_text(
+                "Metadata-Version: 2.1\n"
+                "Name: onnxruntime__gpu\n"
+                "Version: 1.24.4\n"
+            )
+            with mock.patch.object(sys, "path", [str(site_packages)]):
+                inventory = current_distribution_inventory()
+
+        self.assertEqual(inventory, {"onnxruntime-gpu": ("1.24.4",)})
+
     def test_cpu_contract_accepts_single_cpu_owner(self):
         self.assertEqual(
             runtime_ownership_problems(
@@ -161,6 +177,86 @@ class RuntimeVariantTests(unittest.TestCase):
             ["CPUExecutionProvider"],
         )
         self.assertTrue(any("found 2" in item for item in problems))
+
+    def test_aliased_owner_names_do_not_hide_duplicate_distributions(self):
+        problems = runtime_ownership_problems(
+            RuntimeVariant.CUDA,
+            {
+                "onnxruntime-gpu": ("1.24.4",),
+                "onnxruntime_gpu": ("1.30.0",),
+            },
+            ["CPUExecutionProvider", "CUDAExecutionProvider"],
+        )
+        self.assertTrue(any("found 2" in item for item in problems))
+
+    def test_cli_reports_owner_fault_before_broken_shared_import(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            venv = root / "venv"
+            subprocess.run(
+                [sys.executable, "-m", "venv", "--without-pip", venv],
+                check=True,
+            )
+            python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+            site_packages = root / "packages"
+            runtime = site_packages / "onnxruntime"
+            runtime.mkdir(parents=True)
+            (runtime / "__init__.py").write_text(
+                "raise ImportError('intentionally broken shared import')\n"
+            )
+            for name in ("onnxruntime", "onnxruntime-gpu"):
+                metadata = site_packages / f"{name}-1.24.4.dist-info"
+                metadata.mkdir()
+                (metadata / "METADATA").write_text(
+                    f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.24.4\n"
+                )
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = os.pathsep.join(
+                (str(Path(__file__).resolve().parents[1] / "src"), str(site_packages))
+            )
+            environment["PYTHONNOUSERSITE"] = "1"
+            command = [python, "-m", "nvbroadcast.runtime", "--variant", "cpu"]
+
+            mixed = subprocess.run(command, capture_output=True, text=True, env=environment)
+            self.assertEqual(mixed.returncode, 1)
+            self.assertIn("unexpected runtime distribution(s): onnxruntime-gpu", mixed.stderr)
+            self.assertNotIn("intentionally broken shared import", mixed.stderr)
+
+            gpu_metadata = site_packages / "onnxruntime-gpu-1.24.4.dist-info"
+            (gpu_metadata / "METADATA").unlink()
+            gpu_metadata.rmdir()
+            broken = subprocess.run(command, capture_output=True, text=True, env=environment)
+            self.assertEqual(broken.returncode, 1)
+            self.assertIn("cannot import onnxruntime", broken.stderr)
+            self.assertIn("intentionally broken shared import", broken.stderr)
+
+    def test_single_owner_with_working_provider_remains_valid(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = ["CPUExecutionProvider"]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(validate_current_runtime(RuntimeVariant.CPU), [])
+
+    def test_provider_query_failure_returns_actionable_problem(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.side_effect = RuntimeError("broken provider library")
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime-gpu": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            problems = validate_current_runtime(RuntimeVariant.CUDA)
+
+        self.assertTrue(
+            any("broken provider library" in item for item in problems)
+        )
 
     def test_provider_contract_is_enforced(self):
         problems = runtime_ownership_problems(
