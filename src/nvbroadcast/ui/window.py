@@ -45,6 +45,7 @@ _APP_SPONSORS = [
 ]
 
 _CAMERA_REFRESH_RETRY_SECONDS = 3
+_CAMERA_RETRY_STATUS = "No usable camera found. Retrying discovery..."
 _RESOLUTION_LABELS = {
     (640, 360): "360p",
     (640, 480): "480p",
@@ -2834,8 +2835,18 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 if found:
                     self.set_status("Camera list refreshed")
                 else:
-                    self.set_status("No usable camera found. Retrying discovery...")
-            elif reason == "retry" and found and not had_cameras:
+                    self.set_status(_CAMERA_RETRY_STATUS)
+            elif (
+                found
+                and not had_cameras
+                and (
+                    reason == "retry"
+                    or (
+                        reason == "map"
+                        and self._status_bar.get_text() == _CAMERA_RETRY_STATUS
+                    )
+                )
+            ):
                 self.set_status("Camera detected. Source list refreshed.")
 
         if (

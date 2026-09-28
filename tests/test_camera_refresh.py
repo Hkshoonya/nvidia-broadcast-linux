@@ -8,6 +8,7 @@ from nvbroadcast.core.config import AppConfig
 from nvbroadcast.ui.device_selector import DeviceSelector
 from nvbroadcast.ui.window import (
     NVBroadcastWindow,
+    _CAMERA_RETRY_STATUS,
     _CameraCapabilitySnapshot,
     _CameraModeSnapshot,
     _CameraRefreshSnapshot,
@@ -91,7 +92,7 @@ class _FakeCameraSelector:
 
 
 class CameraRefreshTests(unittest.TestCase):
-    def make_window(self, devices=None, selected=""):
+    def make_window(self, devices=None, selected="", status="Ready"):
         window = NVBroadcastWindow.__new__(NVBroadcastWindow)
         config = AppConfig()
         config.video.camera_device = "/dev/video0"
@@ -103,6 +104,9 @@ class CameraRefreshTests(unittest.TestCase):
         window._camera_refresh_pending_reason = None
         window._camera_refresh_mapped = True
         window._camera_refresh_shutdown = False
+        window._status_bar = SimpleNamespace(
+            get_text=mock.Mock(return_value=status)
+        )
         window.sync_video_input_controls = mock.Mock()
         window.set_status = mock.Mock()
         return window
@@ -132,6 +136,49 @@ class CameraRefreshTests(unittest.TestCase):
         self.assertEqual(window._camera_selector._devices, [])
         self.assertEqual(window._camera_selector.get_selected_device(), "")
         window.sync_video_input_controls.assert_not_called()
+
+    def test_map_discovery_clears_stale_no_camera_status(self):
+        window = self.make_window(status=_CAMERA_RETRY_STATUS)
+
+        self.assertFalse(
+            window._finish_camera_refresh(
+                window._camera_refresh_generation,
+                "map",
+                _camera_snapshot(CAMERA_ZERO),
+            )
+        )
+
+        window.set_status.assert_called_once_with(
+            "Camera detected. Source list refreshed."
+        )
+
+    def test_initial_map_preserves_current_status(self):
+        for status in ("Ready", "Streaming: /dev/video0 -> /dev/video10"):
+            with self.subTest(status=status):
+                window = self.make_window(status=status)
+
+                self.assertFalse(
+                    window._finish_camera_refresh(
+                        window._camera_refresh_generation,
+                        "map",
+                        _camera_snapshot(CAMERA_ZERO),
+                    )
+                )
+
+                window.set_status.assert_not_called()
+
+    def test_map_with_existing_camera_preserves_current_status(self):
+        window = self.make_window([CAMERA_ZERO], selected="/dev/video0")
+
+        self.assertFalse(
+            window._finish_camera_refresh(
+                window._camera_refresh_generation,
+                "map",
+                _camera_snapshot(CAMERA_ZERO),
+            )
+        )
+
+        window.set_status.assert_not_called()
 
     def test_apply_preserves_selected_camera_when_order_changes(self):
         window = self.make_window(
@@ -338,6 +385,7 @@ class CameraRefreshTests(unittest.TestCase):
 
         self.assertEqual(window._camera_selector._devices, [])
         window.sync_video_input_controls.assert_not_called()
+        window.set_status.assert_not_called()
         self.assertFalse(window._camera_refresh_in_flight)
         self.assertEqual(len(workers), 1)
 
