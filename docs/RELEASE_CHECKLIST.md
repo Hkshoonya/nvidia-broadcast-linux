@@ -49,6 +49,11 @@ not evidence for the release candidate.
 - Run CPU, CUDA, and TensorRT execution probes on applicable real hardware.
   Record unsupported combinations explicitly instead of treating a skipped
   hardware test as a pass.
+- Verify recording in each exact packaged runtime with a real camera and
+  microphone: confirm permission grants, record speech, then decode the MP4
+  and listen to its audio. For Snap, verify both `camera` and `audio-record`
+  connections. The confined synthetic recording smoke checks codecs and muxing;
+  it does not verify access to real capture devices or audible microphone audio.
 
 Stop if a required check fails, a high or critical exploitable vulnerability is
 unresolved, package contents differ from expectations, or the exact candidate

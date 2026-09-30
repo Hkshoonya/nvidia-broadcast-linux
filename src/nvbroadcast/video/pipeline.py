@@ -11,10 +11,12 @@
 Switches between modes when effects are toggled.
 """
 
+import json
+import os
+import subprocess
+import sys
 import threading
 import time
-import subprocess
-import os
 
 import gi
 
@@ -43,6 +45,10 @@ class _GpuPathFatal(RuntimeError):
 
 
 class VideoPipeline:
+    # Five possible video encoders plus three AAC encoders each receive a
+    # four-second isolated-process deadline. Allow the serial worst case plus
+    # process startup before a blocking CLI/test caller gives up.
+    _RECORDING_CODEC_PROBE_TIMEOUT_SECONDS = 36.0
     # One-time probe result shared across instances (None = not yet probed)
     _cuda_convert_probe_result: bool | None = None
     # Successful exact capture formats survive GUI pipeline replacement.
@@ -103,6 +109,22 @@ class VideoPipeline:
         self._recording_finalize_callback = None
         self._recording_bus = None
         self._recording_bus_handler = 0
+        self._recording_encoder = ""
+        self._recording_encoder_name = ""
+        self._recording_aac_encoder = ""
+        self._recording_aac_candidates: list[tuple[str, str]] = []
+        self._recording_aac_probe_errors: list[str] = []
+        self._recording_encoder_probe_error = ""
+        self._recording_encoder_probe_done = threading.Event()
+        self._recording_encoder_probe_thread = None
+        self._recording_codec_probe_lock = threading.Lock()
+        self._recording_codec_probe_state = "idle"
+        self._recording_codec_probe_started_at = 0.0
+        self._recording_codec_probe_generation = 0
+        self._recording_encoder_exclusions: set[str] = set()
+        self._recording_finalize_done = threading.Event()
+        self._recording_finalize_done.set()
+        self._recording_finalize_success = False
         self._paused = False
         self._frozen_frame = None
         self._teardown_lock = threading.Lock()
@@ -968,12 +990,8 @@ class VideoPipeline:
                     self._send_macos_virtual_camera_frame(output)
 
             # Push to recording if active
-            rec_appsrc = self._rec_appsrc
-            if self._recording and rec_appsrc:
-                rec_buf = Gst.Buffer.new_allocate(None, len(output), None)
-                rec_buf.fill(0, output)
-                rec_buf.pts = buf_pts
-                rec_appsrc.emit("push-buffer", rec_buf)
+            if self._recording and self._rec_appsrc:
+                self._push_recording_frame(output, buf_duration)
 
             return Gst.FlowReturn.OK
         finally:
@@ -1078,12 +1096,9 @@ class VideoPipeline:
                     with self._lock:
                         self._latest_frame = out_bgra
                     if self._recording and self._rec_appsrc:
-                        rec_bytes = out_bgra.tobytes()
-                        rec_buf = Gst.Buffer.new_allocate(
-                            None, len(rec_bytes), None)
-                        rec_buf.fill(0, rec_bytes)
-                        rec_buf.pts = buf_pts
-                        self._rec_appsrc.emit("push-buffer", rec_buf)
+                        self._push_recording_frame(
+                            out_bgra.tobytes(), buf_duration
+                        )
 
                 appsrc = self._vcam_appsrc
                 if self._vcam_enabled and self._running and appsrc:
@@ -1163,6 +1178,25 @@ class VideoPipeline:
         if self._alpha_callback:
             self._alpha_callback(frame_data, width, height)
 
+    def _push_recording_frame(self, payload, duration=Gst.CLOCK_TIME_NONE):
+        """Push a frame using the recording pipeline's running-time clock.
+
+        Capture timestamps belong to the camera pipeline, which can have been
+        running for minutes before Rec starts. Reusing those absolute values
+        makes mp4mux wait for the new audio branch to catch up and drops most
+        video frames. An unset PTS lets recording appsrc timestamp each frame
+        against the same clock as its audio source.
+        """
+        appsrc = self._rec_appsrc
+        if not (self._recording and appsrc):
+            return Gst.FlowReturn.FLUSHING
+        buffer = Gst.Buffer.new_allocate(None, len(payload), None)
+        buffer.fill(0, payload)
+        if duration == Gst.CLOCK_TIME_NONE or not duration:
+            duration = Gst.SECOND // max(1, self._fps)
+        buffer.duration = duration
+        return appsrc.emit("push-buffer", buffer)
+
     @staticmethod
     def _recording_audio_source() -> tuple[str | None, str]:
         """Use the same live source check as Meeting's separate WAV capture."""
@@ -1183,16 +1217,66 @@ class VideoPipeline:
         self._recording_bus = None
         self._recording_bus_handler = 0
 
+    @staticmethod
+    def _recording_error_is_video_encoder(message) -> bool:
+        """Return whether a GStreamer error came from the selected encoder.
+
+        Audio-source, AAC, muxer, and filesink failures must not blacklist a
+        proven video encoder.  The recording graphs give only the selected
+        H.264 element this stable name so attribution does not depend on
+        localized or driver-specific error text.
+        """
+        if message is None:
+            return False
+        try:
+            source = message.src
+            return bool(
+                source is not None
+                and source.get_name() == "recording_video_encoder"
+            )
+        except Exception:
+            return False
+
+    def _invalidate_failed_recording_encoder(self, message) -> bool:
+        """Drop a selected encoder only for an error emitted by that element."""
+        if not self._recording_error_is_video_encoder(message):
+            return False
+
+        with self._recording_codec_probe_lock:
+            encoder_name = self._recording_encoder_name
+            if not encoder_name:
+                return False
+            self._recording_encoder_exclusions.add(encoder_name)
+            # Invalidate any worker result that was based on the failed choice.
+            self._recording_codec_probe_generation += 1
+            self._recording_encoder_name = ""
+            self._recording_encoder = ""
+            self._recording_encoder_probe_error = ""
+            self._recording_aac_candidates = []
+            self._recording_aac_probe_errors = []
+            self._recording_codec_probe_state = "idle"
+            self._recording_encoder_probe_thread = None
+
+        print(
+            f"[NV Broadcast] Recording encoder {encoder_name} failed at runtime; "
+            "probing the next fallback",
+            flush=True,
+        )
+        return True
+
     def _on_recording_error(self, _bus, message, recording_pipeline):
         if recording_pipeline is not self._recording_pipeline or not self._recording:
             return
         error, debug = message.parse_error()
+        retry_video_encoder = self._invalidate_failed_recording_encoder(message)
         self._recording_audio_error = error.message
         self._recording_has_audio = False
         self._recording = False
         self._rec_appsrc = None
         self._recording_pipeline = None
         self._recording_finalizing = True
+        self._recording_finalize_success = False
+        self._recording_finalize_done.clear()
         self._remove_recording_bus_watch()
         print(f"[NV Broadcast] Recording failed: {error.message}", flush=True)
         if debug:
@@ -1204,63 +1288,336 @@ class VideoPipeline:
                 recording_pipeline.set_state(Gst.State.NULL)
             finally:
                 self._recording_finalizing = False
+                self._recording_finalize_done.set()
+                if retry_video_encoder:
+                    self.prepare_recording_codecs()
 
         threading.Thread(target=_cleanup_failed_recording, daemon=True).start()
         if self._recording_error_callback:
             self._recording_error_callback(error.message)
 
-    def start_recording(self, filepath: str):
+    @staticmethod
+    def _probe_recording_graph(graph: str) -> tuple[bool, str]:
+        """Run an encode probe in a process that can be killed if a driver hangs."""
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "nvbroadcast.video.recording_probe",
+                    graph,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=4,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return False, "encode probe process timed out"
+        except Exception as exc:
+            return False, str(exc) or exc.__class__.__name__
+
+        prefix = "NVBROADCAST_RECORDING_PROBE="
+        for line in reversed(result.stdout.splitlines()):
+            if not line.startswith(prefix):
+                continue
+            try:
+                payload = json.loads(line[len(prefix):])
+            except (TypeError, ValueError):
+                break
+            usable = payload.get("usable") is True
+            error = str(payload.get("error") or "")
+            return usable, error
+
+        detail = (result.stderr or result.stdout).strip().replace("\n", " | ")
+        if len(detail) > 500:
+            detail = detail[-500:]
+        return False, detail or f"encode probe exited with status {result.returncode}"
+
+    def _recording_encoder_candidates(self) -> list[tuple[str, str]]:
+        """Return installed H.264 encoder graphs in preferred order."""
+        from nvbroadcast.core.platform import IS_MACOS
+
+        candidates: list[tuple[str, str]] = []
+        cpu_nv12 = "videoconvert n-threads=2 qos=false ! video/x-raw,format=NV12"
+        if (
+            not IS_MACOS
+            and "nvautogpuh264enc" not in self._recording_encoder_exclusions
+            and self._has_gst_element("nvautogpuh264enc")
+        ):
+            candidates.append((
+                "nvautogpuh264enc",
+                f"{cpu_nv12} ! nvautogpuh264enc "
+                "preset=p4 tune=low-latency bitrate=8000 "
+                "name=recording_video_encoder",
+            ))
+        if (
+            not IS_MACOS
+            and "nvcudah264enc" not in self._recording_encoder_exclusions
+            and self._has_gst_element("nvcudah264enc")
+        ):
+            candidates.append((
+                "nvcudah264enc",
+                f"{cpu_nv12} ! nvcudah264enc "
+                "preset=p4 tune=low-latency bitrate=8000 "
+                "name=recording_video_encoder",
+            ))
+        if (
+            not IS_MACOS
+            and "nvh264enc" not in self._recording_encoder_exclusions
+            and self._has_gst_element("nvh264enc")
+        ):
+            # Older GStreamer exposes only this fixed-device NVENC element.
+            # Newer drivers can reject all of its legacy presets, so it must
+            # pass the same real encode probe as every other candidate.
+            candidates.append((
+                "nvh264enc",
+                f"{cpu_nv12} ! nvh264enc "
+                "preset=low-latency-hq bitrate=8000 "
+                "name=recording_video_encoder",
+            ))
+        if (
+            "x264enc" not in self._recording_encoder_exclusions
+            and self._has_gst_element("x264enc")
+        ):
+            candidates.append((
+                "x264enc",
+                "videoconvert n-threads=2 qos=false ! "
+                "video/x-raw,format=I420 ! "
+                "x264enc tune=zerolatency speed-preset=ultrafast bitrate=8000 "
+                "name=recording_video_encoder",
+            ))
+        if (
+            "openh264enc" not in self._recording_encoder_exclusions
+            and self._has_gst_element("openh264enc")
+        ):
+            candidates.append((
+                "openh264enc",
+                "videoconvert n-threads=2 qos=false ! "
+                "video/x-raw,format=I420 ! "
+                "openh264enc rate-control=bitrate complexity=low bitrate=8000000 "
+                "name=recording_video_encoder",
+            ))
+        return candidates
+
+    def _find_recording_encoder(self) -> tuple[str, str]:
+        """Return the first H.264 encoder that completes a real frame."""
+        if not self._has_gst_element("h264parse"):
+            raise RuntimeError("No usable H.264 recording encoder is available")
+
+        failures = []
+        for name, encoder in self._recording_encoder_candidates():
+            graph = (
+                "videotestsrc num-buffers=2 ! "
+                f"video/x-raw,format=BGRA,width={self._width},"
+                f"height={self._height},framerate={self._fps}/1 ! "
+                f"{encoder} ! h264parse config-interval=-1 ! "
+                "video/x-h264,stream-format=avc,alignment=au ! "
+                "fakesink name=probe_sink sync=false"
+            )
+            usable, error = self._probe_recording_graph(graph)
+            if usable:
+                print(f"[NV Broadcast] Recording encoder: {name}", flush=True)
+                return name, encoder
+            failures.append(f"{name}: {error}")
+
+        if failures:
+            print(
+                "[NV Broadcast] H.264 encoder probes failed: "
+                + "; ".join(failures),
+                flush=True,
+            )
+        raise RuntimeError("No usable H.264 recording encoder is available")
+
+    def _find_recording_aac_encoders(
+        self,
+    ) -> tuple[list[tuple[str, str]], list[str]]:
+        """Probe installed AAC encoders before a UI recording can use them."""
+        usable_candidates: list[tuple[str, str]] = []
+        failures: list[str] = []
+        for aac_encoder, pcm_format in (
+            ("avenc_aac", "F32LE"),
+            ("voaacenc", "S16LE"),
+            ("fdkaacenc", "S16LE"),
+        ):
+            if not self._has_gst_element(aac_encoder):
+                continue
+            usable, error = self._probe_recording_graph(
+                "audiotestsrc num-buffers=8 samplesperbuffer=256 ! "
+                "audioconvert ! audioresample ! "
+                f"audio/x-raw,format={pcm_format},layout=interleaved,"
+                "rate=48000,channels=1 ! "
+                f"{aac_encoder} bitrate=128000 ! aacparse ! "
+                "audio/mpeg,mpegversion=4,stream-format=raw ! "
+                "fakesink name=probe_sink sync=false"
+            )
+            if usable:
+                usable_candidates.append((aac_encoder, pcm_format))
+            else:
+                failures.append(f"{aac_encoder}: {error}")
+        if failures:
+            print(
+                "[NV Broadcast] AAC encoder probes failed: "
+                + "; ".join(failures),
+                flush=True,
+            )
+        return usable_candidates, failures
+
+    def prepare_recording_codecs(self) -> None:
+        """Warm video and audio codec probes without blocking the caller."""
+        with self._recording_codec_probe_lock:
+            if self._recording_codec_probe_state in {"running", "succeeded"}:
+                return
+            thread = self._recording_encoder_probe_thread
+            if thread is not None and thread.is_alive():
+                return
+
+            self._recording_codec_probe_generation += 1
+            generation = self._recording_codec_probe_generation
+            done = threading.Event()
+            self._recording_encoder_probe_done = done
+            self._recording_encoder_probe_error = ""
+            self._recording_codec_probe_state = "running"
+            self._recording_codec_probe_started_at = time.monotonic()
+
+            def _prepare():
+                error = ""
+                encoder_name = ""
+                encoder = ""
+                aac_candidates: list[tuple[str, str]] = []
+                aac_errors: list[str] = []
+                try:
+                    encoder_name, encoder = self._find_recording_encoder()
+                    aac_candidates, aac_errors = (
+                        self._find_recording_aac_encoders()
+                    )
+                except Exception as exc:
+                    error = str(exc) or exc.__class__.__name__
+                finally:
+                    with self._recording_codec_probe_lock:
+                        if generation == self._recording_codec_probe_generation:
+                            if error:
+                                self._recording_encoder_probe_error = error
+                                self._recording_codec_probe_state = "failed"
+                            else:
+                                self._recording_encoder_name = encoder_name
+                                self._recording_encoder = encoder
+                                self._recording_aac_candidates = aac_candidates
+                                self._recording_aac_probe_errors = aac_errors
+                                self._recording_codec_probe_state = "succeeded"
+                            self._recording_encoder_probe_thread = None
+                        done.set()
+
+            thread = threading.Thread(
+                target=_prepare,
+                name="recording-codec-probe",
+                daemon=True,
+            )
+            self._recording_encoder_probe_thread = thread
+        try:
+            thread.start()
+        except Exception as exc:
+            with self._recording_codec_probe_lock:
+                if generation == self._recording_codec_probe_generation:
+                    self._recording_encoder_probe_error = (
+                        str(exc) or exc.__class__.__name__
+                    )
+                    self._recording_codec_probe_state = "failed"
+                    self._recording_encoder_probe_thread = None
+                    done.set()
+
+    def prepare_recording_encoder(self) -> None:
+        """Backward-compatible alias for warming all recording codecs."""
+        self.prepare_recording_codecs()
+
+    def _select_recording_encoder(self, *, wait: bool = True) -> str:
+        """Read a completed codec probe, optionally waiting off UI paths."""
+        while True:
+            start_probe = False
+            with self._recording_codec_probe_lock:
+                state = self._recording_codec_probe_state
+                if state == "succeeded":
+                    if not self._recording_encoder:
+                        raise RuntimeError(
+                            "No usable H.264 recording encoder is available"
+                        )
+                    return self._recording_encoder
+                if state == "failed":
+                    error = self._recording_encoder_probe_error or (
+                        "No usable H.264 recording encoder is available"
+                    )
+                    # A later attempt may retry transient driver/session errors.
+                    self._recording_codec_probe_state = "idle"
+                    self._recording_encoder_probe_thread = None
+                    self._recording_encoder_probe_error = ""
+                    raise RuntimeError(error)
+                if state == "idle":
+                    start_probe = True
+                    done = None
+                    started_at = 0.0
+                else:
+                    done = self._recording_encoder_probe_done
+                    started_at = self._recording_codec_probe_started_at
+
+            if start_probe:
+                self.prepare_recording_codecs()
+                continue
+
+            elapsed = max(0.0, time.monotonic() - started_at)
+            remaining = self._RECORDING_CODEC_PROBE_TIMEOUT_SECONDS - elapsed
+            if not wait:
+                if remaining <= 0:
+                    raise RuntimeError("H.264 recording encoder check timed out")
+                raise RuntimeError("Recording codec check is still running")
+            if remaining <= 0 or done is None or not done.wait(remaining):
+                raise RuntimeError("H.264 recording encoder check timed out")
+
+    def start_recording(self, filepath: str, *, wait_for_codecs: bool = True):
         """Start recording the processed output to an MP4 file."""
         if self._recording or self._recording_finalizing:
             raise RuntimeError("A recording is active or still finalizing")
         self._recording_has_audio = False
         self._recording_audio_error = ""
+        self._recording_aac_encoder = ""
+        self._recording_finalize_success = False
 
-        # Use NVENC if available, else x264
-        from nvbroadcast.core.platform import IS_MACOS
-        if not IS_MACOS and self._has_gst_element("nvh264enc"):
-            if self._cuda_convert_available() and not self._cuda_convert_demoted:
-                # Convert on-GPU and hand NVENC CUDA memory directly —
-                # no download on the recording leg at all.
-                convert = ("cudaupload ! cudaconvert ! "
-                           "video/x-raw(memory:CUDAMemory),format=NV12")
-            else:
-                convert = "videoconvert n-threads=2 qos=false"
-            encoder = f"{convert} ! nvh264enc preset=low-latency-hq bitrate=8000"
-        elif self._has_gst_element("x264enc"):
-            encoder = ("videoconvert n-threads=2 qos=false ! "
-                       "x264enc tune=zerolatency speed-preset=ultrafast bitrate=8000")
-        else:
-            raise RuntimeError("No H.264 recording encoder is installed")
+        encoder = self._select_recording_encoder(wait=wait_for_codecs)
+        with self._recording_codec_probe_lock:
+            aac_candidates = list(self._recording_aac_candidates)
+            aac_probe_errors = list(self._recording_aac_probe_errors)
+        video_tail = (
+            f"{encoder} ! h264parse config-interval=-1 ! "
+            "video/x-h264,stream-format=avc,alignment=au"
+        )
 
         source, audio_error = self._recording_audio_source()
         recording_pipeline = None
         has_audio = False
         if source:
-            # libav AAC accepts F32LE; VisualOn AAC accepts S16LE.
-            aac_errors = []
-            for aac_encoder, pcm_format in (("avenc_aac", "F32LE"),
-                                            ("voaacenc", "S16LE")):
-                if not self._has_gst_element(aac_encoder):
-                    continue
+            # Codec warmup has already proved these concrete AAC graphs.
+            aac_errors = list(aac_probe_errors)
+            for aac_encoder, pcm_format in aac_candidates:
                 try:
                     recording_pipeline = Gst.parse_launch(
                         f"mp4mux name=mux fragment-duration=1000 ! filesink name=recfile "
                         f"appsrc name=recsrc is-live=true format=time "
+                        f"do-timestamp=true "
                         f"caps=video/x-raw,format=BGRA,width={self._width},"
                         f"height={self._height},framerate={self._fps}/1 ! "
                         f"queue max-size-buffers=3 leaky=downstream ! "
-                        f"{encoder} ! "
-                        f"h264parse ! mux.video_0 "
+                        f"{video_tail} ! mux.video_0 "
                         f"{source} ! audioconvert ! audioresample ! "
-                        f"audio/x-raw,format={pcm_format},rate=48000,channels=1 ! "
+                        f"audio/x-raw,format={pcm_format},layout=interleaved,"
+                        f"rate=48000,channels=1 ! "
                         f"queue max-size-buffers=10 ! "
-                        f"{aac_encoder} bitrate=128000 ! aacparse ! mux.audio_0"
+                        f"{aac_encoder} bitrate=128000 ! aacparse ! "
+                        f"audio/mpeg,mpegversion=4,stream-format=raw ! mux.audio_0"
                     )
                 except GLib.Error as exc:
                     aac_errors.append(f"{aac_encoder}: {exc.message}")
                     continue
                 has_audio = True
+                self._recording_aac_encoder = aac_encoder
                 break
             if not has_audio:
                 audio_error = (f"{source}: {'; '.join(aac_errors)}" if aac_errors
@@ -1269,11 +1626,11 @@ class VideoPipeline:
         if recording_pipeline is None:
             recording_pipeline = Gst.parse_launch(
                 f"appsrc name=recsrc is-live=true format=time "
+                f"do-timestamp=true "
                 f"caps=video/x-raw,format=BGRA,width={self._width},"
                 f"height={self._height},framerate={self._fps}/1 ! "
                 f"queue max-size-buffers=3 leaky=downstream ! "
-                f"{encoder} ! "
-                f"h264parse ! "
+                f"{video_tail} ! "
                 f"mp4mux fragment-duration=1000 ! "
                 f"filesink name=recfile"
             )
@@ -1283,23 +1640,46 @@ class VideoPipeline:
         # makes Gst.parse_launch treat the next word as an element name.
         recording_pipeline.get_by_name("recfile").set_property("location", filepath)
         rec_appsrc = recording_pipeline.get_by_name("recsrc")
+        recording_bus = recording_pipeline.get_bus()
         if recording_pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
-            recording_pipeline.set_state(Gst.State.NULL)
+            startup_error = recording_bus.timed_pop_filtered(
+                0, Gst.MessageType.ERROR
+            )
+            retry_video_encoder = self._invalidate_failed_recording_encoder(
+                startup_error
+            )
+            self._recording_finalizing = True
+            self._recording_finalize_success = False
+            self._recording_finalize_done.clear()
+
+            def _cleanup_failed_start():
+                try:
+                    recording_pipeline.set_state(Gst.State.NULL)
+                finally:
+                    self._recording_finalizing = False
+                    self._recording_finalize_done.set()
+                    if retry_video_encoder:
+                        self.prepare_recording_codecs()
+
+            threading.Thread(
+                target=_cleanup_failed_start,
+                name="recording-start-cleanup",
+                daemon=True,
+            ).start()
             raise RuntimeError("Recording pipeline could not start")
         self._recording_pipeline = recording_pipeline
         self._rec_appsrc = rec_appsrc
         self._recording_has_audio = has_audio
         self._recording_audio_error = audio_error
         self._recording = True
-        bus = recording_pipeline.get_bus()
-        bus.add_signal_watch()
-        self._recording_bus = bus
-        self._recording_bus_handler = bus.connect(
+        recording_bus.add_signal_watch()
+        self._recording_bus = recording_bus
+        self._recording_bus_handler = recording_bus.connect(
             "message::error", self._on_recording_error, recording_pipeline
         )
         print(f"[NV Broadcast] Recording started: {filepath}")
 
-    def stop_recording(self):
+    def stop_recording(self, *, wait: bool = True):
         """Stop recording and finalize the MP4 file."""
         if not self._recording:
             return False
@@ -1311,6 +1691,8 @@ class VideoPipeline:
         if recording_pipeline is None:
             return False
         self._recording_finalizing = True
+        self._recording_finalize_success = False
+        self._recording_finalize_done.clear()
 
         finished = threading.Event()
         result = {"finalized": False, "error": "Timed out finalizing the recording"}
@@ -1338,8 +1720,20 @@ class VideoPipeline:
                 try:
                     recording_pipeline.set_state(Gst.State.NULL)
                 finally:
+                    self._recording_finalize_success = result["finalized"]
+                    if not result["finalized"]:
+                        self._recording_audio_error = result["error"]
                     self._recording_finalizing = False
                     finished.set()
+                    self._recording_finalize_done.set()
+                    if result["finalized"]:
+                        print("[NV Broadcast] Recording stopped")
+                    else:
+                        print(
+                            "[NV Broadcast] Recording finalization failed: "
+                            f"{result['error']}",
+                            flush=True,
+                        )
                     if finalize_callback:
                         GLib.idle_add(
                             finalize_callback,
@@ -1347,16 +1741,20 @@ class VideoPipeline:
                         )
 
         threading.Thread(target=_finalize, daemon=True).start()
+        if not wait:
+            return False
         if not finished.wait(2.5):
             self._recording_audio_error = "Recording finalization is still running"
             print(f"[NV Broadcast] {self._recording_audio_error}", flush=True)
             return False
-        if not result["finalized"]:
-            self._recording_audio_error = result["error"]
-            print(f"[NV Broadcast] Recording finalization failed: "
-                  f"{self._recording_audio_error}", flush=True)
-        print("[NV Broadcast] Recording stopped")
         return result["finalized"]
+
+    def wait_for_recording_finalization(self, timeout_seconds: float = 5.0) -> bool:
+        """Wait off the UI thread for an asynchronous recording finalizer."""
+        if self._recording_finalizing:
+            if not self._recording_finalize_done.wait(timeout_seconds):
+                return False
+        return self._recording_finalize_success
 
     @property
     def is_recording(self) -> bool:
@@ -1547,7 +1945,7 @@ class VideoPipeline:
 
         try:
             if self._recording:
-                self.stop_recording()
+                self.stop_recording(wait=False)
 
             # Clean up the macOS vcam backend first so it stops holding output
             # resources before the GStreamer side is released.

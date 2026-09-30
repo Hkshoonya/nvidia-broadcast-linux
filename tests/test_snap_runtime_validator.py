@@ -8,6 +8,7 @@ from scripts.validate_snap_runtime import (
     discover_package_roots,
     platform_shadow_problems,
     python_runtime_problems,
+    recording_codec_problems,
 )
 
 
@@ -90,6 +91,36 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
             "Type=Application\n"
         )
 
+    def _add_valid_recording_codecs(self, triplet="x86_64-linux-gnu") -> None:
+        library_dir = self.snap_root / "usr/lib" / triplet
+        plugin_dir = library_dir / "gstreamer-1.0"
+        plugin_dir.mkdir(parents=True)
+        for name in (
+            "libgstfaad.so",
+            "libgstnvcodec.so",
+            "libgstopenh264.so",
+            "libgstvideoparsersbad.so",
+            "libgstvoaacenc.so",
+        ):
+            (plugin_dir / name).touch()
+        (library_dir / "libfaad.so.2.11.1").touch()
+        (library_dir / "libfaad.so.2").symlink_to("libfaad.so.2.11.1")
+        (library_dir / "libopenh264.so.2.4.1").touch()
+        (library_dir / "libopenh264.so.7").symlink_to(
+            "libopenh264.so.2.4.1"
+        )
+        (library_dir / "libvo-aacenc.so.0").touch()
+        for relative in (
+            "usr/share/doc/gstreamer1.0-plugins-bad/copyright",
+            "usr/share/doc/libfaad2/copyright",
+            "usr/share/doc/libopenh264-7/copyright",
+            "usr/share/doc/libvo-aacenc0/copyright",
+            "usr/share/doc/libvo-aacenc0/NOTICE.gz",
+        ):
+            path = self.snap_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+
     def test_discovers_snap_python_roots(self):
         self.assertEqual(discover_package_roots(self.snap_root), [self.site_packages])
 
@@ -150,6 +181,32 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
                 "Snap shadows a GNOME platform library: "
                 "usr/lib/x86_64-linux-gnu/libgtk-4.so.1"
             ],
+        )
+
+    def test_accepts_narrow_recording_codec_payload(self):
+        self._add_valid_recording_codecs()
+
+        self.assertEqual(
+            recording_codec_problems(self.snap_root, "amd64"), []
+        )
+
+    def test_rejects_missing_and_unrelated_recording_plugins(self):
+        self._add_valid_recording_codecs("aarch64-linux-gnu")
+        plugin_dir = (
+            self.snap_root /
+            "usr/lib/aarch64-linux-gnu/gstreamer-1.0"
+        )
+        (plugin_dir / "libgstopenh264.so").unlink()
+        (plugin_dir / "libgstunrelated.so").touch()
+
+        problems = recording_codec_problems(self.snap_root, "arm64")
+
+        self.assertIn(
+            "Snap is missing recording plugin: libgstopenh264.so", problems
+        )
+        self.assertIn(
+            "Snap primes unrelated app-owned GStreamer plugin: libgstunrelated.so",
+            problems,
         )
 
     def test_accepts_packaged_desktop_launcher(self):

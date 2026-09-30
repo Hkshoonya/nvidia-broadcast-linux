@@ -150,6 +150,14 @@ class AppAudioPolicyTests(unittest.TestCase):
         pipeline.start_recording.assert_not_called()
         pipeline.stop_recording.assert_not_called()
 
+    def test_record_button_stops_without_blocking_the_ui(self):
+        pipeline = mock.Mock()
+        app = SimpleNamespace(_meeting_active=False, _video_pipeline=pipeline)
+
+        NVBroadcastApp.stop_recording(app)
+
+        pipeline.stop_recording.assert_called_once_with(wait=False)
+
     def test_record_button_cannot_stop_a_meeting(self):
         app = SimpleNamespace(meeting_active=True, is_recording=True,
                               stop_recording=mock.Mock())
@@ -343,7 +351,45 @@ class AppAudioPolicyTests(unittest.TestCase):
             Path, "home", return_value=Path(directory)
         ):
             self.assertEqual(NVBroadcastApp.start_recording(app), "")
-        self.assertEqual(app._recording_start_error, "H.264 encoder missing")
+        self.assertEqual(app._recording_start_error, "H.264 encoder unavailable")
+        pipeline.start_recording.assert_called_once()
+        self.assertFalse(
+            pipeline.start_recording.call_args.kwargs["wait_for_codecs"]
+        )
+
+    def test_unusable_h264_encoder_is_reported_to_meeting_ui(self):
+        import tempfile
+        from pathlib import Path
+
+        pipeline = mock.Mock(is_recording=False, recording_finalizing=False)
+        pipeline.start_recording.side_effect = RuntimeError(
+            "No usable H.264 recording encoder is available"
+        )
+        app = SimpleNamespace(
+            _meeting_finalizing=False,
+            _video_pipeline=pipeline,
+        )
+        with tempfile.TemporaryDirectory() as directory, mock.patch(
+            "nvbroadcast.app.create_session",
+            return_value=("session", Path(directory)),
+        ):
+            self.assertEqual(NVBroadcastApp.start_meeting(app), "")
+
+        self.assertEqual(app._recording_start_error, "H.264 encoder unavailable")
+        self.assertEqual(app._meeting_session_id, "")
+        self.assertEqual(app._meeting_video_path, "")
+        self.assertFalse(
+            pipeline.start_recording.call_args.kwargs["wait_for_codecs"]
+        )
+
+    def test_codec_warmup_reports_temporary_status(self):
+        message = NVBroadcastApp._recording_start_failure_message(
+            RuntimeError("Recording codec check is still running"),
+            "Recording could not start",
+        )
+        self.assertEqual(
+            message, "Recording codecs are still preparing; try again shortly"
+        )
 
 
 if __name__ == "__main__":

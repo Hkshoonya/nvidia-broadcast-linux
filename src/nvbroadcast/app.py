@@ -1350,6 +1350,7 @@ class NVBroadcastApp(Adw.Application):
             self._video_pipeline.start()
             startup_trace.mark("pipeline started")
             self._streaming = True
+            self._video_pipeline.prepare_recording_codecs()
 
             w, h = self.config.video.width, self.config.video.height
             status = f"Streaming: {camera_device} {w}x{h}@{self.config.video.fps}fps"
@@ -2462,6 +2463,19 @@ class NVBroadcastApp(Adw.Application):
 
     # --- Recording ---
 
+    @staticmethod
+    def _recording_start_failure_message(error: Exception, fallback: str) -> str:
+        """Translate codec-selection failures consistently for Rec and Meeting."""
+        if str(error) == "Recording codec check is still running":
+            return "Recording codecs are still preparing; try again shortly"
+        if str(error) in {
+            "No H.264 recording encoder is installed",
+            "No usable H.264 recording encoder is available",
+            "H.264 recording encoder check timed out",
+        }:
+            return "H.264 encoder unavailable"
+        return fallback
+
     def start_recording(self):
         """Start recording to ~/Videos/NVBroadcast_<timestamp>.mp4."""
         import time
@@ -2489,28 +2503,27 @@ class NVBroadcastApp(Adw.Application):
             self._recording_start_error = "Camera pipeline unavailable"
             return ""
         try:
-            self._video_pipeline.start_recording(filepath)
+            self._video_pipeline.start_recording(filepath, wait_for_codecs=False)
             self._video_pipeline.set_recording_finalize_callback(
                 lambda success, error: self._on_recording_finalized(
                     "rec", success, error
                 )
             )
         except Exception as exc:
-            self._recording_start_error = (
-                "H.264 encoder missing" if str(exc) ==
-                "No H.264 recording encoder is installed" else "Recording could not start"
+            self._recording_start_error = NVBroadcastApp._recording_start_failure_message(
+                exc, "Recording could not start"
             )
             print(f"[NV Broadcast] Recording could not start: {exc}", flush=True)
             return ""
         self._last_recording_path = filepath
         return filepath
 
-    def stop_recording(self):
+    def stop_recording(self, *, wait: bool = False):
         if self._meeting_active:
             print("[NV Broadcast] End the meeting before stopping its recording", flush=True)
             return False
         if self._video_pipeline:
-            return self._video_pipeline.stop_recording()
+            return self._video_pipeline.stop_recording(wait=wait)
         return False
 
     def _on_recording_error(self, message: str):
@@ -2585,16 +2598,15 @@ class NVBroadcastApp(Adw.Application):
 
         filepath = self._meeting_video_path
         try:
-            self._video_pipeline.start_recording(filepath)
+            self._video_pipeline.start_recording(filepath, wait_for_codecs=False)
             self._video_pipeline.set_recording_finalize_callback(
                 lambda success, error: self._on_recording_finalized(
                     "meeting", success, error
                 )
             )
         except Exception as exc:
-            self._recording_start_error = (
-                "H.264 encoder missing" if str(exc) ==
-                "No H.264 recording encoder is installed" else "Meeting video could not start"
+            self._recording_start_error = NVBroadcastApp._recording_start_failure_message(
+                exc, "Meeting video could not start"
             )
             print(f"[NV Broadcast] Meeting video could not start: {exc}", flush=True)
             self._meeting_session_id = ""
@@ -2654,7 +2666,7 @@ class NVBroadcastApp(Adw.Application):
         import time
         from pathlib import Path
         self._meeting_active = False
-        self.stop_recording()
+        self.stop_recording(wait=True)
         if self._meeting_capture:
             self._meeting_capture.stop()
             self._meeting_capture = None
@@ -2725,10 +2737,11 @@ class NVBroadcastApp(Adw.Application):
         meeting_session_dir = self._meeting_session_dir
         meeting_audio_path = self._meeting_audio_path
         meeting_video_path = self._meeting_video_path
+        video_pipeline = self._video_pipeline
 
         self._meeting_active = False
         self._meeting_finalizing = True
-        self.stop_recording()
+        self.stop_recording(wait=False)
         if self._meeting_capture:
             self._meeting_capture.stop()
             self._meeting_capture = None
@@ -2743,6 +2756,9 @@ class NVBroadcastApp(Adw.Application):
 
         def _worker():
             result_path = ""
+            video_warning = ""
+            if video_pipeline and not video_pipeline.wait_for_recording_finalization(5):
+                video_warning = "; meeting video may be incomplete"
             status = (
                 "Meeting ended" if meeting_audio_path
                 else "Meeting ended without a usable transcription WAV"
@@ -2760,6 +2776,7 @@ class NVBroadcastApp(Adw.Application):
                     status = f"Meeting saved: {result_path}"
                     if not meeting_audio_path:
                         status += "; transcription WAV unavailable"
+                status += video_warning
             except Exception as exc:
                 print(f"[NV Broadcast] Meeting finalization failed: {exc}")
                 status = "Meeting ended, but transcript finalization failed"

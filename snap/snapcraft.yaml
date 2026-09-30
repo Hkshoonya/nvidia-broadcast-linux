@@ -125,6 +125,12 @@ parts:
   nvbroadcast:
     plugin: python
     source: .
+    # Some destructive-mode builders expose their own Python packages through
+    # PYTHONPATH. Preserve that path only for the craftctl RPC client, while
+    # isolating both Python-plugin pip passes from build-host distributions.
+    build-environment:
+      - CRAFTCTL_PYTHONPATH: "$PYTHONPATH"
+      - PYTHONPATH: ""
     python-packages:
       - numpy
       - opencv-contrib-python>=4.8.1.78,<5
@@ -153,7 +159,7 @@ parts:
       - v4l-utils
       - gnome-settings-daemon-common
     override-build: |
-      craftctl default
+      PYTHONPATH="$CRAFTCTL_PYTHONPATH" craftctl default
       # The GNOME build extension puts its SDK interpreter first on PATH.
       # That SDK is not mounted under strict confinement, so make the venv use
       # core24's runtime Python and remove build-host provenance before packing.
@@ -236,16 +242,62 @@ parts:
         *) TRIPLET="x86_64-linux-gnu" ;;
       esac
       PLATFORM_LIB="$SNAP/gnome-platform/usr/lib/$TRIPLET"
-      export GST_PLUGIN_PATH="$PLATFORM_LIB/gstreamer-1.0${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}"
+      APP_GST_PLUGINS="$SNAP/usr/lib/$TRIPLET/gstreamer-1.0"
+      export GST_PLUGIN_PATH="$APP_GST_PLUGINS:$PLATFORM_LIB/gstreamer-1.0"
       export GI_TYPELIB_PATH="$PLATFORM_LIB/girepository-1.0:$SNAP/gnome-platform/usr/lib/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
       CUDA_RUNTIME="$SNAP/lib/python3/dist-packages/nvidia/cuda_runtime"
       if [ -z "${CUDA_PATH:-}" ] && [ -f "$CUDA_RUNTIME/include/cuda_runtime.h" ]; then
         export CUDA_PATH="$CUDA_RUNTIME"
       fi
       cd $SNAP
+      if [ "${1:-}" = "--recording-smoke" ]; then
+        shift
+        exec python3 -m nvbroadcast.video.recording_smoke "$@"
+      fi
       exec python3 -m nvbroadcast "$@"
       EOF
       chmod +x $CRAFT_PART_INSTALL/bin/nvbroadcast-wrapper
+
+  # The GNOME content snap supplies the GStreamer core, muxers, and shared
+  # codec libraries but no recording encoders or H.264 parser. Prime only the
+  # required Core24 plugins and their software codec libraries; do not
+  # duplicate the full plugins-bad payload from the content snap.
+  recording-codecs:
+    plugin: nil
+    stage-packages:
+      - gstreamer1.0-plugins-bad
+      - libfaad2
+      - libopenh264-7
+      - libvo-aacenc0
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgstnvcodec.so
+      - usr/lib/*/gstreamer-1.0/libgstfaad.so
+      - usr/lib/*/gstreamer-1.0/libgstopenh264.so
+      - usr/lib/*/gstreamer-1.0/libgstvideoparsersbad.so
+      - usr/lib/*/gstreamer-1.0/libgstvoaacenc.so
+      - usr/lib/*/libfaad.so.2*
+      - usr/lib/*/libopenh264.so.*
+      - usr/lib/*/libvo-aacenc.so.0*
+      - usr/share/doc/gstreamer1.0-plugins-bad/copyright
+      - usr/share/doc/libfaad2/copyright
+      - usr/share/doc/libopenh264-7/copyright
+      - usr/share/doc/libvo-aacenc0/copyright
+      - usr/share/doc/libvo-aacenc0/NOTICE.gz
+    prime:
+      - usr/lib/*/gstreamer-1.0/libgstnvcodec.so
+      - usr/lib/*/gstreamer-1.0/libgstfaad.so
+      - usr/lib/*/gstreamer-1.0/libgstopenh264.so
+      - usr/lib/*/gstreamer-1.0/libgstvideoparsersbad.so
+      - usr/lib/*/gstreamer-1.0/libgstvoaacenc.so
+      - usr/lib/*/libfaad.so.2*
+      - usr/lib/*/libopenh264.so.*
+      - usr/lib/*/libvo-aacenc.so.0*
+      - usr/share/doc/gstreamer1.0-plugins-bad/copyright
+      - usr/share/doc/libfaad2/copyright
+      - usr/share/doc/libopenh264-7/copyright
+      - usr/share/doc/libvo-aacenc0/copyright
+      - usr/share/doc/libvo-aacenc0/NOTICE.gz
+    after: [nvbroadcast]
 
   # NVIDIA GPU support (for users with NVIDIA drivers)
   nvidia-support:
