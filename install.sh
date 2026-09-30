@@ -145,7 +145,7 @@ get_packages() {
             # Debian, Ubuntu, Pop!_OS, Linux Mint
             PKGS_VIRTUAL_CAM="v4l-utils v4l2loopback-dkms"
             PKGS_GTK="gir1.2-gtk-4.0 gir1.2-adw-1"
-            PKGS_GST="gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad"
+            PKGS_GST="gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly"
             PKGS_PYTHON="python3-gi python3-gi-cairo"
             PKGS_TRAY="gir1.2-ayatanaappindicator3-0.1"
             PKGS_TOOLS="psmisc"  # provides fuser (camera power save)
@@ -231,6 +231,32 @@ install_packages() {
             return 1
             ;;
     esac
+}
+
+install_optional_recording_codecs() {
+    case "$PKG_MANAGER" in
+        dnf|yum) ;;
+        *) return 0 ;;
+    esac
+    local pkg
+    local codecs=()
+    for pkg in gstreamer1-plugin-openh264 openh264; do
+        if is_pkg_installed "$pkg"; then
+            continue
+        fi
+        if "$PKG_MANAGER" -q list --available "$pkg" >/dev/null 2>&1; then
+            codecs+=("$pkg")
+        else
+            echo "  Optional recording codec unavailable in enabled repositories: $pkg"
+        fi
+    done
+    if [ ${#codecs[@]} -gt 0 ]; then
+        # Codec repositories differ across Fedora/RHEL derivatives. Their
+        # availability must not break the main desktop dependency transaction.
+        if ! install_packages "${codecs[*]}"; then
+            echo "  WARNING: Optional H.264 codecs could not be installed. Recording needs an available encoder."
+        fi
+    fi
 }
 
 # Check if a package is installed
@@ -415,6 +441,8 @@ else
         echo "All system packages are installed."
     fi
 fi
+
+install_optional_recording_codecs
 
 # System PyGObject packages are interpreter-specific. Re-evaluate after those
 # packages are present so an automatic selection cannot create a venv whose

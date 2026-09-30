@@ -86,6 +86,9 @@ class FlatpakPackagingTests(unittest.TestCase):
         self.assertIn('_model_entry("base", faster_whisper.__version__)', workflow)
         self.assertIn("/app/share/doc/nvbroadcast/NOTICE", workflow)
         self.assertIn("/app/share/doc/nvbroadcast/CONTRIBUTORS.md", workflow)
+        self.assertIn(
+            "python3 -m nvbroadcast.video.recording_smoke", workflow
+        )
         self.assertNotIn("upload-artifact", workflow)
         self.assertNotRegex(workflow, r"(?m)^\s+push:\s*$")
 

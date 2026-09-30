@@ -16,7 +16,22 @@ gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
 
-def probe_audio_source() -> tuple[str | None, str]:
+def audio_source_target(source: str, device: str) -> tuple[str, str]:
+    """Resolve a selected microphone without substituting the default."""
+    from nvbroadcast.audio.devices import resolve_pipewire_target, resolve_pulse_source_name
+
+    if source == "pulsesrc":
+        target = resolve_pulse_source_name(device)
+        prop = "device"
+    else:
+        target = resolve_pipewire_target(device)
+        prop = "target-object"
+    if device and not target:
+        raise ValueError("Selected microphone is unavailable")
+    return prop, target
+
+
+def probe_audio_source(device: str = "") -> tuple[str | None, str]:
     """Prefer PulseAudio, then PipeWire, after a bounded live capture probe.
 
     The probe runs in a child because a failed native source can hang or crash
@@ -28,7 +43,9 @@ def probe_audio_source() -> tuple[str | None, str]:
         "from gi.repository import Gst\n"
         "Gst.init(None)\n"
         "pipe = Gst.parse_launch(sys.argv[1] + "
-        "' num-buffers=1 ! audio/x-raw ! fakesink sync=false')\n"
+        "' name=probe_source num-buffers=1 ! audio/x-raw ! fakesink sync=false')\n"
+        "if len(sys.argv) > 2:\n"
+        "    pipe.get_by_name('probe_source').set_property(sys.argv[2], sys.argv[3])\n"
         "if pipe.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:\n"
         "    sys.exit('audio source could not start')\n"
         "msg = pipe.get_bus().timed_pop_filtered(\n"
@@ -53,8 +70,12 @@ def probe_audio_source() -> tuple[str | None, str]:
                 failures.append("PipeWire socket is unavailable")
                 continue
         try:
+            source_args = [source]
+            if device:
+                prop, target = audio_source_target(source, device)
+                source_args.extend([prop, target])
             result = subprocess.run(
-                [sys.executable, "-c", probe_code, source],
+                [sys.executable, "-c", probe_code, *source_args],
                 capture_output=True, text=True, timeout=2, check=False,
             )
             if result.returncode == 0:
@@ -62,6 +83,6 @@ def probe_audio_source() -> tuple[str | None, str]:
             failures.append(f"{source}: {result.stderr.strip() or 'capture failed'}")
         except subprocess.TimeoutExpired:
             failures.append(f"{source} capture probe timed out")
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             failures.append(f"{source} capture probe failed: {exc}")
     return None, "; ".join(failures)

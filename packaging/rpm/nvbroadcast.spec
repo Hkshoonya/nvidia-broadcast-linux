@@ -23,6 +23,8 @@ Requires:       v4l-utils
 Requires:       psmisc
 
 Recommends:     libayatana-appindicator-gtk3
+Recommends:     gstreamer1-plugin-openh264
+Recommends:     openh264
 
 %description
 NV Broadcast is an unofficial NVIDIA Broadcast for Linux and other OS.

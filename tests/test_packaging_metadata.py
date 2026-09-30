@@ -55,6 +55,47 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"such as v{current}", snap_workflow)
         self.assertIn(f"# NV Broadcast v{current}", release_notes)
 
+    def test_debian_paths_install_cpu_recording_encoder(self):
+        control = (REPO_ROOT / "packaging" / "debian" / "control").read_text()
+        package_builder = (REPO_ROOT / "build-packages.sh").read_text()
+        source_installer = (REPO_ROOT / "install.sh").read_text()
+        dependency_setup = (REPO_ROOT / "setup_deps.sh").read_text()
+
+        for path, contents in (
+            ("packaging/debian/control", control),
+            ("build-packages.sh", package_builder),
+            ("install.sh", source_installer),
+            ("setup_deps.sh", dependency_setup),
+        ):
+            self.assertIn("gstreamer1.0-plugins-ugly", contents, path)
+
+    def test_fedora_paths_install_cpu_recording_encoder(self):
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        source_installer = (REPO_ROOT / "install.sh").read_text()
+
+        self.assertNotIn("Requires:       gstreamer1-plugin-openh264", rpm_spec)
+        self.assertIn("Recommends:     gstreamer1-plugin-openh264", rpm_spec)
+        self.assertIn("Recommends:     openh264", rpm_spec)
+        self.assertIn("gstreamer1-plugin-openh264", source_installer)
+
+    def test_optional_recording_codecs_do_not_break_core_install(self):
+        source = (REPO_ROOT / "install.sh").read_text()
+        function = source.split("install_optional_recording_codecs() {", 1)[1].split(
+            "\n# Check if a package is installed", 1
+        )[0]
+        function = "install_optional_recording_codecs() {" + function
+        for available in (False, True):
+            with self.subTest(available=available):
+                script = "set -e\nPKG_MANAGER=dnf\n"
+                script += "is_pkg_installed() { return 1; }\n"
+                script += f"dnf() {{ return {0 if available else 1}; }}\n"
+                script += "install_packages() { echo CODEC_TRANSACTION; return 1; }\n"
+                script += function + "\ninstall_optional_recording_codecs\necho CORE_INSTALL_CONTINUES\n"
+                result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("CORE_INSTALL_CONTINUES", result.stdout)
+                self.assertEqual("CODEC_TRANSACTION" in result.stdout, available)
+
     def test_published_native_downloads_protect_legacy_upgrades(self):
         website = (REPO_ROOT / "docs" / "index.html").read_text()
         commands = website.split("const commands = {", 1)[1].split("};", 1)[0]
@@ -1308,6 +1349,12 @@ class PackagingMetadataTests(unittest.TestCase):
 
         self.assertIn("- packaging>=26.0", snapcraft)
         self.assertIn("- setuptools>=83.0.0", snapcraft)
+        self.assertIn('      - CRAFTCTL_PYTHONPATH: "$PYTHONPATH"', snapcraft)
+        self.assertIn('      - PYTHONPATH: ""', snapcraft)
+        self.assertIn(
+            'PYTHONPATH="$CRAFTCTL_PYTHONPATH" craftctl default', snapcraft
+        )
+        self.assertNotIn("PIP_IGNORE_INSTALLED", snapcraft)
         self.assertIn("--no-deps", cuda_install)
         self.assertIn('"cuda-pathfinder>=1.3.4,<2"', cuda_install)
         self.assertNotRegex(
@@ -1364,6 +1411,38 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("platform_shadow_problems", validator)
         self.assertIn("--timeout 120", snapcraft)
         self.assertIn("--retries 5", snapcraft)
+
+    def test_snap_primes_only_required_recording_codecs(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        codec_part = snapcraft.split("  recording-codecs:\n", 1)[1].split(
+            "\n  # NVIDIA GPU support", 1
+        )[0]
+        for plugin in (
+            "libgstfaad.so",
+            "libgstnvcodec.so",
+            "libgstopenh264.so",
+            "libgstvideoparsersbad.so",
+            "libgstvoaacenc.so",
+        ):
+            self.assertIn(plugin, codec_part)
+        self.assertIn("libfaad.so.2*", codec_part)
+        self.assertIn("libopenh264.so.*", codec_part)
+        self.assertIn("libvo-aacenc.so.0*", codec_part)
+        self.assertIn("libfaad2/copyright", codec_part)
+        self.assertIn("libopenh264-7/copyright", codec_part)
+        self.assertIn("libvo-aacenc0/NOTICE.gz", codec_part)
+        self.assertNotIn("libgstx264.so", codec_part)
+        self.assertIn(
+            'GST_PLUGIN_PATH="$APP_GST_PLUGINS:$PLATFORM_LIB/gstreamer-1.0"',
+            snapcraft,
+        )
+        self.assertIn('"${1:-}" = "--recording-smoke"', snapcraft)
+        self.assertIn("Verify confined Snap recording", workflow)
+        self.assertIn("sudo snap connect nvbroadcast:camera", workflow)
+        self.assertIn("sudo snap connect nvbroadcast:audio-record", workflow)
+        self.assertIn("snapctl is-connected camera && snapctl is-connected audio-record", workflow)
+        self.assertIn("snap run nvbroadcast --recording-smoke", workflow)
 
     def test_snap_packages_a_registered_desktop_launcher(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()

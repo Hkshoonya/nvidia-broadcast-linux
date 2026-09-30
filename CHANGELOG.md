@@ -8,6 +8,14 @@
   as retryable instead of hiding every processing choice as permanently
   unavailable, and mode checks remain tied to the device selected when each
   check began.
+- **Verified Packaged Recordings** - Recording now proves a working H.264 and
+  AAC encode path before Rec or Meeting uses it, prefers NVIDIA hardware
+  encoding when available, and falls back through tested software encoders
+  without blocking the window during codec preparation or MP4 finalization.
+  Package CI creates, discovers, and fully decodes a synthetic MP4 with one
+  video and one audio stream; Debian installs the x264 plugin, while the Snap
+  candidate carries a narrowly validated OpenH264 and VisualOn codec payload
+  for strict confinement ([Issue #112](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/112)).
 - **Visible TensorRT Downloads** - Source and in-app installs resolve the pinned
   TensorRT 10 library wheel directly from NVIDIA's package index and refuse the
   PyPI forwarding stub. Pip now identifies the 4.3 GB transfer as a download
