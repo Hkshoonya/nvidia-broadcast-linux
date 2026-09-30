@@ -202,6 +202,7 @@ class ReplaceMotionHaloTests(unittest.TestCase):
         cpu = self._effects(alpha)
         fused = self._effects(alpha)
         fused._cupy = _NumpyFusedCupy()
+        fused._compositing = "cupy"
         height, width = alpha.shape
         kernel_calls = []
 

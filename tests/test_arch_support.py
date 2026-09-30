@@ -26,6 +26,25 @@ from nvbroadcast.runtime.probe import ProbeProvider, RuntimeProbeResult
 
 
 class ArchSupportTests(unittest.TestCase):
+    def test_restart_safe_capabilities_do_not_import_or_probe_cupy(self):
+        import builtins
+        original_import = builtins.__import__
+
+        def guarded_import(name, *args, **kwargs):
+            if name == "cupy":
+                raise AssertionError("CuPy must not load before restart")
+            return original_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=guarded_import), \
+             mock.patch("nvbroadcast.core.gpu.detect_gpus", return_value=[]), \
+             mock.patch("nvbroadcast.core.platform.IS_MACOS", False), \
+             mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True), \
+             mock.patch("nvbroadcast.core.platform.has_cuda_inference_runtime") as probe:
+            caps = detect_system_capabilities(probe_cuda=False)
+        self.assertFalse(caps["has_cupy"])
+        self.assertGreater(caps["cpu_cores"], 0)
+        probe.assert_not_called()
+
     def test_flatpak_detection_uses_runtime_environment(self):
         with mock.patch.dict(
             "nvbroadcast.core.platform.os.environ",
@@ -90,6 +109,8 @@ class ArchSupportTests(unittest.TestCase):
     def test_tensorrt_modes_report_python_version_unsupported(self):
         installer = DependencyInstaller()
         with mock.patch("nvbroadcast.core.dependency_installer.IS_LINUX", True), \
+             mock.patch.object(installer, "temporary_unavailable_reason_for_mode", return_value=None), \
+             mock.patch("nvbroadcast.core.dependency_installer._has_cuda_mode_runtime", return_value=True), \
              mock.patch("nvbroadcast.core.dependency_installer.IS_ARM64", False), \
              mock.patch("nvbroadcast.core.dependency_installer._running_in_snap", return_value=False), \
              mock.patch("nvbroadcast.core.dependency_installer.has_tensorrt_runtime", return_value=False), \
@@ -172,6 +193,47 @@ class ArchSupportTests(unittest.TestCase):
         ):
             self.assertFalse(has_cuda_inference_runtime())
             self.assertTrue(has_cuda_inference_runtime())
+
+    def test_gpu_runtime_helpers_forward_selected_device(self):
+        passed_cuda = RuntimeProbeResult(
+            provider=ProbeProvider.CUDA,
+            success=True,
+        )
+        passed_tensorrt = RuntimeProbeResult(
+            provider=ProbeProvider.TENSORRT,
+            success=True,
+        )
+        with mock.patch(
+            "nvbroadcast.core.platform.supports_linux_gpu_stack",
+            return_value=True,
+        ), mock.patch(
+            "nvbroadcast.runtime.probe.probe_execution_provider",
+            side_effect=[passed_cuda, passed_tensorrt],
+        ) as execute:
+            self.assertTrue(has_cuda_inference_runtime(1))
+            self.assertTrue(has_tensorrt_runtime(1))
+
+        self.assertEqual(
+            execute.call_args_list,
+            [
+                mock.call(ProbeProvider.CUDA, device_id=1),
+                mock.call(ProbeProvider.TENSORRT, device_id=1),
+            ],
+        )
+
+    def test_compositing_detection_uses_selected_device(self):
+        fake_cupy = SimpleNamespace()
+        with mock.patch.dict("sys.modules", {"cupy": fake_cupy}), mock.patch(
+            "nvbroadcast.core.platform.supports_linux_gpu_stack",
+            return_value=True,
+        ), mock.patch(
+            "nvbroadcast.core.platform.has_cuda_inference_runtime",
+            return_value=True,
+        ) as has_cuda:
+            backends = detect_compositing_backends(1)
+
+        self.assertTrue(backends["cupy"])
+        has_cuda.assert_called_once_with(1)
 
     def test_preload_exposes_component_wheel_headers_to_cupy(self):
         import nvbroadcast.core.platform as platform_mod

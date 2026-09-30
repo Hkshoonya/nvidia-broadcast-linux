@@ -64,6 +64,27 @@ CUDA_RUNTIME_HELP_PACKAGES = CUDA_RUNTIME_PACKAGES
 TENSORRT_LIBS_REQUIREMENT = "tensorrt-cu12-libs==10.16.0.72"
 TENSORRT_INDEX_URL = "https://pypi.nvidia.com"
 
+_CUDA_MODE_KEYS = frozenset({
+    "doczeus",
+    "cuda_max",
+    "cuda_balanced",
+    "cuda_perf",
+    "zeus",
+    "killer",
+})
+_TENSORRT_MODE_KEYS = frozenset({"zeus", "killer"})
+_ALL_MODE_KEYS = (
+    "doczeus",
+    "cuda_max",
+    "cuda_balanced",
+    "zeus",
+    "killer",
+    "cuda_perf",
+    "cpu_quality",
+    "cpu_light",
+    "cpu_low",
+)
+
 
 def _has_cupy() -> bool:
     try:
@@ -167,21 +188,22 @@ def _runtime_install_block_reason() -> str | None:
     return None
 
 
-def _has_cuda_mode_runtime() -> bool:
-    return _has_cupy() and has_cuda_inference_runtime()
+def _has_cuda_mode_runtime(device_id: int = 0) -> bool:
+    return _has_cupy() and has_cuda_inference_runtime(device_id)
 
 
 def _supports_tensorrt_runtime() -> bool:
     return supports_linux_gpu_stack() and supports_tensorrt_python()
 
 
-def _verify_cupy_result() -> tuple[bool, str]:
+def _verify_cupy_result(device_id: int = 0) -> tuple[bool, str]:
     try:
         preload_nvidia_runtime_libs()
         import cupy
         import numpy as np
-        arr = cupy.asarray(np.ones((8, 8), dtype=np.float32))
-        _ = (arr * 2.0).astype(cupy.float32)
+        with cupy.cuda.Device(device_id):
+            arr = cupy.asarray(np.ones((8, 8), dtype=np.float32))
+            _ = (arr * 2.0).astype(cupy.float32)
         return True, ""
     except Exception as error:
         return (
@@ -191,39 +213,43 @@ def _verify_cupy_result() -> tuple[bool, str]:
         )
 
 
-def _verify_cupy() -> bool:
-    return _verify_cupy_result()[0]
+def _verify_cupy(device_id: int = 0) -> bool:
+    return _verify_cupy_result(device_id)[0]
 
 
-def _verify_cuda_mode_runtime_result() -> tuple[bool, str]:
-    cupy_ok, cupy_detail = _verify_cupy_result()
+def _verify_cuda_mode_runtime_result(device_id: int = 0) -> tuple[bool, str]:
+    cupy_ok, cupy_detail = _verify_cupy_result(device_id)
     if not cupy_ok:
         return False, cupy_detail
-    probe = cuda_inference_probe_result()
+    probe = cuda_inference_probe_result(device_id)
     return probe.success, probe.failure_detail
 
 
-def _verify_cuda_mode_runtime() -> bool:
-    return _verify_cuda_mode_runtime_result()[0]
+def _verify_cuda_mode_runtime(device_id: int = 0) -> bool:
+    return _verify_cuda_mode_runtime_result(device_id)[0]
 
 
-def _verify_tensorrt_runtime_result() -> tuple[bool, str]:
-    probe = tensorrt_inference_probe_result()
+def _verify_tensorrt_runtime_result(device_id: int = 0) -> tuple[bool, str]:
+    probe = tensorrt_inference_probe_result(device_id)
     return probe.success, probe.failure_detail
 
 
-def _runtime_probe_failure_detail(package_id: str) -> str:
+def _runtime_probe_failure_detail(package_id: str, device_id: int = 0) -> str:
     if package_id == "cupy":
-        probe = cuda_inference_probe_result()
+        probe = cuda_inference_probe_result(device_id)
     elif package_id == "tensorrt":
-        probe = tensorrt_inference_probe_result()
+        probe = tensorrt_inference_probe_result(device_id)
     else:
         return ""
     return "" if probe.success else probe.failure_detail
 
 
-def _with_probe_failure(message: str, package_id: str) -> str:
-    detail = _runtime_probe_failure_detail(package_id).strip()
+def _with_probe_failure(
+    message: str,
+    package_id: str,
+    device_id: int = 0,
+) -> str:
+    detail = _runtime_probe_failure_detail(package_id, device_id).strip()
     if not detail:
         return message
     return f"{message}\n\nProvider probe details:\n{detail}"
@@ -340,12 +366,26 @@ class DependencyInstaller(GObject.Object):
         "job-completed": (GObject.SignalFlags.RUN_FIRST, None, (str, bool, str)),
     }
 
-    def __init__(self):
+    def __init__(self, gpu_index: int = 0):
         super().__init__()
         self._lock = threading.Lock()
         self._active_job_id = ""
         self._active_thread = None
         self._restart_pending_packages: set[str] = set()
+        self._gpu_index = max(0, int(gpu_index))
+
+    @property
+    def gpu_index(self) -> int:
+        return self._gpu_index
+
+    def set_compute_gpu(self, gpu_index: int) -> bool:
+        """Use the selected GPU for subsequent provider checks."""
+        gpu_index = max(0, int(gpu_index))
+        if gpu_index == self._gpu_index:
+            return False
+        self._gpu_index = gpu_index
+        clear_runtime_probe_cache()
+        return True
 
     @property
     def busy(self) -> bool:
@@ -355,6 +395,16 @@ class DependencyInstaller(GObject.Object):
     def is_available(self, key: str) -> bool:
         if key in PACKAGE_BUNDLES:
             return all(self.is_available(pkg) for pkg in PACKAGE_BUNDLES[key]["packages"])
+        if key == "cupy":
+            try:
+                return _has_cuda_mode_runtime(self._gpu_index)
+            except Exception:
+                return False
+        if key == "tensorrt":
+            try:
+                return has_tensorrt_runtime(self._gpu_index)
+            except Exception:
+                return False
         spec = PACKAGE_SPECS.get(key)
         if spec is None:
             return False
@@ -428,6 +478,174 @@ class DependencyInstaller(GObject.Object):
             )
         return _runtime_install_block_reason()
 
+    def install_block_reason_for_gpu(
+        self,
+        key: str,
+        gpu_index: int,
+    ) -> str | None:
+        """Check one GPU without changing this installer's live target."""
+        checker = self._checker_for_gpu(gpu_index)
+        return checker.install_block_reason(key)
+
+    def _checker_for_gpu(
+        self,
+        gpu_index: int,
+        *,
+        force_copy: bool = False,
+    ) -> "DependencyInstaller":
+        """Build a read-only device view that preserves process safety state."""
+        gpu_index = max(0, int(gpu_index))
+        if gpu_index == self._gpu_index and not force_copy:
+            return self
+        checker = DependencyInstaller(gpu_index=gpu_index)
+        with self._lock:
+            restart_pending = set(self._restart_pending_packages)
+        with checker._lock:
+            checker._restart_pending_packages.update(restart_pending)
+        return checker
+
+    def mode_availability_snapshot(
+        self,
+        gpu_index: int | None = None,
+    ) -> dict[str, object]:
+        """Return immutable mode decisions for one captured GPU.
+
+        GTK callers consume this completed snapshot instead of trusting that a
+        global execution-probe cache is still warm.  Another install or retry
+        may clear that cache at any time without turning a UI rebuild into a
+        blocking provider probe.
+        """
+        target_gpu = (
+            self._gpu_index
+            if gpu_index is None
+            else max(0, int(gpu_index))
+        )
+        checker = self._checker_for_gpu(target_gpu, force_copy=True)
+        has_cuda = (
+            not checker.restart_pending("cupy")
+            and checker.is_available("cupy")
+        )
+        has_tensorrt = (
+            has_cuda
+            and not checker.restart_pending("tensorrt")
+            and checker.is_available("tensorrt")
+        )
+        modes: dict[str, dict[str, object]] = {}
+        for mode_key in _ALL_MODE_KEYS:
+            unsupported = checker.unsupported_reason_for_mode(mode_key)
+            temporary = (
+                checker.temporary_unavailable_reason_for_mode(mode_key)
+                if unsupported
+                else None
+            )
+            missing = (
+                tuple(checker.missing_for_mode(mode_key))
+                if not unsupported
+                else ()
+            )
+            modes[mode_key] = {
+                "unsupported": unsupported or "",
+                "temporary": temporary or "",
+                "missing": missing,
+            }
+        return {
+            "gpu_index": target_gpu,
+            "has_cuda": has_cuda,
+            "has_tensorrt": has_tensorrt,
+            "modes": modes,
+        }
+
+    def temporary_unavailable_reason_for_mode(self, mode_key: str) -> str | None:
+        """Describe transient GPU-memory pressure separately from installation.
+
+        A strict execution probe can fail while another application owns most
+        VRAM even though the packaged CUDA/TensorRT runtime is valid.  Keep that
+        result actionable and retryable instead of presenting it as a permanent
+        system or package incompatibility.
+        """
+        if mode_key not in _CUDA_MODE_KEYS:
+            return None
+        if self.restart_pending("cupy"):
+            return None
+        if mode_key in _TENSORRT_MODE_KEYS and self.restart_pending("tensorrt"):
+            return None
+
+        if not self.is_available("cupy"):
+            cuda_probe = cuda_inference_probe_result(self._gpu_index)
+            if not cuda_probe.temporarily_unavailable:
+                return None
+            if cuda_probe.resource_exhausted:
+                explanation = (
+                    "CUDA modes are temporarily unavailable because the selected "
+                    "GPU does not have enough free memory. Close or reduce another "
+                    "GPU workload, then select the mode again to retry. CPU modes "
+                    "remain available."
+                )
+            else:
+                explanation = (
+                    "CUDA modes are temporarily unavailable because the selected "
+                    "GPU is busy or did not respond. Wait for the current GPU "
+                    "workload to finish, then select the mode again to retry. CPU "
+                    "modes remain available."
+                )
+            return _with_probe_failure(
+                explanation,
+                "cupy",
+                self._gpu_index,
+            )
+
+        if mode_key in _TENSORRT_MODE_KEYS and not self.is_available("tensorrt"):
+            tensorrt_probe = tensorrt_inference_probe_result(self._gpu_index)
+            if (
+                not tensorrt_probe.success
+                and tensorrt_probe.temporarily_unavailable
+            ):
+                if tensorrt_probe.resource_exhausted:
+                    explanation = (
+                        "TensorRT modes are temporarily unavailable because the "
+                        "selected GPU does not have enough free memory. Close or "
+                        "reduce another GPU workload, then select the mode again "
+                        "to retry. CUDA and CPU modes remain available."
+                    )
+                else:
+                    explanation = (
+                        "TensorRT modes are temporarily unavailable because the "
+                        "selected GPU is busy or did not respond. Wait for the "
+                        "current GPU workload to finish, then select the mode again "
+                        "to retry. CUDA and CPU modes remain available."
+                    )
+                return _with_probe_failure(
+                    explanation,
+                    "tensorrt",
+                    self._gpu_index,
+                )
+        return None
+
+    def retry_mode_runtime(
+        self,
+        mode_key: str,
+        *,
+        gpu_index: int | None = None,
+    ) -> str | None:
+        """Run a fresh provider check for one immutable GPU selection.
+
+        A retry runs on a worker while the user can still change the selected
+        GPU.  Probe through a temporary installer when the requested device is
+        different so the worker never observes or mutates the live installer's
+        target halfway through the check.
+        """
+        clear_runtime_probe_cache()
+        if gpu_index is None:
+            return self.unsupported_reason_for_mode(mode_key)
+
+        target_gpu = max(0, int(gpu_index))
+        checker = DependencyInstaller(gpu_index=target_gpu)
+        with self._lock:
+            restart_pending = set(self._restart_pending_packages)
+        with checker._lock:
+            checker._restart_pending_packages.update(restart_pending)
+        return checker.unsupported_reason_for_mode(mode_key)
+
     def unsupported_reason_for_mode(self, mode_key: str) -> str | None:
         pending_runtime = None
         if mode_key in (
@@ -446,13 +664,21 @@ class DependencyInstaller(GObject.Object):
         if (
             IS_LINUX
             and IS_ARM64
-            and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
+            and mode_key in _CUDA_MODE_KEYS
         ):
             return "GPU CUDA and TensorRT modes are not available on Linux arm64 yet. Use CPU modes for now."
+        temporary_reason = self.temporary_unavailable_reason_for_mode(mode_key)
+        if temporary_reason:
+            return temporary_reason
+        cuda_ready = (
+            self.is_available("cupy")
+            if mode_key in _CUDA_MODE_KEYS
+            else True
+        )
         if (
             _running_in_snap()
-            and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
-            and not _has_cuda_mode_runtime()
+            and mode_key in _CUDA_MODE_KEYS
+            and not cuda_ready
         ):
             return _with_probe_failure(
                 (
@@ -461,11 +687,12 @@ class DependencyInstaller(GObject.Object):
                     "the .deb, .rpm, or source installer for CUDA GPU modes."
                 ),
                 "cupy",
+                self._gpu_index,
             )
         if (
             running_in_flatpak()
-            and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
-            and not _has_cuda_mode_runtime()
+            and mode_key in _CUDA_MODE_KEYS
+            and not cuda_ready
         ):
             return _with_probe_failure(
                 (
@@ -474,10 +701,12 @@ class DependencyInstaller(GObject.Object):
                     "Update the Flatpak or use a mode whose runtime is bundled."
                 ),
                 "cupy",
+                self._gpu_index,
             )
         if (
-            mode_key in ("zeus", "killer")
-            and not has_tensorrt_runtime()
+            mode_key in _TENSORRT_MODE_KEYS
+            and cuda_ready
+            and not has_tensorrt_runtime(self._gpu_index)
             and not supports_tensorrt_python()
         ):
             return (
@@ -486,8 +715,9 @@ class DependencyInstaller(GObject.Object):
             )
         if (
             _running_in_snap()
-            and mode_key in ("zeus", "killer")
-            and not has_tensorrt_runtime()
+            and mode_key in _TENSORRT_MODE_KEYS
+            and cuda_ready
+            and not has_tensorrt_runtime(self._gpu_index)
         ):
             return _with_probe_failure(
                 (
@@ -496,11 +726,13 @@ class DependencyInstaller(GObject.Object):
                     "CUDA mode instead."
                 ),
                 "tensorrt",
+                self._gpu_index,
             )
         if (
             running_in_flatpak()
-            and mode_key in ("zeus", "killer")
-            and not has_tensorrt_runtime()
+            and mode_key in _TENSORRT_MODE_KEYS
+            and cuda_ready
+            and not has_tensorrt_runtime(self._gpu_index)
         ):
             return _with_probe_failure(
                 (
@@ -509,11 +741,12 @@ class DependencyInstaller(GObject.Object):
                     "Use DocZeus or another bundled mode instead."
                 ),
                 "tensorrt",
+                self._gpu_index,
             )
         required_runtimes: list[str] = []
-        if mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer"):
+        if mode_key in _CUDA_MODE_KEYS:
             required_runtimes.append("cupy")
-        if mode_key in ("zeus", "killer"):
+        if mode_key in _TENSORRT_MODE_KEYS and cuda_ready:
             required_runtimes.append("tensorrt")
         for package_id in required_runtimes:
             if self.is_available(package_id):
@@ -523,6 +756,7 @@ class DependencyInstaller(GObject.Object):
                 return _with_probe_failure(
                     f"{block_reason} Use a mode whose runtime is already installed.",
                     package_id,
+                    self._gpu_index,
                 )
         return None
 
@@ -530,10 +764,19 @@ class DependencyInstaller(GObject.Object):
         if self.unsupported_reason_for_mode(mode_key):
             return []
         missing: list[str] = []
-        if mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer"):
-            if not self.is_available("cupy"):
+        if mode_key in _CUDA_MODE_KEYS:
+            cuda_ready = self.is_available("cupy")
+            if not cuda_ready:
                 missing.append("cupy")
-        if mode_key in ("zeus", "killer") and not self.is_available("tensorrt"):
+                if mode_key in _TENSORRT_MODE_KEYS:
+                    missing.append("tensorrt")
+        else:
+            cuda_ready = True
+        if (
+            mode_key in _TENSORRT_MODE_KEYS
+            and cuda_ready
+            and not self.is_available("tensorrt")
+        ):
             missing.append("tensorrt")
         return missing
 
@@ -545,15 +788,30 @@ class DependencyInstaller(GObject.Object):
             return missing[0]
         return None
 
-    def start_install(self, key: str) -> bool:
-        if self.install_block_reason(key):
+    def start_install(self, key: str, gpu_index: int | None = None) -> bool:
+        """Start one shared install, capturing its provider-verification GPU."""
+        target_gpu = (
+            self._gpu_index
+            if gpu_index is None
+            else max(0, int(gpu_index))
+        )
+        with self._lock:
+            if self._active_job_id:
+                return False
+        if self.install_block_reason_for_gpu(key, target_gpu):
             return False
         with self._lock:
+            # Another caller may have started a job while the capability and
+            # environment checks above were running.
             if self._active_job_id:
                 return False
             self._active_job_id = key
 
-        thread = threading.Thread(target=self._run_install, args=(key,), daemon=True)
+        thread = threading.Thread(
+            target=self._run_install,
+            args=(key, target_gpu),
+            daemon=True,
+        )
         self._active_thread = thread
         thread.start()
         return True
@@ -570,7 +828,12 @@ class DependencyInstaller(GObject.Object):
         self.emit("job-completed", key, success, text)
         return False
 
-    def _run_install(self, key: str):
+    def _run_install(self, key: str, gpu_index: int | None = None):
+        target_gpu = (
+            self._gpu_index
+            if gpu_index is None
+            else max(0, int(gpu_index))
+        )
         if key in PACKAGE_BUNDLES:
             bundle = PACKAGE_BUNDLES[key]
             GLib.idle_add(
@@ -586,6 +849,7 @@ class DependencyInstaller(GObject.Object):
                     key,
                     package_id,
                     prefix=f"Step {index}/{len(packages)}",
+                    gpu_index=target_gpu,
                 )
                 if not success:
                     ok = False
@@ -609,7 +873,11 @@ class DependencyInstaller(GObject.Object):
             key,
             f"{spec['title']} download started. The app stays usable while this runs.",
         )
-        success, message = self._install_single(key, key)
+        success, message = self._install_single(
+            key,
+            key,
+            gpu_index=target_gpu,
+        )
         self._finish_job(key, success, message)
 
     def _finish_job(self, key: str, success: bool, message: str):
@@ -623,11 +891,23 @@ class DependencyInstaller(GObject.Object):
             self._active_thread = None
         GLib.idle_add(self._emit_completed, key, success, message)
 
-    def _install_single(self, job_key: str, package_id: str, prefix: str = "") -> tuple[bool, str]:
+    def _install_single(
+        self,
+        job_key: str,
+        package_id: str,
+        prefix: str = "",
+        gpu_index: int | None = None,
+    ) -> tuple[bool, str]:
+        target_gpu = (
+            self._gpu_index
+            if gpu_index is None
+            else max(0, int(gpu_index))
+        )
+        checker = self._checker_for_gpu(target_gpu)
         spec = PACKAGE_SPECS[package_id]
-        if self.is_available(package_id):
+        if checker.is_available(package_id):
             return True, f"{spec['title']} already available."
-        block_reason = self.install_block_reason(package_id)
+        block_reason = checker.install_block_reason(package_id)
         if block_reason:
             return False, block_reason
 
@@ -683,7 +963,12 @@ class DependencyInstaller(GObject.Object):
         clear_runtime_probe_cache()
         verification_detail = ""
         try:
-            verification = spec["verify"]()
+            if package_id == "cupy":
+                verification = _verify_cuda_mode_runtime_result(target_gpu)
+            elif package_id == "tensorrt":
+                verification = _verify_tensorrt_runtime_result(target_gpu)
+            else:
+                verification = spec["verify"]()
             if (
                 isinstance(verification, tuple)
                 and len(verification) == 2

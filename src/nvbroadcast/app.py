@@ -172,7 +172,7 @@ class NVBroadcastApp(Adw.Application):
             final_model_size=final_transcriber_model,
         )
         self._summarizer = MeetingSummarizer()
-        self._dependency_installer = DependencyInstaller()
+        self._dependency_installer = DependencyInstaller(self.config.compute_gpu)
         self._meeting_capture = None
         self._meeting_session_id = ""
         self._meeting_session_dir = None
@@ -408,29 +408,39 @@ class NVBroadcastApp(Adw.Application):
         """Called when first-run wizard finishes."""
         from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
         if profile_name == "auto":
-            self.config.compute_gpu = gpu_index
+            gpu_changed = gpu_index != self.config.compute_gpu
+            self.set_compute_gpu(gpu_index)
             self.config.first_run = False
             self.config.current_profile = "Auto"
-            self._video_effects._gpu_index = gpu_index
-            self.set_auto_mode_enabled(True)
+            if gpu_changed:
+                # The selected-device worker will finish this choice after its
+                # CUDA/TensorRT results are cached.  Running Auto selection now
+                # would put the bounded provider probe back on GTK.
+                self.config.auto_mode = True
+                self.config.compute_focus = "auto"
+                self._pending_auto_mode_gpu = gpu_index
+            else:
+                self.set_auto_mode_enabled(True)
             save_config(self.config)
             self._window.rebuild_mode_selector(
                 self.config.compositing, self.config.performance_profile
             )
             if hasattr(self._window, '_gpu_selector') and self._window._gpu_selector:
                 self._window._gpu_selector.set_selected_index(gpu_index)
-            self._window.set_status("Auto mode enabled")
+            self._window.set_status(
+                "Checking selected GPU before enabling Auto mode..."
+                if gpu_changed else "Auto mode enabled"
+            )
             return
 
         # Apply profile
         apply_performance_profile(self.config, profile_name)
-        self.config.compute_gpu = gpu_index
+        self.set_compute_gpu(gpu_index)
         self.config.compositing = compositing
         self.config.first_run = False
         self.config.current_profile = profile_name
 
         # Apply to effects engine
-        self._video_effects._gpu_index = gpu_index
         self._video_effects._apply_edge_config(self.config.video.edge)
         self._video_effects.set_compositing(compositing)
         self._beautifier.set_compositing(compositing)
@@ -1014,7 +1024,7 @@ class NVBroadcastApp(Adw.Application):
         # Restore model and quality preset
         self._video_effects._model_type = c.video.model
         self._video_effects._quality = c.video.quality_preset
-        self._video_effects._gpu_index = c.compute_gpu
+        self._video_effects.set_gpu_index(c.compute_gpu)
         self._perf_monitor.set_gpu_index(c.compute_gpu)
         self._video_effects.set_compositing(c.compositing)
         self._beautifier.set_compositing(c.compositing)
@@ -1782,12 +1792,28 @@ class NVBroadcastApp(Adw.Application):
 
     def _available_auto_modes(self) -> list[str]:
         """Return the stable modes that are usable on this machine right now."""
+        snapshot = getattr(self, "_mode_availability_snapshot", None)
+        snapshot_modes = (
+            snapshot.get("modes", {})
+            if isinstance(snapshot, dict)
+            and int(snapshot.get("gpu_index", -1)) == self.config.compute_gpu
+            else {}
+        )
         modes: list[str] = []
         for mode_key in _AUTO_MODE_ORDER:
-            if self._dependency_installer.unsupported_reason_for_mode(mode_key):
-                continue
-            if self._dependency_installer.missing_for_mode(mode_key):
-                continue
+            state = (
+                snapshot_modes.get(mode_key)
+                if isinstance(snapshot_modes, dict)
+                else None
+            )
+            if isinstance(state, dict):
+                if state.get("unsupported") or state.get("missing"):
+                    continue
+            else:
+                if self._dependency_installer.unsupported_reason_for_mode(mode_key):
+                    continue
+                if self._dependency_installer.missing_for_mode(mode_key):
+                    continue
             modes.append(mode_key)
 
         focus = self._compute_focus()
@@ -1804,7 +1830,15 @@ class NVBroadcastApp(Adw.Application):
         """Pick the best stable starting mode for the current hardware."""
         from nvbroadcast.core.config import detect_system_capabilities
 
-        caps = detect_system_capabilities()
+        caps_snapshot = getattr(self, "_mode_capabilities_snapshot", None)
+        if (
+            isinstance(caps_snapshot, tuple)
+            and len(caps_snapshot) == 2
+            and caps_snapshot[0] == self.config.compute_gpu
+        ):
+            caps = caps_snapshot[1]
+        else:
+            caps = detect_system_capabilities(self.config.compute_gpu)
         available = self._available_auto_modes()
         focus = self._compute_focus()
 
@@ -1977,7 +2011,7 @@ class NVBroadcastApp(Adw.Application):
 
         from nvbroadcast.core.config import detect_system_capabilities
 
-        caps = detect_system_capabilities()
+        caps = detect_system_capabilities(self.config.compute_gpu)
         if not self._is_very_weak_device(caps):
             return False
 
@@ -2081,6 +2115,7 @@ class NVBroadcastApp(Adw.Application):
         if (
             not self._streaming
             or self._dependency_installer.busy
+            or getattr(self, "_mode_availability_refresh_in_flight", False)
             or self._pending_start is not None
             or self._pipeline_teardown is not None
             or not self._any_video_effects_active()
@@ -2186,6 +2221,12 @@ class NVBroadcastApp(Adw.Application):
     def set_compute_gpu(self, gpu_index: int):
         """Switch the GPU used for AI compute."""
         if gpu_index == self.config.compute_gpu:
+            # Keep dependent components aligned even when setup re-applies the
+            # saved device.  VideoEffects also treats same-device selection as
+            # an explicit retry if a previous backend build failed.
+            self._dependency_installer.set_compute_gpu(gpu_index)
+            self._video_effects.set_gpu_index(gpu_index)
+            self._perf_monitor.set_gpu_index(gpu_index)
             return
 
         # Detach first and wait for callbacks that captured the old processor.
@@ -2197,13 +2238,24 @@ class NVBroadcastApp(Adw.Application):
         self._gpu_frame_path = None
         self._gpu_frame_path_failed = False
 
+        if self._window is not None:
+            self._window._mode_retry_generation += 1
+            self._window._mode_retry_in_flight = False
+            self._window._mode_availability_ready = False
+            self._window._mode_availability_gpu = gpu_index
+            self._window._mode_availability_snapshot = None
+        if getattr(self, "_pending_auto_mode_gpu", None) is not None:
+            self._pending_auto_mode_gpu = gpu_index
+        pending_focus = getattr(self, "_pending_compute_focus", None)
+        if pending_focus is not None:
+            self._pending_compute_focus = (pending_focus[0], gpu_index)
+        self._mode_availability_snapshot = None
+        self._mode_capabilities_snapshot = None
+
         self.config.compute_gpu = gpu_index
-        self._video_effects._gpu_index = gpu_index
+        self._dependency_installer.set_compute_gpu(gpu_index)
+        self._video_effects.set_gpu_index(gpu_index)
         self._perf_monitor.set_gpu_index(gpu_index)
-        # Reload the model on the new GPU
-        if self._video_effects.available:
-            self._video_effects._cleanup_backend()
-            self._video_effects.initialize()
         self._sync_gpu_frame_path()
         save_config(self.config)
         from nvbroadcast.core.gpu import detect_gpus
@@ -2211,7 +2263,125 @@ class NVBroadcastApp(Adw.Application):
         name = gpus[gpu_index].name if gpu_index < len(gpus) else f"GPU {gpu_index}"
         if self._window:
             self._window._update_gpu_info()
-            self._window.set_status(f"Compute GPU: {name}")
+            self._window.rebuild_mode_selector(
+                self.config.compositing,
+                self.config.performance_profile,
+            )
+            self._window.set_status(
+                f"Compute GPU: {name}. Rechecking processing modes..."
+            )
+            self._refresh_mode_availability_async(gpu_index)
+
+    def _refresh_mode_availability_async(self, gpu_index: int) -> None:
+        """Warm selected-GPU probes off GTK, then rebuild the mode list."""
+        generation = getattr(self, "_mode_availability_generation", 0) + 1
+        self._mode_availability_generation = generation
+        self._mode_availability_refresh_in_flight = True
+        installer = self._dependency_installer
+
+        def _worker() -> None:
+            snapshot = None
+            capabilities = None
+            error = ""
+            try:
+                snapshot = installer.mode_availability_snapshot(gpu_index)
+                from nvbroadcast.core.config import detect_system_capabilities
+                capabilities = detect_system_capabilities(
+                    gpu_index, probe_cuda=not installer.restart_pending("cupy")
+                )
+            except Exception as exc:
+                error = f"Processing-mode check failed: {exc}"
+            GLib.idle_add(
+                self._finish_mode_availability_refresh,
+                generation,
+                gpu_index,
+                snapshot,
+                capabilities,
+                error,
+            )
+
+        threading.Thread(
+            target=_worker,
+            name="nvbroadcast-mode-availability",
+            daemon=True,
+        ).start()
+
+    def _invalidate_mode_availability(self, gpu_index: int | None = None) -> None:
+        """Discard completed mode decisions before a runtime mutation."""
+        target_gpu = (
+            self.config.compute_gpu
+            if gpu_index is None
+            else max(0, int(gpu_index))
+        )
+        self._mode_availability_generation = (
+            getattr(self, "_mode_availability_generation", 0) + 1
+        )
+        self._mode_availability_refresh_in_flight = False
+        self._mode_availability_snapshot = None
+        self._mode_capabilities_snapshot = None
+        if self._window is not None:
+            self._window._cancel_mode_runtime_retry()
+            self._window._mode_availability_ready = False
+            self._window._mode_availability_gpu = target_gpu
+            self._window._mode_availability_snapshot = None
+            self._window.rebuild_mode_selector(
+                self.config.compositing,
+                self.config.performance_profile,
+            )
+
+    def _finish_mode_availability_refresh(
+        self,
+        generation: int,
+        gpu_index: int,
+        availability_snapshot: dict[str, object] | None = None,
+        capabilities: dict[str, object] | None = None,
+        error: str = "",
+    ) -> bool:
+        if (
+            generation != getattr(self, "_mode_availability_generation", 0)
+            or gpu_index != self.config.compute_gpu
+        ):
+            return False
+        self._mode_availability_refresh_in_flight = False
+        if availability_snapshot is None:
+            if self._window is not None:
+                self._window.set_status(
+                    error or "Processing-mode check did not complete"
+                )
+            return False
+        self._mode_availability_snapshot = availability_snapshot
+        if capabilities is not None:
+            self._mode_capabilities_snapshot = (gpu_index, capabilities)
+        if self._window is not None:
+            self._window._mode_availability_ready = True
+            self._window._mode_availability_gpu = gpu_index
+            self._window._mode_availability_snapshot = availability_snapshot
+            pending_auto = (
+                getattr(self, "_pending_auto_mode_gpu", None) == gpu_index
+            )
+            pending_focus = getattr(self, "_pending_compute_focus", None)
+            self._window.rebuild_mode_selector(
+                self.config.compositing,
+                self.config.performance_profile,
+                availability_snapshot=availability_snapshot,
+            )
+            if pending_focus is not None and pending_focus[1] == gpu_index:
+                self._pending_compute_focus = None
+                self._pending_auto_mode_gpu = None
+                self.set_compute_focus(pending_focus[0])
+                pending_auto = False
+            elif pending_auto:
+                self._pending_auto_mode_gpu = None
+                self.set_auto_mode_enabled(True)
+            if hasattr(self._window, "_complete_pending_mode_after_refresh"):
+                self._window._complete_pending_mode_after_refresh()
+            if pending_focus is None or pending_focus[1] != gpu_index:
+                self._window.set_status(
+                    "Auto mode enabled"
+                    if pending_auto
+                    else f"Processing modes refreshed for GPU {gpu_index}"
+                )
+        return False
 
     def set_model(self, model: str):
         """Switch segmentation model."""

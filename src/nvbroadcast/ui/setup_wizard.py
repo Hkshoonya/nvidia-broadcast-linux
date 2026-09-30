@@ -5,6 +5,9 @@
 #
 """First-run setup wizard — auto-detects system and configures optimally."""
 
+import threading
+import weakref
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -60,7 +63,7 @@ SETUP_MODES = [
     {
         "key": "cpu_quality",
         "label": "CPU - High Quality",
-        "description": "CPU compositing. 30fps. Uses ~250% CPU.",
+        "description": "CPU inference and compositing. Highest CPU quality; no video GPU workload.",
         "compositing": "cpu",
         "profile": "max_quality",
         "needs_cupy": False,
@@ -70,7 +73,7 @@ SETUP_MODES = [
     {
         "key": "cpu_light",
         "label": "CPU - Light",
-        "description": "CPU compositing. 15fps. Uses ~60% CPU.",
+        "description": "CPU inference and compositing with fewer effect frames.",
         "compositing": "cpu",
         "profile": "performance",
         "needs_cupy": False,
@@ -108,10 +111,22 @@ class SetupWizard(Adw.Window):
 
         self._app = app
         self._gpus = detect_gpus()
-        self._caps = detect_system_capabilities()
-        self._selected_gpu = 0
+        configured_gpu = max(0, int(app.config.compute_gpu))
+        detected_gpu_indexes = {gpu.index for gpu in self._gpus}
+        self._selected_gpu = (
+            configured_gpu
+            if not self._gpus or configured_gpu in detected_gpu_indexes
+            else self._gpus[0].index
+        )
+        self._caps = detect_system_capabilities(self._selected_gpu)
+        self._caps_gpu = self._selected_gpu
         self._selected_mode_key = self._caps["recommended_mode"]
         self._install_key = ""
+        self._install_in_flight = False
+        self._capability_refresh_generation = 0
+        self._capability_refresh_in_flight = False
+        self._capability_refresh_closed = False
+        self.connect("close-request", self._on_close_requested)
 
         main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
@@ -150,22 +165,17 @@ class SetupWizard(Adw.Window):
         sys_box.set_margin_bottom(6)
 
         c = self._caps
-        sys_info = [
-            f"CPU: {c['cpu_cores']} cores",
-            f"GPU: {c['gpu_name']} ({c['gpu_vram_mb']} MB)" if c['has_nvidia'] else "GPU: None detected",
-        ]
-        features = []
-        if c["has_gl_compositor"]:
-            features.append("OpenGL compositor")
-        if c["has_cupy"]:
-            features.append("CUDA mode runtime")
-        if features:
-            sys_info.append(f"Available: {', '.join(features)}")
-
-        for line in sys_info:
-            lbl = Gtk.Label(label=line)
+        self._system_cpu_label = Gtk.Label()
+        self._system_gpu_label = Gtk.Label()
+        self._system_features_label = Gtk.Label()
+        for lbl in (
+            self._system_cpu_label,
+            self._system_gpu_label,
+            self._system_features_label,
+        ):
             lbl.set_xalign(0)
             sys_box.append(lbl)
+        self._update_system_info(c)
 
         sys_frame.set_child(sys_box)
         content.append(sys_frame)
@@ -179,19 +189,27 @@ class SetupWizard(Adw.Window):
             gpu_box.set_margin_top(6)
             gpu_box.set_margin_bottom(6)
             self._gpu_group = None
+            selected_gpu_button = None
+            self._gpu_buttons = {}
             for g in self._gpus:
                 btn = Gtk.CheckButton(
                     label=f"GPU {g.index}: {g.name} ({g.memory_total_mb} MB)"
                 )
                 if self._gpu_group is None:
                     self._gpu_group = btn
-                    btn.set_active(True)
                 else:
                     btn.set_group(self._gpu_group)
-                btn.connect("toggled", self._on_gpu_toggled, g.index)
+                if g.index == self._selected_gpu:
+                    selected_gpu_button = btn
+                self._gpu_buttons[g.index] = btn
                 gpu_box.append(btn)
+            (selected_gpu_button or self._gpu_group).set_active(True)
+            for gpu_index, btn in self._gpu_buttons.items():
+                btn.connect("toggled", self._on_gpu_toggled, gpu_index)
             gpu_frame.set_child(gpu_box)
             content.append(gpu_frame)
+        else:
+            self._gpu_buttons = {}
 
         # Processing Mode
         mode_frame = Gtk.Frame(label="Processing Mode")
@@ -204,29 +222,9 @@ class SetupWizard(Adw.Window):
         self._mode_group = None
         self._mode_buttons = {}
         for mode in SETUP_MODES:
-            # Determine availability
-            available = True
-            reason = ""
-            if mode["needs_gl"] and not c["has_gl_compositor"]:
-                available = False
-                reason = " [needs GStreamer GL plugins]"
-            if mode["needs_cupy"] and not c["has_cupy"]:
-                reason = " [will install CUDA runtime ~2GB]"
-                # Still available — we'll install it
-            if mode["min_vram"] > c["gpu_vram_mb"] and c["has_nvidia"]:
-                available = False
-                reason = f" [needs {mode['min_vram']}MB VRAM]"
-            if not c["has_nvidia"] and (mode["needs_gl"] or mode["needs_cupy"]):
-                available = False
-                reason = " [needs NVIDIA GPU]"
-
-            is_recommended = mode["key"] == self._caps["recommended_mode"]
-            label = mode["label"]
-            if is_recommended:
-                label += "  ★ recommended"
-
-            btn = Gtk.CheckButton(label=f"{label}{reason}")
-            btn.set_sensitive(available or mode["needs_cupy"])  # CuPy modes always selectable
+            available, label = self._mode_choice_state(mode, c)
+            btn = Gtk.CheckButton(label=label)
+            btn.set_sensitive(available)
 
             desc = Gtk.Label(label=f"  {mode['description']}")
             desc.set_xalign(0)
@@ -239,7 +237,7 @@ class SetupWizard(Adw.Window):
             else:
                 btn.set_group(self._mode_group)
 
-            if is_recommended:
+            if mode["key"] == self._caps["recommended_mode"]:
                 btn.set_active(True)
 
             btn.connect("toggled", self._on_mode_toggled, mode["key"])
@@ -284,25 +282,194 @@ class SetupWizard(Adw.Window):
         main.append(scroll)
 
         self.set_content(main)
-        self._app.dependency_installer.connect("job-started", self._on_install_started)
-        self._app.dependency_installer.connect("job-progress", self._on_install_progress)
-        self._app.dependency_installer.connect("job-completed", self._on_install_completed)
+        installer = self._app.dependency_installer
+        self._installer_signal_ids = (
+            installer.connect("job-started", self._on_install_started),
+            installer.connect("job-progress", self._on_install_progress),
+            installer.connect("job-completed", self._on_install_completed),
+        )
+
+    @staticmethod
+    def _mode_choice_state(mode, caps):
+        """Return whether a setup mode can be chosen and its current label."""
+        available = True
+        reason = ""
+        needs_gpu = mode["needs_gl"] or mode["needs_cupy"]
+        if needs_gpu and not caps["has_nvidia"]:
+            available = False
+            reason = " [needs NVIDIA GPU]"
+        elif mode["min_vram"] > caps["gpu_vram_mb"]:
+            available = False
+            reason = f" [needs {mode['min_vram']}MB VRAM]"
+        elif mode["needs_gl"] and not caps["has_gl_compositor"]:
+            available = False
+            reason = " [needs GStreamer GL plugins]"
+        elif mode["needs_cupy"] and not caps["has_cupy"]:
+            # The runtime can be installed after this mode is selected.
+            reason = " [will install CUDA runtime ~2GB]"
+
+        label = mode["label"]
+        if mode["key"] == caps["recommended_mode"]:
+            label += "  ★ recommended"
+        return available, f"{label}{reason}"
+
+    def _update_system_info(self, caps):
+        """Update the capability summary for the tentatively selected GPU."""
+        self._system_cpu_label.set_text(f"CPU: {caps['cpu_cores']} cores")
+        gpu_text = (
+            f"GPU: {caps['gpu_name']} ({caps['gpu_vram_mb']} MB)"
+            if caps["has_nvidia"]
+            else "GPU: None detected"
+        )
+        self._system_gpu_label.set_text(gpu_text)
+        features = []
+        if caps["has_gl_compositor"]:
+            features.append("OpenGL compositor")
+        if caps["has_cupy"]:
+            features.append("CUDA mode runtime")
+        self._system_features_label.set_text(
+            f"Available: {', '.join(features)}" if features else ""
+        )
+        self._system_features_label.set_visible(bool(features))
+
+    def _update_action_sensitivity(self):
+        enabled = not (
+            getattr(self, "_capability_refresh_in_flight", False)
+            or getattr(self, "_install_in_flight", False)
+        )
+        self._start_btn.set_sensitive(enabled)
+        self._skip_btn.set_sensitive(enabled)
+
+    def _apply_capabilities(self, gpu_index, caps):
+        """Apply one current worker result to the GTK controls."""
+        self._caps = caps
+        self._caps_gpu = gpu_index
+        self._update_system_info(caps)
+
+        selectable = {}
+        for mode in SETUP_MODES:
+            available, label = self._mode_choice_state(mode, caps)
+            selectable[mode["key"]] = available
+            button = self._mode_buttons[mode["key"]]
+            button.set_label(label)
+            button.set_sensitive(available)
+
+        if not selectable.get(self._selected_mode_key, False):
+            candidates = (
+                caps.get("recommended_mode"),
+                caps.get("recommended_resolved_mode"),
+                "auto",
+                "cpu_quality",
+                "cpu_light",
+                "low_end",
+            )
+            fallback = next(
+                key for key in candidates if key and selectable.get(key, False)
+            )
+            self._selected_mode_key = fallback
+            self._mode_buttons[fallback].set_active(True)
 
     def _on_gpu_toggled(self, btn, gpu_index):
-        if btn.get_active():
-            self._selected_gpu = gpu_index
+        if not btn.get_active() or self._capability_refresh_closed:
+            return
+        gpu_index = max(0, int(gpu_index))
+        if gpu_index == self._selected_gpu and gpu_index == self._caps_gpu:
+            return
+        self._selected_gpu = gpu_index
+        self._request_capability_refresh(gpu_index)
+
+    def _request_capability_refresh(self, gpu_index):
+        """Probe a tentative GPU away from the GTK thread."""
+        self._capability_refresh_generation += 1
+        generation = self._capability_refresh_generation
+        self._capability_refresh_in_flight = True
+        self._update_action_sensitivity()
+        self._status_label.set_text(f"Checking GPU {gpu_index} capabilities…")
+        wizard_ref = weakref.ref(self)
+
+        def probe():
+            caps = None
+            error = ""
+            try:
+                caps = detect_system_capabilities(gpu_index)
+            except Exception as exc:
+                error = f"Capability check failed: {exc}"
+            wizard = wizard_ref()
+            if wizard is not None:
+                GLib.idle_add(
+                    wizard._finish_capability_refresh,
+                    generation,
+                    gpu_index,
+                    caps,
+                    error,
+                )
+
+        threading.Thread(
+            target=probe,
+            name=f"nvbroadcast-setup-gpu-{gpu_index}",
+            daemon=True,
+        ).start()
+
+    def _finish_capability_refresh(self, generation, gpu_index, caps, error=""):
+        """Apply a capability result only while its GPU selection is current."""
+        if (
+            self._capability_refresh_closed
+            or generation != self._capability_refresh_generation
+            or gpu_index != self._selected_gpu
+        ):
+            return False
+
+        self._capability_refresh_in_flight = False
+        self._update_action_sensitivity()
+        if error or caps is None:
+            self._status_label.set_text(
+                error or f"Could not check GPU {gpu_index} capabilities."
+            )
+            return False
+
+        self._apply_capabilities(gpu_index, caps)
+        self._status_label.set_text("")
+        return False
+
+    def _on_close_requested(self, *_args):
+        """Invalidate workers without committing the tentative GPU choice."""
+        if self._install_in_flight:
+            self._status_label.set_text(
+                "Wait for the optional runtime installation to finish."
+            )
+            return True
+        self._capability_refresh_closed = True
+        self._capability_refresh_generation += 1
+        self._capability_refresh_in_flight = False
+        installer = self._app.dependency_installer
+        for handler_id in getattr(self, "_installer_signal_ids", ()):
+            try:
+                installer.disconnect(handler_id)
+            except (TypeError, ValueError):
+                pass
+        self._installer_signal_ids = ()
+        return False
 
     def _on_mode_toggled(self, btn, mode_key):
         if btn.get_active():
             self._selected_mode_key = mode_key
 
     def _on_start(self, btn):
+        if self._capability_refresh_in_flight:
+            self._status_label.set_text("Wait for the GPU capability check to finish.")
+            return
+        if self._caps_gpu != self._selected_gpu:
+            self._request_capability_refresh(self._selected_gpu)
+            return
         mode = next(m for m in SETUP_MODES if m["key"] == self._selected_mode_key)
 
         # If a CUDA mode is selected but the full runtime is missing, install it first.
         if mode["needs_cupy"] and not self._caps["has_cupy"]:
             self._install_key = "cupy"
-            block_reason = self._app.dependency_installer.install_block_reason(self._install_key)
+            block_reason = self._app.dependency_installer.install_block_reason_for_gpu(
+                self._install_key,
+                self._selected_gpu,
+            )
             if block_reason:
                 self._status_label.set_text(block_reason)
                 return
@@ -315,6 +482,12 @@ class SetupWizard(Adw.Window):
         self._finish(mode)
 
     def _on_skip(self, _btn):
+        if self._capability_refresh_in_flight:
+            self._status_label.set_text("Wait for the GPU capability check to finish.")
+            return
+        if self._caps_gpu != self._selected_gpu:
+            self._request_capability_refresh(self._selected_gpu)
+            return
         fallback_key = self._caps["recommended_mode"]
         if fallback_key == "gpu_cuda_best" and not self._caps["has_cupy"]:
             fallback_key = "gpu_balanced" if self._caps["has_gl_compositor"] else "cpu_quality"
@@ -338,32 +511,49 @@ class SetupWizard(Adw.Window):
 
     def _on_install_prompt_response(self, dialog, response):
         dialog.destroy()
+        if self._capability_refresh_closed:
+            return
         if response != Gtk.ResponseType.OK:
             self._status_label.set_text("Optional runtime install skipped.")
             return
-        self._start_btn.set_sensitive(False)
-        self._skip_btn.set_sensitive(False)
-        if not self._app.dependency_installer.start_install(self._install_key):
-            self._start_btn.set_sensitive(True)
-            self._skip_btn.set_sensitive(True)
-            reason = self._app.dependency_installer.install_block_reason(self._install_key)
+        self._install_in_flight = True
+        self._update_action_sensitivity()
+        if not self._app.dependency_installer.start_install(
+            self._install_key,
+            gpu_index=self._selected_gpu,
+        ):
+            self._install_in_flight = False
+            self._update_action_sensitivity()
+            reason = self._app.dependency_installer.install_block_reason_for_gpu(
+                self._install_key,
+                self._selected_gpu,
+            )
             self._status_label.set_text(reason or "Another optional runtime install is already running.")
 
     def _on_install_started(self, _installer, key: str, text: str):
-        if key != self._install_key:
+        if (
+            getattr(self, "_capability_refresh_closed", False)
+            or key != self._install_key
+        ):
             return
         self._status_label.set_text(text)
 
     def _on_install_progress(self, _installer, key: str, text: str, _fraction: float):
-        if key != self._install_key:
+        if (
+            getattr(self, "_capability_refresh_closed", False)
+            or key != self._install_key
+        ):
             return
         self._status_label.set_text(text)
 
     def _on_install_completed(self, _installer, key: str, success: bool, text: str):
-        if key != self._install_key:
+        if (
+            getattr(self, "_capability_refresh_closed", False)
+            or key != self._install_key
+        ):
             return
-        self._start_btn.set_sensitive(True)
-        self._skip_btn.set_sensitive(True)
+        self._install_in_flight = False
+        self._update_action_sensitivity()
         self._status_label.set_text(text)
         if success:
             if _installer.restart_pending(key):

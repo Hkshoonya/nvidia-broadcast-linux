@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Honest Processing-Mode Availability** - CPU processing modes now create
+  CPU-only ONNX Runtime sessions, including optional matte refinement, while
+  GPU modes probe the selected device. Temporary GPU memory pressure is shown
+  as retryable instead of hiding every processing choice as permanently
+  unavailable, and mode checks remain tied to the device selected when each
+  check began.
 - **Verified Packaged Recordings** - Recording now proves a working H.264 and
   AAC encode path before Rec or Meeting uses it, prefers NVIDIA hardware
   encoding when available, and falls back through tested software encoders

@@ -52,8 +52,17 @@ class ResponsiveWindowTests(unittest.TestCase):
     def setUp(self):
         self.app.config = AppConfig()
         self.app.dependency_installer = mock.Mock()
+        self.app.dependency_installer.is_available.side_effect = None
+        self.app.dependency_installer.is_available.return_value = True
+        self.app.dependency_installer.unsupported_reason_for_mode.side_effect = None
         self.app.dependency_installer.unsupported_reason_for_mode.return_value = ""
+        self.app.dependency_installer.temporary_unavailable_reason_for_mode.side_effect = None
+        self.app.dependency_installer.temporary_unavailable_reason_for_mode.return_value = None
+        self.app.dependency_installer.missing_for_mode.side_effect = None
         self.app.dependency_installer.missing_for_mode.return_value = []
+        self.app.dependency_installer.describe.side_effect = (
+            lambda package: {"title": package}
+        )
         self.app.perf_monitor = SimpleNamespace(format_status=lambda: "")
         self.app.set_vcam_device = mock.Mock(return_value=True)
         self.patches = self.enterContext(ExitStack())
@@ -66,8 +75,6 @@ class ResponsiveWindowTests(unittest.TestCase):
             ("nvbroadcast.ui.window.list_camera_modes", []),
             ("nvbroadcast.ui.window.get_firefox_profiles", []),
             ("nvbroadcast.core.gpu.detect_gpus", []),
-            ("nvbroadcast.core.config.detect_compositing_backends", {"cupy": True}),
-            ("nvbroadcast.ui.window.has_tensorrt_runtime", True),
             ("nvbroadcast.ui.window.GLib.timeout_add_seconds", 0),
         ):
             self.patches.enter_context(mock.patch(name, return_value=result))
@@ -88,6 +95,52 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.section_nav = self.controls_pane.get_first_child()
         self.scroll = self.section_nav.get_next_sibling()
         self.controls = self.scroll.get_child().get_child()
+
+    def test_mode_list_puts_working_cpu_modes_before_busy_gpu_modes(self):
+        self.window._mode_availability_ready = True
+        gpu_modes = {
+            "doczeus", "cuda_max", "cuda_balanced", "zeus", "killer", "cuda_perf"
+        }
+        snapshot = {
+            "gpu_index": 0,
+            "has_cuda": False,
+            "has_tensorrt": False,
+            "modes": {
+                mode: {
+                    "unsupported": "GPU memory busy" if mode in gpu_modes else "",
+                    "temporary": "GPU memory busy" if mode in gpu_modes else "",
+                    "missing": (),
+                }
+                for mode in (*gpu_modes, "cpu_quality", "cpu_light", "cpu_low")
+            },
+        }
+
+        devices = self.window._build_mode_devices(snapshot)
+        keys = [device["device"] for device in devices]
+        labels = {device["device"]: device["name"] for device in devices}
+
+        self.assertEqual(keys[:4], ["auto", "cpu_quality", "cpu_light", "cpu_low"])
+        self.assertGreater(keys.index("doczeus"), keys.index("cpu_low"))
+        self.assertIn("GPU busy - select to retry", labels["doczeus"])
+
+    def test_mode_list_skips_tensorrt_probe_when_cuda_is_unavailable(self):
+        self.window._mode_availability_ready = True
+        snapshot = {
+            "gpu_index": 0,
+            "has_cuda": False,
+            "has_tensorrt": False,
+            "modes": {
+                mode: {"unsupported": "", "temporary": "", "missing": ()}
+                for mode in (
+                    "doczeus", "cuda_max", "cuda_balanced", "zeus", "killer",
+                    "cuda_perf", "cpu_quality", "cpu_light", "cpu_low",
+                )
+            },
+        }
+
+        devices = self.window._build_mode_devices(snapshot)
+
+        self.assertTrue(any(device["device"] == "cpu_quality" for device in devices))
 
     @staticmethod
     def _settle(duration=0.15):
