@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Honest Processing-Mode Availability** - CPU processing modes now create
+  CPU-only ONNX Runtime sessions, including optional matte refinement, while
+  GPU modes probe the selected device. Temporary GPU memory pressure is shown
+  as retryable instead of hiding every processing choice as permanently
+  unavailable, and mode checks remain tied to the device selected when each
+  check began.
 - **Visible TensorRT Downloads** - Source and in-app installs resolve the pinned
   TensorRT 10 library wheel directly from NVIDIA's package index and refuse the
   PyPI forwarding stub. Pip now identifies the 4.3 GB transfer as a download

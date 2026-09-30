@@ -221,7 +221,10 @@ class FaceBeautifier:
             frame = self._apply_skin_smooth(frame)
 
         # Batch GPU-eligible operations (enhance + sharpen + vignette)
-        if self._cupy is not None:
+        if (
+            self._compositing in ("cupy", "gstreamer_gl")
+            and self._cupy is not None
+        ):
             frame = self._apply_gpu_batch(
                 frame,
                 width,

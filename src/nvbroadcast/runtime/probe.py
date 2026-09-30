@@ -12,9 +12,11 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
+import threading
 import traceback
 from typing import Mapping, Sequence
 
@@ -31,6 +33,8 @@ PROBE_OUTPUT_SHAPE = (1, 4)
 DEFAULT_PROBE_TIMEOUT_SECONDS = 30.0
 _RESULT_PREFIX = "NVBROADCAST_RUNTIME_PROBE_RESULT="
 _MAX_DIAGNOSTIC_CHARS = 65_536
+_PROBE_CACHE_LOCK = threading.Lock()
+_probe_cache_epoch = 0
 _CHILD_BOOTSTRAP = (
     "import json, runpy, sys; "
     "package_root = sys.argv.pop(1); "
@@ -99,6 +103,60 @@ class RuntimeProbeResult:
         if self.traceback.strip():
             details.append(self.traceback.strip())
         return _bounded_diagnostic("\n\n".join(details))
+
+    @property
+    def resource_exhausted(self) -> bool:
+        """Return whether a provider failed because device memory was exhausted.
+
+        This is a temporary capacity failure, unlike a missing provider, ABI
+        mismatch, or broken runtime installation.  Native CUDA, cuBLAS, and ORT
+        use different wording for the same condition, so recognize their
+        stable status names and allocation diagnostics.
+        """
+        detail = self.failure_detail.casefold()
+        if not detail:
+            return False
+        patterns = (
+            "out of memory",
+            "cuda_error_out_of_memory",
+            "cudaerror_memoryallocation",
+            "cudaerrormemoryallocation",
+            "cublas_status_alloc_failed",
+            "cudnn_status_alloc_failed",
+            "failed to allocate memory",
+            "memory allocation failed",
+        )
+        if any(pattern in detail for pattern in patterns):
+            return True
+        # CUDA's numeric code 2 means out-of-memory.  Keep the numeric
+        # boundary strict so permanent failures such as CUDA error 209
+        # (no compatible kernel image) are not misclassified as retryable.
+        if re.search(r"\bcuda\s+(?:error|failure)\s+2(?!\d)", detail):
+            return True
+        return "available memory of" in detail and "requested bytes of" in detail
+
+    @property
+    def temporarily_unavailable(self) -> bool:
+        """Return whether a GPU provider failure is safe to retry later.
+
+        A saturated device can fail explicitly, report that every CUDA device
+        is busy, or stop responding until the bounded provider probe expires.
+        Those outcomes must not be presented as a missing or corrupt runtime.
+        Provider load and ABI errors remain permanent failures.
+        """
+        if self.resource_exhausted:
+            return True
+        if self.provider not in {ProbeProvider.CUDA, ProbeProvider.TENSORRT}:
+            return False
+        detail = self.failure_detail.casefold()
+        patterns = (
+            "provider execution probe timed out",
+            "cudaerrordevicesunavailable",
+            "cuda_error_devices_unavailable",
+            "cuda-capable devices are busy or unavailable",
+            "all cuda-capable devices are busy or unavailable",
+        )
+        return any(pattern in detail for pattern in patterns)
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -575,6 +633,7 @@ def _cached_provider_probe(
     device_id: int,
     timeout: float,
     executable: str,
+    _epoch: int,
 ) -> RuntimeProbeResult:
     return _run_provider_probe(provider, device_id, timeout, executable)
 
@@ -597,13 +656,18 @@ def probe_execution_provider(
         )
     arguments = (provider, device_id, float(timeout), sys.executable)
     if use_cache:
-        return _cached_provider_probe(*arguments)
+        with _PROBE_CACHE_LOCK:
+            epoch = _probe_cache_epoch
+        return _cached_provider_probe(*arguments, epoch)
     return _run_provider_probe(*arguments)
 
 
 def clear_runtime_probe_cache() -> None:
     """Invalidate process-local results after an environment mutation."""
-    _cached_provider_probe.cache_clear()
+    global _probe_cache_epoch
+    with _PROBE_CACHE_LOCK:
+        _probe_cache_epoch += 1
+        _cached_provider_probe.cache_clear()
 
 
 def main() -> int:

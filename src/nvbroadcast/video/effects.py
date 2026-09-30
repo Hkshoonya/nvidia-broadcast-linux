@@ -621,6 +621,7 @@ class _RVMBackend:
     def __init__(self, gpu_index: int):
         self._gpu_index = gpu_index
         self._quality = "quality"
+        self._cpu_only = False
         self.session = None
         self._r1 = self._r2 = self._r3 = self._r4 = None
         self._downsample_ratio = None
@@ -649,14 +650,21 @@ class _RVMBackend:
         self._pha_gpu = None
         self._inference_gamma = None
 
-    def load(self, quality: str, use_tensorrt: bool = False) -> str:
+    def load(
+        self,
+        quality: str,
+        use_tensorrt: bool = False,
+        *,
+        cpu_only: bool = False,
+    ) -> str:
         preset = QUALITY_PRESETS[quality]
         self._quality = quality
+        self._cpu_only = bool(cpu_only)
         base_model_path = _download_model(
             preset["model"], preset["url"], preset["sha256"]
         )
         self._base_model_path = base_model_path
-        self._trt_requested = bool(use_tensorrt)
+        self._trt_requested = bool(use_tensorrt) and not self._cpu_only
         self._trt_disabled = False
         self._trt_session_shape = None
         self._trt_model_path = base_model_path
@@ -665,15 +673,25 @@ class _RVMBackend:
         self._cuda_recovery_logged = False
         self._invalidate_iobinding()
 
-        if use_tensorrt:
+        if self._trt_requested:
             trt_path = base_model_path.with_name(
                 base_model_path.stem + "_trt" + base_model_path.suffix
             )
             self._trt_model_path = trt_path if trt_path.exists() else base_model_path
             self._trt_cache_path = str(get_trt_cache_dir(self._gpu_index))
-            self.session = _create_session(base_model_path, self._gpu_index, use_tensorrt=False)
+            self.session = _create_session(
+                base_model_path,
+                self._gpu_index,
+                use_tensorrt=False,
+                cpu_only=self._cpu_only,
+            )
         else:
-            self.session = _create_session(base_model_path, self._gpu_index, use_tensorrt=False)
+            self.session = _create_session(
+                base_model_path,
+                self._gpu_index,
+                use_tensorrt=False,
+                cpu_only=self._cpu_only,
+            )
 
         active = self.session.get_providers()[0]
         self._active_trt = "TensorrtExecutionProvider" in active
@@ -687,7 +705,7 @@ class _RVMBackend:
         self._trt_seed_shape = None
         device = _get_device_name(self.session, self._gpu_index)
         msg = f"RVM loaded on {device} | {preset['label']}"
-        if use_tensorrt:
+        if self._trt_requested:
             msg += " [TensorRT build on first frame]"
         return msg
 
@@ -700,7 +718,7 @@ class _RVMBackend:
 
     def _fallback_to_cuda(self):
         """Recreate the session on CUDA after TRT runtime/build failure."""
-        if self._base_model_path is None:
+        if self._base_model_path is None or self._cpu_only:
             return
         self._release_active_session()
         self.reset_state()
@@ -714,12 +732,16 @@ class _RVMBackend:
 
     def set_tensorrt_requested(self, enabled: bool) -> None:
         """Update live TRT intent after a UI/profile mode change."""
-        self._trt_requested = enabled
-        self._trt_disabled = False if enabled else True
+        self._trt_requested = bool(enabled) and not self._cpu_only
+        self._trt_disabled = not self._trt_requested
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
         self._invalidate_iobinding()
-        if enabled:
+        if self._cpu_only:
+            self._active_trt = False
+            self._trt_session_shape = None
+            return
+        if self._trt_requested:
             return
         self._active_trt = False
         self._trt_session_shape = None
@@ -799,7 +821,7 @@ class _RVMBackend:
 
     def _recover_cuda_session(self, exc: Exception) -> bool:
         """Recreate the CUDA session after a runtime failure."""
-        if self._base_model_path is None:
+        if self._base_model_path is None or self._cpu_only:
             return False
         try:
             self._release_active_session()
@@ -1237,9 +1259,10 @@ class _SingleFrameBackend:
     Temporal smoothing (EMA) is applied to reduce flicker.
     """
 
-    def __init__(self, gpu_index: int, model_key: str):
+    def __init__(self, gpu_index: int, model_key: str, *, cpu_only: bool = False):
         self._gpu_index = gpu_index
         self._model_key = model_key
+        self._cpu_only = bool(cpu_only)
         self._info = MODELS[model_key]
         self.session = None
         self._model_path = None
@@ -1258,9 +1281,15 @@ class _SingleFrameBackend:
             self._info["model"], self._info["url"], self._info["sha256"]
         )
         try:
-            self.session = _create_session(self._model_path, self._gpu_index)
+            self.session = _create_session(
+                self._model_path,
+                self._gpu_index,
+                cpu_only=self._cpu_only,
+            )
             self._cpu_fallback_active = False
         except Exception as exc:
+            if self._cpu_only:
+                raise
             self.session = self._load_cpu_fallback(exc)
         input_shape = self.session.get_inputs()[0].shape
         if len(input_shape) >= 4 and isinstance(input_shape[2], int) and isinstance(input_shape[3], int):
@@ -1414,6 +1443,7 @@ class EdgeRefiner:
 
     def __init__(self, gpu_index: int):
         self._gpu_index = gpu_index
+        self._lock = threading.RLock()
         self._backend = None
         self._initialized = False
         self._skip = 2  # Refine every 2nd frame
@@ -1427,13 +1457,14 @@ class EdgeRefiner:
         Uses the SAME model class as main inference but at full resolution.
         This ensures the refiner is at least as good as the main pass.
         """
-        if self._initialized:
-            return
-        self._backend = _RVMBackend(self._gpu_index)
-        self._backend.load(quality)  # Same model as main (resnet50 for quality)
-        self._backend._MAX_INFER_HEIGHT = 720  # Always full resolution
-        self._initialized = True
-        print(f"[NV Broadcast] Edge refiner initialized (720p {quality})")
+        with self._lock:
+            if self._initialized:
+                return
+            self._backend = _RVMBackend(self._gpu_index)
+            self._backend.load(quality)  # Same model as main (resnet50 for quality)
+            self._backend._MAX_INFER_HEIGHT = 720  # Always full resolution
+            self._initialized = True
+            print(f"[NV Broadcast] Edge refiner initialized (720p {quality})")
 
     def refine(self, frame: np.ndarray, coarse_alpha: np.ndarray,
                width: int, height: int) -> np.ndarray:
@@ -1443,40 +1474,58 @@ class EdgeRefiner:
         On skip frames: blend 80% cached refined + 20% coarse for tracking.
         This gives quality edges from the refiner + position updates from fast pass.
         """
-        if not self._initialized or self._backend is None:
-            return coarse_alpha
+        with self._lock:
+            if not self._initialized or self._backend is None:
+                return coarse_alpha
 
-        self._counter += 1
-        # Reset recurrent state periodically to prevent temporal divergence
-        if self._counter % (self._skip * self._reset_interval) == 0:
-            self._backend.reset_state()
-        if self._counter % self._skip == 0 or self._cached_refined is None:
-            try:
-                fine_alpha = self._backend.infer(frame, width, height)
-                if fine_alpha is not None:
-                    self._cached_refined = fine_alpha
-                    return fine_alpha
-            except Exception:
-                pass
+            self._counter += 1
+            # Reset recurrent state periodically to prevent temporal divergence
+            if self._counter % (self._skip * self._reset_interval) == 0:
+                self._backend.reset_state()
+            if self._counter % self._skip == 0 or self._cached_refined is None:
+                try:
+                    fine_alpha = self._backend.infer(frame, width, height)
+                    if fine_alpha is not None:
+                        self._cached_refined = fine_alpha
+                        return fine_alpha
+                except Exception:
+                    pass
 
-        if self._cached_refined is None:
-            return coarse_alpha
+            if self._cached_refined is None:
+                return coarse_alpha
 
-        # Between refine frames: mostly use cached quality alpha,
-        # but blend in coarse for position tracking on movement
-        return (0.8 * self._cached_refined + 0.2 * coarse_alpha).astype(np.float32)
+            # Between refine frames: mostly use cached quality alpha,
+            # but blend in coarse for position tracking on movement
+            return (0.8 * self._cached_refined + 0.2 * coarse_alpha).astype(np.float32)
 
     def reset(self):
-        if self._backend:
-            self._backend.reset_state()
-        self._cached_refined = None
+        with self._lock:
+            if self._backend:
+                self._backend.reset_state()
+            self._cached_refined = None
 
     def cleanup(self):
-        if self._backend:
-            self._backend.cleanup()
-            self._backend = None
-        self._initialized = False
-        self._cached_refined = None
+        with self._lock:
+            if self._backend:
+                self._backend.cleanup()
+                self._backend = None
+            self._initialized = False
+            self._cached_refined = None
+
+    def set_gpu_index(self, gpu_index: int) -> bool:
+        """Release old-device state before using a different GPU."""
+        gpu_index = max(0, int(gpu_index))
+        with self._lock:
+            if gpu_index == self._gpu_index:
+                return False
+            if self._backend:
+                self._backend.cleanup()
+                self._backend = None
+            self._initialized = False
+            self._cached_refined = None
+            self._counter = 0
+            self._gpu_index = gpu_index
+            return True
 
 
 class _LearnedMatteRefiner:
@@ -1487,13 +1536,21 @@ class _LearnedMatteRefiner:
     PyTorch or changing behavior when no trained model exists.
     """
 
-    def __init__(self, gpu_index: int, variant: str):
+    def __init__(
+        self,
+        gpu_index: int,
+        variant: str,
+        *,
+        cpu_only: bool = False,
+    ):
         self._gpu_index = gpu_index
         self._variant = variant
+        self._cpu_only = bool(cpu_only)
         self._model_path = _LEARNED_REFINER_MODELS[variant]
         self._meta_path = self._model_path.with_suffix(".json")
         self._enabled = os.getenv("NVBROADCAST_ENABLE_LEARNED_REFINER", "").lower() in {"1", "true", "yes", "on"}
         self._session = None
+        self._lock = threading.RLock()
         self._input_name = None
         self._output_name = None
         self._load_attempted = False
@@ -1530,7 +1587,12 @@ class _LearnedMatteRefiner:
                     self._runtime_target_size = min(self._target_size, self._runtime_target_size)
                 except Exception:
                     pass
-            self._session = _create_session(str(self._model_path), self._gpu_index, use_tensorrt=False)
+            self._session = _create_session(
+                str(self._model_path),
+                self._gpu_index,
+                use_tensorrt=False,
+                cpu_only=self._cpu_only,
+            )
             self._input_name = self._session.get_inputs()[0].name
             self._output_name = self._session.get_outputs()[0].name
             shape = self._session.get_inputs()[0].shape
@@ -1568,6 +1630,10 @@ class _LearnedMatteRefiner:
         return band.astype(np.float32)
 
     def refine(self, frame: np.ndarray, matte: np.ndarray) -> np.ndarray:
+        with self._lock:
+            return self._refine_locked(frame, matte)
+
+    def _refine_locked(self, frame: np.ndarray, matte: np.ndarray) -> np.ndarray:
         if not self._ensure_session():
             return matte
 
@@ -1633,8 +1699,34 @@ class _LearnedMatteRefiner:
         return result.astype(np.float32)
 
     def cleanup(self):
-        _release_session(self._session)
-        self._session = None
+        with self._lock:
+            _release_session(self._session)
+            self._session = None
+
+    def set_cpu_only(self, cpu_only: bool) -> None:
+        """Apply a provider-policy change before the next lazy load."""
+        cpu_only = bool(cpu_only)
+        with self._lock:
+            if cpu_only == self._cpu_only:
+                return
+            _release_session(self._session)
+            self._session = None
+            self._cpu_only = cpu_only
+            self._load_attempted = False
+            self._failed = False
+
+    def set_gpu_index(self, gpu_index: int) -> bool:
+        """Release a loaded session before changing its target device."""
+        gpu_index = max(0, int(gpu_index))
+        with self._lock:
+            if gpu_index == self._gpu_index:
+                return False
+            _release_session(self._session)
+            self._session = None
+            self._gpu_index = gpu_index
+            self._load_attempted = False
+            self._failed = False
+            return True
 
 
 # ─── Main VideoEffects Class ─────────────────────────────────────────────────
@@ -1651,6 +1743,10 @@ class VideoEffects:
         self._quality = "quality"
         self._model_type = "rvm"
         self._backend = None
+        # CPU processing modes must govern inference as well as compositing.
+        # Keeping this separate from the concrete ORT session lets a live mode
+        # change build and warm the replacement before swapping it in.
+        self._cpu_inference = compositing == "cpu"
         self._edge_config = edge_config
         self._use_tensorrt = False   # Zeus/Killer mode
         self._use_fused_kernel = False  # DocZeus/Killer mode
@@ -1658,8 +1754,12 @@ class VideoEffects:
         self._edge_refine_enabled = False  # Edge refinement toggle
         self._edge_refiner = EdgeRefiner(gpu_index)
         self._learned_refiners = {
-            "replace": _LearnedMatteRefiner(gpu_index, "replace"),
-            "remove": _LearnedMatteRefiner(gpu_index, "remove"),
+            "replace": _LearnedMatteRefiner(
+                gpu_index, "replace", cpu_only=self._cpu_inference
+            ),
+            "remove": _LearnedMatteRefiner(
+                gpu_index, "remove", cpu_only=self._cpu_inference
+            ),
         }
         self._compositing = "cpu"
         self._cupy = None  # Lazy-loaded cupy module
@@ -1699,6 +1799,7 @@ class VideoEffects:
         self._temporal_strength = 0.34  # EMA weight for temporal smoothing
         self._engine_reload_generation = 0
         self._engine_reload_in_progress = False
+        self._engine_reload_target = None
         self._engine_reload_lock = threading.Lock()
         self._last_frame_size = None
         self._fused_face_mask = None
@@ -1748,6 +1849,18 @@ class VideoEffects:
             self._latest_final_matte_u8_gpu = None
             self._latest_final_matte_size = None
         self._reset_fused_gpu_caches(clear_bg=False)
+
+    def _reset_gpu_device_state(self) -> None:
+        """Drop every cached object that may belong to the selected GPU."""
+        self.reset_cached_mattes()
+        with self._state_lock:
+            self._pending_frame_gpu = None
+        self._gpu_morph_footprints = {}
+        self._temporal_gpu_kernels = {}
+        self._temporal_gpu_failed_devices = set()
+        self._gpu_matte_warned = False
+        self._gpu_infer_warned = False
+        self._reset_fused_gpu_caches(clear_bg=True)
 
     def _prepare_backend_handoff(self):
         """Invalidate temporal state while keeping the last matte visible."""
@@ -2041,11 +2154,19 @@ class VideoEffects:
         """Create and load a backend for the current model/settings."""
         if self._model_type == "rvm":
             backend = _RVMBackend(self._gpu_index)
-            msg = backend.load(self._quality, use_tensorrt=self._use_tensorrt)
+            msg = backend.load(
+                self._quality,
+                use_tensorrt=self._use_tensorrt,
+                cpu_only=self._cpu_inference,
+            )
             if hasattr(backend, "_MAX_INFER_HEIGHT"):
                 backend._MAX_INFER_HEIGHT = self._resolve_max_infer_height()
         else:
-            backend = _SingleFrameBackend(self._gpu_index, self._model_type)
+            backend = _SingleFrameBackend(
+                self._gpu_index,
+                self._model_type,
+                cpu_only=self._cpu_inference,
+            )
             msg = backend.load()
         return backend, msg
 
@@ -2108,6 +2229,11 @@ class VideoEffects:
             generation = self._engine_reload_generation
             old_backend = self._backend
             self._engine_reload_in_progress = True
+            target_policy = self._engine_policy(
+                use_tensorrt,
+                infer_h,
+            )
+            self._engine_reload_target = target_policy
         with self._state_lock:
             warm_size = self._last_frame_size
         warm_frame = None
@@ -2121,6 +2247,7 @@ class VideoEffects:
                 with self._lock:
                     if generation != self._engine_reload_generation:
                         return
+                backend = None
                 try:
                     backend, msg = self._build_backend()
                     if hasattr(backend, '_MAX_INFER_HEIGHT'):
@@ -2145,6 +2272,7 @@ class VideoEffects:
                         self._backend = backend
                         self._initialized = True
                         self._engine_reload_in_progress = False
+                        self._engine_reload_target = None
                     self._prepare_backend_handoff()
                     if previous is not None and previous is not backend:
                         previous.cleanup()
@@ -2153,12 +2281,42 @@ class VideoEffects:
                         print(f"[NV Broadcast] Inference resolution: {old_h}p → {infer_h}p")
                 except Exception as e:
                     print(f"[NV Broadcast] Failed to reload model backend: {e}")
+                    if backend is not None and backend is not old_backend:
+                        try:
+                            backend.cleanup()
+                        except Exception:
+                            pass
+                    discarded_incompatible_backend = False
                     with self._lock:
                         if generation == self._engine_reload_generation:
                             self._engine_reload_in_progress = False
-                            if old_backend is not None:
+                            target_cpu_only = target_policy[3]
+                            target_gpu_index = target_policy[5]
+                            old_cpu_only = bool(
+                                getattr(old_backend, "_cpu_only", target_cpu_only)
+                            )
+                            old_gpu_index = int(
+                                getattr(old_backend, "_gpu_index", target_gpu_index)
+                            )
+                            old_is_compatible = (
+                                old_cpu_only == target_cpu_only
+                                and old_gpu_index == target_gpu_index
+                            )
+                            if old_backend is not None and old_is_compatible:
                                 self._backend = old_backend
                                 self._initialized = True
+                            else:
+                                if old_backend is not None:
+                                    try:
+                                        old_backend.cleanup()
+                                    except Exception:
+                                        pass
+                                self._backend = None
+                                self._initialized = False
+                                discarded_incompatible_backend = True
+                            self._engine_reload_target = None
+                            if discarded_incompatible_backend:
+                                self._reset_gpu_device_state()
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -3290,6 +3448,8 @@ class VideoEffects:
     def gpu_output_eligible(self) -> bool:
         """Whether the device-resident composite path can currently run."""
         with self._lock:
+            if self._engine_reload_in_progress:
+                return False
             backend = self._backend
             session = getattr(backend, "session", None)
             try:
@@ -4214,9 +4374,35 @@ class VideoEffects:
             self._refresh_temporal_strength()
 
             backend = self._backend
-            if backend is None or not hasattr(backend, '_MAX_INFER_HEIGHT'):
-                return
             new_h = self._resolve_max_infer_height()
+            desired_policy = self._engine_policy(use_tensorrt, new_h)
+            if self._engine_reload_in_progress:
+                if self._engine_reload_target != desired_policy:
+                    self._schedule_engine_reload(use_tensorrt, new_h)
+                return
+            if backend is None:
+                if self._bg_removal_enabled:
+                    self._schedule_engine_reload(use_tensorrt, new_h)
+                return
+            current_cpu_only = bool(
+                getattr(backend, "_cpu_only", self._cpu_inference)
+            )
+            if current_cpu_only != self._cpu_inference:
+                self._schedule_engine_reload(use_tensorrt, new_h)
+                return
+            # The requested policy survives an ONNX runtime CPU fallback.
+            # An explicit GPU mode selection must inspect the actual session
+            # so it can recover once GPU memory becomes available again.
+            session = getattr(backend, "session", None)
+            if (
+                not self._cpu_inference
+                and session is not None
+                and session.get_providers() == ["CPUExecutionProvider"]
+            ):
+                self._schedule_engine_reload(use_tensorrt, new_h)
+                return
+            if not hasattr(backend, '_MAX_INFER_HEIGHT'):
+                return
             current_trt = bool(getattr(backend, "_trt_requested", False))
             current_quality = getattr(backend, "_quality", self._quality)
             reload_backend = (
@@ -4239,21 +4425,116 @@ class VideoEffects:
             print(f"[NV Broadcast] Inference resolution: {old_h}p → {new_h}p")
 
     def set_compositing(self, backend: str):
-        """Switch compositing backend (cpu, gstreamer_gl, cupy)."""
-        self._compositing = backend
-        # Explicit reselection can retry a repaired device/runtime. Matte
-        # resets happen during normal use and must not repeat failed attempts.
-        self._temporal_gpu_kernels = {}
-        self._temporal_gpu_failed_devices = set()
-        if backend in ("cupy", "gstreamer_gl") and self._cupy is None:
+        """Switch compositing and inference providers as one transition."""
+        cupy_module = self._cupy
+        if backend in ("cupy", "gstreamer_gl") and cupy_module is None:
             try:
                 import cupy
-                self._cupy = cupy
+                cupy_module = cupy
                 print("[NV Broadcast] CuPy GPU compositing enabled")
             except ImportError:
                 if backend == "cupy":
                     print("[NV Broadcast] CuPy not installed, falling back to CPU")
-                    self._compositing = "cpu"
+                    backend = "cpu"
+
+        # Inference reads the compositor policy while holding this same lock.
+        # Establish the reload barrier before exposing a CPU/GPU policy change,
+        # so a CPU session cannot enter the CUDA IOBinding path in between the
+        # compositor update and the caller's subsequent engine-mode update.
+        with self._lock:
+            old_cpu_inference = self._cpu_inference
+            self._compositing = backend
+            self._cupy = cupy_module
+            # Explicit reselection can retry a repaired device/runtime. Matte
+            # resets happen during normal use and must not repeat failed attempts.
+            self._temporal_gpu_kernels = {}
+            self._temporal_gpu_failed_devices = set()
+            self._cpu_inference = self._compositing == "cpu"
+            for refiner in self._learned_refiners.values():
+                refiner.set_cpu_only(self._cpu_inference)
+            if self._cpu_inference:
+                # Premium edge refinement is GPU-only.
+                self._edge_refine_enabled = False
+                self._edge_refiner.cleanup()
+
+            provider_changed = old_cpu_inference != self._cpu_inference
+            backend_missing = self._backend is None
+            if provider_changed and (
+                self._initialized
+                or self._engine_reload_in_progress
+                or (
+                    getattr(self, "_bg_removal_enabled", False)
+                    and backend_missing
+                )
+            ):
+                # Callers apply compositor and engine settings consecutively.
+                # Cancel any older worker and bar inference now, but defer the
+                # build until set_engine_mode() has the final TRT/quality policy.
+                self._engine_reload_generation += 1
+                self._engine_reload_in_progress = True
+                self._engine_reload_target = None
+            elif (
+                getattr(self, "_bg_removal_enabled", False)
+                and backend_missing
+                and not self._engine_reload_in_progress
+            ):
+                # Same-policy explicit reselection after a failed load can use
+                # the already-final engine settings immediately.
+                self._schedule_engine_reload(
+                    self._use_tensorrt,
+                    self._resolve_max_infer_height(),
+                )
+
+    def _engine_policy(
+        self,
+        use_tensorrt: bool,
+        infer_h: int,
+    ) -> tuple[bool, int, str, bool, str, int]:
+        """Return the backend policy represented by a pending reload."""
+        return (
+            bool(use_tensorrt) and not self._cpu_inference,
+            int(infer_h),
+            self._quality,
+            self._cpu_inference,
+            self._model_type,
+            self._gpu_index,
+        )
+
+    def set_gpu_index(self, gpu_index: int) -> bool:
+        """Move every video inference component to a new GPU safely."""
+        gpu_index = max(0, int(gpu_index))
+        with self._lock:
+            if gpu_index == self._gpu_index:
+                if (
+                    self._bg_removal_enabled
+                    and self._backend is None
+                    and not self._engine_reload_in_progress
+                ):
+                    self._schedule_engine_reload(
+                        self._use_tensorrt,
+                        self._resolve_max_infer_height(),
+                    )
+                    return True
+                return False
+            should_reload = (
+                self._initialized
+                or self._engine_reload_in_progress
+                or (self._bg_removal_enabled and self._backend is None)
+            )
+            # No callback can pass gpu_output_eligible() while this lock is
+            # held. Clear old-device arrays before publishing the new index;
+            # _schedule_engine_reload then keeps inference barred until swap.
+            self._reset_gpu_device_state()
+            self._gpu_index = gpu_index
+            self._edge_refiner.set_gpu_index(gpu_index)
+            for refiner in self._learned_refiners.values():
+                refiner.set_gpu_index(gpu_index)
+            if should_reload:
+                self._schedule_engine_reload(
+                    self._use_tensorrt,
+                    self._resolve_max_infer_height(),
+                )
+        return True
 
     def _blend(self, fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
         """Alpha blend using the compositing backend selected by the user."""
@@ -4682,6 +4963,7 @@ class VideoEffects:
             self._backend = None
             self._initialized = False
             self._engine_reload_in_progress = False
+            self._engine_reload_target = None
         self.reset_cached_mattes()
         with self._state_lock:
             self._last_frame_size = None
