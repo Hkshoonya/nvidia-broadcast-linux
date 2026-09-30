@@ -31,6 +31,10 @@ PROBE_INPUT = (1.0, 2.0, 3.0, 4.0)
 PROBE_EXPECTED_OUTPUT = (1.0, 4.0, 9.0, 16.0)
 PROBE_OUTPUT_SHAPE = (1, 4)
 DEFAULT_PROBE_TIMEOUT_SECONDS = 30.0
+# First-use GPU kernel compilation can exceed a minute even for this tiny
+# graph (65 s on a fresh Fedora 44 / RTX 5070 runtime). Keep probes bounded,
+# but allow CUDA and TensorRT to finish before declaring them unavailable.
+DEFAULT_GPU_PROBE_TIMEOUT_SECONDS = 120.0
 _RESULT_PREFIX = "NVBROADCAST_RUNTIME_PROBE_RESULT="
 _MAX_DIAGNOSTIC_CHARS = 65_536
 _PROBE_CACHE_LOCK = threading.Lock()
@@ -641,14 +645,24 @@ def _cached_provider_probe(
 def probe_execution_provider(
     provider: ProbeProvider,
     device_id: int = 0,
-    timeout: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
+    timeout: float | None = None,
     *,
     use_cache: bool = True,
 ) -> RuntimeProbeResult:
-    """Probe a provider in a fresh interpreter and return structured evidence."""
+    """Probe in a fresh interpreter, allowing extra time for GPU cold starts.
+
+    An explicit timeout overrides the provider default, including for cached
+    probes. CPU probes retain their shorter bound.
+    """
     if device_id < 0:
         return RuntimeProbeResult.failure(
             provider, f"GPU device index must be non-negative, found {device_id}"
+        )
+    if timeout is None:
+        timeout = (
+            DEFAULT_PROBE_TIMEOUT_SECONDS
+            if provider is ProbeProvider.CPU
+            else DEFAULT_GPU_PROBE_TIMEOUT_SECONDS
         )
     if timeout <= 0:
         return RuntimeProbeResult.failure(
