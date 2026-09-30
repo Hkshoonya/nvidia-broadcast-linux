@@ -3340,6 +3340,7 @@ class VideoEffects:
         # (mode switched mid-flight, size mismatch) needs numpy semantics.
         if alpha_is_gpu and (
             self._bg_mode != "blur"
+            or self._compositing not in ("cupy", "gstreamer_gl")
             or not self._use_fused_kernel
             or alpha.shape[0] != height
             or alpha.shape[1] != width
@@ -3369,7 +3370,8 @@ class VideoEffects:
                 self._latest_final_matte_size = (width, height)
 
         # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass
-        if self._use_fused_kernel and self._cupy is not None:
+        if (self._use_fused_kernel and self._cupy is not None
+                and self._compositing in ("cupy", "gstreamer_gl")):
             result = self._composite_fused(
                 frame, alpha, width, height, mirror=mirror, source_alpha=source_alpha)
             if result is not None:

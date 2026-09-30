@@ -69,6 +69,20 @@ class BackgroundOverlayTests(unittest.TestCase):
         effects._bg_image[:, :, 3] = 255
         return effects
 
+    def test_cpu_compositing_fallback_does_not_retry_fused_cuda_each_frame(self):
+        effects = self._make_effects()
+        effects._compositing = "cpu"
+        effects._use_fused_kernel = True
+        effects._cupy = types.SimpleNamespace(ndarray=type("DeviceArray", (), {}))
+        frame = np.zeros((4, 4, 4), dtype=np.uint8)
+        alpha = np.ones((4, 4), dtype=np.float32)
+        with mock.patch.object(effects, "_final_matte", return_value=alpha), \
+             mock.patch.object(effects, "_apply_replace", return_value=frame), \
+             mock.patch.object(effects, "_composite_fused", return_value=None) as fused:
+            effects._composite_array(frame, alpha, 4, 4)
+            effects._composite_array(frame, alpha, 4, 4)
+        fused.assert_not_called()
+
     class _FakeCupy:
         float32 = np.float32 if np is not None else float
         int32 = np.int32 if np is not None else int
