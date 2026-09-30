@@ -1686,6 +1686,7 @@ class VideoPipeline:
         self._recording = False
         self._remove_recording_bus_watch()
         recording_pipeline = self._recording_pipeline
+        recording_appsrc = self._rec_appsrc
         self._recording_pipeline = None
         self._rec_appsrc = None
         if recording_pipeline is None:
@@ -1703,6 +1704,12 @@ class VideoPipeline:
             # only appsrc leaves audio running until the timeout, producing an
             # audio track up to two seconds longer than the video.
             try:
+                # Wake appsrc's streaming task before sending synchronous EOS
+                # to the live audio source. The muxer may be waiting for video
+                # while audio holds its stream lock; no more frames arrive
+                # once _recording is cleared.
+                if recording_appsrc is not None:
+                    recording_appsrc.emit("end-of-stream")
                 if recording_pipeline.send_event(Gst.Event.new_eos()):
                     message = recording_pipeline.get_bus().timed_pop_filtered(
                         2 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR

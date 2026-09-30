@@ -1411,6 +1411,23 @@ assert span_difference < Gst.SECOND // 2, decoded
                         self.assertGreater(info.get_duration(), Gst.SECOND)
                         self.assertLess(info.get_duration(), 4 * Gst.SECOND)
 
+    def test_stop_wakes_video_source_before_ending_live_audio(self):
+        pipeline = VideoPipeline()
+        recording = mock.Mock()
+        appsrc = mock.Mock()
+        video_ended = threading.Event()
+        appsrc.emit.side_effect = lambda signal: video_ended.set() if signal == "end-of-stream" else None
+        recording.send_event.side_effect = lambda event: video_ended.wait(0.2)
+        recording.get_bus().timed_pop_filtered.return_value = mock.Mock(type=Gst.MessageType.EOS)
+        pipeline._recording = True
+        pipeline._recording_pipeline = recording
+        pipeline._rec_appsrc = appsrc
+
+        self.assertTrue(pipeline.stop_recording())
+        appsrc.emit.assert_called_once_with("end-of-stream")
+        recording.set_state.assert_called_once_with(Gst.State.NULL)
+        self.assertFalse(pipeline.recording_finalizing)
+
     def test_stop_returns_when_pipeline_eos_blocks(self):
         pipeline = VideoPipeline()
         recording = mock.Mock()
