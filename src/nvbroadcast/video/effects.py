@@ -679,19 +679,26 @@ class _RVMBackend:
             )
             self._trt_model_path = trt_path if trt_path.exists() else base_model_path
             self._trt_cache_path = str(get_trt_cache_dir(self._gpu_index))
+        try:
             self.session = _create_session(
                 base_model_path,
                 self._gpu_index,
                 use_tensorrt=False,
                 cpu_only=self._cpu_only,
             )
-        else:
+        except Exception as exc:
+            if self._cpu_only or not self._is_cuda_runtime_error(exc):
+                raise
+            # Startup can exhaust GPU memory before there is a session for
+            # runtime recovery to repair. Keep the requested GPU policy so an
+            # explicit mode selection can retry later, but load usable effects.
             self.session = _create_session(
-                base_model_path,
-                self._gpu_index,
-                use_tensorrt=False,
-                cpu_only=self._cpu_only,
+                base_model_path, self._gpu_index, cpu_only=True,
             )
+            print(f"[NV Broadcast] RVM GPU initialization failed; using CPU fallback: {exc}", flush=True)
+
+        cpu_fallback = not self._cpu_only and self.session.get_providers() == ["CPUExecutionProvider"]
+        self._trt_disabled = cpu_fallback
 
         active = self.session.get_providers()[0]
         self._active_trt = "TensorrtExecutionProvider" in active
@@ -705,7 +712,9 @@ class _RVMBackend:
         self._trt_seed_shape = None
         device = _get_device_name(self.session, self._gpu_index)
         msg = f"RVM loaded on {device} | {preset['label']}"
-        if self._trt_requested:
+        if cpu_fallback:
+            msg += " [CPU fallback; select GPU mode to retry]"
+        elif self._trt_requested:
             msg += " [TensorRT build on first frame]"
         return msg
 

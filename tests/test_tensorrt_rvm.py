@@ -245,6 +245,37 @@ class TensorrtRvmTests(unittest.TestCase):
             base_model, 1, use_tensorrt=False, cpu_only=True
         )
 
+    def test_startup_cuda_allocation_failure_loads_cpu_and_defers_gpu_retry(self):
+        for use_trt in (False, True):
+            with self.subTest(use_trt=use_trt):
+                backend = _RVMBackend(1)
+                cpu = mock.Mock()
+                cpu.get_providers.return_value = ["CPUExecutionProvider"]
+                with mock.patch("nvbroadcast.video.effects._download_model", return_value=Path("/tmp/rvm.onnx")), \
+                     mock.patch("nvbroadcast.video.effects._create_session", side_effect=[
+                         RuntimeError("BFCArena::AllocateRawInternal Failed to allocate memory"), cpu
+                     ]) as create:
+                    message = backend.load("quality", use_tensorrt=use_trt)
+                self.assertIs(backend.session, cpu)
+                self.assertFalse(backend._cpu_only)  # Preserve requested GPU policy.
+                self.assertTrue(backend._trt_disabled)
+                self.assertIn("CPU fallback", message)
+                self.assertEqual(create.call_count, 2)
+                self.assertTrue(create.call_args.kwargs["cpu_only"])
+                with mock.patch("nvbroadcast.video.effects._create_session") as retry:
+                    backend._ensure_trt_state(np.zeros((1, 3, 4, 4), dtype=np.float32), 4, 4)
+                retry.assert_not_called()
+
+    def test_startup_does_not_retry_cpu_or_invalid_model_errors(self):
+        for cpu_only, error in [(True, "BFCArena::AllocateRawInternal"), (False, "Invalid model graph")]:
+            with self.subTest(cpu_only=cpu_only):
+                backend = _RVMBackend(0)
+                with mock.patch("nvbroadcast.video.effects._download_model", return_value=Path("/tmp/rvm.onnx")), \
+                     mock.patch("nvbroadcast.video.effects._create_session", side_effect=RuntimeError(error)) as create:
+                    with self.assertRaisesRegex(RuntimeError, error):
+                        backend.load("quality", cpu_only=cpu_only)
+                create.assert_called_once()
+
     def test_rvm_backend_promotes_trt_once_per_resolution(self):
         backend = _RVMBackend(1)
         backend._base_model_path = Path("/tmp/base.onnx")
