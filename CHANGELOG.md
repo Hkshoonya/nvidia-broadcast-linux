@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **GPU First-Use Verification** - CUDA and TensorRT execution checks allow up
+  to two minutes for a cold start, avoiding false installation failures when
+  first-use kernel compilation exceeds 30 seconds. CPU checks and explicitly
+  requested timeouts retain their existing bounds.
 - **Honest Processing-Mode Availability** - CPU processing modes now create
   CPU-only ONNX Runtime sessions, including optional matte refinement, while
   GPU modes probe the selected device. Temporary GPU memory pressure is shown

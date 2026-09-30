@@ -142,7 +142,21 @@ class RuntimeProbeTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["env"]["PYTHONNOUSERSITE"], "1")
         self.assertTrue(run.call_args.kwargs["capture_output"])
         self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
-        self.assertEqual(run.call_args.kwargs["timeout"], 30.0)
+        self.assertEqual(run.call_args.kwargs["timeout"], 120.0)
+
+    def test_provider_defaults_allow_cold_gpu_execution_and_preserve_overrides(self):
+        for provider, explicit, expected in (
+            (ProbeProvider.CPU, None, 30.0),
+            (ProbeProvider.CUDA, None, 120.0),
+            (ProbeProvider.TENSORRT, None, 120.0),
+            (ProbeProvider.CUDA, 3.0, 3.0),
+            (ProbeProvider.TENSORRT, 5.0, 5.0),
+        ):
+            with self.subTest(provider=provider, timeout=explicit), mock.patch.object(
+                probe, "_run_provider_probe"
+            ) as run:
+                probe_execution_provider(provider, timeout=explicit, use_cache=False)
+                self.assertEqual(run.call_args.args[2], expected)
 
     def test_trusted_import_roots_support_nix_without_forwarding_arbitrary_paths(self):
         package_root = Path("/nix/store/nvbroadcast/lib/python/site-packages")
