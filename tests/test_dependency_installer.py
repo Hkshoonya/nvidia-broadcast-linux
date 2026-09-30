@@ -120,6 +120,7 @@ class DependencyInstallerTests(unittest.TestCase):
         fake_cupy = types.SimpleNamespace(
             asarray=mock.Mock(return_value=fake_array),
             float32=object(),
+            cuda=types.SimpleNamespace(Device=mock.MagicMock()),
         )
 
         with mock.patch.dict(sys.modules, {"cupy": fake_cupy}), \
@@ -129,6 +130,7 @@ class DependencyInstallerTests(unittest.TestCase):
             self.assertTrue(dependency_installer._verify_cupy())
 
         preload.assert_called_once_with()
+        fake_cupy.cuda.Device.assert_called_once_with(0)
 
     def test_cuda_verification_retains_provider_probe_error(self):
         failed = RuntimeProbeResult.failure(
@@ -255,9 +257,10 @@ class DependencyInstallerTests(unittest.TestCase):
              mock.patch.object(installer, "is_supported", return_value=True), \
              mock.patch.object(dependency_installer, "_runtime_install_block_reason", return_value=None), \
              mock.patch.object(installer, "_emit_progress", return_value=False), \
-             mock.patch.dict(
-                 dependency_installer.PACKAGE_SPECS["tensorrt"],
-                 {"verify": lambda: (False, detail)},
+             mock.patch.object(
+                 dependency_installer,
+                 "_verify_tensorrt_runtime_result",
+                 return_value=(False, detail),
              ), \
              mock.patch.object(dependency_installer.subprocess, "Popen", return_value=proc), \
              mock.patch.object(dependency_installer, "clear_runtime_probe_cache") as clear_cache:
@@ -268,10 +271,50 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertIn("libnvinfer.so.10", message)
         clear_cache.assert_called_once_with()
 
+    def test_selected_gpu_is_used_for_availability_and_diagnostics(self):
+        installer = dependency_installer.DependencyInstaller(gpu_index=1)
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA,
+            "CUDA_ERROR_OUT_OF_MEMORY",
+        )
+        with mock.patch.object(
+            dependency_installer, "_has_cupy", return_value=True
+        ), mock.patch.object(
+            dependency_installer,
+            "has_cuda_inference_runtime",
+            return_value=False,
+        ) as has_cuda, mock.patch.object(
+            dependency_installer,
+            "cuda_inference_probe_result",
+            return_value=failed,
+        ) as cuda_probe:
+            self.assertFalse(installer.is_available("cupy"))
+            reason = installer.temporary_unavailable_reason_for_mode("doczeus")
+
+        has_cuda.assert_called_with(1)
+        self.assertTrue(all(call.args == (1,) for call in cuda_probe.call_args_list))
+        self.assertIn("selected GPU", reason)
+
+    def test_changing_selected_gpu_invalidates_probe_cache(self):
+        installer = dependency_installer.DependencyInstaller(gpu_index=0)
+        with mock.patch.object(
+            dependency_installer, "clear_runtime_probe_cache"
+        ) as clear_cache:
+            self.assertTrue(installer.set_compute_gpu(1))
+            self.assertFalse(installer.set_compute_gpu(1))
+
+        self.assertEqual(installer.gpu_index, 1)
+        clear_cache.assert_called_once_with()
+
     def test_snap_cuda_modes_report_package_limitation_when_runtime_missing(self):
         installer = dependency_installer.DependencyInstaller()
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA,
+            "CUDA provider library is not present",
+        )
         with mock.patch.dict(dependency_installer.os.environ, {"SNAP": "/snap/nvbroadcast/current"}, clear=False), \
              mock.patch.object(dependency_installer, "_has_cuda_mode_runtime", return_value=False), \
+             mock.patch.object(dependency_installer, "cuda_inference_probe_result", return_value=failed), \
              mock.patch.object(dependency_installer, "IS_LINUX", True), \
              mock.patch.object(dependency_installer, "IS_ARM64", False):
             reason = installer.unsupported_reason_for_mode("doczeus")
@@ -309,10 +352,183 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertIn("CUDA provider session creation failed", reason)
         self.assertIn("libcudnn.so.9", reason)
 
+    def test_gpu_memory_pressure_is_reported_as_temporary_and_retryable(self):
+        installer = dependency_installer.DependencyInstaller()
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA,
+            "CUBLAS_STATUS_ALLOC_FAILED",
+            diagnostics="CUDA failed to allocate memory for the provider session",
+        )
+        with mock.patch.object(
+            installer, "is_available", return_value=False
+        ), mock.patch.object(
+            dependency_installer,
+            "cuda_inference_probe_result",
+            return_value=failed,
+        ):
+            reason = installer.unsupported_reason_for_mode("doczeus")
+
+        self.assertIn("temporarily unavailable", reason)
+        self.assertIn("free memory", reason)
+        self.assertIn("select the mode again to retry", reason)
+        self.assertIn("CPU modes remain available", reason)
+        self.assertIn("CUBLAS_STATUS_ALLOC_FAILED", reason)
+
+    def test_cpu_mode_never_inherits_gpu_memory_pressure(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(
+            dependency_installer, "cuda_inference_probe_result"
+        ) as cuda_probe:
+            self.assertIsNone(
+                installer.temporary_unavailable_reason_for_mode("cpu_quality")
+            )
+        cuda_probe.assert_not_called()
+
+    def test_mode_snapshot_skips_tensorrt_execution_when_cuda_is_unavailable(self):
+        installer = dependency_installer.DependencyInstaller(gpu_index=0)
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA,
+            "CUDA provider library is unavailable",
+        )
+        with mock.patch.object(
+            dependency_installer,
+            "_has_cuda_mode_runtime",
+            return_value=False,
+        ), mock.patch.object(
+            dependency_installer,
+            "cuda_inference_probe_result",
+            return_value=failed,
+        ), mock.patch.object(
+            dependency_installer,
+            "has_tensorrt_runtime",
+            side_effect=AssertionError("TensorRT probe must be short-circuited"),
+        ):
+            snapshot = installer.mode_availability_snapshot(0)
+
+        self.assertFalse(snapshot["has_cuda"])
+        self.assertFalse(snapshot["has_tensorrt"])
+
+    def test_retry_mode_runtime_clears_cached_probe_before_rechecking(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(
+            dependency_installer, "clear_runtime_probe_cache"
+        ) as clear_cache, mock.patch.object(
+            installer,
+            "unsupported_reason_for_mode",
+            return_value=None,
+        ) as reason:
+            self.assertIsNone(installer.retry_mode_runtime("doczeus"))
+
+        clear_cache.assert_called_once_with()
+        reason.assert_called_once_with("doczeus")
+
+    def test_retry_mode_runtime_uses_captured_gpu_without_retargeting_installer(self):
+        installer = dependency_installer.DependencyInstaller(gpu_index=0)
+        with mock.patch.object(
+            dependency_installer,
+            "clear_runtime_probe_cache",
+        ) as clear_cache, mock.patch.object(
+            dependency_installer,
+            "_has_cuda_mode_runtime",
+            side_effect=lambda device_id=0: device_id == 1,
+        ) as has_runtime:
+            reason = installer.retry_mode_runtime("doczeus", gpu_index=1)
+
+        self.assertIsNone(reason)
+        self.assertEqual(installer.gpu_index, 0)
+        clear_cache.assert_called_once_with()
+        self.assertTrue(any(call.args == (1,) for call in has_runtime.call_args_list))
+
+    def test_install_captures_gpu_without_retargeting_shared_installer(self):
+        installer = dependency_installer.DependencyInstaller(gpu_index=0)
+        worker = mock.Mock()
+        with mock.patch.object(
+            installer,
+            "install_block_reason_for_gpu",
+            return_value=None,
+        ) as block_reason, mock.patch.object(
+            dependency_installer.threading,
+            "Thread",
+            return_value=worker,
+        ) as thread_cls:
+            self.assertTrue(installer.start_install("cupy", gpu_index=2))
+
+        self.assertEqual(installer.gpu_index, 0)
+        self.assertTrue(installer.busy)
+        block_reason.assert_called_once_with("cupy", 2)
+        self.assertEqual(thread_cls.call_args.kwargs["args"], ("cupy", 2))
+        worker.start.assert_called_once_with()
+
+        with mock.patch.object(
+            installer,
+            "install_block_reason_for_gpu",
+            return_value=None,
+        ):
+            self.assertFalse(installer.start_install("tensorrt", gpu_index=1))
+        self.assertEqual(thread_cls.call_count, 1)
+
+    def test_install_verification_uses_captured_gpu_and_shared_restart_state(self):
+        installer = dependency_installer.DependencyInstaller(gpu_index=0)
+        checker = mock.Mock()
+        checker.is_available.return_value = False
+        checker.install_block_reason.return_value = None
+        proc = mock.Mock(stdout=[], wait=mock.Mock(return_value=0))
+
+        with mock.patch.object(
+            installer,
+            "_checker_for_gpu",
+            return_value=checker,
+        ), mock.patch.object(
+            dependency_installer.subprocess,
+            "Popen",
+            return_value=proc,
+        ), mock.patch.object(
+            dependency_installer,
+            "_verify_cuda_mode_runtime_result",
+            return_value=(True, ""),
+        ) as verify, mock.patch.object(
+            dependency_installer.GLib,
+            "idle_add",
+            return_value=0,
+        ):
+            success, _message = installer._install_single(
+                "cupy",
+                "cupy",
+                gpu_index=2,
+            )
+
+        self.assertTrue(success)
+        verify.assert_called_once_with(2)
+        self.assertEqual(installer.gpu_index, 0)
+        self.assertTrue(installer.restart_pending("cupy"))
+
+    def test_explicit_retry_uses_snapshot_even_when_device_matches_live_target(self):
+        installer = dependency_installer.DependencyInstaller(gpu_index=0)
+        with mock.patch.object(
+            installer,
+            "unsupported_reason_for_mode",
+            side_effect=AssertionError("mutable live installer was used"),
+        ), mock.patch.object(
+            dependency_installer,
+            "_has_cuda_mode_runtime",
+            return_value=True,
+        ), mock.patch.object(
+            dependency_installer,
+            "clear_runtime_probe_cache",
+        ):
+            self.assertIsNone(
+                installer.retry_mode_runtime("doczeus", gpu_index=0)
+            )
+
     def test_snap_tensorrt_mode_does_not_offer_runtime_install(self):
         installer = dependency_installer.DependencyInstaller()
+        missing_runtime = RuntimeProbeResult.failure(
+            ProbeProvider.TENSORRT,
+            "TensorRT provider is not installed in this Snap",
+        )
         with mock.patch.dict(dependency_installer.os.environ, {"SNAP": "/snap/nvbroadcast/current"}, clear=False), \
              mock.patch.object(dependency_installer, "_has_cuda_mode_runtime", return_value=True), \
+             mock.patch.object(dependency_installer, "tensorrt_inference_probe_result", return_value=missing_runtime), \
              mock.patch.object(dependency_installer, "has_tensorrt_runtime", return_value=False), \
              mock.patch.object(dependency_installer, "supports_tensorrt_python", return_value=True), \
              mock.patch.object(dependency_installer, "IS_LINUX", True), \
@@ -397,7 +613,7 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_bundled_runtime_is_available_even_when_install_is_unsupported(self):
         installer = dependency_installer.DependencyInstaller()
-        with mock.patch.dict(dependency_installer.PACKAGE_SPECS["tensorrt"], {"check": lambda: True}), \
+        with mock.patch.object(dependency_installer, "has_tensorrt_runtime", return_value=True), \
              mock.patch.object(installer, "is_supported", return_value=False):
             self.assertTrue(installer.is_available("tensorrt"))
             self.assertIsNone(installer.install_block_reason("tensorrt"))
@@ -443,7 +659,7 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_zeus_mode_allowed_when_tensorrt_runtime_already_present(self):
         installer = dependency_installer.DependencyInstaller()
-        with mock.patch.dict(dependency_installer.PACKAGE_SPECS["cupy"], {"check": lambda: True}), \
+        with mock.patch.object(dependency_installer, "_has_cuda_mode_runtime", return_value=True), \
              mock.patch.object(dependency_installer, "IS_LINUX", True), \
              mock.patch.object(dependency_installer, "IS_ARM64", False), \
              mock.patch.object(dependency_installer, "has_tensorrt_runtime", return_value=True), \

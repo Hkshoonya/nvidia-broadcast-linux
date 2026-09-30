@@ -113,15 +113,18 @@ See [CHANGELOG.md](./CHANGELOG.md) for latest updates!
 | **CUDA Max** | 720p | CuPy GPU | 45ms / 22fps | 22% | 46% | Maximum quality |
 | **CUDA Balanced** | 720p, skip 2 | CuPy GPU | 29ms / 34fps | 24% | 39% | Daily use |
 | **CUDA Perf** | 720p, skip 2 | CuPy GPU | 30ms / 34fps | 23% | 39% | Light GPU load |
-| **CPU Quality** | 720p | OpenCV SIMD | 66ms / 15fps | 17% | 27% | No CuPy fallback |
-| **CPU Light** | 720p, skip 2 | OpenCV SIMD | 30ms / 34fps | 23% | 20% | Save GPU for games |
-| **CPU Low End** | 720p, skip 3 | OpenCV SIMD | 27ms / 37fps | 21% | 20% | Older hardware |
+| **CPU Quality** | 720p, CPU provider | OpenCV SIMD | Hardware-dependent | Higher | 0% video inference | No CUDA required |
+| **CPU Light** | 720p, CPU provider, skip 2 | OpenCV SIMD | Hardware-dependent | Medium | 0% video inference | Save GPU for other work |
+| **CPU Low End** | 720p, CPU provider, skip 3 | OpenCV SIMD | Hardware-dependent | Lower | 0% video inference | Older hardware |
 
 > **Edge Refine** toggle available for Killer and Zeus modes — adds ~27ms but recovers 89.9% of max quality edges.
 >
 > Switch modes anytime from the **Mode** dropdown. No restart needed.
 >
 > CUDA modes require the CUDA mode runtime: CuPy for compositing plus ONNX Runtime with `CUDAExecutionProvider` for model inference. Source, `.deb`, `.rpm`, and amd64 Snap installs handle this automatically on NVIDIA systems. The arm64 Snap build stays CPU-safe because ONNX Runtime GPU wheels are not published for Linux arm64 yet.
+>
+> CPU modes use ONNX Runtime's CPU provider for video inference as well as
+> OpenCV CPU compositing. Audio GPU effects remain controlled separately.
 
 ---
 

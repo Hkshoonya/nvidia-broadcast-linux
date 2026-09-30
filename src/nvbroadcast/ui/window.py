@@ -35,7 +35,7 @@ from nvbroadcast.video.virtual_camera import (
     select_camera_mode,
     get_firefox_profiles, is_firefox_pipewire_disabled, set_firefox_pipewire,
 )
-from nvbroadcast.core.platform import IS_LINUX, has_tensorrt_runtime, supports_tensorrt_python
+from nvbroadcast.core.platform import IS_LINUX, supports_tensorrt_python
 from nvbroadcast.core.resources import find_app_icon
 
 
@@ -194,6 +194,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._installer = None
         self._install_pulse_id = 0
         self._pending_mode_key = ""
+        self._mode_retry_in_flight = False
+        self._mode_retry_generation = 0
+        # A GPU switch refreshes provider execution off the GTK thread.  Keep
+        # the prior mode rows out of use until that selected-device check ends.
+        self._mode_availability_ready = True
+        self._mode_availability_gpu = max(0, int(app.config.compute_gpu))
+        self._mode_availability_snapshot = None
         self._pending_meeting_start = False
         self._shown_advisories: set[str] = set()
         self._updating_hotkeys = False
@@ -1760,15 +1767,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         }
         return messages.get(mode_key, "")
 
-    def _build_mode_devices(self) -> list[dict[str, str]]:
-        from nvbroadcast.core.config import detect_compositing_backends
-
-        backends = detect_compositing_backends()
-        has_cuda = backends.get("cupy", False)
-        has_trt = has_tensorrt_runtime()
-        devices: list[dict[str, str]] = []
-        devices.append({"name": "Auto - Adaptive", "device": "auto"})
-        for mode_key, label in [
+    def _build_mode_devices(
+        self,
+        availability_snapshot: dict[str, object] | None = None,
+    ) -> list[dict[str, str]]:
+        mode_rows = [
             ("doczeus", "DocZeus - Best Quality GPU"),
             ("cuda_max", "CUDA - High Quality"),
             ("cuda_balanced", "CUDA - Balanced"),
@@ -1778,15 +1781,60 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             ("cpu_quality", "CPU - High Quality"),
             ("cpu_light", "CPU - Fast"),
             ("cpu_low", "CPU - Low End"),
-        ]:
-            unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
-            missing = self._app.dependency_installer.missing_for_mode(mode_key)
+        ]
+        gpu_modes = {
+            "doczeus", "cuda_max", "cuda_balanced", "zeus", "killer",
+            "cuda_perf",
+        }
+        if not self._mode_availability_ready and availability_snapshot is None:
+            cpu_devices = [
+                {"name": label, "device": mode_key}
+                for mode_key, label in mode_rows
+                if mode_key not in gpu_modes
+            ]
+            checking_devices = [
+                {
+                    "name": f"{label} (checking selected GPU...)",
+                    "device": mode_key,
+                }
+                for mode_key, label in mode_rows
+                if mode_key in gpu_modes
+            ]
+            return [
+                {"name": "Auto - Adaptive", "device": "auto"},
+                *cpu_devices,
+                *checking_devices,
+            ]
+
+        if availability_snapshot is None:
+            availability_snapshot = (
+                self._app.dependency_installer.mode_availability_snapshot(
+                    self._app.config.compute_gpu
+                )
+            )
+            self._mode_availability_snapshot = availability_snapshot
+        has_cuda = bool(availability_snapshot.get("has_cuda", False))
+        has_trt = bool(availability_snapshot.get("has_tensorrt", False))
+        mode_states = availability_snapshot.get("modes", {})
+        if not isinstance(mode_states, dict):
+            mode_states = {}
+        available_devices: list[dict[str, str]] = []
+        unavailable_devices: list[dict[str, str]] = []
+        for mode_key, label in mode_rows:
+            state = mode_states.get(mode_key, {})
+            if not isinstance(state, dict):
+                state = {}
+            unsupported = str(state.get("unsupported", "") or "")
+            temporary = str(state.get("temporary", "") or "")
+            missing = list(state.get("missing", ()) or ())
             if unsupported:
-                if mode_key in ("zeus", "killer") and not has_trt and not supports_tensorrt_python():
+                if temporary:
+                    label += " (GPU busy - select to retry)"
+                elif mode_key in ("zeus", "killer") and not has_trt and not supports_tensorrt_python():
                     label += " (requires Python 3.11-3.14)"
                 else:
                     label += " (not available on this system)"
-                devices.append({"name": label, "device": mode_key})
+                unavailable_devices.append({"name": label, "device": mode_key})
                 continue
             if not has_cuda and mode_key.startswith(("doczeus", "cuda_", "zeus", "killer")):
                 missing = sorted(set(missing + ["cupy"]))
@@ -1797,8 +1845,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                     self._app.dependency_installer.describe(dep)["title"] for dep in missing
                 )
                 label += f" (installs {readable})"
-            devices.append({"name": label, "device": mode_key})
-        return devices
+            available_devices.append({"name": label, "device": mode_key})
+        return [
+            {"name": "Auto - Adaptive", "device": "auto"},
+            *available_devices,
+            *unavailable_devices,
+        ]
 
     def _sync_mode_selector(self):
         if self._app.config.auto_mode:
@@ -1833,23 +1885,103 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _on_compute_focus_changed(self, selector, focus):
         if getattr(self._app, '_restoring', False):
             return
+        self._cancel_mode_runtime_retry()
+        self._pending_mode_key = ""
+        if not self._mode_availability_ready:
+            self._app._pending_compute_focus = (
+                focus,
+                max(0, int(self._app.config.compute_gpu)),
+            )
+            self._app._pending_auto_mode_gpu = None
+            self._sync_compute_focus_selector()
+            self.set_status("Selected GPU runtime check is already in progress")
+            return
+        self._app._pending_auto_mode_gpu = None
+        self._app._pending_compute_focus = None
         self._app.set_compute_focus(focus)
+
+    def _snapshot_mode_state(self, mode_key: str) -> dict[str, object] | None:
+        snapshot = getattr(self, "_mode_availability_snapshot", None)
+        if (
+            not self._mode_availability_ready
+            or not isinstance(snapshot, dict)
+            or int(snapshot.get("gpu_index", -1))
+            != max(0, int(self._app.config.compute_gpu))
+        ):
+            return None
+        modes = snapshot.get("modes", {})
+        if not isinstance(modes, dict):
+            return None
+        state = modes.get(mode_key)
+        return state if isinstance(state, dict) else None
 
     def _on_mode_changed_selector(self, selector, mode_key):
         if getattr(self._app, '_restoring', False):
             return
+        self._cancel_mode_runtime_retry()
+        if mode_key == "auto" and not self._mode_availability_ready:
+            self._pending_mode_key = ""
+            self._app._pending_auto_mode_gpu = max(
+                0, int(self._app.config.compute_gpu)
+            )
+            self._app._pending_compute_focus = None
+            self._sync_mode_selector()
+            self.set_status("Selected GPU runtime check is already in progress")
+            return
         if mode_key == "auto":
+            self._pending_mode_key = ""
+            self._app._pending_auto_mode_gpu = None
+            self._app._pending_compute_focus = None
             self._app.set_auto_mode_enabled(True)
             msg = self._mode_status_message(mode_key)
             if msg:
                 self.set_status(msg)
             return
-        unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
+        # A concrete mode is the newest user intent.  Do not let a deferred
+        # Auto/focus choice or optional-install continuation override it when
+        # the selected-GPU worker finishes.
+        self._app._pending_auto_mode_gpu = None
+        self._app._pending_compute_focus = None
+        if getattr(self, "_pending_mode_key", "") != mode_key:
+            self._pending_mode_key = ""
+        if (
+            mode_key in self._MODE_MAP
+            and mode_key not in {"cpu_quality", "cpu_light", "cpu_low"}
+            and not self._mode_availability_ready
+        ):
+            self._sync_mode_selector()
+            self.set_status("Selected GPU runtime check is already in progress")
+            return
+        state = self._snapshot_mode_state(mode_key)
+        if state is None:
+            unsupported = self._app.dependency_installer.unsupported_reason_for_mode(
+                mode_key
+            )
+            temporary = (
+                self._app.dependency_installer.temporary_unavailable_reason_for_mode(
+                    mode_key
+                )
+                if unsupported
+                else None
+            )
+            missing = self._app.dependency_installer.missing_for_mode(mode_key)
+        else:
+            unsupported = str(state.get("unsupported", "") or "")
+            temporary = str(state.get("temporary", "") or "")
+            missing = list(state.get("missing", ()) or ())
         if unsupported:
+            if temporary:
+                self._retry_temporarily_unavailable_mode(mode_key)
+                return
             self._sync_mode_selector()
             self.set_status(unsupported)
             return
-        install_key = self._app.dependency_installer.install_key_for_mode(mode_key)
+        if set(missing) == {"cupy", "tensorrt"}:
+            install_key = "premium_gpu_stack"
+        elif len(missing) == 1:
+            install_key = missing[0]
+        else:
+            install_key = None
         if install_key:
             self._pending_mode_key = mode_key
             self._sync_mode_selector()
@@ -1869,8 +2001,112 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if mode_key in self._MODE_MAP:
             self._app.apply_mode_key(mode_key)
 
+    def _cancel_mode_runtime_retry(self) -> None:
+        if getattr(self, "_mode_retry_in_flight", False):
+            self._mode_retry_generation += 1
+            self._mode_retry_in_flight = False
+
+    def _retry_temporarily_unavailable_mode(self, mode_key: str) -> None:
+        """Retry a transient provider probe without blocking GTK."""
+        self._sync_mode_selector()
+        if self._mode_retry_in_flight:
+            self.set_status("GPU runtime check is already in progress")
+            return
+
+        self._mode_retry_in_flight = True
+        self._mode_retry_generation += 1
+        retry_generation = self._mode_retry_generation
+        gpu_index = max(0, int(self._app.config.compute_gpu))
+        self.set_status("Rechecking selected GPU runtime...")
+        window_ref = weakref.ref(self)
+        installer = self._app.dependency_installer
+
+        def _probe() -> None:
+            snapshot = None
+            capabilities = None
+            try:
+                reason = installer.retry_mode_runtime(
+                    mode_key,
+                    gpu_index=gpu_index,
+                )
+                snapshot = installer.mode_availability_snapshot(gpu_index)
+                from nvbroadcast.core.config import detect_system_capabilities
+                capabilities = detect_system_capabilities(
+                    gpu_index, probe_cuda=not installer.restart_pending("cupy")
+                )
+            except Exception as exc:
+                reason = f"GPU runtime check failed: {exc}"
+            window = window_ref()
+            if window is not None:
+                GLib.idle_add(
+                    window._finish_mode_runtime_retry,
+                    mode_key,
+                    reason or "",
+                    retry_generation,
+                    gpu_index,
+                    snapshot,
+                    capabilities,
+                )
+
+        threading.Thread(
+            target=_probe,
+            name="nvbroadcast-mode-runtime-retry",
+            daemon=True,
+        ).start()
+
+    def _finish_mode_runtime_retry(
+        self,
+        mode_key: str,
+        reason: str,
+        retry_generation: int,
+        gpu_index: int,
+        availability_snapshot: dict[str, object] | None = None,
+        capabilities: dict[str, object] | None = None,
+    ) -> bool:
+        if (
+            retry_generation != self._mode_retry_generation
+            or max(0, int(self._app.config.compute_gpu)) != gpu_index
+        ):
+            return False
+        self._mode_retry_in_flight = False
+        if availability_snapshot is None:
+            self._mode_availability_ready = False
+            self.set_status(reason or "GPU runtime check did not complete")
+            return False
+        self._mode_availability_ready = True
+        self._mode_availability_gpu = gpu_index
+        self._mode_availability_snapshot = availability_snapshot
+        self._app._mode_availability_snapshot = availability_snapshot
+        if capabilities is not None:
+            self._app._mode_capabilities_snapshot = (gpu_index, capabilities)
+        self.rebuild_mode_selector(
+            self._app.config.compositing,
+            self._app.config.performance_profile,
+            availability_snapshot=availability_snapshot,
+        )
+        if reason:
+            self._sync_mode_selector()
+            self.set_status(reason)
+            return False
+
+        for index, device in enumerate(self._mode_devices):
+            if device["device"] == mode_key:
+                self._profile_selector.set_selected_index(index)
+                break
+        self._on_mode_changed_selector(self._profile_selector, mode_key)
+        return False
+
     def _on_gpu_changed(self, selector, gpu_str):
-        self._app.set_compute_gpu(int(gpu_str))
+        gpu_index = max(0, int(gpu_str))
+        if gpu_index != max(0, int(self._app.config.compute_gpu)):
+            # Invalidate a probe for the previous GPU.  Its worker may finish,
+            # but the generation/device guard prevents it from changing UI or
+            # activating a mode for the newly selected device.
+            self._mode_retry_generation += 1
+            self._mode_retry_in_flight = False
+            self._mode_availability_ready = False
+            self._mode_availability_gpu = gpu_index
+        self._app.set_compute_gpu(gpu_index)
 
     def _on_camera_changed(self, selector, device):
         if self._updating_ui or getattr(self._app, "_restoring", False):
@@ -3185,10 +3421,18 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._update_btn.set_tooltip_text(f"{self._update_full_label}. {tooltip}")
         self._update_btn.set_visible(True)
 
-    def rebuild_mode_selector(self, compositing: str, profile: str):
+    def rebuild_mode_selector(
+        self,
+        compositing: str,
+        profile: str,
+        *,
+        availability_snapshot: dict[str, object] | None = None,
+    ):
         """Rebuild the Mode dropdown with currently available backends."""
         _ = compositing, profile
-        self._mode_devices = self._build_mode_devices()
+        if availability_snapshot is not None:
+            self._mode_availability_snapshot = availability_snapshot
+        self._mode_devices = self._build_mode_devices(availability_snapshot)
         self._profile_selector.set_devices(self._mode_devices)
         self._sync_mode_selector()
 
@@ -3298,6 +3542,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._install_pulse_id = 0
 
     def _on_install_job_started(self, _installer, key: str, text: str):
+        invalidate = getattr(self._app, "_invalidate_mode_availability", None)
+        if callable(invalidate):
+            invalidate(self._app.config.compute_gpu)
         meta = self._app.dependency_installer.describe(key)
         self._install_title.set_text(meta["title"])
         self._install_detail.set_text(text)
@@ -3322,21 +3569,21 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._install_detail.set_text(text)
         self._install_close_btn.set_sensitive(True)
         self.set_status(text)
-        self.rebuild_mode_selector(self._app.config.compositing, self._app.config.performance_profile)
 
         restart_pending = success and _installer.restart_pending(_key)
         if restart_pending:
             self._pending_mode_key = ""
-        elif success and self._pending_mode_key:
-            pending_mode = self._pending_mode_key
+        elif not success:
             self._pending_mode_key = ""
-            for i, d in enumerate(self._mode_devices):
-                if d["device"] == pending_mode:
-                    self._profile_selector.set_selected_index(i)
-                    break
-            self._on_mode_changed_selector(self._profile_selector, pending_mode)
+
+        refresh = getattr(self._app, "_refresh_mode_availability_async", None)
+        if callable(refresh):
+            refresh(self._app.config.compute_gpu)
         else:
-            self._pending_mode_key = ""
+            self.rebuild_mode_selector(
+                self._app.config.compositing,
+                self._app.config.performance_profile,
+            )
 
         if success and not restart_pending and self._pending_meeting_start:
             self._pending_meeting_start = False
@@ -3353,3 +3600,21 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self.set_status(self._meeting_recording_status(filepath))
         else:
             self._pending_meeting_start = False
+
+    def _complete_pending_mode_after_refresh(self) -> None:
+        """Resume a successful optional-runtime selection from its snapshot."""
+        pending_mode = self._pending_mode_key
+        if not pending_mode:
+            return
+        state = self._snapshot_mode_state(pending_mode)
+        if state is None:
+            return
+        self._pending_mode_key = ""
+        if state.get("unsupported") or state.get("missing"):
+            self._sync_mode_selector()
+            return
+        for index, device in enumerate(self._mode_devices):
+            if device["device"] == pending_mode:
+                self._profile_selector.set_selected_index(index)
+                break
+        self._on_mode_changed_selector(self._profile_selector, pending_mode)

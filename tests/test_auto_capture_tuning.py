@@ -328,6 +328,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
             mode="blur",
             intensity=0.0,
             set_compositing=mock.Mock(),
+            set_gpu_index=mock.Mock(),
             set_profile_infer_height=mock.Mock(),
             set_engine_mode=mock.Mock(),
             _apply_edge_config=mock.Mock(),
@@ -376,10 +377,13 @@ class AutoCaptureTuningTests(unittest.TestCase):
             _skip_interval=1,
             _apply_edge_config=mock.Mock(),
             set_compositing=mock.Mock(),
+            set_gpu_index=mock.Mock(),
             set_profile_infer_height=mock.Mock(),
             set_engine_mode=mock.Mock(),
         )
         app._beautifier = SimpleNamespace(set_compositing=mock.Mock())
+        app._dependency_installer = SimpleNamespace(set_compute_gpu=mock.Mock())
+        app._perf_monitor = SimpleNamespace(set_gpu_index=mock.Mock())
         app._window = SimpleNamespace(
             rebuild_mode_selector=mock.Mock(),
             _sync_quality_selector=mock.Mock(),
@@ -396,6 +400,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
         self.assertEqual(app.config.mode_key, "cuda_perf")
         self.assertEqual(app.config.video.quality_preset, "performance")
         self.assertEqual(app._video_effects._quality, "performance")
+        app._dependency_installer.set_compute_gpu.assert_called_once_with(0)
         app._window._sync_quality_selector.assert_called_once_with()
         save_config.assert_called_once_with(app.config)
 

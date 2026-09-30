@@ -162,6 +162,29 @@ class BeautifyTests(unittest.TestCase):
         self.assertIsNotNone(overlay)
         self.assertTrue(np.array_equal(overlay[0], beautifier._tone_mask))
 
+    def test_cpu_compositing_never_uses_cached_cupy_beautify_path(self):
+        beautifier = self._make_beautifier()
+        beautifier.denoise = 0.0
+        beautifier.enhance = 0.5
+        beautifier.sharpen = 0.5
+        beautifier._cupy = object()
+        beautifier.set_compositing("cpu")
+        beautifier._apply_gpu_batch = mock.Mock()
+        beautifier._apply_enhance = mock.Mock(side_effect=lambda frame: frame)
+        beautifier._apply_sharpen = mock.Mock(side_effect=lambda frame: frame)
+        frame = np.zeros((8, 8, 4), dtype=np.uint8)
+
+        beautifier.process_frame_array(
+            frame,
+            8,
+            8,
+            cache_prepared=True,
+        )
+
+        beautifier._apply_gpu_batch.assert_not_called()
+        beautifier._apply_enhance.assert_called_once_with(frame)
+        beautifier._apply_sharpen.assert_called_once_with(frame)
+
 
 if __name__ == "__main__":
     unittest.main()
