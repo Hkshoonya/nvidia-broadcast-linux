@@ -2503,7 +2503,9 @@ class NVBroadcastApp(Adw.Application):
             self._recording_start_error = "Camera pipeline unavailable"
             return ""
         try:
-            self._video_pipeline.start_recording(filepath, wait_for_codecs=False)
+            self._video_pipeline.start_recording(
+                filepath, wait_for_codecs=False, mic_device=self.config.audio.mic_device
+            )
             self._video_pipeline.set_recording_finalize_callback(
                 lambda success, error: self._on_recording_finalized(
                     "rec", success, error
@@ -2598,7 +2600,9 @@ class NVBroadcastApp(Adw.Application):
 
         filepath = self._meeting_video_path
         try:
-            self._video_pipeline.start_recording(filepath, wait_for_codecs=False)
+            self._video_pipeline.start_recording(
+                filepath, wait_for_codecs=False, mic_device=self.config.audio.mic_device
+            )
             self._video_pipeline.set_recording_finalize_callback(
                 lambda success, error: self._on_recording_finalized(
                     "meeting", success, error

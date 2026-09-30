@@ -31,7 +31,7 @@ from nvbroadcast.core.constants import (
     DEFAULT_FPS,
     VIRTUAL_CAM_DEVICE,
 )
-from nvbroadcast.audio.source_probe import probe_audio_source
+from nvbroadcast.audio.source_probe import audio_source_target, probe_audio_source
 
 
 # Formats cudaconvert handles reliably for the up/convert/download segment.
@@ -1198,9 +1198,9 @@ class VideoPipeline:
         return appsrc.emit("push-buffer", buffer)
 
     @staticmethod
-    def _recording_audio_source() -> tuple[str | None, str]:
+    def _recording_audio_source(mic_device: str = "") -> tuple[str | None, str]:
         """Use the same live source check as Meeting's separate WAV capture."""
-        return probe_audio_source()
+        return probe_audio_source(mic_device) if mic_device else probe_audio_source()
 
     def set_recording_error_callback(self, callback):
         self._recording_error_callback = callback
@@ -1572,7 +1572,9 @@ class VideoPipeline:
             if remaining <= 0 or done is None or not done.wait(remaining):
                 raise RuntimeError("H.264 recording encoder check timed out")
 
-    def start_recording(self, filepath: str, *, wait_for_codecs: bool = True):
+    def start_recording(
+        self, filepath: str, *, wait_for_codecs: bool = True, mic_device: str = ""
+    ):
         """Start recording the processed output to an MP4 file."""
         if self._recording or self._recording_finalizing:
             raise RuntimeError("A recording is active or still finalizing")
@@ -1590,7 +1592,8 @@ class VideoPipeline:
             "video/x-h264,stream-format=avc,alignment=au"
         )
 
-        source, audio_error = self._recording_audio_source()
+        source, audio_error = (self._recording_audio_source(mic_device) if mic_device
+                               else self._recording_audio_source())
         recording_pipeline = None
         has_audio = False
         if source:
@@ -1606,7 +1609,7 @@ class VideoPipeline:
                         f"height={self._height},framerate={self._fps}/1 ! "
                         f"queue max-size-buffers=3 leaky=downstream ! "
                         f"{video_tail} ! mux.video_0 "
-                        f"{source} ! audioconvert ! audioresample ! "
+                        f"{source} name=recording_audio_source ! audioconvert ! audioresample ! "
                         f"audio/x-raw,format={pcm_format},layout=interleaved,"
                         f"rate=48000,channels=1 ! "
                         f"queue max-size-buffers=10 ! "
@@ -1636,8 +1639,11 @@ class VideoPipeline:
             )
             print(f"[NV Broadcast] Recording video only: {audio_error}", flush=True)
 
-        # Set this as a property: an unquoted path containing spaces otherwise
-        # makes Gst.parse_launch treat the next word as an element name.
+        # User-selected device names and paths must be properties, not pipeline
+        # syntax: quotes and spaces in them must remain literal values.
+        if has_audio and mic_device:
+            prop, target = audio_source_target(source, mic_device)
+            recording_pipeline.get_by_name("recording_audio_source").set_property(prop, target)
         recording_pipeline.get_by_name("recfile").set_property("location", filepath)
         rec_appsrc = recording_pipeline.get_by_name("recsrc")
         recording_bus = recording_pipeline.get_bus()

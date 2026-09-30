@@ -346,6 +346,7 @@ class AppAudioPolicyTests(unittest.TestCase):
         app = SimpleNamespace(
             _meeting_active=False, _meeting_finalizing=False,
             _video_pipeline=pipeline, _idle_active=False,
+            config=SimpleNamespace(audio=SimpleNamespace(mic_device="selected-mic")),
         )
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(
             Path, "home", return_value=Path(directory)
@@ -353,6 +354,7 @@ class AppAudioPolicyTests(unittest.TestCase):
             self.assertEqual(NVBroadcastApp.start_recording(app), "")
         self.assertEqual(app._recording_start_error, "H.264 encoder unavailable")
         pipeline.start_recording.assert_called_once()
+        self.assertEqual(pipeline.start_recording.call_args.kwargs["mic_device"], "selected-mic")
         self.assertFalse(
             pipeline.start_recording.call_args.kwargs["wait_for_codecs"]
         )
@@ -368,6 +370,7 @@ class AppAudioPolicyTests(unittest.TestCase):
         app = SimpleNamespace(
             _meeting_finalizing=False,
             _video_pipeline=pipeline,
+            config=SimpleNamespace(audio=SimpleNamespace(mic_device="selected-mic")),
         )
         with tempfile.TemporaryDirectory() as directory, mock.patch(
             "nvbroadcast.app.create_session",

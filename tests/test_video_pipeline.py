@@ -852,6 +852,51 @@ class VideoPipelineRecordingTests(unittest.TestCase):
         self.assertTrue(all(call.kwargs["timeout"] == 2
                             for call in run.call_args_list))
 
+    def test_recording_probes_and_routes_selected_microphone(self):
+        pipeline = VideoPipeline()
+        pipeline._recording_aac_candidates = [("avenc_aac", "F32LE")]
+        recording = mock.Mock()
+        recording.set_state.return_value = Gst.StateChangeReturn.SUCCESS
+        selected = 'mic with "quotes" ! unusual name'
+        with mock.patch.object(pipeline, "_recording_audio_source", return_value=("pulsesrc", "")) as probe, \
+             mock.patch.object(pipeline, "_select_recording_encoder", return_value=self.X264_GRAPH), \
+             mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch", return_value=recording) as parse:
+            pipeline.start_recording("/tmp/selected.mp4", mic_device=selected)
+        probe.assert_called_once_with(selected)
+        self.assertNotIn(selected, parse.call_args.args[0])
+        recording.get_by_name("recording_audio_source").set_property.assert_any_call("device", selected)
+        self.assertTrue(pipeline.recording_has_audio)
+
+    def test_selected_microphone_probe_sets_device_outside_pipeline_text(self):
+        from nvbroadcast.audio.source_probe import probe_audio_source
+        selected = 'nondefault "microphone"'
+        with mock.patch("nvbroadcast.audio.source_probe.Gst.ElementFactory.find", return_value=object()), \
+             mock.patch("nvbroadcast.audio.source_probe.subprocess.run", return_value=SimpleNamespace(returncode=0)) as run:
+            self.assertEqual(probe_audio_source(selected), ("pulsesrc", ""))
+        args = run.call_args.args[0]
+        self.assertEqual(args[-3:], ["pulsesrc", "device", selected])
+        self.assertNotIn(selected, args[2])
+        self.assertIn("set_property", args[2])
+
+    def test_selected_pipewire_microphone_uses_resolved_target(self):
+        from nvbroadcast.audio.source_probe import probe_audio_source
+        with mock.patch("nvbroadcast.audio.source_probe.Gst.ElementFactory.find", side_effect=lambda name: object() if name == "pipewiresrc" else None), \
+             mock.patch("nvbroadcast.audio.source_probe.os.path.exists", return_value=True), \
+             mock.patch("nvbroadcast.audio.devices.resolve_pipewire_target", return_value="alsa_input.selected"), \
+             mock.patch("nvbroadcast.audio.source_probe.subprocess.run", return_value=SimpleNamespace(returncode=0)) as run:
+            self.assertEqual(probe_audio_source("42"), ("pipewiresrc", ""))
+        self.assertEqual(run.call_args.args[0][-3:], ["pipewiresrc", "target-object", "alsa_input.selected"])
+
+    def test_unavailable_selected_microphone_does_not_probe_default(self):
+        from nvbroadcast.audio.source_probe import probe_audio_source
+        with mock.patch("nvbroadcast.audio.source_probe.Gst.ElementFactory.find", side_effect=lambda name: object() if name == "pulsesrc" else None), \
+             mock.patch("nvbroadcast.audio.devices.resolve_pulse_source_name", return_value=""), \
+             mock.patch("nvbroadcast.audio.source_probe.subprocess.run") as run:
+            source, error = probe_audio_source("123")
+        self.assertIsNone(source)
+        self.assertIn("Selected microphone is unavailable", error)
+        run.assert_not_called()
+
     def test_missing_audio_reports_video_only_and_sets_path_with_spaces(self):
         pipeline = VideoPipeline()
         pipeline._has_gst_element = lambda name: name == "x264enc"
