@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Recording Across Effect Changes** - Keep the MP4 recorder running when
+  capture is rebuilt for an effect or backend change. Stopping Broadcast still
+  finalizes the file, and a failed rebuild stops the retained recorder.
 - **Find Saved Recordings** - Rec saves to the desktop Videos folder instead
   of Snap's private home. A Recordings menu opens that folder, the last saved
   recording, or older Snap recordings, and completion shows the saved path.

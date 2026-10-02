@@ -1852,6 +1852,12 @@ class VideoPipeline:
             self._capture_started = False
             self.build(vcam_enabled=self._vcam_enabled)
             self.start()
+        except Exception:
+            # A retained recorder must not continue with only audio if the
+            # replacement capture pipeline cannot be constructed.
+            if self._recording:
+                self.stop_recording(wait=False)
+            raise
         finally:
             self._rebuild_pending = False
         return False
@@ -1961,7 +1967,10 @@ class VideoPipeline:
         self._teardown_source_id = 0
 
         try:
-            if self._recording:
+            # Internal effect/backend rebuilds replace the camera pipelines,
+            # not the independent recorder. User stop cancels the rebuild
+            # request first and still finalizes the MP4 here.
+            if self._recording and not self._rebuild_pending:
                 self.stop_recording(wait=False)
 
             # Clean up the macOS vcam backend first so it stops holding output

@@ -591,6 +591,49 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertFalse(pipeline._capture_retry_pending)
         self.assertEqual(pipeline._teardown_source_id, 456)
 
+    def test_internal_capture_rebuild_keeps_the_recording_pipeline(self):
+        pipeline = VideoPipeline()
+        capture = mock.Mock()
+        recorder = mock.Mock()
+        appsrc = mock.Mock()
+        pipeline._pipeline = capture
+        pipeline._running = True
+        pipeline._recording = True
+        pipeline._recording_pipeline = recorder
+        pipeline._rec_appsrc = appsrc
+        pipeline._rebuild_pending = True
+        with mock.patch("nvbroadcast.video.pipeline.GLib.timeout_add", return_value=1), \
+             mock.patch.object(pipeline, "stop_recording") as stop_recording:
+            pipeline.stop(clear_rebuild_request=False)
+            self.assertFalse(pipeline._poll_teardown())
+        stop_recording.assert_not_called()
+        capture.set_state.assert_called_once_with(Gst.State.NULL)
+        self.assertTrue(pipeline.is_recording)
+        self.assertIs(pipeline._recording_pipeline, recorder)
+        self.assertIs(pipeline._rec_appsrc, appsrc)
+
+    def test_user_stop_during_rebuild_still_finalizes_recording(self):
+        pipeline = VideoPipeline()
+        pipeline._recording = True
+        pipeline._rebuild_pending = True
+        with mock.patch("nvbroadcast.video.pipeline.GLib.timeout_add", return_value=1), \
+             mock.patch.object(pipeline, "stop_recording") as stop_recording:
+            pipeline.stop()
+            self.assertFalse(pipeline._poll_teardown())
+        self.assertFalse(pipeline._rebuild_pending)
+        stop_recording.assert_called_once_with(wait=False)
+
+    def test_failed_capture_rebuild_finalizes_the_retained_recording(self):
+        pipeline = VideoPipeline()
+        pipeline._recording = True
+        pipeline._rebuild_pending = True
+        with mock.patch.object(pipeline, "build", side_effect=RuntimeError("source failed")), \
+             mock.patch.object(pipeline, "stop_recording") as stop_recording:
+            with self.assertRaisesRegex(RuntimeError, "source failed"):
+                pipeline._rebuild_pipeline()
+        self.assertFalse(pipeline._rebuild_pending)
+        stop_recording.assert_called_once_with(wait=False)
+
     def test_effects_sample_uses_stable_vcam_appsrc_reference(self):
         pipeline = VideoPipeline()
         pipeline._running = True
