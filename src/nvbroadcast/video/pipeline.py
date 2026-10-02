@@ -1852,6 +1852,11 @@ class VideoPipeline:
             self._capture_started = False
             self.build(vcam_enabled=self._vcam_enabled)
             self.start()
+        except Exception as exc:
+            # A retained recorder must not continue with only audio if the
+            # replacement capture pipeline cannot be constructed.
+            self._stop_recording_after_capture_error(str(exc))
+            raise
         finally:
             self._rebuild_pending = False
         return False
@@ -1961,7 +1966,10 @@ class VideoPipeline:
         self._teardown_source_id = 0
 
         try:
-            if self._recording:
+            # Internal effect/backend rebuilds replace the camera pipelines,
+            # not the independent recorder. User stop cancels the rebuild
+            # request first and still finalizes the MP4 here.
+            if self._recording and not self._rebuild_pending:
                 self.stop_recording(wait=False)
 
             # Clean up the macOS vcam backend first so it stops holding output
@@ -2036,6 +2044,28 @@ class VideoPipeline:
             return "cudaupload ! cudaconvert ! cudadownload"
         return "videoconvert n-threads=2 qos=false"
 
+    def _stop_recording_after_capture_error(self, message: str) -> None:
+        """Finalize available media without reporting a clean capture result."""
+        if not self._recording:
+            return
+        callback = self._recording_finalize_callback
+
+        def report_incomplete(_success, finalize_error):
+            if callback:
+                return callback(False, finalize_error or message)
+            return False
+
+        # stop_recording captures its completion callback before starting the
+        # worker. Restore the normal callback for any subsequent recording.
+        self._recording_finalize_callback = report_incomplete
+        try:
+            self.stop_recording(wait=False)
+        finally:
+            self._recording_finalize_callback = callback
+        self._recording_audio_error = message
+        if self._recording_error_callback:
+            self._recording_error_callback(message)
+
     def _on_error(self, bus, msg, generation=None):
         if (
             generation is not None
@@ -2086,6 +2116,9 @@ class VideoPipeline:
             print("[NV Broadcast] Demoting to CPU frame path after "
                   "capture pipeline error", flush=True)
             GLib.idle_add(self._queue_rebuild)
+            return
+
+        self._stop_recording_after_capture_error(err.message)
 
     def _on_vcam_error(self, bus, msg):
         err, debug = msg.parse_error()
