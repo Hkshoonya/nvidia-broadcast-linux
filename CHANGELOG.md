@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Find Saved Recordings** - Rec saves to the desktop Videos folder instead
+  of Snap's private home. A Recordings menu opens that folder, the last saved
+  recording, or older Snap recordings, and completion shows the saved path.
 - **Recording With Effects Disabled** - Passthrough camera frames now reach
   the MP4 recorder even when all video effects are off and the preview is
   hidden, preventing apparently successful recordings with no video frames.

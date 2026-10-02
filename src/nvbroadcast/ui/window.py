@@ -7,6 +7,7 @@
 
 import threading
 import weakref
+from pathlib import Path
 from typing import NamedTuple
 
 import gi
@@ -37,6 +38,7 @@ from nvbroadcast.video.virtual_camera import (
 )
 from nvbroadcast.core.platform import IS_LINUX, supports_tensorrt_python
 from nvbroadcast.core.resources import find_app_icon
+from nvbroadcast.core.recordings import recordings_directory, legacy_recordings_directory
 
 
 # Keep project authorship and financial sponsorship separate.
@@ -632,6 +634,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._status_bar.set_hexpand(True)
         self._status_bar.set_ellipsize(3)
         status_box.append(self._status_bar)
+
+        self._recordings_menu = Gtk.MenuButton(icon_name="folder-open-symbolic")
+        self._recordings_menu.add_css_class("recordings-menu")
+        self._recordings_menu.add_css_class("flat")
+        self._recordings_menu.set_tooltip_text("Recordings — open saved files and folder")
+        self._recordings_menu.set_popover(self._build_recordings_popover())
+        status_box.append(self._recordings_menu)
 
         self._perf_label = Gtk.Label(label="")
         self._perf_label.add_css_class("status-gpu")
@@ -2660,6 +2669,61 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         save_config(self._app.config)
 
     # --- Recording ---
+    def _build_recordings_popover(self):
+        popover = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        for edge in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{edge}")(12)
+        title = Gtk.Label(label="Recordings", xalign=0)
+        title.add_css_class("heading")
+        box.append(title)
+        location = Gtk.Label(label=str(recordings_directory()), xalign=0)
+        location.set_wrap(True)
+        location.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        location.set_max_width_chars(28)
+        location.set_selectable(True)
+        box.append(location)
+        self._saved_recording_path = ""
+        self._open_recording_btn = Gtk.Button(label="Open last recording")
+        self._open_recording_btn.set_sensitive(False)
+        self._open_recording_btn.connect(
+            "clicked", lambda _: self._open_recording_location(self._saved_recording_path)
+        )
+        box.append(self._open_recording_btn)
+        folder = Gtk.Button(label="Open recordings folder")
+        folder.connect("clicked", lambda _: self._open_recording_location(
+            str(recordings_directory()), create_directory=True
+        ))
+        box.append(folder)
+        legacy = legacy_recordings_directory()
+        if legacy:
+            previous = Gtk.Button(label="Open previous Snap recordings")
+            previous.connect("clicked", lambda _: self._open_recording_location(str(legacy)))
+            box.append(previous)
+        popover.set_child(box)
+        return popover
+
+    def _open_recording_location(self, path: str, *, create_directory=False):
+        self._recordings_menu.popdown()
+        if not path:
+            return
+        try:
+            if create_directory:
+                Path(path).mkdir(parents=True, exist_ok=True)
+            if not Path(path).exists():
+                self.set_status(f"Recording location no longer exists: {path}")
+                return
+            launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(path))
+            launcher.launch(self, None, self._on_recording_location_opened)
+        except (OSError, GLib.Error) as exc:
+            self.set_status(f"Could not open recording location: {exc}")
+
+    def _on_recording_location_opened(self, launcher, result):
+        try:
+            launcher.launch_finish(result)
+        except GLib.Error as exc:
+            self.set_status(f"Could not open recording location: {exc.message}")
+
     def on_recording_error(self, _message: str):
         if self._app.meeting_active:
             self.set_status("Meeting video failed; end the meeting to save available audio")
@@ -2673,9 +2737,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         )
 
     def on_recording_finalized(self, success: bool, _error: str):
-        self.set_status(
-            "Recording saved" if success else "Recording may be incomplete"
-        )
+        path = self._app.last_recording_path
+        if success and path:
+            self._saved_recording_path = path
+            self._open_recording_btn.set_sensitive(True)
+            self._open_recording_btn.set_tooltip_text(path)
+            self.set_status(f"Saved: {path}")
+        else:
+            self.set_status("Recording saved" if success else "Recording may be incomplete")
 
     def _on_record_toggle(self, btn):
         if self._app.meeting_active or self._app.meeting_finalizing:
@@ -2689,11 +2758,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._record_btn.set_label("Rec")
             self._record_btn.add_css_class("idle")
             self._record_btn.remove_css_class("recording-btn")
-            self.set_status(
-                "Recording saved" if finalized else
-                ("Finalizing recording" if self._app.recording_finalizing else
-                 "Recording may be incomplete")
-            )
+            if finalized:
+                self.on_recording_finalized(True, "")
+            else:
+                self.set_status(
+                    "Finalizing recording" if self._app.recording_finalizing else
+                    "Recording may be incomplete"
+                )
         else:
             filepath = self._app.start_recording()
             if not filepath:
@@ -3468,6 +3539,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def set_status(self, text: str):
         self._status_bar.set_text(text)
+        self._status_bar.set_tooltip_text(text)
 
     def bind_dependency_installer(self, installer):
         self._installer = installer
