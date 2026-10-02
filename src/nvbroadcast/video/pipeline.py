@@ -859,7 +859,7 @@ class VideoPipeline:
         vbus.connect("message::error", self._on_vcam_error)
 
     def _on_preview_sample(self, appsink):
-        """Lightweight preview-only callback (passthrough mode)."""
+        """Deliver passthrough frames to preview and any active recording."""
         with self._callback_lock:
             self._callbacks_in_flight += 1
         if not self._running:
@@ -881,6 +881,7 @@ class VideoPipeline:
                 return Gst.FlowReturn.OK
 
             frame_data = bytes(info.data)
+            duration = buf.duration
             buf.unmap(info)
             self._mark_capture_started()
 
@@ -889,6 +890,9 @@ class VideoPipeline:
 
             if self._vcam_enabled and self._running:
                 self._send_macos_virtual_camera_frame(frame_data)
+
+            if self._recording and self._rec_appsrc:
+                self._push_recording_frame(frame_data, duration)
 
             self._frame_count += 1
             return Gst.FlowReturn.OK

@@ -830,6 +830,38 @@ class VideoPipelineRecordingTests(unittest.TestCase):
         self.assertEqual(pushed.pts, Gst.CLOCK_TIME_NONE)
         self.assertEqual(pushed.duration, 123456)
 
+    def test_passthrough_capture_records_without_effects_or_visible_preview(self):
+        for recording in (False, True):
+            with self.subTest(recording=recording):
+                pipeline = VideoPipeline()
+                pipeline._running = True
+                pipeline._vcam_enabled = False
+                pipeline._preview_enabled = False
+                pipeline._recording = recording
+                pipeline._rec_appsrc = mock.Mock()
+                pipeline._rec_appsrc.emit.return_value = Gst.FlowReturn.OK
+                frame = bytes((10, 20, 30, 255, 40, 50, 60, 255))
+                buffer = Gst.Buffer.new_wrapped(frame)
+                buffer.pts = 60 * Gst.SECOND
+                buffer.duration = Gst.SECOND // 30
+                sample = Gst.Sample.new(buffer, None, None, None)
+                sink = mock.Mock()
+                sink.emit.return_value = sample
+
+                self.assertEqual(pipeline._on_preview_sample(sink), Gst.FlowReturn.OK)
+                self.assertFalse(pipeline._effects_active)
+                self.assertEqual(pipeline._latest_frame, frame)
+                self.assertEqual(pipeline._callbacks_in_flight, 0)
+                if recording:
+                    pipeline._rec_appsrc.emit.assert_called_once()
+                    signal, pushed = pipeline._rec_appsrc.emit.call_args.args
+                    self.assertEqual(signal, "push-buffer")
+                    self.assertEqual(pushed.extract_dup(0, pushed.get_size()), frame)
+                    self.assertEqual(pushed.duration, buffer.duration)
+                    self.assertEqual(pushed.pts, Gst.CLOCK_TIME_NONE)
+                else:
+                    pipeline._rec_appsrc.emit.assert_not_called()
+
     def test_audio_source_requires_a_live_buffer_and_tries_pipewire(self):
         pipeline = VideoPipeline()
         failed_pulse = SimpleNamespace(returncode=1, stderr="connection refused")
