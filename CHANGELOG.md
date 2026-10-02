@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Recording With Effects Disabled** - Passthrough camera frames now reach
+  the MP4 recorder even when all video effects are off and the preview is
+  hidden, preventing apparently successful recordings with no video frames.
 - **GPU First-Use Verification** - CUDA and TensorRT execution checks allow up
   to two minutes for a cold start, avoiding false installation failures when
   first-use kernel compilation exceeds 30 seconds. CPU checks and explicitly
