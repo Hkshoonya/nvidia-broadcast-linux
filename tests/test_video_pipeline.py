@@ -634,6 +634,37 @@ class VideoPipelineRebuildTests(unittest.TestCase):
         self.assertFalse(pipeline._rebuild_pending)
         stop_recording.assert_called_once_with(wait=False)
 
+    def test_terminal_capture_error_finalizes_and_reports_incomplete_recording(self):
+        pipeline = VideoPipeline()
+        pipeline._recording = True
+        pipeline._recording_error_callback = mock.Mock()
+        callback = mock.Mock(return_value=False)
+        pipeline._recording_finalize_callback = callback
+        message = mock.Mock(src=None)
+        message.parse_error.return_value = (SimpleNamespace(message="camera restart failed"), "")
+        captured = []
+        with mock.patch.object(pipeline, "stop_recording", side_effect=lambda **_: captured.append(
+            pipeline._recording_finalize_callback
+        )) as stop_recording:
+            pipeline._on_error(None, message)
+        stop_recording.assert_called_once_with(wait=False)
+        pipeline._recording_error_callback.assert_called_once_with("camera restart failed")
+        self.assertIs(pipeline._recording_finalize_callback, callback)
+        captured[0](True, "")
+        callback.assert_called_once_with(False, "camera restart failed")
+
+    def test_recoverable_gpu_capture_error_keeps_recording_for_retry(self):
+        pipeline = VideoPipeline()
+        pipeline._recording = True
+        pipeline._gpu_capture_active = True
+        message = mock.Mock(src=None)
+        message.parse_error.return_value = (SimpleNamespace(message="GPU failed"), "")
+        with mock.patch("nvbroadcast.video.pipeline.GLib.idle_add") as idle, \
+             mock.patch.object(pipeline, "stop_recording") as stop_recording:
+            pipeline._on_error(None, message)
+        stop_recording.assert_not_called()
+        idle.assert_called_once_with(pipeline._queue_rebuild)
+
     def test_effects_sample_uses_stable_vcam_appsrc_reference(self):
         pipeline = VideoPipeline()
         pipeline._running = True
