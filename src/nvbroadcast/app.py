@@ -62,6 +62,7 @@ from nvbroadcast.core.platform import (
     running_in_flatpak,
 )
 from nvbroadcast.core.resources import find_ui_css
+from nvbroadcast.core.recordings import recordings_directory
 from nvbroadcast.core.dependency_installer import DependencyInstaller
 from nvbroadcast.core.meeting_store import (
     create_session, save_session, list_sessions, MeetingSession, cleanup_old_sessions,
@@ -2647,9 +2648,8 @@ class NVBroadcastApp(Adw.Application):
         return fallback
 
     def start_recording(self):
-        """Start recording to ~/Videos/NVBroadcast_<timestamp>.mp4."""
+        """Start recording in the desktop's user-visible Videos directory."""
         import time
-        from pathlib import Path
         self._recording_start_error = ""
         if (self._video_pipeline and self._video_pipeline.recording_finalizing
                 and self._video_pipeline.recording_audio_error):
@@ -2663,8 +2663,13 @@ class NVBroadcastApp(Adw.Application):
             self._recording_start_error = "Another recording is active"
             print("[NV Broadcast] Stop the current recording before starting Rec", flush=True)
             return ""
-        videos_dir = Path.home() / "Videos"
-        videos_dir.mkdir(exist_ok=True)
+        videos_dir = recordings_directory()
+        try:
+            videos_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._recording_start_error = f"Cannot create recordings folder: {videos_dir}"
+            print(f"[NV Broadcast] {self._recording_start_error}: {exc}", flush=True)
+            return ""
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filepath = str(videos_dir / f"NVBroadcast_{timestamp}.mp4")
         if self._idle_active:
@@ -2710,6 +2715,10 @@ class NVBroadcastApp(Adw.Application):
                 and not self._meeting_finalizing and not self.is_recording):
             self._window.on_recording_finalized(success, error)
         return False
+
+    @property
+    def last_recording_path(self) -> str:
+        return getattr(self, "_last_recording_path", "")
 
     @property
     def is_recording(self) -> bool:

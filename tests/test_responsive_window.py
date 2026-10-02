@@ -96,6 +96,21 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.scroll = self.section_nav.get_next_sibling()
         self.controls = self.scroll.get_child().get_child()
 
+    def test_saved_recording_is_accessible_in_compact_window(self):
+        self._show(420, 540)
+        self.app.last_recording_path = "/home/test/My Videos/a saved recording.mp4"
+        self.window.on_recording_finalized(True, "")
+        self.assertTrue(self.window._open_recording_btn.get_sensitive())
+        self.assertEqual(self.window._saved_recording_path, self.app.last_recording_path)
+        self.assertIn(self.app.last_recording_path, self.window._status_bar.get_tooltip_text())
+        success, bounds = self.window._recordings_menu.compute_bounds(self.window.get_content())
+        self.assertTrue(success)
+        self.assertGreaterEqual(bounds.get_x(), 0)
+        self.assertLessEqual(bounds.get_x() + bounds.get_width(), self.window.get_width())
+        self.window._recordings_menu.popup()
+        self._settle()
+        self.assertTrue(self.window._recordings_menu.get_popover().get_visible())
+
     def test_mode_list_puts_working_cpu_modes_before_busy_gpu_modes(self):
         self.window._mode_availability_ready = True
         gpu_modes = {

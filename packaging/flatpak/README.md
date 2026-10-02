@@ -29,11 +29,10 @@ app-owned model downloads, and pinned, SHA-256-verified faster-whisper model
 retrieval, plus Wayland with X11 fallback, PulseAudio compatibility, and access
 to the StatusNotifier watcher. The finished-runtime smoke check verifies that
 the faster-whisper trust manifest is packaged; first-use download and inference
-in an ordinary-user Flatpak session still need testing. Recording currently
-writes to `~/Videos`, so the manifest grants only
-`--filesystem=~/Videos:create` to keep those files visible after the app exits.
-A custom XDG Videos directory is not used by the current recorder and needs a
-separate path-selection change. The manifest does not grant the rest of the
+in an ordinary-user Flatpak session still need testing. Recording follows the
+desktop's XDG Videos directory, so the manifest grants only
+`--filesystem=xdg-videos:create` to keep those files visible after the app exits,
+including when the user customizes that directory. The manifest does not grant the rest of the
 host home, a session-bus wildcard, the system bus, or permission to run host
 commands.
 
