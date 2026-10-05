@@ -197,7 +197,7 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 from nvbroadcast.audio.meeting_capture import MeetingAudioCapture
-Gst.init(None)
+Gst.init([])
 pipeline = Gst.parse_launch(
     'audiotestsrc is-live=true ! identity error-after=3 ! fakesink')
 bus = pipeline.get_bus()

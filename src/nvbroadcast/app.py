@@ -215,7 +215,7 @@ class NVBroadcastApp(Adw.Application):
         startup_trace.mark("do_startup begin")
         Adw.Application.do_startup(self)
         self._register_global_hotkeys()
-        Gst.init(None)
+        Gst.init([])
         startup_trace.mark("Gst.init done")
         cleanup_old_sessions()
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.DEFAULT)

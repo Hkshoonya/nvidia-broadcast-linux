@@ -137,7 +137,7 @@ def test_vcam_pipeline():
     import gi
     gi.require_version("Gst", "1.0")
     from gi.repository import Gst
-    Gst.init(None)
+    Gst.init([])
     from nvbroadcast.vcam_service import build_pipeline
     pipeline = build_pipeline("/dev/video0", "/dev/video10", 1280, 720, 30, "yuy2")
     pipeline.set_state(Gst.State.PLAYING)
@@ -152,7 +152,7 @@ def test_vcam_capture_mode():
     import gi
     gi.require_version("Gst", "1.0")
     from gi.repository import Gst
-    Gst.init(None)
+    Gst.init([])
     from nvbroadcast.vcam_service import build_pipeline
     pipeline = build_pipeline("/dev/video0", "/dev/video10", 1280, 720, 30, "yuy2")
     pipeline.set_state(Gst.State.PLAYING)

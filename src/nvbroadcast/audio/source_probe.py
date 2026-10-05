@@ -41,7 +41,7 @@ def probe_audio_source(device: str = "") -> tuple[str | None, str]:
         "import gi, sys\n"
         "gi.require_version('Gst', '1.0')\n"
         "from gi.repository import Gst\n"
-        "Gst.init(None)\n"
+        "Gst.init([])\n"
         "pipe = Gst.parse_launch(sys.argv[1] + "
         "' name=probe_source num-buffers=1 ! audio/x-raw ! fakesink sync=false')\n"
         "if len(sys.argv) > 2:\n"

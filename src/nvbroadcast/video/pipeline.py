@@ -57,7 +57,9 @@ class VideoPipeline:
     _capture_success_cache_limit = 32
 
     def __init__(self):
-        Gst.init(None)
+        # An empty argv also works with the non-null array annotation in newer
+        # GStreamer typelibs when using older compatible PyGObject bindings.
+        Gst.init([])
         self._pipeline: Gst.Pipeline | None = None
         self._vcam_pipeline: Gst.Pipeline | None = None
         self._source_device: str = "/dev/video0"

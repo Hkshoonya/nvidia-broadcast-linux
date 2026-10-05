@@ -659,7 +659,7 @@ def detect_system_capabilities(device_id: int = 0, *, probe_cuda: bool = True) -
         import gi
         gi.require_version("Gst", "1.0")
         from gi.repository import Gst
-        Gst.init(None)
+        Gst.init([])
         caps["has_gl_compositor"] = all(
             Gst.ElementFactory.find(e) is not None
             for e in ["glvideomixer", "glupload", "gldownload"]

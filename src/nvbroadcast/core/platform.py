@@ -421,7 +421,7 @@ def _probe_avf_cameras() -> list[dict[str, object]]:
         gi.require_version("Gst", "1.0")
         from gi.repository import Gst
 
-        Gst.init(None)
+        Gst.init([])
         monitor = Gst.DeviceMonitor.new()
         if not monitor.add_filter("Video/Source", None):
             return []
@@ -441,7 +441,7 @@ def _avfvideosrc_supports_unique_id() -> bool:
         gi.require_version("Gst", "1.0")
         from gi.repository import Gst
 
-        Gst.init(None)
+        Gst.init([])
         source = Gst.ElementFactory.make("avfvideosrc")
         return source is not None and source.find_property("unique-id") is not None
     except Exception:

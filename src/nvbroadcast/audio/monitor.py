@@ -34,7 +34,7 @@ class SpeakerMonitor:
     """
 
     def __init__(self):
-        Gst.init(None)
+        Gst.init([])
         self._pipeline: Gst.Pipeline | None = None
         self._bus = None
         self._appsrc = None
