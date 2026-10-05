@@ -2,8 +2,8 @@
   "schema_version": 1,
   "target": "linux-x86_64-cp313-cpu",
   "application": {
-    "revision": "0421712e8930d5c7ff9159e67c6cf3dd789ba084",
-    "source_date_epoch": 1791218687,
+    "revision": "8987171078e1fe4a048035315fa5d651abccef6c",
+    "source_date_epoch": 1791222858,
     "version": "1.5.2"
   },
   "python": {

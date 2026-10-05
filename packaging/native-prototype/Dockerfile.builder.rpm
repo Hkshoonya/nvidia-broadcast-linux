@@ -1,0 +1,3 @@
+ARG BASE_IMAGE=fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
+FROM ${BASE_IMAGE}
+RUN dnf -y install rpm-build redhat-rpm-config && dnf clean all

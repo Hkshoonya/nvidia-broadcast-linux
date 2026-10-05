@@ -1,0 +1,9 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+# Fixture-only audio/display server. Fedora's legacy image has PipeWire's
+# Pulse replacement, which conflicts with the private PulseAudio test daemon.
+# This swap occurs only in a derived disposable image, never in app packages.
+RUN dnf -y swap pipewire-pulseaudio pulseaudio \
+    && dnf -y install portaudio xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon \
+    && dnf clean all
+RUN rpm -q nvbroadcast && test -f /opt/nvbroadcast/.venv/pyvenv.cfg
