@@ -31,6 +31,18 @@ The [licensing review packet](LICENSING_REVIEW_1.5.3.md) records the exact sourc
 identity, proposed review path, and model/codec questions; it does not alter
 the project's attribution terms or supply legal clearance.
 
+On 5 October, the maintainer reported that the licensing review was completed.
+The approved wording, reviewer/date, distribution scope, conditions, and any
+exclusions still need to be recorded and applied to the candidate. Do not infer
+approval of model weights or NVIDIA/codec redistribution from that status alone.
+
+The first ARM64 release workflow exposed three GPU retry/memory-pressure tests
+that inherited the runner's ARM64 platform restriction instead of declaring
+their Linux x86_64 scenario. The candidate now sets that scenario explicitly
+in those tests; application platform restrictions are unchanged. All 43
+dependency-installer tests and the three cases under a simulated ARM64 host
+passed locally. The actual ARM64 workflow must pass on the amended head.
+
 ## Evidence and remaining decisions
 
 Prior development-package tests guide qualification but do not transfer
@@ -45,7 +57,7 @@ automatically to newly built v1.5.3 artifacts.
 | Matte quality (#91) | Patched Remove passed direct-window and backlit moving-hand feedback | Final-package Blur/Replace, fine hair, white clothing, and extreme sliders; document any accepted residual limitation |
 | Source recovery (#53) | Failed-install preservation, CPU/CUDA transitions, rollback and source window startup tested in #133 | Candidate source update/rollback check; production native runtime packs remain a separate unfinished scope |
 | Native artifacts (#60) | CPU prototypes passed eight lifecycle cells; unsigned archives reproduced in recorded builders | Build the production DEB/RPM, bind the exact upgrade helper, verify final manifests/provenance and installer transactions; do not claim hermetic production payloads |
-| License/redistribution (#100) | Exact repository/release license mismatch and codec inventories documented | Qualified review and maintainer decision; complete applicable texts and consistent package declarations before clearance |
+| License/redistribution (#100) | Source/codec review packet prepared; maintainer reports review completed on 5 October | Record the approved wording, reviewer/date, distribution scope and exclusions; apply required texts and consistent package declarations |
 | Flatpak (#95) | Development build, dependency closure, model trust, recording, physical camera, and initial virtual-camera read passed | CPU release conditions below; remains excluded until applicable gates pass |
 | macOS | Developer account approved; signing setup deferred by maintainer | Developer ID configuration, signed/notarized/stapled artifact checks before claiming a signed macOS release |
 | Snap edge automation (#90) | Current public channels reported aligned on reviewed 185/184 | Verify connected builder configuration and scoped edge credentials before merging the edge-promotion draft |
@@ -90,6 +102,7 @@ native hooks, optional runtime installation, and bundled native libraries still
 need their applicable checks.
 
 At this point, final-artifact security and hardware qualification are pending,
-and license clearance is unresolved. **The candidate is not yet verified for
+and the reported licensing decision still needs to be recorded and applied.
+**The candidate is not yet verified for
 public release.** Follow [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the
 recorded merge, tag, attestation, candidate, soak, and publication sequence.
