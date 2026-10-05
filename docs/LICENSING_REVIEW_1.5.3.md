@@ -2,9 +2,31 @@
 
 Prepared 5 October 2026 for
 [#100](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/100).
-This records source and packaging evidence and the decisions needed from a
-qualified license reviewer and the maintainer. It is not distribution clearance
-and does not change the project's license or attribution requirements.
+This records the maintainer's decision and source/packaging evidence. It is
+not an independent legal opinion from the release tooling.
+
+## Maintainer decision — 5 October 2026
+
+The maintainer confirmed that a legal friend completed the review and directed
+work to proceed. No revised terms or exclusions were supplied. The candidate
+therefore retains the existing project license grant, attribution requirements,
+creator/contributor notices, and separate macOS Camera Extension license.
+The reviewer was described as a legal friend; no written opinion or itemized
+codec/model/NVIDIA distribution scope was provided in this conversation.
+
+The grant already permits GPL version 3 or any later version. The candidate
+makes the existing `-or-later` declarations consistent, includes an unmodified
+copy of the complete GPLv3 text after the existing LICENSE content, and keeps
+the attribution terms intact. The complete text was retrieved from the
+[Free Software Foundation](https://www.gnu.org/licenses/gpl-3.0.txt), SHA-256
+`3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`.
+These changes supply missing distributed text and accurate references; they
+do not remove attribution requirements or relicense third-party components.
+
+The technical artifact audit must still inventory the exact redistributed
+components and their notices. Record verified component scope precisely;
+do not expand the maintainer's confirmation into an independently verified
+legal opinion covering every binary or model.
 
 ## Confirmed third-party notice correction
 
@@ -24,10 +46,9 @@ determine which artifacts actually contain them.
 
 ## Project arrangement to review
 
-The current `LICENSE` contains a GPLv3-or-later notice and project-specific
+The retained `LICENSE` contains a GPLv3-or-later notice and project-specific
 requirements to retain the complete file, source copyright headers, UI creator
-credit, author metadata, and original project URL. It links to the standard
-GPL text rather than including that complete text. `NOTICE` preserves the
+credit, author metadata, and original project URL. The candidate now also includes the complete standard GPLv3 text. `NOTICE` preserves the
 canonical upstream, original creator, accepted external contributors, and
 NVIDIA non-affiliation, and references the current attribution requirements.
 
@@ -37,18 +58,13 @@ conditions, and treatment of further restrictions. Applying that section to
 this project's exact mandatory wording requires review; this packet does not
 conclude that every current condition is permitted or prohibited.
 
-The concrete proposal to assess is complete standard GPL-3.0-or-later text in
-`LICENSE`, factual copyright and contributor attribution in `NOTICE`, and any
-reviewed additional terms stated separately with accurate scope. The reviewer
-must decide which existing conditions can be retained, whether consent from
-other rights holders is needed, and which SPDX expression describes the final
-arrangement. The maintainer must approve the resulting wording before it is
-applied. Factual creator and accepted-contributor credits must be preserved.
-
-After that decision, synchronize Python, source headers, Debian, RPM, Snap,
-AppStream, website, Flatpak and the Nix draft, include the full applicable
-texts, and verify contents in built artifacts. Keep the separately licensed
-macOS Camera Extension explicitly scoped.
+The maintainer chose to proceed with the existing arrangement. Creator and
+accepted-contributor credits remain in `NOTICE`, and mandatory attribution
+wording remains in `LICENSE`. Python, source-header, Debian, RPM, Snap,
+AppStream, website and Flatpak references describe the existing GPLv3-or-later
+grant; the Nix draft already uses `gpl3Plus`. GitHub's heuristic detection may
+continue to report `NOASSERTION` for a file containing additional terms. Do not
+remove those terms merely to make automatic detection succeed.
 
 ## Recording and runtime inventory to review
 
@@ -65,11 +81,13 @@ The native prototype retains standalone-Python upstream license records and
 Python distribution metadata. That inventory is useful review material, not
 proof that every binary, native dependency, model, or target is cleared.
 
-## Required decision record
+## Remaining technical verification
 
-Record the reviewer, date, exact project wording and dependency/artifact
-versions assessed, approved license/notice arrangement, any distribution
-conditions, and remaining exclusions. Then attach the approved result to #100
-and implement one consistent metadata/text change. Until that record exists,
-the v1.5.3 release and any public Flatpak distribution remain unqualified on
-this licensing gate.
+Inspect the exact source archive, wheel, native packages, Snap and Flatpak for
+the complete project LICENSE, NOTICE, accepted contributor credits and relevant
+third-party notices. Run the package/store lint and record any rejected license
+identifier or unsupported additional-term handling. Preserve the maintainer's
+review confirmation above without inventing a reviewer identity, written
+approval, or unreported scope. #100 remains open until the artifact and metadata
+checks are recorded; further legal input is needed only if that work exposes a
+specific unresolved distribution condition.

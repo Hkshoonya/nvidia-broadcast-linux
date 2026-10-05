@@ -48,8 +48,13 @@ jobs:
           rpm -qlp "$rpm" > /tmp/nvbroadcast-rpm-files
           grep -Fxq '/opt/nvbroadcast/NOTICE' /tmp/nvbroadcast-rpm-files
           grep -Fxq '/opt/nvbroadcast/CONTRIBUTORS.md' /tmp/nvbroadcast-rpm-files
-          grep -Fq '/usr/share/licenses/nvbroadcast' /tmp/nvbroadcast-rpm-files
-          grep -Fq '/usr/share/doc/nvbroadcast/CONTRIBUTORS.md' /tmp/nvbroadcast-rpm-files
+          # RPM's standard doc/license directory may include the version on
+          # Ubuntu builders. Check the native file classifications, not a
+          # Fedora-specific directory spelling.
+          rpm -qp --qf '[%{FILENAMES} %{FILEFLAGS:fflags}\n]' "$rpm" > /tmp/nvbroadcast-rpm-fileflags
+          grep -Eq '/LICENSE [a-z]*l[a-z]*$' /tmp/nvbroadcast-rpm-fileflags
+          grep -Eq '/NOTICE [a-z]*l[a-z]*$' /tmp/nvbroadcast-rpm-fileflags
+          grep -Eq '/CONTRIBUTORS[.]md [a-z]*d[a-z]*$' /tmp/nvbroadcast-rpm-fileflags
 
       - name: Build verified native-package upgrader
         run: |

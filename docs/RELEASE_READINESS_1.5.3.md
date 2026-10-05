@@ -31,10 +31,11 @@ The [licensing review packet](LICENSING_REVIEW_1.5.3.md) records the exact sourc
 identity, proposed review path, and model/codec questions; it does not alter
 the project's attribution terms or supply legal clearance.
 
-On 5 October, the maintainer reported that the licensing review was completed.
-The approved wording, reviewer/date, distribution scope, conditions, and any
-exclusions still need to be recorded and applied to the candidate. Do not infer
-approval of model weights or NVIDIA/codec redistribution from that status alone.
+On 5 October, the maintainer confirmed that a legal friend completed the
+review and directed work to proceed. The candidate retains the current terms,
+adds the missing complete GPLv3 text, and aligns references with the existing
+GPLv3-or-later grant. The review packet records the confirmation and its limits;
+remaining work is exact-artifact notice and metadata verification.
 
 The first ARM64 release workflow exposed three GPU retry/memory-pressure tests
 that inherited the runner's ARM64 platform restriction instead of declaring
@@ -57,7 +58,7 @@ automatically to newly built v1.5.3 artifacts.
 | Matte quality (#91) | Patched Remove passed direct-window and backlit moving-hand feedback | Final-package Blur/Replace, fine hair, white clothing, and extreme sliders; document any accepted residual limitation |
 | Source recovery (#53) | Failed-install preservation, CPU/CUDA transitions, rollback and source window startup tested in #133 | Candidate source update/rollback check; production native runtime packs remain a separate unfinished scope |
 | Native artifacts (#60) | CPU prototypes passed eight lifecycle cells; unsigned archives reproduced in recorded builders | Build the production DEB/RPM, bind the exact upgrade helper, verify final manifests/provenance and installer transactions; do not claim hermetic production payloads |
-| License/redistribution (#100) | Source/codec review packet prepared; maintainer reports review completed on 5 October | Record the approved wording, reviewer/date, distribution scope and exclusions; apply required texts and consistent package declarations |
+| License/redistribution (#100) | Maintainer confirmed a legal friend reviewed the existing terms; complete GPLv3 text and consistent grant references added | Verify complete license/notice contents and lint on exact artifacts; record component scope without inventing unreported legal conclusions |
 | Flatpak (#95) | Development build, dependency closure, model trust, recording, physical camera, and initial virtual-camera read passed | CPU release conditions below; remains excluded until applicable gates pass |
 | macOS | Developer account approved; signing setup deferred by maintainer | Developer ID configuration, signed/notarized/stapled artifact checks before claiming a signed macOS release |
 | Snap edge automation (#90) | Current public channels reported aligned on reviewed 185/184 | Verify connected builder configuration and scoped edge credentials before merging the edge-promotion draft |
@@ -75,8 +76,8 @@ Still required for that CPU package:
    camera, effects, microphone processing and virtual output, shortcuts/tray,
    recording, and client reconnect behavior. Current recorded desktop testing
    used X11; generated tone checks do not establish audible physical speech.
-2. Resolve #100, including the bundled codec/dependency notices and the
-   project's additional attribution terms. Preserve accepted contributor credit.
+2. Complete #100's artifact checks under the maintainer-confirmed arrangement,
+   including bundled codec/dependency notices and accepted contributor credit.
 3. Confirm a permanent application ID, naming/non-affiliation wording, real
    application screenshots, and passing final artifact lint.
 4. Review payload size and the distribution route. The development manifest
@@ -102,7 +103,7 @@ native hooks, optional runtime installation, and bundled native libraries still
 need their applicable checks.
 
 At this point, final-artifact security and hardware qualification are pending,
-and the reported licensing decision still needs to be recorded and applied.
+and complete license/notice contents must be checked on the rebuilt artifacts.
 **The candidate is not yet verified for
 public release.** Follow [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the
 recorded merge, tag, attestation, candidate, soak, and publication sequence.

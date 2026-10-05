@@ -812,7 +812,7 @@ Financial supporters make sustained maintainer time possible, while contributors
 
 ## License
 
-- **Python app & Linux code:** GPL-3.0 — see [LICENSE](LICENSE)
+- **Python app & Linux code:** GPL-3.0-or-later — see [LICENSE](LICENSE), including the retained attribution terms, and [NOTICE](NOTICE)
 - **macOS Camera Extension** (`macos/`): Proprietary — see [macos/LICENSE](macos/LICENSE)
 
 Any redistribution or derivative work **must retain the original author attribution**.
@@ -829,5 +829,5 @@ Any redistribution or derivative work **must retain the original author attribut
 </p>
 
 <p align="center">
-  <sub>Copyright (c) 2026 DocZeus. All rights reserved under GPL-3.0.</sub>
+  <sub>Copyright (c) 2026 DocZeus. All rights reserved under GPL-3.0-or-later.</sub>
 </p>

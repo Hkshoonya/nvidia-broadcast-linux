@@ -60,7 +60,7 @@ description: |
 
 grade: stable
 confinement: strict
-license: GPL-3.0
+license: GPL-3.0-or-later
 icon: data/icons/com.doczeus.NVBroadcast.svg
 website: https://nvbroadcast.com
 source-code: https://github.com/Hkshoonya/nvidia-broadcast-linux
