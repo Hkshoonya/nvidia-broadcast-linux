@@ -52,6 +52,17 @@ def _install_fake_onnxruntime() -> None:
 
 @unittest.skipIf(np is None or cv2 is None, "numpy/cv2 not installed")
 class BackgroundOverlayTests(unittest.TestCase):
+    def test_constructor_falls_back_from_saved_cupy_setting_without_cupy(self):
+        from nvbroadcast.video.effects import VideoEffects
+
+        with mock.patch.dict(sys.modules, {"cupy": None}):
+            effects = VideoEffects(compositing="cupy")
+        self.assertEqual(effects._compositing, "cpu")
+        self.assertTrue(effects._cpu_inference)
+        self.assertFalse(effects._engine_reload_in_progress)
+        self.assertIsNone(effects._backend)
+        self.assertTrue(all(refiner._cpu_only for refiner in effects._learned_refiners.values()))
+
     @classmethod
     def setUpClass(cls):
         _install_fake_onnxruntime()

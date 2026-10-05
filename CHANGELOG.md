@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Recoverable Source Updates** - Build and verify each Linux source runtime
+  before switching the application and virtual-camera launchers. Failed installs
+  preserve the working environment; `./install.sh --rollback-runtime` rechecks
+  and selects the previous one. Fix startup with a saved CuPy preference when
+  the selected runtime only has CPU dependencies.
 - **Recording Across Effect Changes** - Keep the MP4 recorder running when
   capture is rebuilt for an effect or backend change. Stopping Broadcast still
   finalizes the file, and a failed rebuild stops the retained recorder.

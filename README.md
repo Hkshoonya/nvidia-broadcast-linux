@@ -275,8 +275,9 @@ cd nvidia-broadcast-linux
 The Linux source installer uses an already-installed compatible interpreter in
 this order: CPython 3.13, 3.12, 3.11, then 3.14, followed by a compatible
 `python3`. This preserves the current broad-feature preference while
-supporting distros whose desktop bindings target Python 3.14. It creates only
-the repository's `.venv`; it does not replace the distro's system Python or add a package
+supporting distros whose desktop bindings target Python 3.14. It builds each
+update in a separate `.nvbroadcast-runtimes/gen-*` environment; it does not
+replace the distro's system Python or add a package
 repository. Compatibility includes `venv`/`ensurepip` support and access to the
 distro's GTK4, Libadwaita, and GStreamer Python bindings. To select a specific
 compatible interpreter:
@@ -293,6 +294,24 @@ accepts them.
 
 If no compatible interpreter with `venv` support is installed, the installer
 stops before changing the system and prints guidance for the detected distro.
+
+An update becomes active only after its imports, dependency closure, and real
+CPU/CUDA inference probe pass. Both installed launchers use the same atomic
+selection. Failed builds leave the selected runtime unchanged, including for
+same-variant updates. A previous `.venv` installation is retained at its original
+path. Stop Broadcast and its services before switching or rolling back:
+
+```bash
+./install.sh --rollback-runtime
+```
+
+Rollback rechecks the previous runtime before selecting it. Optional packages
+in these installer-managed generations are added by rerunning `install.sh`
+and selecting the desired options, rather than by changing the running
+environment through the GUI. `python3 scripts/source_runtime.py --project . active`
+prints the current environment path. Developer-managed `.venv` and Makefile
+setups are separate. See [source runtime updates](docs/SOURCE_RUNTIME_UPDATES.md)
+for failure recovery and the host-runtime boundary.
 
 ### macOS — One Command Install
 
@@ -334,7 +353,7 @@ The installer:
 5. **Asks about compositing** — CPU, GStreamer GL, or CuPy CUDA
 6. **Sets up virtual camera**, launcher scripts, desktop entry, systemd service
 7. **Verifies GPU acceleration** and writes initial config
-8. **Lets optional runtimes install later** inside the app without blocking the rest of the UI
+8. **Preserves the previous verified source runtime** for rollback; rerun the installer to add optional packages
 
 ### Update Behavior
 
@@ -353,11 +372,13 @@ reproducibility limits.
 
 ### Optional: TensorRT (for Zeus/Killer modes)
 
-Use the CUDA runtime variant, then install the TensorRT 10 libraries and verify
+For an installer-managed source runtime, rerun `./install.sh --runtime cuda`
+and answer yes to the TensorRT prompt. It builds and verifies a new generation
+while preserving the previous one. For a manually managed developer `.venv`,
+install the TensorRT 10 libraries into an existing CUDA variant and verify
 that ONNX Runtime actually executes its pinned probe graph on TensorRT:
 
 ```bash
-./install.sh --runtime cuda
 .venv/bin/pip install --index-url https://pypi.nvidia.com \
   --only-binary tensorrt-cu12-libs 'tensorrt-cu12-libs==10.16.0.72'
 .venv/bin/python -m nvbroadcast.runtime --variant cuda --provider tensorrt
@@ -574,8 +595,9 @@ install `.[cuda]`. Never overlay `.[cuda]` on an existing `.[cpu]` environment.
 Bare `pip install .` is runtime-neutral and intended for downstream packagers
 that provide exactly one ONNX Runtime owner themselves.
 
-Verify ownership and execute the pinned probe model in a fresh process with CPU
-fallback disabled:
+The installer verifies ownership and executes the pinned probe model in a fresh
+process with CPU fallback disabled. To repeat that check in a manually managed
+developer environment:
 ```bash
 .venv/bin/python -m nvbroadcast.runtime --variant cuda
 ```

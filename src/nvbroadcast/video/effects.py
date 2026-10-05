@@ -1774,9 +1774,6 @@ class VideoEffects:
         self._cupy = None  # Lazy-loaded cupy module
         self._temporal_gpu_kernels = {}
         self._temporal_gpu_failed_devices = set()
-        if compositing != "cpu":
-            self.set_compositing(compositing)
-
         # Effect state
         self._bg_removal_enabled = False
         self._bg_mode = "blur"
@@ -1837,6 +1834,11 @@ class VideoEffects:
         self._gpu_infer_warned = False
         # (frame, frame_gpu) from GPU inference, reused by _composite_fused
         self._pending_frame_gpu = None
+
+        # A saved GPU preference can fall back to CPU in a new runtime. The
+        # provider transition reads reload/cache state, so initialize it first.
+        if compositing != "cpu":
+            self.set_compositing(compositing)
 
         # Alpha refinement
         self._apply_edge_config(edge_config)

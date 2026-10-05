@@ -1,6 +1,8 @@
 import unittest
 import sys
 import types
+from pathlib import Path
+import tempfile
 from unittest import mock
 
 
@@ -37,6 +39,16 @@ from nvbroadcast.runtime.probe import ProbeProvider, RuntimeProbeResult
 
 
 class DependencyInstallerTests(unittest.TestCase):
+    def test_source_generation_refuses_in_place_optional_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / ".nvbroadcast-source-generation.json").write_text("{}")
+            with mock.patch.object(dependency_installer.sys, "prefix", directory), \
+                 mock.patch.object(dependency_installer, "_running_in_snap", return_value=False), \
+                 mock.patch.object(dependency_installer, "running_in_flatpak", return_value=False):
+                reason = dependency_installer._runtime_install_block_reason()
+            self.assertIn("previous runtime for rollback", reason)
+            self.assertIn("./install.sh", reason)
+
     def test_cuda_mode_runtime_requires_cupy_and_cuda_provider(self):
         with mock.patch.object(dependency_installer, "_has_cupy", return_value=True), \
              mock.patch.object(dependency_installer, "has_cuda_inference_runtime", return_value=False):
