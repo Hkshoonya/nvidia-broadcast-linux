@@ -175,7 +175,7 @@ def _runtime_install_block_reason() -> str | None:
     venv_root = Path(sys.prefix)
     if (venv_root / ".nvbroadcast-source-generation.json").is_file():
         return (
-            "This source runtime is a verified installation generation. "
+            "The source installer manages this app's optional packages. "
             "Stop Broadcast and rerun ./install.sh with the desired options "
             "(--runtime cuda or --with-meeting). The installer preserves the "
             "previous runtime for rollback."

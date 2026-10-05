@@ -634,6 +634,12 @@ echo "[3/7] Setting up Python environment..."
 # rejected at activation if another installer has changed the selection.
 guard_source_environment
 
+# Preserve optional capabilities on ordinary upgrades. An explicit runtime
+# change can still choose CPU, and the TensorRT prompt allows opting out.
+PREVIOUS_FEATURES="$("$PYTHON_BIN" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" features)"
+IFS=$'\t' read -r MEETING_BACKENDS PRESERVE_TENSORRT <<< "$PREVIOUS_FEATURES"
+if [ "$WITH_MEETING" = true ]; then MEETING_BACKENDS="all"; fi
+
 prepare_candidate() {
     CANDIDATE_VENV="$("$PYTHON_BIN" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" prepare)"
     VENV_DIR="$CANDIDATE_VENV"
@@ -663,10 +669,7 @@ prepare_virtual_environment() {
 prepare_virtual_environment
 
 install_runtime_variant() {
-    local meeting_backends="none"
-    if [ "$WITH_MEETING" = true ]; then
-        meeting_backends="all"
-    fi
+    local meeting_backends="$MEETING_BACKENDS"
     "$VENV_DIR/bin/python" "$SCRIPT_DIR/scripts/install_runtime_variant.py" \
         --project "$SCRIPT_DIR" --variant "$1" \
         --meeting-backends "$meeting_backends"
@@ -689,7 +692,7 @@ if ! install_runtime_variant "$SELECTED_RUNTIME_VARIANT"; then
     fi
 fi
 if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then CUDA_EXTRA_INSTALLED=true; fi
-if [ "$WITH_MEETING" = true ]; then
+if [ "$MEETING_BACKENDS" != "none" ]; then
     echo "Core packages, meeting backends, and ${SELECTED_RUNTIME_VARIANT} runtime installed."
 else
     echo "Core packages and ${SELECTED_RUNTIME_VARIANT} runtime installed."
@@ -850,8 +853,13 @@ if [ "$TRT_INSTALLED" = false ] && [ "$TRT_UNVERIFIED" = false ] && [ "$TRT_LIBS
     echo ""
     if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
         if [ "$TRT_SUPPORTED" = true ]; then
-            read -rp "  Install TensorRT? [y/N] " install_trt
-            install_trt="${install_trt:-N}"
+            if [ "$PRESERVE_TENSORRT" = true ]; then
+                read -rp "  Keep TensorRT from the previous runtime? [Y/n] " install_trt
+                install_trt="${install_trt:-Y}"
+            else
+                read -rp "  Install TensorRT? [y/N] " install_trt
+                install_trt="${install_trt:-N}"
+            fi
             if [[ "$install_trt" =~ ^[Yy]$ ]]; then
                 echo "  Downloading TensorRT from NVIDIA (~4.3GB; this may take several minutes)..."
                 if "$VENV_DIR/bin/pip" install --index-url "$TENSORRT_INDEX_URL" \
@@ -1104,8 +1112,6 @@ echo "Autostart entry installed (launches on login)"
 # Recheck dependency closure and actual provider execution after all optional
 # installs, then commit active/previous together. A failure leaves the old
 # selection intact; the EXIT trap only removes unselected candidates.
-MEETING_BACKENDS="none"
-if [ "$WITH_MEETING" = true ]; then MEETING_BACKENDS="all"; fi
 "$PYTHON_BIN" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" activate "$CANDIDATE_VENV" \
     --variant "$SELECTED_RUNTIME_VARIANT" --meeting "$MEETING_BACKENDS"
 CANDIDATE_VENV=""

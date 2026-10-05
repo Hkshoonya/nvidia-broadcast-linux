@@ -5,6 +5,10 @@ The Linux source installer builds every update at a new permanent path below
 console-script paths, so generations are never renamed after creation. This
 also applies to same-variant and same-Python updates.
 
+Ordinary upgrades carry forward installed meeting backends. If the previous
+runtime has TensorRT libraries, the CUDA installer defaults to keeping them;
+the prompt still permits opting out. Selecting CPU does not install TensorRT.
+
 The installer checks required imports, desktop bindings, effects initialization
 (including saved GPU preferences in a CPU runtime), dependency closure,
 single ONNX Runtime ownership, and the pinned-model CPU/CUDA execution probe

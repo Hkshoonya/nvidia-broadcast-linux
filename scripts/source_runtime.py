@@ -231,6 +231,31 @@ class SourceRuntimeStore:
         state = self.state()
         return self.path(state["active"]) if state else self.project / ".venv"
 
+    def features(self) -> dict:
+        """Carry optional features forward without importing their ML runtimes."""
+        python = self.active() / "bin/python"
+        if not python.exists():
+            if self.state():
+                raise SourceRuntimeError(
+                    "Selected interpreter is missing; cannot inspect installed features"
+                )
+            return {"meeting": "none", "tensorrt": False}
+        probe = """
+from importlib.metadata import distributions
+import json
+names = {d.metadata.get("Name", "").lower().replace("_", "-") for d in distributions()}
+meeting = "all" if "openai-whisper" in names else "faster" if "faster-whisper" in names else "none"
+print(json.dumps({"meeting": meeting, "tensorrt": "tensorrt-cu12-libs" in names}))
+"""
+        result = subprocess.run(
+            [str(python), "-I", "-c", probe],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return json.loads(result.stdout)
+
     def guard(self) -> None:
         paths = {self.active(), self.project / ".venv"}
         for path in paths:
@@ -363,7 +388,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, required=True)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("active", "prepare", "rollback", "guard", "remove"):
+    for name in ("active", "prepare", "rollback", "guard", "remove", "features"):
         commands.add_parser(name)
     commands.add_parser("discard").add_argument("candidate", type=Path)
     activate = commands.add_parser("activate")
@@ -382,6 +407,9 @@ def main() -> int:
         store = SourceRuntimeStore(options.project)
         if options.command == "active":
             print(store.active())
+        elif options.command == "features":
+            features = store.features()
+            print(features["meeting"] + "\t" + str(features["tensorrt"]).lower())
         elif options.command == "prepare":
             print(store.prepare())
         elif options.command == "activate":

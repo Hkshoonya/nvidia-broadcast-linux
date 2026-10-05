@@ -230,6 +230,38 @@ class SourceRuntimeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.store.state_file.exists())
 
+    def test_inspects_previous_optional_features_without_importing_them(self):
+        previous = self.project / ".venv"
+        venv.EnvBuilder(with_pip=False).create(previous)
+        purelib = Path(
+            subprocess.check_output(
+                [
+                    str(previous / "bin/python"),
+                    "-I",
+                    "-c",
+                    "import sysconfig; print(sysconfig.get_path('purelib'))",
+                ],
+                text=True,
+            ).strip()
+        )
+        self.assertEqual(self.store.features(), {"meeting": "none", "tensorrt": False})
+        for distribution, expected in (
+            ("faster_whisper", "faster"),
+            ("openai_whisper", "all"),
+        ):
+            metadata = purelib / f"{distribution}-1.0.dist-info"
+            metadata.mkdir()
+            (metadata / "METADATA").write_text(f"Name: {distribution}\nVersion: 1.0\n")
+            # No importable ML module exists; only installed metadata is needed.
+            self.assertEqual(self.store.features()["meeting"], expected)
+        metadata = purelib / "tensorrt_cu12_libs-10.0.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text("Name: tensorrt-cu12-libs\nVersion: 10.0\n")
+        self.assertEqual(self.store.features(), {"meeting": "all", "tensorrt": True})
+
+    def test_fresh_source_install_has_no_optional_features_to_preserve(self):
+        self.assertEqual(self.store.features(), {"meeting": "none", "tensorrt": False})
+
     def test_generated_launchers_follow_selection_with_spaces_and_quoted_arguments(
         self,
     ):
