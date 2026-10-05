@@ -126,6 +126,19 @@ class DependencyInstallerTests(unittest.TestCase):
             "CUDA modes are currently available only on Linux x86_64.",
         )
 
+    def test_offline_native_runtime_requires_an_explicit_package_variant(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(dependency_installer, "supports_linux_gpu_stack", return_value=True), \
+             mock.patch.object(dependency_installer, "detect_runtime_variant", return_value=dependency_installer.RuntimeVariant.CPU), \
+             mock.patch.object(dependency_installer.sys, "prefix", "/usr/lib/nvbroadcast/runtime"):
+            reason = installer.install_block_reason("cupy")
+
+        self.assertIn("matching CUDA runtime package", reason)
+        self.assertIn("system package manager", reason)
+        self.assertNotIn("./install.sh", reason)
+        self.assertNotIn("nvidia-smi", reason)
+
     def test_cupy_verification_preloads_component_wheel_runtime(self):
         fake_array = mock.MagicMock()
         fake_array.__mul__.return_value.astype.return_value = object()

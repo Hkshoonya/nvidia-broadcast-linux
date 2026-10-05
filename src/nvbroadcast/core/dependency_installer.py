@@ -128,7 +128,12 @@ def _running_in_snap() -> bool:
 
 def _running_in_native_package() -> bool:
     """Return whether Debian or RPM owns the current application environment."""
-    return Path(sys.prefix) == Path("/opt/nvbroadcast/.venv")
+    return Path(sys.prefix) in {
+        Path("/opt/nvbroadcast/.venv"),
+        # Offline-package prototypes stay outside the legacy removal scripts'
+        # recursive /opt/nvbroadcast cleanup, including during RPM Obsoletes.
+        Path("/usr/lib/nvbroadcast/runtime"),
+    }
 
 
 def _cuda_runtime_unsupported_reason() -> str:
@@ -136,6 +141,13 @@ def _cuda_runtime_unsupported_reason() -> str:
     if not supports_linux_gpu_stack():
         return "CUDA modes are currently available only on Linux x86_64."
     if _running_in_native_package():
+        if Path(sys.prefix) == Path("/usr/lib/nvbroadcast/runtime"):
+            return (
+                "This package contains the CPU runtime variant. Stop NVBroadcast "
+                "and install a matching CUDA runtime package through the system "
+                "package manager. Reinstalling the same CPU package does not "
+                "change its runtime variant."
+            )
         return (
             "This package was installed with the CPU runtime variant. Stop "
             "NVBroadcast, make sure nvidia-smi detects the NVIDIA GPU, then "
