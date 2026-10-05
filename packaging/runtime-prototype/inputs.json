@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "target": "linux-x86_64-cp313-cpu",
+  "application": {
+    "revision": "0421712e8930d5c7ff9159e67c6cf3dd789ba084",
+    "source_date_epoch": 1791218687,
+    "version": "1.5.2"
+  },
+  "python": {
+    "version": "3.13.16",
+    "release": "20261003",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.13.16%2B20261003-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst",
+    "sha256": "1785cc77a638c5e1e0c86baffd395a49b784535136c00e2aac203116057f13b7"
+  },
+  "uv": {
+    "version": "0.11.7",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.11.7/uv-x86_64-unknown-linux-gnu.tar.gz",
+    "sha256": "6681d691eb7f9c00ac6a3af54252f7ab29ae72f0c8f95bdc7f9d1401c23ea868"
+  },
+  "bindings": [
+    {
+      "name": "pycairo",
+      "version": "1.29.0",
+      "url": "https://files.pythonhosted.org/packages/22/d9/1728840a22a4ef8a8f479b9156aa2943cd98c3907accd3849fb0d5f82bfd/pycairo-1.29.0.tar.gz",
+      "sha256": "f3f7fde97325cae80224c09f12564ef58d0d0f655da0e3b040f5807bd5bd3142"
+    },
+    {
+      "name": "PyGObject",
+      "version": "3.48.2",
+      "url": "https://files.pythonhosted.org/packages/f9/9e/6bab1ed3bd878f0912d9a0600c21f3d88bab0e8a8d4c3ce50f5cf336faaf/pygobject-3.48.2.tar.gz",
+      "sha256": "c3c0a7afbe5b2c1c64dc0530109b4dd571085153dbedfbccb8ec7c5ad233f977"
+    }
+  ]
+}

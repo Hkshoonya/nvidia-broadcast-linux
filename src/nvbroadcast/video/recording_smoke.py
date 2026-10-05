@@ -84,7 +84,7 @@ def _decode_streams(path: Path) -> dict[str, dict[str, int | None]]:
 
 def run(output: Path) -> dict:
     """Encode, finalize, discover, and fully decode one synthetic recording."""
-    Gst.init(None)
+    Gst.init([])
     output.parent.mkdir(parents=True, exist_ok=True)
     pipeline = VideoPipeline()
     pipeline._width, pipeline._height, pipeline._fps = 640, 360, 15

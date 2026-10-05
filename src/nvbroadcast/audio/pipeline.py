@@ -50,7 +50,7 @@ class AudioPipeline:
         manage_virtual_mic: bool = True,
         use_helper_process: bool | None = None,
     ):
-        Gst.init(None)
+        Gst.init([])
         self._pipeline: Gst.Pipeline | None = None
         self._capture_pipeline: Gst.Pipeline | None = None
         self._output_pipeline: Gst.Pipeline | None = None

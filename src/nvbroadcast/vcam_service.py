@@ -322,7 +322,7 @@ def main():
     )
     args = parser.parse_args()
 
-    Gst.init(None)
+    Gst.init([])
 
     # Load config for defaults
     config = load_config()

@@ -1443,7 +1443,7 @@ class VideoPipelineRecordingTests(unittest.TestCase):
         gi.require_version("GstPbutils", "1.0")
         from gi.repository import GstPbutils
 
-        Gst.init(None)
+        Gst.init([])
         required = ("audiotestsrc", "aacparse", "h264parse", "mp4mux")
         missing = [name for name in required if Gst.ElementFactory.find(name) is None]
         if missing:

@@ -40,7 +40,7 @@ class MeetingAudioCapture:
     """Capture meeting audio, mix both directions, and expose live PCM."""
 
     def __init__(self):
-        Gst.init(None)
+        Gst.init([])
         self._pipeline: Gst.Pipeline | None = None
         self._sample_rate = 16000
         self._channels = 1

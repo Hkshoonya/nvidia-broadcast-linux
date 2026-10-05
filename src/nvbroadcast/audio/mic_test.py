@@ -19,7 +19,7 @@ from gi.repository import Gst
 
 from nvbroadcast.audio.devices import resolve_pipewire_target
 
-Gst.init(None)
+Gst.init([])
 
 
 class MicTest:

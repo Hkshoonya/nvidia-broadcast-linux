@@ -1,0 +1,7 @@
+# Build tools only; these do not belong in the shipped runtime.
+setuptools==84.0.0
+wheel==0.48.0
+meson-python==0.18.0
+meson==1.10.0
+ninja==1.13.0
+packaging==26.0

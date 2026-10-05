@@ -16,7 +16,7 @@ RESULT_PREFIX = "NVBROADCAST_RECORDING_PROBE="
 
 def run(graph: str) -> dict[str, str | bool | int]:
     """Execute a short graph and require EOS plus encoded output."""
-    Gst.init(None)
+    Gst.init([])
     probe = None
     encoded_buffers = 0
 
