@@ -1,7 +1,7 @@
 name: nvbroadcast
 title: NV Broadcast
 base: core24
-version: '1.5.2'
+version: '1.5.3'
 summary: AI virtual camera with background effects and noise removal for Linux
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
@@ -9,40 +9,26 @@ description: |
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.5.2:
-  - Recovers when a camera's preferred MJPEG mode fails before its first frame
-    by retrying another advertised format at the same resolution and frame rate.
-  - Gives local meeting transcription workers a private Snap shared-memory namespace.
-  - Selects a fully supported Python 3.11-3.13 interpreter for source installs,
-    validates matching desktop bindings, and fails with targeted guidance.
-  - Pins every Snap Store review, candidate, and stable dispatch to a validated
-    release tag and source commit before any build or upload can begin.
-  - Shows cumulative contributor credits in the About window and validates that
-    accepted external contributors remain credited in future releases.
-  - Carries the complete tested v1.5.1 native-upgrade, runtime, device-recovery,
-    and provenance work; v1.5.0 and v1.5.1 were not public stable releases.
-  - Adds a hash-bound GitHub native-package helper that safely migrates known
-    legacy DEB and RPM removal scripts before installing exact artifacts.
-  - Removes installer-generated runtime and build files on final DEB/RPM
-    uninstall, including clean package-only removal paths.
-  - Enforces exactly one CPU or CUDA ONNX Runtime distribution owner in source,
-    native-package, macOS, and Snap environments.
-  - Verifies CPU, CUDA, and TensorRT readiness with pinned fresh-process model
-    execution, rejects silent CPU fallback, and retains provider diagnostics.
-  - Adds explicit source runtime selection with clean CPU recovery for failed
-    automatic CUDA setup and restart-gated runtime changes.
-  - Restores the saved microphone shown in the selector and rebuilds a running
-    audio pipeline when the capture device changes.
-  - Stops GUI and headless startup cleanly when no usable camera is available
-    instead of constructing a broken capture pipeline.
-  - Makes profile auto-start an explicit per-profile opt-in and keeps controls
-    aligned when a busy or missing camera prevents startup.
-  - Adds MediaPipe 1.0.0 face effects on Linux arm64 and raises OpenCV,
-    Protobuf, Pillow, pip, and pytest security floors.
-  - Strengthens strict Snap dependency closure, launcher validation, reviewed
-    revision promotion, rollback, and post-promotion metadata refresh.
-  - Publishes checksums for attached release assets and GitHub provenance,
-    while stable promotion verifies both architectures against the release tag.
+  What's new in v1.5.3:
+  - Keeps Camera, Audio, and preview controls usable in small windows.
+  - Preserves video and microphone audio in MP4 recordings, including when
+    effects are disabled or changed during capture.
+  - Saves recordings in the desktop Videos folder and provides folder actions.
+  - Recovers processing choices after temporary GPU memory pressure and allows
+    first-use GPU checks to finish compiling their kernels.
+  - Discovers cameras connected after startup and improves moving finger gaps
+    and background edges at the tested settings.
+  - Verifies pinned meeting-model downloads and supports TensorRT libraries
+    with Python 3.14 on supported Linux systems.
+
+  Retained reliability features:
+  - Retries advertised camera formats when the preferred mode cannot start.
+  - Restores the selected microphone and keeps Start/Stop controls aligned
+    with the actual broadcast state.
+  - Verifies runtime ownership and real inference before enabling GPU modes.
+  - Provides local meeting transcription and cumulative contributor credits.
+  - Supplies checksums, build provenance, and a helper for affected legacy
+    native-package upgrades.
 
   Recent quality updates:
   - v1.4.0 adds rebindable global effect shortcuts, Gaze Lock, live camera

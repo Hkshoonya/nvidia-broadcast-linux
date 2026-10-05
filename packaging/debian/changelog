@@ -1,3 +1,15 @@
+nvbroadcast (1.5.3-1) unstable; urgency=medium
+
+  * Keep Camera, Audio, and preview controls usable in small windows.
+  * Preserve MP4 video and microphone audio through effect changes and save
+    recordings in the desktop Videos directory with discoverable folder actions.
+  * Recover CPU/GPU mode availability and allow first-use GPU verification.
+  * Discover cameras connected after startup and improve moving matte edges.
+  * Verify meeting model downloads and preserve source runtimes during upgrades.
+  * Support newer GStreamer typelibs with the private PyGObject binding.
+
+ -- DocZeus <harshit@kshoonya.com>  Mon, 05 Oct 2026 16:00:00 -0400
+
 nvbroadcast (1.5.2-1) unstable; urgency=high
 
   * Retry exact camera modes with another advertised encoding when the

@@ -62,6 +62,19 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.5.3" date="2026-10-05">
+      <description>
+        <p>Recording, small windows, and runtime recovery</p>
+        <ul>
+          <li>Keep Camera, Audio, and preview controls usable in small windows</li>
+          <li>Preserve MP4 video and audio when effects are disabled or changed during recording</li>
+          <li>Save recordings in Videos and provide actions to find saved files</li>
+          <li>Recover processing choices after GPU memory pressure and allow cold GPU verification</li>
+          <li>Discover cameras connected after startup and improve moving background edges</li>
+          <li>Verify pinned meeting-model downloads and preserve source runtimes during failed updates</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.2" date="2026-09-04">
       <description>
         <p>Camera recovery and first public v1.5 release</p>

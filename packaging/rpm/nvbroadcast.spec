@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.5.2
+Version:        1.5.3
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -187,6 +187,14 @@ fi
 %doc README.md CONTRIBUTORS.md
 
 %changelog
+* Mon Oct 05 2026 doczeus <harshit@kshoonya.com> - 1.5.3-1
+- Keep Camera, Audio, and preview controls usable in small windows
+- Preserve MP4 video and audio across capture changes and expose saved recordings
+- Recover CPU/GPU availability and discover cameras connected after startup
+- Improve moving matte edges and verify pinned meeting-model downloads
+- Preserve source runtimes through failed upgrades and rollback
+- Initialize GStreamer compatibly with newer typelibs
+
 * Fri Sep 04 2026 doczeus <harshit@kshoonya.com> - 1.5.2-1
 - Retry exact camera modes with a working advertised encoding at startup
 - Select and validate a fully supported Python for source installations
