@@ -5,6 +5,13 @@ design in PR #77. It builds a complete private CPython 3.13 CPU environment,
 including PyGObject, pycairo, the application, and the managed faster-whisper
 dependency closure. It is **not a native package or release installer**.
 
+The subsequent [native-package lifecycle experiment](../native-prototype/README.md)
+consumes this payload in complete self-contained and split DEB/RPM prototypes.
+Its current application pin also recognizes the new native prefix used to avoid
+legacy removal-script collisions. The results below retain the identities of
+the earlier private-runtime-only run; the package experiment records its own
+updated input and artifact identities.
+
 The application change found by this investigation is small: pass an empty argv
 list to `Gst.init` throughout startup, media pipelines, and isolated media
 probes. The private PyGObject 3.48.2 binding rejects `None` with the newer
@@ -150,10 +157,9 @@ decision and verification. A Rocky result would not qualify all EL derivatives.
 
 Remaining work for the broader issues includes:
 
-- Complete DEB/RPM prototypes for both self-contained and split layouts, then
-  compare legacy upgrades, CPU/CUDA switching, interrupted installs, rollback,
-  removal/purge, and APT/DNF/Zypper dependency behavior. The earlier tiny-package
-  lifecycle experiment did not exercise this full dependency closure.
+- Complete the package-model comparison after the linked CPU DEB/RPM lifecycle
+  experiment, including CPU/CUDA switching, Zypper, and production policy.
+  The earlier tiny-package experiment did not exercise this full closure.
 - Define the production launcher and immutable installation/activation contract.
   This prototype explicitly invokes private Python with `-I`; it does not change
   the generated console script or the existing installed launcher.
