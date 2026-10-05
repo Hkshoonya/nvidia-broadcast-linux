@@ -25,3 +25,4 @@ artifacts/
 artifacts_vcam_sample.png
 parts/
 snapcraft.login
+.nvbroadcast-runtimes/

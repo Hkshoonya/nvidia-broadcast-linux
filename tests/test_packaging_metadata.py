@@ -205,11 +205,7 @@ class PackagingMetadataTests(unittest.TestCase):
         )
         self.assertIn('--only-binary tensorrt-cu12-libs "$TENSORRT_REQUIREMENT"', install_script)
         self.assertIn("version('tensorrt-cu12-libs')", install_script)
-        self.assertIn(
-            r"pip\" install --index-url $TENSORRT_INDEX_URL --only-binary "
-            r"tensorrt-cu12-libs $TENSORRT_REQUIREMENT",
-            install_script,
-        )
+        self.assertIn("rerun ./install.sh --runtime cuda", install_script)
         self.assertNotIn("tensorrt-cu12-bindings", install_script)
         self.assertNotIn("pip\" install tensorrt-cu12 onnx", install_script)
         self.assertIn("requires Python 3.11-3.14", install_script)
@@ -229,14 +225,16 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--require-desktop-bindings", install_script)
         self.assertIn("Python desktop bindings ... OK", install_script)
         self.assertIn('"$PYTHON_BIN" -m venv "$VENV_DIR"', install_script)
-        self.assertIn("SELECTED_PYTHON_BASE", install_script)
+        self.assertIn("source_runtime.py", install_script)
         self.assertIn('--variant "$1"', install_script)
         self.assertIn('--meeting-backends "$meeting_backends"', install_script)
         self.assertLess(
             install_script.index('install_runtime_variant "$SELECTED_RUNTIME_VARIANT"'),
             install_script.index("Verifying GPU acceleration"),
         )
-        self.assertIn('rm -rf -- "$VENV_DIR"', install_script)
+        self.assertNotIn('rm -rf -- "$VENV_DIR"', install_script)
+        self.assertIn('prepare_candidate', install_script)
+        self.assertIn('activate "$CANDIDATE_VENV"', install_script)
         self.assertIn("CUDA_ACCEL_AVAILABLE=true", install_script)
         self.assertIn("CUDA execution probe ... OK", install_script)
         self.assertIn("--variant cuda --provider tensorrt", install_script)
@@ -337,15 +335,12 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertLess(guard_calls[0], install_script.index("# ─── Step 1:"))
 
         environment_step = install_script.index("# ─── Step 3:")
-        first_environment_mutation = min(
-            install_script.index('rm -rf -- "$VENV_DIR"', environment_step),
-            install_script.index(
-                '"$VENV_DIR/bin/pip" install --upgrade', environment_step
-            ),
+        first_environment_mutation = install_script.index(
+            '"$VENV_DIR/bin/pip" install --upgrade', environment_step
         )
         self.assertGreater(guard_calls[1], environment_step)
         self.assertLess(guard_calls[1], first_environment_mutation)
-        self.assertIn("check_source_venv_processes.py", install_script)
+        self.assertIn('"$RUNTIME_HELPER" --project "$SCRIPT_DIR" guard', install_script)
         self.assertIn(
             "Stop NVBroadcast and any audio or virtual-camera service", install_script
         )
@@ -372,10 +367,10 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn("PYTHONNOUSERSITE", content, relative)
 
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertGreaterEqual(
-            install_script.count("export PYTHONNOUSERSITE=1"),
-            3,
-        )
+        self.assertIn("export PYTHONNOUSERSITE=1", install_script)
+        # Generated source launchers are executed in the behavioral runtime tests.
+        helper = (REPO_ROOT / "scripts/source_runtime.py").read_text()
+        self.assertIn('os.environ["PYTHONNOUSERSITE"] = "1"', helper)
         self.assertIn("Environment=PYTHONNOUSERSITE=1", install_script)
 
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
