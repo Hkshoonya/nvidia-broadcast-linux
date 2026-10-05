@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe the complete private CPU runtime; run its Python with -I -B."""
+"""Probe a complete private runtime; run its Python with -I -B."""
 
 from __future__ import annotations
 
@@ -15,12 +15,33 @@ import sys
 import time
 import tomllib
 
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
 
 def inside(path: Path, root: Path) -> bool:
     return path.resolve().is_relative_to(root.resolve())
 
 
-def probe(root: Path, version: str, window: bool, lock: Path) -> dict:
+def closure_problems(environment, variant: str) -> list[str]:
+    """Limit the CUDA substitution to faster-whisper's single CPU ORT edge."""
+    if variant == "cpu":
+        return environment.dependency_closure_problems()
+    unexpected = []
+    for distribution in environment.distributions:
+        owner = canonicalize_name(distribution.metadata["Name"])
+        for raw in distribution.requires or ():
+            requirement = Requirement(raw)
+            if requirement.marker and not requirement.marker.evaluate(environment.markers):
+                continue
+            if canonicalize_name(requirement.name) == "onnxruntime" and owner != "faster-whisper":
+                unexpected.append(f"unreviewed CPU ORT dependency: {owner}: {raw}")
+    return unexpected + environment.dependency_closure_problems(
+        substitutions={"onnxruntime": "onnxruntime-gpu"})
+
+
+def probe(root: Path, version: str, window: bool, lock: Path, variant: str = "cpu",
+          cuda_unavailable: bool = False) -> dict:
     root = root.resolve(strict=True)
     assert sys.flags.isolated and sys.flags.no_user_site
     assert Path(sys.prefix).resolve() == root
@@ -39,11 +60,13 @@ def probe(root: Path, version: str, window: bool, lock: Path) -> dict:
     from nvbroadcast.runtime.artifact import ArtifactEnvironment
     from nvbroadcast.runtime.variants import detect_runtime_variant, RuntimeVariant
     environment = ArtifactEnvironment.current()
-    problems = environment.dependency_closure_problems()
+    problems = closure_problems(environment, variant)
     assert not problems, problems
-    assert detect_runtime_variant() == RuntimeVariant.CPU
-    assert environment.installed.get("onnxruntime") == ("1.24.4",)
-    assert "onnxruntime-gpu" not in environment.installed
+    assert detect_runtime_variant() == RuntimeVariant(variant)
+    owner, excluded = (("onnxruntime", "onnxruntime-gpu") if variant == "cpu" else
+                       ("onnxruntime-gpu", "onnxruntime"))
+    assert environment.installed.get(owner) == ("1.24.4",)
+    assert excluded not in environment.installed
     assert all(len(versions) == 1 for versions in environment.installed.values())
     expected = {p["name"]: (p["version"],) for p in tomllib.loads(lock.read_text())["packages"]}
     # pip belongs to the pinned interpreter archive, not the application lock.
@@ -65,11 +88,26 @@ def probe(root: Path, version: str, window: bool, lock: Path) -> dict:
     resources = [find_app_icon(), find_ui_css(), *find_bundled_backgrounds()]
     assert len(resources) == 5 and all(p and inside(p, root) for p in resources), resources
     from nvbroadcast.video.effects import VideoEffects
-    effects = VideoEffects(compositing="cupy")
+    effects = VideoEffects(compositing="cupy" if variant == "cpu" else "cpu")
     assert effects._compositing == "cpu" and effects._cpu_inference
-    executed = subprocess.run([sys.executable, "-I", "-B", "-m", "nvbroadcast.runtime", "--variant", "cpu"],
-                              capture_output=True, text=True, timeout=45)
-    assert executed.returncode == 0, executed.stdout + executed.stderr
+    from nvbroadcast.runtime.probe import ProbeProvider, probe_execution_provider
+    cpu = probe_execution_provider(ProbeProvider.CPU, use_cache=False)
+    assert cpu.success, cpu.failure_detail
+    cuda = None
+    cupy_execution = None
+    if variant == "cuda":
+        cuda = probe_execution_provider(ProbeProvider.CUDA, use_cache=False)
+        assert cuda.success != cuda_unavailable, cuda.failure_detail
+        if cuda.success:
+            import cupy as cp
+            assert inside(Path(cp.__file__), root)
+            # Force a fresh compiled kernel, not just import/provider presence.
+            values = cp.arange(16, dtype=cp.float32)
+            squared = cp.asnumpy(values * values).tolist()
+            assert squared == [float(i * i) for i in range(16)], squared
+            cupy_execution = {"device": cp.cuda.runtime.getDeviceProperties(0)["name"].decode(),
+                              "output": squared}
+            cp.get_default_memory_pool().free_all_blocks()
 
     import gi
     gi.require_version("Gtk", "4.0")
@@ -117,7 +155,10 @@ def probe(root: Path, version: str, window: bool, lock: Path) -> dict:
             "gtk": f"{Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}",
             "adwaita": f"{Adw.get_major_version()}.{Adw.get_minor_version()}.{Adw.get_micro_version()}",
             "gstreamer": Gst.version_string(), "video_and_audio_pipelines": "eos", "gtk_window_mapped": mapped,
-            "cpu_execution": executed.stdout.strip(), "app_python_hashes": source_hashes}
+            "variant": variant, "cpu_execution": cpu.to_payload(),
+            "cuda_execution": cuda.to_payload() if cuda else None,
+            "cuda_unavailable_expected": cuda_unavailable, "cupy_execution": cupy_execution,
+            "app_python_hashes": source_hashes}
 
 
 def main() -> None:
@@ -125,10 +166,16 @@ def main() -> None:
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--python-version", required=True)
     parser.add_argument("--window", action="store_true")
-    parser.add_argument("--lock", type=Path,
-                        default=Path(__file__).with_name("pylock.linux-x86_64-cp313-cpu.toml"))
+    parser.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--cuda-unavailable", action="store_true",
+                        help="require CUDA rejection, used only in containers with no GPU device")
+    parser.add_argument("--lock", type=Path)
     args = parser.parse_args()
-    print("RESULT=" + json.dumps(probe(args.runtime, args.python_version, args.window, args.lock), sort_keys=True))
+    if args.cuda_unavailable and args.variant != "cuda":
+        parser.error("--cuda-unavailable requires --variant cuda")
+    lock = args.lock or Path(__file__).with_name(f"pylock.linux-x86_64-cp313-{args.variant}.toml")
+    print("RESULT=" + json.dumps(probe(args.runtime, args.python_version, args.window, lock,
+                                      args.variant, args.cuda_unavailable), sort_keys=True))
 
 
 if __name__ == "__main__":

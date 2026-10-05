@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wrap a verified complete CPU runtime in NON-RELEASE DEB/RPM prototypes.
+"""Wrap a verified complete runtime in NON-RELEASE DEB/RPM prototypes.
 
 Both layouts consume the same bytes. No dependency resolution, native build,
 stripping, Python byte-compilation, or destination-time pip is permitted here.
@@ -11,6 +11,7 @@ import argparse
 import base64
 import csv
 import hashlib
+from importlib import metadata
 import json
 import os
 from pathlib import Path
@@ -39,6 +40,15 @@ DEPENDENCIES = {
             "gstreamer1-plugins-good, libgomp, libsndfile, portaudio, "
             "gobject-introspection, mesa-libGL, libglvnd-gles"),
 }
+
+
+def verify_owner(runtime: Path, variant: str) -> None:
+    roots = [str(p) for p in runtime.glob("lib/python*/site-packages")]
+    owners = [d.metadata["Name"].lower().replace("_", "-") for d in metadata.distributions(path=roots)
+              if d.metadata["Name"].lower().replace("_", "-") in {"onnxruntime", "onnxruntime-gpu"}]
+    expected = "onnxruntime-gpu" if variant == "cuda" else "onnxruntime"
+    if owners != [expected]:
+        raise ValueError(f"{variant} package requires exactly one {expected} owner, found {owners}")
 
 
 def app_files(runtime: Path, manifest: dict) -> set[str]:
@@ -72,8 +82,18 @@ def app_files(runtime: Path, manifest: dict) -> set[str]:
     return result
 
 
-def versions(family: str, revision: int) -> str:
-    return f"1.5.2-900{'~' if family == 'deb' else '.'}prototype{revision}"
+def package_name(kind: str, variant: str) -> str:
+    if variant not in {"cpu", "cuda"}:
+        raise ValueError("unknown runtime variant")
+    return {"self": f"nvbroadcast-{variant}", "app": APP,
+            "runtime": f"nvbroadcast-runtime-{variant}"}[kind]
+
+
+def versions(family: str, revision: int, variant: str = "cpu") -> str:
+    # The split app has a concrete variant dependency and launcher. Give its
+    # CUDA edition a distinct version, never different bytes at the same NEVRA.
+    suffix = ".cuda" if variant == "cuda" else ""
+    return f"1.5.2-900{'~' if family == 'deb' else '.'}prototype{revision}{suffix}"
 
 
 def write(path: Path, value: str, mode: int = 0o644) -> None:
@@ -89,8 +109,8 @@ def hooks(family: str, kind: str, version: str, action: str) -> str:
     return "set -- " + action + "\n" + template
 
 
-def version_check(family: str, kind: str, version: str) -> str:
-    names = [SELF] if kind == "self" else [APP, RUNTIME]
+def version_check(family: str, kind: str, version: str, variant: str = "cpu") -> str:
+    names = [package_name("self", variant)] if kind == "self" else [APP, package_name("runtime", variant)]
     body = "#!/bin/sh\nset -eu\n"
     for name in names:
         if family == "deb":
@@ -129,9 +149,9 @@ def populate(runtime: Path, manifest: dict, selected: set[str], stage: Path) -> 
             target.chmod(entry["mode"])
 
 
-def integration(stage: Path, family: str, kind: str, version: str) -> None:
+def integration(stage: Path, family: str, kind: str, version: str, variant: str = "cpu") -> None:
     base = stage / "usr/lib/nvbroadcast"
-    write(base / "check-packages", version_check(family, kind, version), 0o755)
+    write(base / "check-packages", version_check(family, kind, version, variant), 0o755)
     for name, module in (("nvbroadcast", "nvbroadcast"), ("nvbroadcast-vcam", "nvbroadcast.vcam_service")):
         write(stage / "usr/bin" / name,
               "#!/bin/sh\nset -eu\n"
@@ -153,13 +173,13 @@ def integration(stage: Path, family: str, kind: str, version: str) -> None:
           "[Install]\nWantedBy=graphical-session.target\n")
 
 
-def control(kind: str, version: str, size: int) -> str:
-    name = {"self": SELF, "app": APP, "runtime": RUNTIME}[kind]
+def control(kind: str, version: str, size: int, variant: str = "cpu") -> str:
+    name = package_name(kind, variant)
     lines = [f"Package: {name}", f"Version: {version}", "Architecture: amd64",
              "Maintainer: NVBroadcast prototype <harshit@kshoonya.com>",
              f"Installed-Size: {(size + 1023) // 1024}", "Section: video", "Priority: optional"]
     if kind == "app":
-        lines += [f"Depends: {RUNTIME} (= {version})"]
+        lines += [f"Depends: {package_name('runtime', variant)} (= {version})"]
     else:
         lines += [f"Depends: {DEPENDENCIES['deb']}", f"Provides: {CAPABILITY} (= {version})" +
                   (f", {APP} (= {version})" if kind == "self" else ""),
@@ -167,20 +187,20 @@ def control(kind: str, version: str, size: int) -> str:
                   (f", {APP} (<< 1.5.2-900~prototype1)" if kind == "self" else "")]
     if kind == "self":
         lines += [f"Replaces: {APP} (<< 1.5.2-900~prototype1)"]
-    lines += ["Description: NON-RELEASE offline CPU package lifecycle prototype",
+    lines += [f"Description: NON-RELEASE offline {variant.upper()} package lifecycle prototype",
               " For isolated maintainer tests only. Not a supported distribution artifact."]
     return "\n".join(lines) + "\n"
 
 
-def rpm_spec(kind: str, version: str) -> str:
-    name = {"self": SELF, "app": APP, "runtime": RUNTIME}[kind]
+def rpm_spec(kind: str, version: str, variant: str = "cpu") -> str:
+    name = package_name(kind, variant)
     app_version, release = version.split("-", 1)
     text = (f"Name: {name}\nVersion: {app_version}\nRelease: {release}\n"
-            "Summary: NON-RELEASE offline CPU package lifecycle prototype\n"
+            f"Summary: NON-RELEASE offline {variant.upper()} package lifecycle prototype\n"
             "License: LicenseRef-Unreviewed-Prototype\n"
             "BuildArch: x86_64\nAutoReqProv: no\n")
     if kind == "app":
-        text += f"Requires: {RUNTIME} = {version}\n"
+        text += f"Requires: {package_name('runtime', variant)} = {version}\n"
     else:
         text += f"Requires: {DEPENDENCIES['rpm']}\nProvides: {CAPABILITY} = {version}\nConflicts: {CAPABILITY}\n"
     if kind == "self":
@@ -200,20 +220,20 @@ def rpm_spec(kind: str, version: str) -> str:
 
 
 def build_one(family: str, kind: str, revision: int, runtime: Path, manifest: dict,
-              application: set[str], directory: Path, image: str, epoch: int) -> dict:
+              application: set[str], directory: Path, image: str, epoch: int, variant: str = "cpu") -> dict:
     os.umask(0o022)
-    name = {"self": SELF, "app": APP, "runtime": RUNTIME}[kind]
-    version = versions(family, revision)
+    name = package_name(kind, variant)
+    version = versions(family, revision, variant)
     work = directory / family / f"{kind}-{revision}"
     stage = work / "stage"
     selected = set(manifest) if kind == "self" else (application if kind == "app" else set(manifest) - application)
     populate(runtime, manifest, selected, stage)
     if kind != "runtime":
-        integration(stage, family, kind, version)
+        integration(stage, family, kind, version, variant)
     # A real adapter version changes across upgrade/rollback; Python payloads
     # are deliberately identical so this cannot claim a runtime-content upgrade.
     write(stage / f"usr/lib/nvbroadcast/{kind}.json", json.dumps({
-        "prototype": True, "family": family, "package": name, "version": version,
+        "prototype": True, "family": family, "package": name, "version": version, "variant": variant,
         "runtime_manifest_sha256": digest(runtime.parent / "manifest.json"),
     }, sort_keys=True) + "\n")
     content = {}
@@ -225,7 +245,7 @@ def build_one(family: str, kind: str, revision: int, runtime: Path, manifest: di
     (work / "content.json").write_text(json.dumps(content, indent=2, sort_keys=True) + "\n")
     size = sum(p.stat().st_size for p in stage.rglob("*") if p.is_file() and not p.is_symlink())
     if family == "deb":
-        write(stage / "DEBIAN/control", control(kind, version, size))
+        write(stage / "DEBIAN/control", control(kind, version, size, variant))
         write(stage / "DEBIAN/preinst", "#!/bin/sh\n" + hooks(family, kind, version, "prepare"), 0o755)
         write(stage / "DEBIAN/postinst", "#!/bin/sh\n[ \"$1\" != configure ] || {\n" +
               hooks(family, kind, version, "finish") + "\n}\n", 0o755)
@@ -235,7 +255,7 @@ def build_one(family: str, kind: str, revision: int, runtime: Path, manifest: di
         command = ["dpkg-deb", "--root-owner-group", "-Zzstd", "-z8", "--threads-max=2",
                    "--build", "/stage", f"/work/{artifact.name}"]
     else:
-        write(work / "package.spec", rpm_spec(kind, version))
+        write(work / "package.spec", rpm_spec(kind, version, variant))
         write(work / "files.txt", "\n".join(
             ("%dir " if p.is_dir() and not p.is_symlink() else "") +
             json.dumps("/" + str(p.relative_to(stage))).replace("%", "%%")
@@ -255,7 +275,7 @@ def build_one(family: str, kind: str, revision: int, runtime: Path, manifest: di
                         "--user", f"{os.getuid()}:{os.getgid()}", "-e", f"SOURCE_DATE_EPOCH={epoch}",
                         "-v", f"{stage}:/stage:ro", "-v", f"{work}:/work", image, *command],
                        stdout=log, stderr=subprocess.STDOUT, check=True)
-    return {"family": family, "kind": kind, "revision": revision, "name": name, "version": version,
+    return {"family": family, "kind": kind, "revision": revision, "name": name, "version": version, "variant": variant,
             "artifact": str(artifact.relative_to(directory)), "sha256": digest(artifact),
             "bytes": artifact.stat().st_size, "installed_file_bytes": size,
             "content": str((work / "content.json").relative_to(directory)), "builder_image": image}
@@ -269,6 +289,8 @@ def main() -> None:
     parser.add_argument("--deb-image", required=True)
     parser.add_argument("--rpm-image", required=True)
     parser.add_argument("--families", nargs="+", choices=("deb", "rpm"), default=("deb", "rpm"))
+    parser.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--revisions", nargs="+", type=int, choices=(1, 2), default=(1, 2))
     args = parser.parse_args()
     if os.getuid() == 0:
         parser.error("build as an ordinary user")
@@ -280,6 +302,7 @@ def main() -> None:
     manifest = json.loads(manifest_path.read_text())
     if digest(manifest_path) != args.manifest_sha256 or inventory(runtime) != manifest:
         parser.error("runtime or manifest does not match the supplied identity")
+    verify_owner(runtime, args.variant)
     application = app_files(runtime, manifest)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -289,9 +312,9 @@ def main() -> None:
     for family, image in (("deb", args.deb_image), ("rpm", args.rpm_image)):
         if family not in args.families:
             continue
-        for revision in (1, 2):
+        for revision in args.revisions:
             for kind in ("self", "app", "runtime"):
-                result = build_one(family, kind, revision, runtime, manifest, application, output, image, epoch)
+                result = build_one(family, kind, revision, runtime, manifest, application, output, image, epoch, args.variant)
                 results.append(result)
                 (output / "packages.json").write_text(json.dumps(results, indent=2) + "\n")
                 print(f"{family} {kind} {revision}: {result['bytes']} bytes", flush=True)

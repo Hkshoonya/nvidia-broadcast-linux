@@ -7,6 +7,8 @@ export PULSE_RUNTIME_PATH=/tmp/nvb-runtime/pulse
 export PULSE_STATE_PATH=/tmp/nvb-pulse-state
 export PULSE_CONFIG_PATH=/tmp/nvb-pulse-config
 export PULSE_SERVER=unix:/tmp/nvb-runtime/pulse-native
+export CUPY_CACHE_DIR=/tmp/nvb-cupy-cache
+export CUDA_CACHE_PATH=/tmp/nvb-cuda-cache
 mkdir -p "$XDG_RUNTIME_DIR" "$PULSE_RUNTIME_PATH" "$PULSE_STATE_PATH" "$PULSE_CONFIG_PATH"
 
 pulseaudio -n --daemonize=no --exit-idle-time=-1 --disable-shm=yes --use-pid-file=no \

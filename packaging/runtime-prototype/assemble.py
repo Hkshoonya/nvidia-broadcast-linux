@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble a non-release CPU payload with no online installation/resolution."""
+"""Assemble a non-release payload with no online installation/resolution."""
 
 from __future__ import annotations
 
@@ -37,6 +37,7 @@ def main() -> None:
     parser.add_argument("--directory", type=Path, required=True, help="prepared wheel/input cache")
     parser.add_argument("--output", type=Path, required=True, help="new destination, never overwritten")
     parser.add_argument("--image", required=True, help="local builder image ID, sha256:...")
+    parser.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
     args = parser.parse_args()
     if os.getuid() == 0:
         parser.error("assemble as an ordinary user")
@@ -47,7 +48,7 @@ def main() -> None:
     output = args.output.resolve()
     if output.exists():
         parser.error("output exists; use a new directory")
-    lock = prepare.HERE / "pylock.linux-x86_64-cp313-cpu.toml"
+    lock = prepare.HERE / f"pylock.linux-x86_64-cp313-{args.variant}.toml"
     prepare.fetch_lock(lock, work / "application", work / "wheels", offline=True)
     pins = json.loads((prepare.HERE / "inputs.json").read_text())
     prepare.unpack_python(work / "inputs" / prepare.filename(pins["python"]), pins["python"], output)
@@ -67,6 +68,11 @@ def main() -> None:
         ], stdout=log, stderr=subprocess.STDOUT, check=True)
     shutil.copyfile(lock, provenance / lock.name)
     shutil.copyfile(prepare.HERE / "inputs.json", provenance / "inputs.json")
+    (provenance / "selection.json").write_text(json.dumps({
+        "target": f"linux-x86_64-cp313-{args.variant}",
+        "lock_sha256": prepare.digest(lock),
+        "inputs_sha256": prepare.digest(prepare.HERE / "inputs.json"),
+    }, indent=2, sort_keys=True) + "\n")
     manifest = inventory(runtime)
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     print(json.dumps({"runtime": str(runtime), "manifest_entries": len(manifest),

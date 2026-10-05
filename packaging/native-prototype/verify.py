@@ -35,12 +35,14 @@ def inventory(root: Path) -> dict:
     return result
 
 
-def verify(family: str, shape: str, revision: int) -> dict:
-    manifest = json.loads(Path("/payload-manifest.json").read_text())
+def verify(family: str, shape: str, revision: int, artifacts: Path = Path("/artifacts"),
+           manifest_path: Path = Path("/payload-manifest.json")) -> dict:
+    manifest = json.loads(manifest_path.read_text())
     assert inventory(PREFIX) == manifest, "installed runtime differs from verified payload"
-    packages = json.loads(Path("/artifacts/packages.json").read_text())
+    packages = json.loads((artifacts / "packages.json").read_text())
     kinds = {"self"} if shape == "self" else {"app", "runtime"}
     selected = [p for p in packages if p["family"] == family and p["revision"] == revision and p["kind"] in kinds]
+    assert len(selected) == len(kinds) and {p["kind"] for p in selected} == kinds, "incomplete selected package set"
     ownership = {}
     for package in selected:
         if family == "deb":
@@ -48,7 +50,7 @@ def verify(family: str, shape: str, revision: int) -> dict:
         else:
             command = ["rpm", "-ql", package["name"]]
         owned = set(subprocess.check_output(command, text=True).splitlines())
-        expected = json.loads((Path("/artifacts") / package["content"]).read_text())
+        expected = json.loads((artifacts / package["content"]).read_text())
         regular = set()
         for name, entry in expected.items():
             path = Path(name)
@@ -75,5 +77,7 @@ if __name__ == "__main__":
     parser.add_argument("family", choices=("deb", "rpm"))
     parser.add_argument("shape", choices=("self", "split"))
     parser.add_argument("revision", type=int)
+    parser.add_argument("--artifacts", type=Path, default=Path("/artifacts"))
+    parser.add_argument("--manifest", type=Path, default=Path("/payload-manifest.json"))
     args = parser.parse_args()
-    print("RESULT=" + json.dumps(verify(args.family, args.shape, args.revision), sort_keys=True))
+    print("RESULT=" + json.dumps(verify(args.family, args.shape, args.revision, args.artifacts, args.manifest), sort_keys=True))
