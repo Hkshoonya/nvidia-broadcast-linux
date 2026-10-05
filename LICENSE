@@ -43,7 +43,7 @@ THIRD-PARTY COMPONENTS
 
 This software uses the following open-source components:
 
-- RobustVideoMatting (MIT License) - https://github.com/PeterL1n/RobustVideoMatting
+- RobustVideoMatting source (GNU GPLv3) - https://github.com/PeterL1n/RobustVideoMatting
 - MediaPipe (Apache 2.0) - https://github.com/google/mediapipe
 - RNNoise (BSD 3-Clause) - https://github.com/xiph/rnnoise
 - ONNX Runtime (MIT License) - https://github.com/microsoft/onnxruntime

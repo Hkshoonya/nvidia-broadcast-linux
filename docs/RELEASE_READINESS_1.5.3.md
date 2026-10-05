@@ -23,6 +23,14 @@ cut. Record any such amendment and rerun its affected checks. Experiments in
 tooling, with independent source/input identities; they are not replacements
 for the production installation paths.
 
+The release audit found one notice error under #100: RobustVideoMatting was
+labeled MIT, while its referenced v1.0.0 source tag contains GPLv3. Correcting
+that source label changes distributed notice bytes and invalidates earlier
+candidate package hashes. Rebuild the final packages and bound upgrade helper.
+The [licensing review packet](LICENSING_REVIEW_1.5.3.md) records the exact source
+identity, proposed review path, and model/codec questions; it does not alter
+the project's attribution terms or supply legal clearance.
+
 ## Evidence and remaining decisions
 
 Prior development-package tests guide qualification but do not transfer
