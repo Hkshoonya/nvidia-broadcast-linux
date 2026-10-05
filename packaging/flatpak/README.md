@@ -29,7 +29,7 @@ app-owned model downloads, and pinned, SHA-256-verified faster-whisper model
 retrieval, plus Wayland with X11 fallback, PulseAudio compatibility, and access
 to the StatusNotifier watcher. The finished-runtime smoke check verifies that
 the faster-whisper trust manifest is packaged. Installed ordinary-user tests on
-2 October 2026 passed first-use download, corrupt-cache rejection, and CPU
+2 October 2026 passed first-use faster-whisper download, corrupt-cache rejection, and CPU
 inference for the tiny model; other models and each final release artifact still
 need their applicable checks (see issue #95). Recording follows the
 desktop's XDG Videos directory, so the manifest grants only
@@ -142,7 +142,7 @@ Before an x86_64 CPU Flatpak release, these applicable gates must be closed:
    also requires human-authored submission work. This upstream development
    manifest is not a Flathub submission.
 
-CUDA/TensorRT and aarch64 are separate future variants. A GPU variant requires
+CUDA and TensorRT, plus aarch64, are separate future variants. A GPU variant requires
 real driver/model execution and NVIDIA wheel redistribution review; aarch64
 requires its own dependency graph and hardware tests. Neither is advertised
 by the initial x86_64 CPU package.
