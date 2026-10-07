@@ -143,6 +143,27 @@ jobs:
           name: macos-packages
           path: dist/pkg-test
 
+      - name: Prepare package destination on the disposable runner
+        run: |
+          set -euo pipefail
+          [[ "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]
+          mkdir -p dist/macos-runtime
+          /bin/ls -lde /opt /usr /usr/local /usr/local/bin \
+            > dist/macos-runtime/destination-access-before.txt 2>&1 || true
+          # This image makes /usr/local/bin runner-owned and group-writable.
+          # Prepare only that directory for the package's admin-owned profile.
+          # The production installer never changes existing ownership or ACLs.
+          for directory in /usr /usr/local /usr/local/bin; do
+            if [[ -L "$directory" ]]; then
+              echo "::error::Refusing redirected runner package destination: $directory"
+              exit 1
+            fi
+          done
+          sudo /usr/bin/install -d -o root -g wheel -m 755 /usr/local/bin
+          [[ "$(/usr/bin/stat -f '%u %Lp' /usr/local/bin)" == '0 755' ]]
+          /bin/ls -lde /opt /usr /usr/local /usr/local/bin \
+            > dist/macos-runtime/destination-access-prepared.txt
+
       - name: Install package and provision runtime as the user
         run: |
           set -euo pipefail

@@ -137,7 +137,12 @@ source-install launcher does not shadow this package. Check:
 
 The installed-runtime CI job verifies real package installation, GI/native
 imports, sole CPU ONNX ownership, numerical inference and a fully decoded
-generated audiovisual recording. Its sources are `videotestsrc` and
+generated audiovisual recording. GitHub's disposable runner has a user-owned,
+group-writable `/usr/local/bin`; the job prepares that directory as root-owned
+and mode 755 before testing the package's supported destination profile. It
+retains access metadata before and after preparation. This is a CI fixture;
+the production installer continues to reject unsafe existing destinations.
+Its recording sources are `videotestsrc` and
 `audiotestsrc`; it does not request physical camera/microphone access. Physical
 permissions, real speech, OBS output, effects and long-session behavior remain
 the Mac acceptance above.
