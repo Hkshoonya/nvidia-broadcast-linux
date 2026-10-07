@@ -175,7 +175,7 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/3a/1b/3b16a9bc514a440
 [[packages]]
 name = "nvbroadcast"
 version = "1.5.2"
-archive = { path = "../../dist/native-runtime-stage0/wheels/nvbroadcast-1.5.2-py3-none-any.whl", hashes = { sha256 = "0e3d8c668f14dc108447125b9bf7861ea0e1d28ae4b43be27adc6f734537eaa7" } }
+archive = { path = "../../dist/native-runtime-stage0/wheels/nvbroadcast-1.5.2-py3-none-any.whl", hashes = { sha256 = "9960081d102a896a96b1e8f683f47708c7fa61326b36e30bbacf0ea5e89247c9" } }
 
 [[packages]]
 name = "onnx"
@@ -221,7 +221,7 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/b5/70/5d8df3b09e25bce
 [[packages]]
 name = "pycairo"
 version = "1.29.0"
-archive = { path = "../../dist/native-runtime-stage0/wheels/pycairo-1.29.0-cp313-cp313-linux_x86_64.whl", hashes = { sha256 = "17d70cfab91cf47c0c0f1e522284b34bc9f2a3a87cc8e3428d4363f83c7ebe79" } }
+archive = { path = "../../dist/native-runtime-stage0/wheels/pycairo-1.29.0-cp313-cp313-linux_x86_64.whl", hashes = { sha256 = "bb12333fbd4c047ee8f88b5ae091a4d495bf8730e7526fa35f6605326176fea1" } }
 
 [[packages]]
 name = "pycparser"
@@ -232,7 +232,7 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2
 [[packages]]
 name = "pygobject"
 version = "3.48.2"
-archive = { path = "../../dist/native-runtime-stage0/wheels/pygobject-3.48.2-cp313-cp313-linux_x86_64.whl", hashes = { sha256 = "f00be51f85f8fc9c52f1418fe54963dc5c1d3765ba93d571109e0dfa0f5cd19c" } }
+archive = { path = "../../dist/native-runtime-stage0/wheels/pygobject-3.48.2-cp313-cp313-linux_x86_64.whl", hashes = { sha256 = "ebfbcb4a688e59766018f1431c533d68e060b4a4128ee1f74cd18c3185d0e588" } }
 
 [[packages]]
 name = "pyparsing"

@@ -80,6 +80,14 @@ packaging/flatpak/README.md
 packaging/flatpak/com.doczeus.NVBroadcast.yml
 packaging/flatpak/python3-flatpak-requirements.yaml
 packaging/flatpak/requirements.txt
+packaging/native-prototype/Dockerfile.builder.rpm
+packaging/native-prototype/Dockerfile.legacy-fixture.rpm
+packaging/native-prototype/README.md
+packaging/native-prototype/build.py
+packaging/native-prototype/package-hooks.sh
+packaging/native-prototype/results-2026-10-05.json
+packaging/native-prototype/run_lifecycle.py
+packaging/native-prototype/verify.py
 packaging/rpm/nvbroadcast.spec
 packaging/runtime-prototype/Dockerfile.bindings
 packaging/runtime-prototype/Dockerfile.runtime.deb
@@ -228,6 +236,7 @@ tests/test_meeting_store.py
 tests/test_mic_test.py
 tests/test_model_download.py
 tests/test_native_package_upgrade.py
+tests/test_native_runtime_prototype.py
 tests/test_nix_source_files.py
 tests/test_packaging_metadata.py
 tests/test_perf_monitor.py
