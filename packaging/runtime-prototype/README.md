@@ -12,6 +12,11 @@ legacy removal-script collisions. The results below retain the identities of
 the earlier private-runtime-only run; the package experiment records its own
 updated input and artifact identities.
 
+The [CUDA extension](../native-prototype/CUDA_SWITCHING.md) adds a separately
+locked variant, scoped faster-whisper dependency substitution, explicit GPU
+execution checks and native CPU/CUDA replacement. This page's recorded results
+remain the original CPU feasibility evidence.
+
 The application change found by this investigation is small: pass an empty argv
 list to `Gst.init` throughout startup, media pipelines, and isolated media
 probes. The private PyGObject 3.48.2 binding rejects `None` with the newer

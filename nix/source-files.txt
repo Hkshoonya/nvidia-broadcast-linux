@@ -80,13 +80,17 @@ packaging/flatpak/README.md
 packaging/flatpak/com.doczeus.NVBroadcast.yml
 packaging/flatpak/python3-flatpak-requirements.yaml
 packaging/flatpak/requirements.txt
+packaging/native-prototype/CUDA_SWITCHING.md
 packaging/native-prototype/Dockerfile.builder.rpm
 packaging/native-prototype/Dockerfile.legacy-fixture.rpm
 packaging/native-prototype/README.md
 packaging/native-prototype/build.py
 packaging/native-prototype/package-hooks.sh
+packaging/native-prototype/recover_rpm_unpacked.py
 packaging/native-prototype/results-2026-10-05.json
+packaging/native-prototype/results-cuda-2026-10-07.json
 packaging/native-prototype/run_lifecycle.py
+packaging/native-prototype/run_switching.py
 packaging/native-prototype/verify.py
 packaging/rpm/nvbroadcast.spec
 packaging/runtime-prototype/Dockerfile.bindings
@@ -104,6 +108,7 @@ packaging/runtime-prototype/prepare.py
 packaging/runtime-prototype/probe.py
 packaging/runtime-prototype/pylock.build.toml
 packaging/runtime-prototype/pylock.linux-x86_64-cp313-cpu.toml
+packaging/runtime-prototype/pylock.linux-x86_64-cp313-cuda.toml
 packaging/runtime-prototype/resolve.py
 packaging/runtime-prototype/results-2026-10-05.json
 packaging/runtime-prototype/run_matrix.py
@@ -240,6 +245,7 @@ tests/test_native_runtime_prototype.py
 tests/test_nix_source_files.py
 tests/test_packaging_metadata.py
 tests/test_perf_monitor.py
+tests/test_private_cuda_runtime.py
 tests/test_private_runtime_inputs.py
 tests/test_profile_select_handlers.py
 tests/test_project_identity.py
@@ -255,6 +261,7 @@ tests/test_replace_hand_motion.py
 tests/test_replace_motion_halo.py
 tests/test_resources.py
 tests/test_responsive_window.py
+tests/test_rpm_unpack_recovery.py
 tests/test_runtime_artifact.py
 tests/test_runtime_install_activation.py
 tests/test_runtime_probe.py

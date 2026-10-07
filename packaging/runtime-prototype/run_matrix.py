@@ -28,9 +28,10 @@ def source_hashes(directory: Path) -> dict[str, str]:
             for p in sorted(directory.rglob("*.py"))}
 
 
-def run_cell(cell: dict, directory: Path, build: bool, runtime: Path) -> dict:
+def run_cell(cell: dict, directory: Path, build: bool, runtime: Path,
+             variant: str = "cpu", gpu: int | None = None) -> dict:
     tag = f"nvb-private-runtime-test:{cell['name']}-20261005"
-    result = {**cell, "tag": tag}
+    result = {**cell, "tag": tag, "variant": variant, "gpu": gpu}
     if build:
         with (directory / f"image-{cell['name']}.log").open("w") as log:
             completed = subprocess.run(
@@ -54,6 +55,7 @@ def run_cell(cell: dict, directory: Path, build: bool, runtime: Path) -> dict:
     (directory / f"packages-{cell['name']}.txt").write_text(inventory)
 
     name = f"nvb-runtime-probe-{uuid.uuid4().hex}"
+    devices = ["--gpus", f"device={gpu}", "-e", "NVIDIA_DRIVER_CAPABILITIES=compute,utility"] if gpu is not None else []
     command = ["docker", "run", "--rm", "--init", "--name", name, "--network=none",
                "--user", "1000:1000", "--read-only",
                "--tmpfs", "/tmp:rw,mode=1777",
@@ -61,13 +63,16 @@ def run_cell(cell: dict, directory: Path, build: bool, runtime: Path) -> dict:
                # -I must ignore these deliberate host-Python contamination paths.
                "-e", "PYTHONPATH=/usr/lib/python3/dist-packages", "-e", "PYTHONHOME=/usr",
                "-e", "OPENBLAS_NUM_THREADS=2",
-               "-v", f"{runtime}:{PREFIX}:ro", "-v", f"{HERE}:/prototype:ro",
+               "-v", f"{runtime}:{PREFIX}:ro", "-v", f"{HERE}:/prototype:ro", *devices,
                result["image_id"], "bash", "/prototype/desktop_probe.sh",
                f"{PREFIX}/bin/python", "-I", "-B", "-u", "/prototype/probe.py",
                "--runtime", PREFIX, "--python-version",
-               json.loads((HERE / "inputs.json").read_text())["python"]["version"], "--window"]
+               json.loads((HERE / "inputs.json").read_text())["python"]["version"], "--window",
+               "--variant", variant]
+    if variant == "cuda" and gpu is None:
+        command += ["--cuda-unavailable"]
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=120)
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=240)
         output = completed.stdout + completed.stderr
         result["probe_exit"] = completed.returncode
         result["status"] = "probe-failed"
@@ -96,6 +101,8 @@ def main() -> None:
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--build-images", action="store_true")
     parser.add_argument("--cells", nargs="+", help="defaults to every recorded cell, including Rocky 9")
+    parser.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--gpu", type=int, help="expose one NVIDIA GPU for one CUDA matrix cell")
     args = parser.parse_args()
     if os.getuid() == 0:
         parser.error("run the probe as an ordinary user, not root")
@@ -111,10 +118,12 @@ def main() -> None:
         if unknown:
             parser.error(f"unknown cells: {sorted(unknown)}")
         matrix = [c for c in matrix if c["name"] in args.cells]
+    if args.gpu is not None and (args.gpu < 0 or args.variant != "cuda" or len(matrix) != 1):
+        parser.error("--gpu requires one selected cell, the CUDA variant, and a nonnegative device")
     results = []
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = [pool.submit(run_cell, cell, args.directory.resolve(), args.build_images,
-                               args.runtime.resolve(strict=True)) for cell in matrix]
+                               args.runtime.resolve(strict=True), args.variant, args.gpu) for cell in matrix]
         for future in futures:
             result = future.result()
             result["runtime_manifest_sha256"] = manifest_digest
