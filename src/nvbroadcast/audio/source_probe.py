@@ -15,11 +15,17 @@ import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
+from nvbroadcast.core.platform import IS_MACOS
 
-def audio_source_target(source: str, device: str) -> tuple[str, str]:
+
+def audio_source_target(source: str, device: str) -> tuple[str, str | int]:
     """Resolve a selected microphone without substituting the default."""
-    from nvbroadcast.audio.devices import resolve_pipewire_target, resolve_pulse_source_name
+    from nvbroadcast.audio.devices import (
+        resolve_coreaudio_device, resolve_pipewire_target, resolve_pulse_source_name,
+    )
 
+    if source == "osxaudiosrc":
+        return "device", resolve_coreaudio_device(device)
     if source == "pulsesrc":
         target = resolve_pulse_source_name(device)
         prop = "device"
@@ -32,7 +38,7 @@ def audio_source_target(source: str, device: str) -> tuple[str, str]:
 
 
 def probe_audio_source(device: str = "") -> tuple[str | None, str]:
-    """Prefer PulseAudio, then PipeWire, after a bounded live capture probe.
+    """Check the platform's capture source with a bounded live capture probe.
 
     The probe runs in a child because a failed native source can hang or crash
     during teardown. Factory presence alone does not prove sandbox access.
@@ -45,11 +51,13 @@ def probe_audio_source(device: str = "") -> tuple[str | None, str]:
         "pipe = Gst.parse_launch(sys.argv[1] + "
         "' name=probe_source num-buffers=1 ! audio/x-raw ! fakesink sync=false')\n"
         "if len(sys.argv) > 2:\n"
-        "    pipe.get_by_name('probe_source').set_property(sys.argv[2], sys.argv[3])\n"
+        "    target = int(sys.argv[3]) if sys.argv[1] == 'osxaudiosrc' else sys.argv[3]\n"
+        "    pipe.get_by_name('probe_source').set_property(sys.argv[2], target)\n"
         "if pipe.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:\n"
         "    sys.exit('audio source could not start')\n"
         "msg = pipe.get_bus().timed_pop_filtered(\n"
-        "    Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)\n"
+        "    Gst.SECOND * (10 if sys.argv[1] == 'osxaudiosrc' else 1),\n"
+        "    Gst.MessageType.EOS | Gst.MessageType.ERROR)\n"
         "if msg is None:\n"
         "    sys.exit('audio source did not produce a buffer')\n"
         "if msg.type == Gst.MessageType.ERROR:\n"
@@ -57,7 +65,8 @@ def probe_audio_source(device: str = "") -> tuple[str | None, str]:
         "pipe.set_state(Gst.State.NULL)\n"
     )
     failures = []
-    for source in ("pulsesrc", "pipewiresrc"):
+    sources = ("osxaudiosrc",) if IS_MACOS else ("pulsesrc", "pipewiresrc")
+    for source in sources:
         if Gst.ElementFactory.find(source) is None:
             failures.append(f"{source} is not installed")
             continue
@@ -73,10 +82,10 @@ def probe_audio_source(device: str = "") -> tuple[str | None, str]:
             source_args = [source]
             if device:
                 prop, target = audio_source_target(source, device)
-                source_args.extend([prop, target])
+                source_args.extend([prop, str(target)])
             result = subprocess.run(
                 [sys.executable, "-c", probe_code, *source_args],
-                capture_output=True, text=True, timeout=2, check=False,
+                capture_output=True, text=True, timeout=15 if IS_MACOS else 2, check=False,
             )
             if result.returncode == 0:
                 return source, ""

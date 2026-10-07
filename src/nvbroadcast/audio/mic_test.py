@@ -17,7 +17,8 @@ import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
-from nvbroadcast.audio.devices import resolve_pipewire_target
+from nvbroadcast.audio.devices import resolve_coreaudio_device, resolve_pipewire_target
+from nvbroadcast.core.platform import IS_MACOS
 
 Gst.init([])
 
@@ -34,6 +35,7 @@ class MicTest:
         self._duration = 30  # seconds
         self._on_complete = None
         self._record_token = 0
+        self._last_error = ""
 
     @property
     def is_recording(self) -> bool:
@@ -43,12 +45,16 @@ class MicTest:
     def is_playing(self) -> bool:
         return self._playing
 
+    @property
+    def last_error(self) -> str:
+        return self._last_error
+
     def start_recording(self, mic_device: str = "", duration: int = 30,
                        on_complete=None):
         """Record from mic for `duration` seconds.
 
         Args:
-            mic_device: PipeWire device ID or empty for default
+            mic_device: native microphone selection or empty for default
             duration: seconds to record
             on_complete: callback when recording finishes
         """
@@ -56,26 +62,31 @@ class MicTest:
             return
 
         self._duration = duration
+        self._last_error = ""
         self._on_complete = on_complete
         self._recording = True
         self._record_token += 1
         token = self._record_token
 
-        # Prefer Pulse on desktop Linux for reliable timed recording.
-        src = "pulsesrc"
-        if mic_device and Gst.ElementFactory.find("pulsesrc") is not None:
-            src = f"pulsesrc device={mic_device}"
-        elif mic_device:
-            target = resolve_pipewire_target(mic_device)
-            src = f"pipewiresrc do-timestamp=true target-object={target}"
-
         try:
+            # Prefer Pulse on desktop Linux; macOS uses CoreAudio exclusively.
+            src = "osxaudiosrc name=test_microphone" if IS_MACOS else "pulsesrc"
+            if not IS_MACOS and mic_device:
+                if Gst.ElementFactory.find("pulsesrc") is not None:
+                    src = f"pulsesrc device={mic_device}"
+                else:
+                    target = resolve_pipewire_target(mic_device)
+                    src = f"pipewiresrc do-timestamp=true target-object={target}"
+            coreaudio_id = resolve_coreaudio_device(mic_device) if IS_MACOS else None
             self._rec_pipeline = Gst.parse_launch(
                 f"{src} ! audioconvert ! audioresample ! "
                 f"audio/x-raw,format=S16LE,rate=48000,channels=1 ! "
                 f"wavenc ! filesink location={self._test_file}"
             )
-            self._rec_pipeline.set_state(Gst.State.PLAYING)
+            if IS_MACOS:
+                self._rec_pipeline.get_by_name("test_microphone").set_property("device", coreaudio_id)
+            if self._rec_pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+                raise RuntimeError("Microphone capture could not start")
             print(f"[Mic Test] Recording for {duration}s...")
 
             # Stop after duration
@@ -88,7 +99,11 @@ class MicTest:
             threading.Thread(target=_stop, daemon=True).start()
 
         except Exception as e:
+            self._last_error = str(e)
             print(f"[Mic Test] Recording failed: {e}")
+            if self._rec_pipeline:
+                self._rec_pipeline.set_state(Gst.State.NULL)
+                self._rec_pipeline = None
             self._recording = False
 
     def stop_recording(self):
@@ -99,8 +114,21 @@ class MicTest:
         if self._rec_pipeline:
             bus = self._rec_pipeline.get_bus()
             try:
-                self._rec_pipeline.send_event(Gst.Event.new_eos())
-                bus.timed_pop_filtered(2 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
+                # A source may report permission/device errors after an
+                # asynchronous start. Do not send EOS into a failed source or
+                # tell the UI that a failed recording is ready to play.
+                pending_error = bus.timed_pop_filtered(0, Gst.MessageType.ERROR)
+                if pending_error:
+                    self._last_error = pending_error.parse_error()[0].message
+                else:
+                    self._rec_pipeline.send_event(Gst.Event.new_eos())
+                    msg = bus.timed_pop_filtered(
+                        2 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR
+                    )
+                    if msg and msg.type == Gst.MessageType.ERROR:
+                        self._last_error = msg.parse_error()[0].message
+                    elif msg is None:
+                        self._last_error = "Microphone recording did not finish"
             finally:
                 self._rec_pipeline.set_state(Gst.State.NULL)
                 self._rec_pipeline = None
@@ -115,15 +143,18 @@ class MicTest:
         if self._recording or self._playing:
             return
         if not Path(self._test_file).exists():
+            self._last_error = "No recording to play"
             print("[Mic Test] No recording to play")
             return
 
         self._playing = True
+        self._last_error = ""
         self._on_complete = on_complete
 
         try:
-            sink = "autoaudiosink sync=false"
-            if speaker_device:
+            sink = "osxaudiosink name=test_speaker sync=false" if IS_MACOS else "autoaudiosink sync=false"
+            coreaudio_id = resolve_coreaudio_device(speaker_device, "Audio/Sink") if IS_MACOS else None
+            if not IS_MACOS and speaker_device:
                 pulse_sink = Gst.ElementFactory.find("pulsesink") is not None
                 if pulse_sink:
                     sink = f"pulsesink device={speaker_device} sync=false"
@@ -136,14 +167,21 @@ class MicTest:
                 f"audio/x-raw,rate=48000,channels=1 ! "
                 f"{sink}"
             )
+            if IS_MACOS:
+                self._play_pipeline.get_by_name("test_speaker").set_property("device", coreaudio_id)
             bus = self._play_pipeline.get_bus()
             bus.add_signal_watch()
             bus.connect("message::eos", self._on_playback_eos)
             bus.connect("message::error", self._on_playback_error)
-            self._play_pipeline.set_state(Gst.State.PLAYING)
+            if self._play_pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+                raise RuntimeError("Speaker playback could not start")
             print("[Mic Test] Playing back...")
         except Exception as e:
+            self._last_error = str(e)
             print(f"[Mic Test] Playback failed: {e}")
+            if self._play_pipeline:
+                self._play_pipeline.set_state(Gst.State.NULL)
+                self._play_pipeline = None
             self._playing = False
 
     def _on_playback_eos(self, bus, msg):
@@ -157,6 +195,7 @@ class MicTest:
 
     def _on_playback_error(self, bus, msg):
         err, _ = msg.parse_error()
+        self._last_error = err.message
         print(f"[Mic Test] Playback error: {err.message}")
         if self._play_pipeline:
             self._play_pipeline.set_state(Gst.State.NULL)

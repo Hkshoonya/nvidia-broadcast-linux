@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      sign_macos:
+        description: 'Sign, notarize and staple the macOS installer (requires macos-signing environment secrets)'
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -115,6 +120,202 @@ jobs:
           name: macos-packages
           path: dist/pkg/*.pkg
 
+  # Exercise the installed package without camera/microphone capture.
+  test-macos-runtime:
+    name: Test installed macOS runtime (Apple Silicon)
+    env:
+      GST_PLUGIN_PATH: /opt/homebrew/lib/gstreamer-1.0
+      GI_TYPELIB_PATH: /opt/homebrew/lib/girepository-1.0
+    needs: build-macos
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install user runtime prerequisites
+        run: brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
+
+      - name: Download this run's package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: macos-packages
+          path: dist/pkg-test
+
+      - name: Install package and provision runtime as the user
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(dist/pkg-test/*.pkg)
+          (( ${#packages[@]} == 1 ))
+          sudo /usr/sbin/installer -pkg "${packages[0]}" -target /
+          /opt/nvbroadcast/scripts/setup_macos_runtime.sh
+          package_id="$(cat /opt/nvbroadcast/macos-package-version)"
+          runtime_id="$(cat /opt/nvbroadcast/macos-runtime-id)"
+          runtime_python="$HOME/Library/Application Support/NVBroadcast/$package_id-$runtime_id/.venv/bin/python"
+          test -x "$runtime_python"
+          printf 'MACOS_RUNTIME_PYTHON=%s\n' "$runtime_python" >> "$GITHUB_ENV"
+          /usr/local/bin/nvbroadcast --help
+          "$runtime_python" -m pip check
+
+      - name: Validate actual imports, CPU inference and generated recording
+        run: |
+          mkdir -p dist/macos-runtime
+          "$MACOS_RUNTIME_PYTHON" scripts/validate_macos_runtime.py \
+            --output dist/macos-runtime/qualification.json
+
+      - name: Check macOS audio routing without devices
+        env:
+          PYTHONPATH: src
+        run: |
+          "$MACOS_RUNTIME_PYTHON" -m unittest -v tests.test_macos_audio
+
+      - name: Upload installed-runtime qualification
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-runtime-qualification
+          path: dist/macos-runtime
+          if-no-files-found: ignore
+
+  # Signing credentials are confined to this manual/tag job and its environment.
+  # Unsigned build artifacts remain available for inspection, never for release.
+  sign-macos:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.sign_macos)
+    needs: [build-macos, test-macos, test-macos-runtime]
+    runs-on: macos-15
+    timeout-minutes: 50
+    environment: macos-signing
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: '3.13'
+
+      - name: Download this run's unsigned macOS package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: macos-packages
+          path: dist/pkg-unsigned
+
+      - name: Configure isolated signing keychain
+        env:
+          MACOS_INSTALLER_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_P12_BASE64 }}
+          MACOS_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_APP_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for name in MACOS_INSTALLER_CERTIFICATE_P12_BASE64 MACOS_INSTALLER_CERTIFICATE_PASSWORD MACOS_NOTARY_APPLE_ID MACOS_NOTARY_APP_PASSWORD MACOS_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing macos-signing environment secret: $name"
+              exit 1
+            fi
+          done
+          if [[ ! "$MACOS_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "::error::MACOS_TEAM_ID must be the ten-character Apple Developer team identifier."
+            exit 1
+          fi
+          signing_temp="$(mktemp -d "$RUNNER_TEMP/nvbroadcast-signing.XXXXXX")"
+          printf 'MACOS_SIGNING_TEMP=%s\n' "$signing_temp" >> "$GITHUB_ENV"
+          keychain="$signing_temp/installer.keychain-db"
+          keychain_password="$(/usr/bin/openssl rand -base64 32)"
+          printf '::add-mask::%s\n' "$keychain_password"
+          printf '%s' "$MACOS_INSTALLER_CERTIFICATE_P12_BASE64" | /usr/bin/base64 --decode > "$signing_temp/certificate.p12"
+          printf '%s' "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" > "$signing_temp/certificate-password"
+          /usr/bin/security create-keychain -p "$keychain_password" "$keychain"
+          /usr/bin/security set-keychain-settings -lut 3600 "$keychain"
+          /usr/bin/security unlock-keychain -p "$keychain_password" "$keychain"
+          /usr/bin/security import "$signing_temp/certificate.p12" -k "$keychain" -P "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" -T /usr/bin/productsign
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          /usr/bin/openssl pkcs12 -in "$signing_temp/certificate.p12" -passin "file:$signing_temp/certificate-password" -clcerts -nokeys -out "$signing_temp/certificate.pem"
+          /usr/bin/openssl x509 -in "$signing_temp/certificate.pem" -noout -subject -nameopt sep_multiline,sname > "$signing_temp/certificate-subject"
+          python3 - "$MACOS_TEAM_ID" "$signing_temp/certificate-subject" <<'PYTHON'
+          import sys
+          from pathlib import Path
+          fields = {}
+          for line in Path(sys.argv[2]).read_text().splitlines():
+              key, separator, value = line.strip().partition('=')
+              if separator:
+                  fields[key.strip()] = value.strip()
+          team = sys.argv[1]
+          if fields.get('OU') != team or not fields.get('CN', '').startswith('Developer ID Installer: ') or not fields['CN'].endswith(f'({team})'):
+              raise SystemExit('Expected a Developer ID Installer certificate for MACOS_TEAM_ID.')
+          PYTHON
+          identity="$(/usr/bin/openssl x509 -in "$signing_temp/certificate.pem" -noout -sha1 -fingerprint | cut -d= -f2 | tr -d ':')"
+          if [[ ! "$identity" =~ ^[A-Fa-f0-9]{40}$ ]]; then
+            echo "::error::Could not determine the certificate identity."
+            exit 1
+          fi
+          /usr/bin/xcrun notarytool store-credentials nvbroadcast-notary \
+            --apple-id "$MACOS_NOTARY_APPLE_ID" --team-id "$MACOS_TEAM_ID" \
+            --password "$MACOS_NOTARY_APP_PASSWORD" --keychain "$keychain"
+          printf 'MACOS_SIGNING_KEYCHAIN=%s\nMACOS_INSTALLER_IDENTITY=%s\nMACOS_SIGNING_TEAM_ID=%s\n' "$keychain" "$identity" "$MACOS_TEAM_ID" >> "$GITHUB_ENV"
+          rm -f "$signing_temp/certificate.p12" "$signing_temp/certificate-password" "$signing_temp/certificate.pem" "$signing_temp/certificate-subject"
+
+      - name: Sign, notarize and verify the installer
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(dist/pkg-unsigned/*.pkg)
+          if (( ${#packages[@]} != 1 )); then
+            echo "::error::Expected exactly one package from this workflow run."
+            exit 1
+          fi
+          mkdir -p dist/pkg-signed dist/macos-signing
+          python3 scripts/sign_macos_package.py \
+            --input "${packages[0]}" \
+            --output "dist/pkg-signed/$(basename "${packages[0]}")" \
+            --identity "$MACOS_INSTALLER_IDENTITY" \
+            --team-id "$MACOS_SIGNING_TEAM_ID" \
+            --keychain "$MACOS_SIGNING_KEYCHAIN" \
+            --notary-profile nvbroadcast-notary \
+            --evidence-dir dist/macos-signing/evidence
+
+      - name: Upload verified signed package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-signed-packages
+          path: dist/pkg-signed/*.pkg
+          if-no-files-found: error
+
+      - name: Upload signing verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-signing-evidence
+          path: dist/macos-signing/evidence
+          if-no-files-found: ignore
+
+      - name: Remove signing material
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -n "${MACOS_SIGNING_TEMP:-}" ]]; then
+            case "$MACOS_SIGNING_TEMP" in
+              "$RUNNER_TEMP"/nvbroadcast-signing.*) ;;
+              *) echo "::error::Unexpected signing temporary directory"; exit 1 ;;
+            esac
+            keychain="$MACOS_SIGNING_TEMP/installer.keychain-db"
+            cleanup_status=0
+            if [[ -f "$keychain" ]]; then
+              /usr/bin/security delete-keychain "$keychain" || cleanup_status=$?
+            fi
+            # Remove bounded private staging even if keychain deletion failed.
+            if [[ "$(dirname "$MACOS_SIGNING_TEMP")" != "$RUNNER_TEMP" || -L "$MACOS_SIGNING_TEMP" ]]; then
+              echo "::error::Refusing redirected signing cleanup directory"
+              exit 1
+            fi
+            rm -rf -- "$MACOS_SIGNING_TEMP" || cleanup_status=$?
+            exit "$cleanup_status"
+          fi
+
   # ─── Test: macOS platform + prototype extension compilation ────────────────
   test-macos:
     name: Test macOS (Apple Silicon, Python ${{ matrix.python-version }})
@@ -145,6 +346,9 @@ jobs:
         run: |
           PYTHONPATH=src python3 -m pytest -q \
             tests/test_macos_camera.py \
+            tests/test_macos_signing.py \
+            tests/test_macos_signing_workflow.py \
+            tests/test_macos_package_install.py \
             tests/test_eye_contact.py \
             tests/test_updates.py
 
@@ -318,7 +522,7 @@ jobs:
   # ─── Attest: sign exact artifacts after every release gate passes ──────────
   attest-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-macos, test-macos, test-linux, test-python]
+    needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-macos]
     runs-on: ubuntu-latest
     permissions:
       attestations: write
@@ -341,7 +545,7 @@ jobs:
             artifacts/linux-packages/deb/*.deb \
             artifacts/linux-packages/rpm/*.rpm \
             artifacts/linux-packages/nvbroadcast-native-upgrade \
-            artifacts/macos-packages/*.pkg
+            artifacts/macos-signed-packages/*.pkg
 
       - name: Attest release package provenance
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
@@ -350,7 +554,7 @@ jobs:
             artifacts/linux-packages/deb/*.deb
             artifacts/linux-packages/rpm/*.rpm
             artifacts/linux-packages/nvbroadcast-native-upgrade
-            artifacts/macos-packages/*.pkg
+            artifacts/macos-signed-packages/*.pkg
             artifacts/SHA256SUMS.packages
 
       - name: Upload release metadata
@@ -393,6 +597,6 @@ jobs:
             artifacts/linux-packages/deb/*.deb
             artifacts/linux-packages/rpm/*.rpm
             artifacts/linux-packages/nvbroadcast-native-upgrade
-            artifacts/macos-packages/*.pkg
+            artifacts/macos-signed-packages/*.pkg
             artifacts/release-metadata/SHA256SUMS.packages
           fail_on_unmatched_files: true

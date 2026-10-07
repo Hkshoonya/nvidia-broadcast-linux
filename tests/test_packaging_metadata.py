@@ -355,7 +355,7 @@ class PackagingMetadataTests(unittest.TestCase):
             "setup_deps.sh",
             "install.sh",
             "install_macos.sh",
-            "build-packages.sh",
+            "scripts/setup_macos_runtime.sh",
             "packaging/debian/postinst",
             "packaging/rpm/nvbroadcast.spec",
             ".github/workflows/pr-checks.yml",
@@ -376,7 +376,7 @@ class PackagingMetadataTests(unittest.TestCase):
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
         self.assertGreaterEqual(
             build_script.count("export PYTHONNOUSERSITE=1"),
-            4,
+            3,
         )
         self.assertIn("Environment=PYTHONNOUSERSITE=1", build_script)
 
@@ -465,7 +465,7 @@ class PackagingMetadataTests(unittest.TestCase):
             REPO_ROOT / "setup_deps.sh",
             REPO_ROOT / "packaging" / "debian" / "postinst",
             REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec",
-            REPO_ROOT / "build-packages.sh",
+            REPO_ROOT / "scripts" / "setup_macos_runtime.sh",
         )
         for installer in installers:
             self.assertIn("pip>=26.2", installer.read_text(), str(installer))
@@ -803,12 +803,12 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn(attest_action, builder)
 
         self.assertIn(
-            "needs: [build-linux, build-macos, test-macos, test-linux, test-python]",
+            "needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-macos]",
             attestation_job,
         )
         self.assertIn("artifacts/linux-packages/deb/*.deb", attestation_job)
         self.assertIn("artifacts/linux-packages/rpm/*.rpm", attestation_job)
-        self.assertIn("artifacts/macos-packages/*.pkg", attestation_job)
+        self.assertIn("artifacts/macos-signed-packages/*.pkg", attestation_job)
         self.assertIn("artifacts/SHA256SUMS.packages", attestation_job)
         self.assertIn("steps.snapcraft.outputs.snap", snap_builder)
         self.assertEqual(build_workflow.count(attest_action), 1)
@@ -1040,8 +1040,8 @@ class PackagingMetadataTests(unittest.TestCase):
 
         self.assertIn("artifacts/linux-packages/deb/*.deb", release_job)
         self.assertIn("artifacts/linux-packages/rpm/*.rpm", release_job)
-        self.assertIn("artifacts/macos-packages/*.pkg", release_job)
-        self.assertNotIn("artifacts/macos-packages/pkg/*.pkg", release_job)
+        self.assertIn("artifacts/macos-signed-packages/*.pkg", release_job)
+        self.assertNotIn("artifacts/macos-signed-packages/pkg/*.pkg", release_job)
         self.assertIn("fail_on_unmatched_files: true", release_job)
 
     def test_macos_ci_installs_the_actual_project_dependency_set(self):
@@ -1232,13 +1232,20 @@ class PackagingMetadataTests(unittest.TestCase):
             spec,
         )
 
-    def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
+    def test_macos_pkg_requires_unprivileged_runtime_setup(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()
         pkg_builder = script.split("build_pkg() {", 1)[1]
         self.assertIn("install_runtime_variant.py", script)
-        self.assertIn("--variant cpu --meeting-backends faster", script)
-        self.assertIn('rm -rf -- "$INSTALL_DIR/.venv"', script)
-        self.assertIn('pkill -f "^${INSTALL_DIR}/.venv/bin/python -m nvbroadcast', script)
+        setup = (REPO_ROOT / "scripts" / "setup_macos_runtime.sh").read_text()
+        postinstall = pkg_builder.split("<< 'POSTINST'", 1)[1].split("\nPOSTINST", 1)[0]
+        self.assertNotIn("-m venv", postinstall)
+        self.assertNotIn("pip install", postinstall)
+        self.assertNotIn("brew --prefix", postinstall)
+        self.assertIn("Runtime setup is still required", postinstall)
+        self.assertIn("--variant cpu --meeting-backends faster", setup)
+        self.assertIn("(( EUID == 0 ))", setup)
+        self.assertIn("macos-runtime-id", setup)
+        self.assertNotIn("rm -rf", setup)
         self.assertIn(
             'mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/scripts"', pkg_builder
         )
@@ -1500,11 +1507,10 @@ class PackagingMetadataTests(unittest.TestCase):
             "for p in python3.13 python3.12 python3.11 python3; do", installer
         )
         self.assertIn('"$minor" -le 13', installer)
-        self.assertIn(
-            "for p in python3.13 python3.12 python3.11 python3; do",
-            build_script,
-        )
-        self.assertIn('[ "$minor" -le 13 ]', build_script)
+        setup = (REPO_ROOT / "scripts" / "setup_macos_runtime.sh").read_text()
+        self.assertIn("for minor in 13 12 11; do", setup)
+        self.assertIn("(3, 11) <= sys.version_info[:2] <= (3, 13)", setup)
+        self.assertIn("import gi", setup)
         self.assertIn('hostArchitectures="arm64"', build_script)
         self.assertIn('<os-version min="13.0"/>', build_script)
         self.assertIn("Apple Silicon Mac with macOS 13+", readme)

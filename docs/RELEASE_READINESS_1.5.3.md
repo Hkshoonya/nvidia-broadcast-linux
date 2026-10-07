@@ -60,7 +60,7 @@ automatically to newly built v1.5.3 artifacts.
 | Native artifacts (#60) | CPU prototypes passed eight lifecycle cells; unsigned archives reproduced in recorded builders | Build the production DEB/RPM, bind the exact upgrade helper, verify final manifests/provenance and installer transactions; do not claim hermetic production payloads |
 | License/redistribution (#100) | Maintainer confirmed a legal friend reviewed the existing terms; complete GPLv3 text and consistent grant references added | Verify complete license/notice contents and lint on exact artifacts; record component scope without inventing unreported legal conclusions |
 | Flatpak (#95) | Development build, dependency closure, model trust, recording, physical camera, and initial virtual-camera read passed | CPU release conditions below; remains excluded until applicable gates pass |
-| macOS | Developer account approved; signing setup deferred by maintainer | Developer ID configuration, signed/notarized/stapled artifact checks before claiming a signed macOS release |
+| macOS | Maintainer requested GitHub-runner signing and a physical Mac test on 7 October; package/audio blockers and signing tooling are being qualified | Configure protected Installer/notary credentials, pass installed-runtime and actual signed/notarized/stapled package checks, then physical Mac acceptance; see [MACOS_SIGNING.md](MACOS_SIGNING.md) |
 | Snap edge automation (#90) | Current public channels reported aligned on reviewed 185/184 | Verify connected builder configuration and scoped edge credentials before merging the edge-promotion draft |
 | NixOS (#18) | Package/module evaluation and Xvfb startup passed | No real NixOS machine available; draft remains unsupported pending physical-device acceptance |
 
@@ -107,3 +107,23 @@ and complete license/notice contents must be checked on the rebuilt artifacts.
 **The candidate is not yet verified for
 public release.** Follow [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the
 recorded merge, tag, attestation, candidate, soak, and publication sequence.
+
+
+## macOS blocker amendment, 7 October 2026
+
+The maintainer resumed macOS signing and chose GitHub macOS runners plus a test
+on their own Mac. Source review reproduced missing CoreAudio microphone routes
+and incomplete package/runtime bootstrap; it also found root postinstall
+executing user-owned Homebrew Python and network pip. These are recorded
+release blockers, so the candidate freeze permits their targeted amendment.
+
+The amendment uses native CoreAudio for selected-microphone recording and Mic
+Test, keeps unsupported system-audio/processed virtual-mic routes explicit,
+and separates admin-owned package installation from user runtime provisioning.
+The new signing path requires a timestamped Installer identity, accepted
+notarization, a stapled ticket and Gatekeeper acceptance. Tag artifact hashes
+and attestations bind final signed bytes; unsigned macOS packages cannot enter
+that release path. Prior package hashes/source identities remain historical
+baseline evidence and do not qualify the amended payload. Rebuild affected
+packages, verify Linux regressions, run actual Mac package/runtime CI, and
+record signing plus physical-device acceptance before claiming readiness.

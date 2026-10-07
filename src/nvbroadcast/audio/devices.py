@@ -7,8 +7,68 @@
 
 import subprocess
 import json
+from urllib.parse import quote, unquote
 
 from nvbroadcast.audio.virtual_mic import VIRTUAL_MIC_SINK_NAME
+from nvbroadcast.core.platform import IS_MACOS
+
+
+def _coreaudio_devices(device_class: str) -> list[dict]:
+    """Read only the CoreAudio provider, preserving its persistent IDs."""
+    import gi
+
+    gi.require_version("Gst", "1.0")
+    from gi.repository import Gst
+
+    Gst.init([])
+    entries = []
+    try:
+        provider = Gst.DeviceProviderFactory.get_by_name("osxaudiodeviceprovider")
+        if provider is None:
+            return []
+        # get_devices probes a stopped provider without starting a stream or
+        # installing a device-change watcher that needs later teardown.
+        for device in provider.get_devices() or []:
+            if device.get_device_class() != device_class:
+                continue
+            device_id = device.get_property("device-id")
+            if not isinstance(device_id, int) or not 0 < device_id <= 2147483647:
+                continue
+            props = device.get_properties()
+            unique_id = props.get_string("unique-id") if props is not None else None
+            token = (f"coreaudio:uid:{quote(unique_id, safe='')}" if unique_id
+                     else f"coreaudio:id:{device_id}")
+            entries.append({
+                "name": device.get_display_name(), "device": token,
+                "device_id": device_id,
+            })
+    except Exception:
+        # A denied microphone permission or missing plugin leaves the native
+        # default choice available; starting capture reports the actual error.
+        return []
+    return entries
+
+
+def resolve_coreaudio_device(device: str, device_class: str = "Audio/Source") -> int:
+    """Resolve a saved selection to CoreAudio's current integer device ID.
+
+    Zero selects the OS default only when no explicit selection was saved.
+    Persistent IDs survive reconnects; stale IDs never substitute a default.
+    """
+    if not device:
+        return 0
+    numeric_id = device.removeprefix("coreaudio:id:")
+    for entry in _coreaudio_devices(device_class):
+        token = entry["device"]
+        if device == token:
+            return entry["device_id"]
+        if device.startswith("coreaudio:uid:") and token.startswith("coreaudio:uid:"):
+            if unquote(device[14:]) == unquote(token[14:]):
+                return entry["device_id"]
+        if numeric_id.isascii() and numeric_id.isdigit() and int(numeric_id) == entry["device_id"]:
+            return entry["device_id"]
+    label = "microphone" if device_class == "Audio/Source" else "speaker"
+    raise ValueError(f"Selected {label} is unavailable")
 
 
 def _dedupe_devices(entries: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -54,6 +114,8 @@ def _pactl_short(kind: str) -> list[tuple[str, str]]:
 
 def default_speaker_device() -> str:
     """Return the current default speaker sink identifier, if available."""
+    if IS_MACOS:
+        return ""  # osxaudiosink device=0 follows the actual OS default.
     try:
         result = subprocess.run(
             ["pactl", "info"],
@@ -72,10 +134,16 @@ def default_speaker_device() -> str:
 
 
 def list_microphones() -> list[dict[str, str]]:
-    """List available microphone devices via PipeWire/PulseAudio.
+    """List available microphone devices via the native audio backend.
 
     Returns list of {"name": "Display Name", "device": "device_id"}.
     """
+    if IS_MACOS:
+        mics = _dedupe_devices([
+            {"name": entry["name"], "device": entry["device"]}
+            for entry in _coreaudio_devices("Audio/Source")
+        ])
+        return mics or [{"name": "Default Microphone", "device": ""}]
     mics = []
 
     # Try PipeWire first (pw-dump)
@@ -120,7 +188,13 @@ def list_microphones() -> list[dict[str, str]]:
 
 
 def list_speakers() -> list[dict[str, str]]:
-    """List available speaker/output devices via PipeWire/PulseAudio."""
+    """List available speaker/output devices via the native audio backend."""
+    if IS_MACOS:
+        speakers = _dedupe_devices([
+            {"name": entry["name"], "device": entry["device"]}
+            for entry in _coreaudio_devices("Audio/Sink")
+        ])
+        return speakers or [{"name": "Default Speaker", "device": ""}]
     speakers = []
 
     # Try PipeWire first

@@ -23,6 +23,7 @@ from nvbroadcast.audio.devices import (
     resolve_speaker_sink,
 )
 from nvbroadcast.audio.effects import AudioEffects
+from nvbroadcast.core.platform import IS_MACOS
 
 
 class SpeakerMonitor:
@@ -52,6 +53,8 @@ class SpeakerMonitor:
         self._sample_rate = sample_rate
 
     def _select_capture_backend(self) -> tuple[str, str]:
+        if IS_MACOS:
+            raise RuntimeError("Speaker denoising is unavailable on macOS: system audio capture is not implemented")
         if Gst.ElementFactory.find("pulsesrc") is not None:
             return "pulsesrc", resolve_speaker_monitor_name(self._speaker_device)
         if Gst.ElementFactory.find("pipewiresrc") is not None:
@@ -123,9 +126,9 @@ class SpeakerMonitor:
         then processes and outputs to the configured real audio device.
         """
         self._teardown_pipeline()
-        self._pipeline = Gst.Pipeline.new("nvbroadcast-speaker")
         capture_backend, capture_target = self._select_capture_backend()
         output_backend, output_target = self._select_output_backend()
+        self._pipeline = Gst.Pipeline.new("nvbroadcast-speaker")
 
         source = self._make_source(capture_backend, capture_target)
 
