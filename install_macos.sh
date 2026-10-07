@@ -10,6 +10,11 @@
 set -euo pipefail
 export PYTHONNOUSERSITE=1
 
+if (( EUID == 0 )); then
+    echo "Error: Run the macOS source installer as your logged-in user, without sudo." >&2
+    exit 1
+fi
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'

@@ -17,12 +17,14 @@ from gi.repository import Gst
 import numpy as np
 
 from nvbroadcast.audio.devices import (
+    resolve_coreaudio_device,
     resolve_pipewire_target,
     resolve_pulse_source_name,
     resolve_speaker_monitor,
     resolve_speaker_monitor_name,
 )
 from nvbroadcast.audio.source_probe import probe_audio_source
+from nvbroadcast.core.platform import IS_MACOS
 
 
 def has_recorded_meeting_audio(path: str) -> bool:
@@ -60,15 +62,20 @@ class MeetingAudioCapture:
         self._error_callback = callback
 
     def build(self, mic_device: str, speaker_device: str, output_path: str):
-        source_backend, source_error = probe_audio_source()
+        source_backend, source_error = (probe_audio_source(mic_device) if IS_MACOS
+                                        else probe_audio_source())
         if source_backend is None:
             raise RuntimeError(f"No usable meeting audio source: {source_error}")
         self._source_backend = source_backend
         self._last_error = ""
         self._output_path = output_path
         self._route_warning = ""
-        self._pipeline = Gst.Pipeline.new("nvbroadcast-meeting-capture")
-        if source_backend == "pulsesrc":
+        if source_backend == "osxaudiosrc":
+            mic_target = resolve_coreaudio_device(mic_device)
+            speaker_target = ""
+            self._route_warning = "macOS system audio capture is unavailable; WAV captures microphone only"
+            print(f"[NV Broadcast Meeting] {self._route_warning}")
+        elif source_backend == "pulsesrc":
             mic_target = resolve_pulse_source_name(mic_device)
             speaker_target = resolve_speaker_monitor_name(speaker_device)
             warnings = []
@@ -82,6 +89,7 @@ class MeetingAudioCapture:
         else:
             mic_target = resolve_pipewire_target(mic_device)
             speaker_target = resolve_speaker_monitor(speaker_device)
+        self._pipeline = Gst.Pipeline.new("nvbroadcast-meeting-capture")
 
         mixer = Gst.ElementFactory.make("audiomixer", "meeting-mixer")
         tee = Gst.ElementFactory.make("tee", "meeting-tee")
@@ -146,13 +154,13 @@ class MeetingAudioCapture:
         self._bus.add_signal_watch()
         self._bus.connect("message::error", self._on_error)
 
-    def _add_source_branch(self, name: str, target: str, mixer):
+    def _add_source_branch(self, name: str, target: str | int, mixer):
         source = Gst.ElementFactory.make(self._source_backend, f"{name}-src")
         if source is None:
             raise RuntimeError(f"Meeting audio source missing: {self._source_backend}")
         if target:
             source.set_property(
-                "device" if self._source_backend == "pulsesrc" else "target-object",
+                "device" if self._source_backend in ("pulsesrc", "osxaudiosrc") else "target-object",
                 target,
             )
 

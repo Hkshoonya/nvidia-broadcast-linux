@@ -24,6 +24,7 @@ from gi.repository import Gst
 import numpy as np
 
 from nvbroadcast.audio.effects import AudioEffects
+from nvbroadcast.audio.devices import resolve_coreaudio_device
 from nvbroadcast.audio.virtual_mic import (
     VIRTUAL_MIC_SOURCE_NAME,
     create_virtual_mic,
@@ -32,7 +33,7 @@ from nvbroadcast.audio.virtual_mic import (
     virtual_mic_backend,
     virtual_mic_sink_name,
 )
-from nvbroadcast.core.platform import IS_LINUX
+from nvbroadcast.core.platform import IS_LINUX, IS_MACOS
 
 
 class AudioPipeline:
@@ -160,7 +161,14 @@ class AudioPipeline:
         except ValueError:
             block_ms = 20
 
-        if IS_LINUX and self._virtual_mic_backend == "pulse":
+        if IS_MACOS:
+            source = Gst.ElementFactory.make("osxaudiosrc", "mic-source")
+            if source is None:
+                raise RuntimeError("CoreAudio microphone capture is not installed")
+            source.set_property("device", resolve_coreaudio_device(self._mic_device))
+            source.set_property("latency-time", block_ms * 1000)
+            source.set_property("buffer-time", block_ms * 4000)
+        elif IS_LINUX and self._virtual_mic_backend == "pulse":
             source = Gst.ElementFactory.make("pulsesrc", "mic-source")
             if self._mic_device:
                 source.set_property("device", self._mic_device)
@@ -212,7 +220,7 @@ class AudioPipeline:
         return pipeline
 
     def _build_output_pipeline(self) -> Gst.Pipeline:
-        """Fallback output path used only when no managed virtual mic exists."""
+        """Output transport; macOS processes without exporting a virtual mic."""
         pipeline = Gst.Pipeline.new("nvbroadcast-audio-output")
 
         self._appsrc = Gst.ElementFactory.make("appsrc", "audio-src")
@@ -240,18 +248,23 @@ class AudioPipeline:
             ),
         )
 
-        sink = Gst.ElementFactory.make("pipewiresink", "mic-output")
-        sink.set_property("mode", 2)  # provide
+        # macOS has no managed virtual microphone backend. Keep processing and
+        # levels usable without sending the live microphone to speakers, which
+        # would cause feedback. Explicit Mic Test playback uses CoreAudio.
+        sink = Gst.ElementFactory.make("fakesink" if IS_MACOS else "pipewiresink", "mic-output")
+        if not IS_MACOS:
+            sink.set_property("mode", 2)  # provide
         sink.set_property("sync", False)
         sink.set_property("async", False)
-        sink.set_property(
-            "stream-properties",
-            Gst.Structure.new_from_string(
-                "properties,media.class=Audio/Source/Virtual,"
-                "node.name=nvbroadcast_mic,"
-                'node.description="nvbroadcast"'
-            ),
-        )
+        if not IS_MACOS:
+            sink.set_property(
+                "stream-properties",
+                Gst.Structure.new_from_string(
+                    "properties,media.class=Audio/Source/Virtual,"
+                    "node.name=nvbroadcast_mic,"
+                    'node.description="nvbroadcast"'
+                ),
+            )
 
         for el in [self._appsrc, convert_out, out_caps, sink]:
             pipeline.add(el)
