@@ -159,7 +159,7 @@ class MacOSSigningTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="macOS signing tests ")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.source = self.root / "unsigned.pkg"
         self.source.write_bytes(b"reviewed unsigned installer")
         self.source.chmod(0o640)

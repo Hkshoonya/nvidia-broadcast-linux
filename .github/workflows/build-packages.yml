@@ -149,7 +149,11 @@ jobs:
           shopt -s nullglob
           packages=(dist/pkg-test/*.pkg)
           (( ${#packages[@]} == 1 ))
-          sudo /usr/sbin/installer -pkg "${packages[0]}" -target /
+          mkdir -p dist/macos-runtime
+          /bin/ls -lde /opt /usr /usr/local /usr/local/bin \
+            > dist/macos-runtime/destination-access.txt 2>&1 || true
+          sudo /usr/sbin/installer -verboseR -dumplog -pkg "${packages[0]}" -target / \
+            2>&1 | tee dist/macos-runtime/installer.log
           /opt/nvbroadcast/scripts/setup_macos_runtime.sh
           package_id="$(cat /opt/nvbroadcast/macos-package-version)"
           runtime_id="$(cat /opt/nvbroadcast/macos-runtime-id)"
@@ -170,6 +174,14 @@ jobs:
           PYTHONPATH: src
         run: |
           "$MACOS_RUNTIME_PYTHON" -m unittest -v tests.test_macos_audio
+
+      - name: Retain native Installer diagnostics
+        if: always()
+        run: |
+          mkdir -p dist/macos-runtime
+          if [[ -f /var/log/install.log ]]; then
+            sudo /usr/bin/tail -n 1000 /var/log/install.log > dist/macos-runtime/system-install.log
+          fi
 
       - name: Upload installed-runtime qualification
         if: always()
