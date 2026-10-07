@@ -5,6 +5,11 @@ in draft PR #77. It wraps the complete, hash-verified
 [private runtime](../runtime-prototype/README.md) in architecture-specific DEB
 and RPM packages. It does not replace the release packaging recipes.
 
+The subsequent [CPU/CUDA switching experiment](CUDA_SWITCHING.md) extends
+these adapters with complete CUDA payloads, variant-specific ownership and
+interrupted replacement tests. The results below remain the original CPU
+lifecycle evidence and retain their original input identities.
+
 Both candidates are implemented and tested before choosing a production model:
 
 | Candidate | Packages | Ownership |
@@ -212,8 +217,9 @@ digests. Full logs remain in the local test output directories.
 
 The [recorded results](results-2026-10-05.json) describe only these unsigned CPU
 prototypes. They do not choose between the two package models or qualify the
-current public installers. Remaining work includes real CUDA payloads and
-CPU/CUDA switching, virtual-capability selection for split variants, Zypper and
+current public installers. The linked CUDA experiment addresses complete
+payloads and CPU/CUDA switching separately. Remaining work includes
+virtual-capability selection for split variants, Zypper and
 other declared target versions, native dependency/ELF validation, interpreter
 and dependency-content upgrades, and running-application/service restart policy.
 

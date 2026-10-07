@@ -7,7 +7,19 @@ export PULSE_RUNTIME_PATH=/tmp/nvb-runtime/pulse
 export PULSE_STATE_PATH=/tmp/nvb-pulse-state
 export PULSE_CONFIG_PATH=/tmp/nvb-pulse-config
 export PULSE_SERVER=unix:/tmp/nvb-runtime/pulse-native
+export CUPY_CACHE_DIR=/tmp/nvb-cupy-cache
+export CUDA_CACHE_PATH=/tmp/nvb-cuda-cache
 mkdir -p "$XDG_RUNTIME_DIR" "$PULSE_RUNTIME_PATH" "$PULSE_STATE_PATH" "$PULSE_CONFIG_PATH"
+# PortAudio enumerates ALSA during sounddevice/MediaPipe imports. Fedora's
+# normal ALSA defaults target a PipeWire session that this isolated fixture
+# does not run. Give PortAudio a private synthetic device; GStreamer below
+# still has to deliver audio EOS through the separate PulseAudio null sink.
+export ALSA_CONFIG_PATH="$XDG_RUNTIME_DIR/alsa-null.conf"
+printf '%s\n' 'pcm.!default { type null }' > "$ALSA_CONFIG_PATH"
+# PortAudio also opens JACK. Fedora supplies PipeWire's JACK compatibility
+# library, but this fixture has no JACK/PipeWire session. Its documented
+# refusal option prevents that unrelated client from waiting for a session.
+export PIPEWIRE_NOJACK=1
 
 pulseaudio -n --daemonize=no --exit-idle-time=-1 --disable-shm=yes --use-pid-file=no \
     --load='module-native-protocol-unix socket=/tmp/nvb-runtime/pulse-native auth-anonymous=1' \
