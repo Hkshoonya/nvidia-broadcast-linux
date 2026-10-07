@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import hashlib
 import importlib
 from importlib import metadata
 import json
+import os
 from pathlib import Path
 import platform
-import subprocess
 import sys
 import time
 import tomllib
@@ -56,6 +57,12 @@ def probe(root: Path, version: str, window: bool, lock: Path, variant: str = "cp
         path = Path(module.__file__).resolve()
         assert inside(path, root), (name, path)
         module_paths[name] = str(path)
+
+    import sounddevice
+    portaudio_apis = sounddevice.query_hostapis()
+    portaudio_devices = sounddevice.query_devices()
+    assert any(api["name"] in {"ALSA", "PulseAudio"} and api["devices"]
+               for api in portaudio_apis), portaudio_apis
 
     from nvbroadcast.runtime.artifact import ArtifactEnvironment
     from nvbroadcast.runtime.variants import detect_runtime_variant, RuntimeVariant
@@ -155,6 +162,7 @@ def probe(root: Path, version: str, window: bool, lock: Path, variant: str = "cp
             "gtk": f"{Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}",
             "adwaita": f"{Adw.get_major_version()}.{Adw.get_minor_version()}.{Adw.get_micro_version()}",
             "gstreamer": Gst.version_string(), "video_and_audio_pipelines": "eos", "gtk_window_mapped": mapped,
+            "portaudio_host_apis": portaudio_apis, "portaudio_device_count": len(portaudio_devices),
             "variant": variant, "cpu_execution": cpu.to_payload(),
             "cuda_execution": cuda.to_payload() if cuda else None,
             "cuda_unavailable_expected": cuda_unavailable, "cupy_execution": cupy_execution,
@@ -174,8 +182,15 @@ def main() -> None:
     if args.cuda_unavailable and args.variant != "cuda":
         parser.error("--cuda-unavailable requires --variant cuda")
     lock = args.lock or Path(__file__).with_name(f"pylock.linux-x86_64-cp313-{args.variant}.toml")
-    print("RESULT=" + json.dumps(probe(args.runtime, args.python_version, args.window, lock,
-                                      args.variant, args.cuda_unavailable), sort_keys=True))
+    # Native libraries can temporarily redirect fd 2 during import. Preserve
+    # the harness's diagnostic pipe so a blocked import still yields a stack.
+    with os.fdopen(os.dup(sys.stderr.fileno()), "w") as diagnostic:
+        faulthandler.dump_traceback_later(60, repeat=True, file=diagnostic)
+        try:
+            result = probe(args.runtime, args.python_version, args.window, lock, args.variant, args.cuda_unavailable)
+        finally:
+            faulthandler.cancel_dump_traceback_later()
+    print("RESULT=" + json.dumps(result, sort_keys=True))
 
 
 if __name__ == "__main__":

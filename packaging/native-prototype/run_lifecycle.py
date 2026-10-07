@@ -71,7 +71,16 @@ class Lifecycle:
                        "-e", "NVBROADCAST_NO_LOG_FILE=1", "-e", "OPENBLAS_NUM_THREADS=2",
                        "-e", "PYTHONPATH=/usr/lib/python3/dist-packages", "-e", "PYTHONHOME=/usr"]
         started = time.monotonic()
-        run = subprocess.run([*prefix, self.name, *command], capture_output=True, text=True, timeout=timeout)
+        try:
+            run = subprocess.run([*prefix, self.name, *command], capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired as error:
+            def decoded(value):
+                return value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+            (self.output / f"{label}.log").write_text(decoded(error.stdout) + decoded(error.stderr))
+            self.result["steps"].append({"name": label, "command": command, "exit": None,
+                                         "timeout": timeout, "seconds": round(time.monotonic() - started, 2)})
+            self.save()
+            raise
         (self.output / f"{label}.log").write_text(run.stdout + run.stderr)
         self.result["steps"].append({"name": label, "command": command, "exit": run.returncode,
                                      "seconds": round(time.monotonic() - started, 2)})

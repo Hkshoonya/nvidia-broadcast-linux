@@ -85,7 +85,9 @@ class PrivateCudaRuntimeTests(unittest.TestCase):
     def test_closure_checks_every_other_edge_and_rejects_unreviewed_ort_owner(self):
         self.distribution("faster-whisper", "1.2.1", ("onnxruntime>=1.14,<2", "backend>=2"))
         self.distribution("onnxruntime-gpu", "1.24.4")
-        environment = lambda: ArtifactEnvironment.inspect(self.root, "amd64")
+        def environment():
+            return ArtifactEnvironment.inspect(self.root, "amd64")
+
         self.assertTrue(any("missing package backend" in p for p in probe.closure_problems(environment(), "cuda")))
         self.distribution("backend", "2.1")
         self.assertEqual(probe.closure_problems(environment(), "cuda"), [])

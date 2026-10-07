@@ -12,7 +12,9 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +29,7 @@ def load(name, path):
 
 build = load("native_prototype_build", ROOT / "packaging/native-prototype/build.py")
 lifecycle = load("native_prototype_lifecycle", ROOT / "packaging/native-prototype/run_lifecycle.py")
+verifier = load("native_prototype_verifier", ROOT / "packaging/native-prototype/verify.py")
 
 
 class NativeRuntimePrototypeTests(unittest.TestCase):
@@ -94,6 +97,49 @@ class NativeRuntimePrototypeTests(unittest.TestCase):
         (self.root / records[0]["artifact"]).write_text("corrupted archive")
         with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
             lifecycle.checked_packages(self.root)
+
+    def test_regular_native_file_rejects_same_byte_symlink_substitution(self):
+        prefix = self.root / "private/runtime"
+        prefix.mkdir(parents=True)
+        launcher = self.root / "system-bin/nvbroadcast"
+        launcher.parent.mkdir()
+        launcher.write_bytes(b"#!/bin/sh\nexit 0\n")
+        launcher.chmod(0o755)
+        target = self.root / "unowned-target"
+        target.write_bytes(launcher.read_bytes())
+        target.chmod(0o755)
+        contents = {str(prefix.parent): {"mode": 0o755}, str(prefix): {"mode": 0o755},
+                    str(launcher): {"mode": 0o755, "sha256": verifier.sha(launcher)}}
+        artifacts = self.root / "artifacts"
+        artifacts.mkdir()
+        (artifacts / "content.json").write_text(json.dumps(contents))
+        (artifacts / "packages.json").write_text(json.dumps([
+            {"family": "deb", "kind": "self", "revision": 1, "name": "nvbroadcast-cpu",
+             "content": "content.json"}]))
+        manifest = self.root / "manifest.json"
+        manifest.write_text("{}")
+        original_lstat, original_exists = Path.lstat, Path.exists
+
+        def root_metadata(path):
+            actual = original_lstat(path)
+            return SimpleNamespace(st_mode=actual.st_mode, st_uid=0, st_gid=0)
+
+        def fixture_exists(path):
+            return False if path == Path("/usr/lib/nvbroadcast/.transaction") else original_exists(path)
+
+        # Only package database/process calls and fixture UID/GID are simulated;
+        # both checks inspect real file/link types, bytes and permissions.
+        with mock.patch.object(verifier, "PREFIX", prefix), \
+                mock.patch.object(verifier.subprocess, "check_output", return_value="\n".join(contents)), \
+                mock.patch.object(verifier.subprocess, "run"), \
+                mock.patch.object(Path, "lstat", root_metadata), \
+                mock.patch.object(Path, "exists", fixture_exists):
+            self.assertEqual(verifier.verify("deb", "self", 1, artifacts, manifest)["status"], "pass")
+            launcher.unlink()
+            launcher.symlink_to(target)
+            self.assertEqual(verifier.sha(launcher), contents[str(launcher)]["sha256"])
+            with self.assertRaisesRegex(AssertionError, "expected regular file"):
+                verifier.verify("deb", "self", 1, artifacts, manifest)
 
     def test_package_identity_duplicate_missing_and_escape_are_rejected(self):
         records = self.package_set()

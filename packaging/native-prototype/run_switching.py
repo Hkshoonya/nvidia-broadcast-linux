@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -39,10 +40,53 @@ def check_inputs(packages: Path, runtime: Path, variant: str) -> list[dict]:
 
 
 class Switching(Lifecycle):
-    def __init__(self, cell: dict, shape: str, packages: dict, runtimes: dict, output: Path):
+    def __init__(self, cell: dict, shape: str, packages: dict, runtimes: dict, output: Path,
+                 keep_failed: bool = False, fault_boundary: str = "prepare",
+                 skip_rpm_temporary_recovery: bool = False):
         super().__init__(cell, shape, packages["cpu"], runtimes["cpu"], output)
         self.package_sets, self.runtimes = packages, runtimes
         self.variants = {v: json.loads((p / "packages.json").read_text()) for v, p in packages.items()}
+        self.keep_failed = keep_failed
+        self.fault_boundary = fault_boundary
+        self.skip_rpm_temporary_recovery = skip_rpm_temporary_recovery
+
+    def native_recovery_inputs(self) -> Path:
+        """Reproduce tiny adapter files and bind them to the built content hashes."""
+        from build import integration, write
+        directory = self.output / "native-recovery-inputs"
+        source = directory / "root"
+        source.mkdir(parents=True)
+        contents = {}
+        for variant in ("cpu", "cuda"):
+            combined = {}
+            for record in self.selection(variant):
+                content = json.loads((self.package_sets[variant] / record["content"]).read_text())
+                for name, entry in content.items():
+                    if name in combined and combined[name] != entry:
+                        raise ValueError("inconsistent split native content manifests")
+                    combined[name] = entry
+                if variant == "cuda":
+                    if record["kind"] != "runtime":
+                        integration(source, record["family"], record["kind"], record["version"], variant)
+                    write(source / f"usr/lib/nvbroadcast/{record['kind']}.json", json.dumps({
+                        "prototype": True, "family": record["family"], "package": record["name"],
+                        "version": record["version"], "variant": variant,
+                        "runtime_manifest_sha256": digest(self.runtimes[variant].parent / "manifest.json"),
+                    }, sort_keys=True) + "\n")
+            contents[variant] = combined
+        for name, entry in contents["cuda"].items():
+            if Path(name).is_relative_to(PREFIX):
+                continue
+            generated = source / name.lstrip("/")
+            if "sha256" in entry:
+                if generated.is_symlink() or digest(generated) != entry["sha256"]:
+                    raise ValueError(f"native recovery source differs from recorded package: {name}")
+            elif "symlink" in entry:
+                if not generated.is_symlink() or os.readlink(generated) != entry["symlink"]:
+                    raise ValueError(f"native recovery link differs from recorded package: {name}")
+        for variant, value in contents.items():
+            (directory / f"{variant}.json").write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
+        return directory
 
     def selection(self, variant: str, only: str | None = None) -> list[dict]:
         kinds = {only} if only else ({"self"} if self.shape == "self" else {"app", "runtime"})
@@ -92,19 +136,26 @@ class Switching(Lifecycle):
                      ["dnf", "--disable-repo=*", "check"])
 
     def interrupt_switch(self) -> None:
+        tid_min = int(time.time())
         with (self.output / "interrupted-switch.log").open("w") as log:
             process = subprocess.Popen(["docker", "exec", self.name, *self.transaction("cuda")],
                                        stdout=log, stderr=subprocess.STDOUT)
             killed = False
+            observed_path = ""
             try:
                 # DNF verifies the complete multi-GiB RPM before any prepare
                 # hook runs. Allow that work to finish before injecting a fault.
                 deadline = time.monotonic() + 240
                 while time.monotonic() < deadline and process.poll() is None:
-                    check = subprocess.run(["docker", "exec", self.name, "test", "-f",
-                                            "/usr/lib/nvbroadcast/.transaction"],
-                                           capture_output=True, timeout=10)
-                    if check.returncode == 0:
+                    check_command = ["test", "-f", "/usr/lib/nvbroadcast/.transaction"]
+                    if self.fault_boundary == "rpm-unpack":
+                        check_command = ["sh", "-c", "test -f /usr/lib/nvbroadcast/.transaction && "
+                                         "find /usr/lib/nvbroadcast/runtime -type f -name '*;????????' "
+                                         "-size +1M -print -quit"]
+                    check = subprocess.run(["docker", "exec", self.name, *check_command],
+                                           capture_output=True, text=True, timeout=10)
+                    if check.returncode == 0 and (self.fault_boundary == "prepare" or check.stdout.strip()):
+                        observed_path = check.stdout.strip()
                         # APT may put dpkg in a separate session; killing only
                         # APT's process group leaves the real unpacker alive.
                         # Terminate this disposable container so no descendant
@@ -122,15 +173,35 @@ class Switching(Lifecycle):
             state = json.loads(subprocess.check_output(["docker", "inspect", "--format", "{{json .State}}", self.name], text=True))
             if not killed or status == 0 or state["Running"] or state["ExitCode"] != 137:
                 raise RuntimeError(f"SIGKILL not established: killed={killed}, exit={status}")
+        tid_max = int(time.time())
         self.result["steps"].append({"name": "interrupted-switch", "exit": status,
                                     "container_exit": state["ExitCode"],
+                                    "fault_boundary": self.fault_boundary,
+                                    "observed_unpack_path": observed_path,
+                                    "tid_min": tid_min, "tid_max": tid_max,
                                     "fault": "SIGKILL whole isolated container after new variant's prepare marker"})
         subprocess.run(["docker", "start", self.name], capture_output=True, check=True, timeout=30)
         self.command("interrupted-launch-blocked", ["sh", "-c",
                      'if [ -x /usr/bin/nvbroadcast ]; then exec /usr/bin/nvbroadcast --help; else exit 78; fi'],
                      user=True, expected=78)
+        self.command("interrupted-native-inventory", ["dpkg-query", "-W"] if self.cell["family"] == "deb"
+                     else ["rpm", "-qa"])
         if self.cell["family"] == "deb":
             self.command("recover-pending-configure", ["dpkg", "--configure", "-a"], expected=None)
+        elif not self.skip_rpm_temporary_recovery:
+            recovery = self.command("preserve-rpm-unpack-fragments", [f"{PREFIX}/bin/python", "-I", "-B",
+                                    "/native-prototype/recover_rpm_unpacked.py", "--runtime", PREFIX,
+                                    "--payload", "/payloads/cuda", "--manifest", "/manifests/cuda.json",
+                                    "--baseline-manifest", "/manifests/cpu.json", "--tid-min", str(tid_min),
+                                    "--tid-max", str(tid_max), "--quarantine", "/var/lib/nvb-prototype-recovery",
+                                    "--native-source", "/native-recovery/root",
+                                    "--native-manifest", "/native-recovery/cuda.json",
+                                    "--native-baseline", "/native-recovery/cpu.json"])
+            report = json.loads(recovery.stdout.split("RESULT=", 1)[1])
+            if self.fault_boundary == "rpm-unpack" and not report["preserved"]:
+                raise RuntimeError("unpack fault did not leave any recorded RPM fragments")
+            self.result["steps"][-1]["verification"] = report
+            (self.output / "rpm-unpack-preservation.json").write_text(json.dumps(report, indent=2) + "\n")
         # A crash between unpacking the application and its matching runtime
         # leaves an intentionally inconsistent split dependency pair. Repair
         # that state with the explicit local package set, without a network or
@@ -143,10 +214,13 @@ class Switching(Lifecycle):
 
     def run(self) -> dict:
         try:
+            recovery_inputs = self.native_recovery_inputs()
             mounts = []
             for variant in ("cpu", "cuda"):
                 mounts += ["-v", f"{self.package_sets[variant]}:/artifacts/{variant}:ro",
                            "-v", f"{self.runtimes[variant].parent / 'manifest.json'}:/manifests/{variant}.json:ro"]
+            mounts += ["-v", f"{self.runtimes['cuda']}:/payloads/cuda:ro"]
+            mounts += ["-v", f"{recovery_inputs}:/native-recovery:ro"]
             subprocess.run(["docker", "run", "-d", "--init", "--pull=never", "--network=none",
                             "--name", self.name, "--tmpfs", "/tmp:rw,mode=1777", *mounts,
                             "-v", f"{HERE}:/native-prototype:ro", "-v", f"{RUNTIME_TOOLS}:/runtime-prototype:ro",
@@ -189,7 +263,10 @@ class Switching(Lifecycle):
         except Exception as error:
             self.result.update(status="fail", error=f"{type(error).__name__}: {error}")
         finally:
-            subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)
+            if self.keep_failed and self.result["status"] == "fail":
+                self.result["retained_container"] = self.name
+            else:
+                subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)
             self.save()
         return self.result
 
@@ -202,6 +279,12 @@ def main() -> None:
     parser.add_argument("--matrix", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--jobs", type=int, choices=range(1, 5), default=2)
+    parser.add_argument("--shapes", nargs="+", choices=("self", "split"), default=("self", "split"))
+    parser.add_argument("--keep-failed", action="store_true",
+                        help="retain a failing isolated container for diagnosis; remove it manually afterwards")
+    parser.add_argument("--fault-boundary", choices=("prepare", "rpm-unpack"), default="prepare")
+    parser.add_argument("--skip-rpm-temporary-recovery", action="store_true",
+                        help="reproduce RPM's unowned temporary-file defect without preserving the fragments")
     args = parser.parse_args()
     packages = {v: getattr(args, f"{v}_packages").resolve(strict=True) for v in ("cpu", "cuda")}
     runtimes = {v: getattr(args, f"{v}_runtime").resolve(strict=True) for v in ("cpu", "cuda")}
@@ -209,12 +292,15 @@ def main() -> None:
     matrix = json.loads(args.matrix.read_text())
     if not matrix or any(not c["image"].startswith("sha256:") or len(c["image"]) != 71 for c in matrix):
         parser.error("matrix must contain inspected immutable image IDs")
+    if args.fault_boundary == "rpm-unpack" and any(c["family"] != "rpm" for c in matrix):
+        parser.error("rpm-unpack requires an RPM-only matrix")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     results = []
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = [pool.submit(Switching(cell, shape, packages, runtimes, output).run)
-                   for cell in matrix for shape in ("self", "split")]
+        futures = [pool.submit(Switching(cell, shape, packages, runtimes, output,
+                                       args.keep_failed, args.fault_boundary, args.skip_rpm_temporary_recovery).run)
+                   for cell in matrix for shape in args.shapes]
         for future in futures:
             result = future.result()
             results.append(result)
