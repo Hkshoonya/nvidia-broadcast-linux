@@ -1,7 +1,14 @@
 # macOS package signing and acceptance
 
-The supported installer targets Apple Silicon and macOS 13 or newer. It
-contains Python application source, resources and launch/setup scripts. The
+The installer declares Apple Silicon and macOS 13 as its minimum platform.
+The current Homebrew runtime setup is supported on Apple Silicon macOS
+15 or newer; the installed-runtime CI qualification uses macOS 15.7.9.
+Homebrew classifies macOS 13 and 14 as unsupported Tier 3 configurations, so
+the package's minimum declaration does not qualify current dependency setup
+on those systems. See Homebrew's [installation requirements](https://docs.brew.sh/Installation)
+and [support tiers](https://docs.brew.sh/Support-Tiers).
+
+The package contains Python application source, resources and launch/setup scripts. The
 distribution identity is **Developer ID Installer**. The separate proprietary
 Camera Extension prototype is outside this package; supported virtual-camera
 output continues through OBS.
@@ -97,7 +104,9 @@ do not establish completed signing/notarization.
 
 ## Test the signed installer on your Mac
 
-Use a regular user on an Apple Silicon Mac with macOS 13+. Verify the downloaded
+Use a regular user on an Apple Silicon Mac with macOS 15+ and the supported
+Homebrew runtime stack. macOS 13/14 runtime compatibility remains unqualified.
+Verify the downloaded
 package against the final evidence checksum, then run:
 
 ```bash
