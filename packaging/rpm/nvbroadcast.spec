@@ -162,7 +162,10 @@ if ! install_runtime "$RUNTIME_VARIANT"; then
   fi
   echo "NV Broadcast: CUDA runtime failed; recreating clean CPU environment."
   RUNTIME_VARIANT="cpu"
-  install_runtime "$RUNTIME_VARIANT"
+  if ! install_runtime "$RUNTIME_VARIANT"; then
+    echo "NV Broadcast: CPU runtime setup failed; installation cannot complete." >&2
+    exit 1
+  fi
 fi
 
 # pip's local project build can leave metadata beside package-owned sources.

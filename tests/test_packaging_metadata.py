@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import struct
@@ -1132,6 +1133,83 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertNotIn('[cuda]"', postinst)
         self.assertIn("pkill -f", rpm_spec.split("%pre", 1)[1].split("%post", 1)[0])
         self.assertNotIn('pkill -f "nvbroadcast"', rpm_spec)
+
+    @staticmethod
+    def _run_rpm_postinstall(postinstall, *, gpu, cuda_status, cpu_status):
+        with tempfile.TemporaryDirectory(prefix="nvb-rpm-postinstall-") as tmp:
+            root = Path(tmp)
+            commands = root / "commands"
+            commands.mkdir()
+            calls = root / "calls"
+            calls.touch()
+            for name in ("rm", "mkdir", "cp", "grep"):
+                (commands / name).symlink_to(shutil.which(name))
+            stubs = {
+                "uname": "printf '%s\\n' x86_64\n",
+                "modprobe": 'printf "%s\\n" integration >> "$NVB_TEST_CALLS"\n',
+                "python3": (
+                    'mkdir -p "$3/bin"\n'
+                    'cp "$NVB_TEST_PIP" "$3/bin/pip"\n'
+                    'cp "$NVB_TEST_PYTHON" "$3/bin/python"\n'
+                ),
+                "pip": "exit 0\n",
+                "python": (
+                    'while [ "$1" != "--variant" ]; do shift; done\n'
+                    'printf "%s\\n" "$2" >> "$NVB_TEST_CALLS"\n'
+                    'case "$2" in\n'
+                    '  cuda) exit "$NVB_TEST_CUDA_STATUS" ;;\n'
+                    '  cpu) exit "$NVB_TEST_CPU_STATUS" ;;\n'
+                    "esac\n"
+                ),
+            }
+            if gpu:
+                stubs["nvidia-smi"] = "exit 0\n"
+            for name, body in stubs.items():
+                stub = commands / name
+                stub.write_text("#!/bin/sh\n" + body)
+                stub.chmod(0o755)
+            script = postinstall.replace(
+                "/opt/nvbroadcast", shlex.quote(str(root / "application"))
+            ).replace("/etc/modprobe.d", shlex.quote(str(root / "modprobe.d")))
+            assert "/opt/nvbroadcast" not in script
+            assert "/etc/modprobe.d" not in script
+            environment = dict(
+                os.environ,
+                PATH=str(commands),
+                NVB_TEST_CALLS=str(calls),
+                NVB_TEST_PIP=str(commands / "pip"),
+                NVB_TEST_PYTHON=str(commands / "python"),
+                NVB_TEST_CUDA_STATUS=str(cuda_status),
+                NVB_TEST_CPU_STATUS=str(cpu_status),
+            )
+            result = subprocess.run(
+                ["/bin/sh", "-c", script],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return result, calls.read_text().splitlines()
+
+    def test_rpm_postinstall_propagates_failed_cpu_fallback(self):
+        spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        postinstall = spec.split("\n%post\n", 1)[1].split("\n%preun\n", 1)[0]
+        cases = (
+            (True, 1, 1, 1, ["cuda", "cpu"]),
+            (True, 1, 0, 0, ["cuda", "cpu", "integration"]),
+            (True, 0, 1, 0, ["cuda", "integration"]),
+            (False, 0, 1, 1, ["cpu"]),
+            (False, 0, 0, 0, ["cpu", "integration"]),
+        )
+        for gpu, cuda_status, cpu_status, expected_status, expected_calls in cases:
+            with self.subTest(gpu=gpu, cuda_status=cuda_status, cpu_status=cpu_status):
+                result, calls = self._run_rpm_postinstall(
+                    postinstall, gpu=gpu, cuda_status=cuda_status, cpu_status=cpu_status
+                )
+                self.assertEqual(result.returncode, expected_status, result.stderr)
+                self.assertEqual(calls, expected_calls)
+                if gpu and cuda_status and cpu_status:
+                    self.assertIn("CPU runtime setup failed", result.stderr)
 
     def test_virtual_camera_label_is_nvbroadcast_everywhere(self):
         constants = (REPO_ROOT / "src" / "nvbroadcast" / "core" / "constants.py").read_text()
