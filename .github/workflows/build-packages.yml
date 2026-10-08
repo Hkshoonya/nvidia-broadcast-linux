@@ -10,6 +10,26 @@ on:
         description: 'Sign, notarize and staple the macOS installer (requires macos-signing environment secrets)'
         type: boolean
         default: false
+      macos_recovery_operation:
+        description: 'Use status/resume to recover an existing notarization request without building or submitting again'
+        type: choice
+        options: [none, status, resume]
+        default: none
+      submission_id:
+        description: 'Existing Apple submission UUID (status only)'
+        type: string
+      source_run_id:
+        description: 'Original Build Packages run ID (resume only)'
+        type: string
+      source_attempt:
+        description: 'Original signing attempt with the retained checkpoint (resume only)'
+        type: string
+      source_sha256:
+        description: 'Independently verified original unsigned PKG SHA-256 (resume only)'
+        type: string
+      signed_sha256:
+        description: 'Independently verified pre-staple signed upload SHA-256 (resume only)'
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -21,6 +41,7 @@ permissions:
 jobs:
   # ─── Linux: .deb + .rpm ────────────────────────────────────────────────────
   build-linux:
+    if: github.event_name != 'workflow_dispatch' || inputs.macos_recovery_operation == 'none'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -81,6 +102,7 @@ jobs:
 
   # ─── macOS: .pkg ───────────────────────────────────────────────────────────
   build-macos:
+    if: github.event_name != 'workflow_dispatch' || inputs.macos_recovery_operation == 'none'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -122,6 +144,7 @@ jobs:
 
   # Exercise the installed package without camera/microphone capture.
   test-macos-runtime:
+    if: github.event_name != 'workflow_dispatch' || inputs.macos_recovery_operation == 'none'
     name: Test installed macOS runtime (Apple Silicon)
     env:
       GST_PLUGIN_PATH: /opt/homebrew/lib/gstreamer-1.0
@@ -215,7 +238,7 @@ jobs:
   # Signing credentials are confined to this manual/tag job and its environment.
   # Unsigned build artifacts remain available for inspection, never for release.
   sign-macos:
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.sign_macos)
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.sign_macos && inputs.macos_recovery_operation == 'none')
     needs: [build-macos, test-macos, test-macos-runtime]
     runs-on: macos-15
     timeout-minutes: 50
@@ -309,7 +332,8 @@ jobs:
             --team-id "$MACOS_SIGNING_TEAM_ID" \
             --keychain "$MACOS_SIGNING_KEYCHAIN" \
             --notary-profile nvbroadcast-notary \
-            --evidence-dir dist/macos-signing/evidence
+            --evidence-dir dist/macos-signing/evidence \
+            --checkpoint-dir dist/macos-notarization-checkpoint
 
       - name: Upload verified signed package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -322,9 +346,18 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: macos-signing-evidence
+          name: macos-signing-evidence-attempt-${{ github.run_attempt }}
           path: dist/macos-signing/evidence
           if-no-files-found: ignore
+
+      - name: Retain the exact notarization submission for recovery
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-notarization-checkpoint-attempt-${{ github.run_attempt }}
+          path: dist/macos-notarization-checkpoint
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Remove signing material
         if: always()
@@ -350,7 +383,26 @@ jobs:
           fi
 
   # ─── Test: macOS platform + prototype extension compilation ────────────────
+  macos-recovery:
+    if: github.event_name == 'workflow_dispatch' && inputs.macos_recovery_operation != 'none'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/macos-notarization-recovery.yml
+    secrets:
+      MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+      MACOS_NOTARY_APP_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
+      MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+    with:
+      operation: ${{ inputs.macos_recovery_operation }}
+      submission_id: ${{ inputs.submission_id }}
+      source_run_id: ${{ inputs.source_run_id }}
+      source_attempt: ${{ inputs.source_attempt }}
+      source_sha256: ${{ inputs.source_sha256 }}
+      signed_sha256: ${{ inputs.signed_sha256 }}
+
   test-macos:
+    if: github.event_name != 'workflow_dispatch' || inputs.macos_recovery_operation == 'none'
     name: Test macOS (Apple Silicon, Python ${{ matrix.python-version }})
     runs-on: macos-15
     strategy:
@@ -381,6 +433,7 @@ jobs:
             tests/test_macos_camera.py \
             tests/test_macos_signing.py \
             tests/test_macos_signing_workflow.py \
+            tests/test_macos_notarization_resume_artifacts.py \
             tests/test_macos_package_install.py \
             tests/test_eye_contact.py \
             tests/test_updates.py
@@ -438,6 +491,7 @@ jobs:
 
   # ─── Test: Linux platform checks ───────────────────────────────────────────
   test-linux:
+    if: github.event_name != 'workflow_dispatch' || inputs.macos_recovery_operation == 'none'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -516,6 +570,7 @@ jobs:
 
   # ─── Test: supported Python runtime compatibility ──────────────────────────
   test-python:
+    if: github.event_name != 'workflow_dispatch' || inputs.macos_recovery_operation == 'none'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
