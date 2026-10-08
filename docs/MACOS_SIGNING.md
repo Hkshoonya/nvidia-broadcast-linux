@@ -1,6 +1,6 @@
 # macOS package signing and acceptance
 
-The installer declares Apple Silicon and macOS 13 as its minimum platform.
+The PKG declares Apple Silicon and macOS 13 as its minimum platform.
 The current Homebrew runtime setup is supported on Apple Silicon macOS
 15 or newer; the installed-runtime CI qualification uses macOS 15.7.9.
 Homebrew classifies macOS 13 and 14 as unsupported Tier 3 configurations, so

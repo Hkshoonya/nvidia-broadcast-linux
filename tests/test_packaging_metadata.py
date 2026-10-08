@@ -51,7 +51,9 @@ class PackagingMetadataTests(unittest.TestCase):
         published = "1.5.2"
         self.assertIn(f"nvbroadcast_{published}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{published}-1.noarch.rpm", docs_index)
-        self.assertIn(f"NVBroadcast-{published}-1.pkg", docs_index)
+        # macOS source instructions link to separate PKG verification/setup;
+        # they do not advertise an older package as an in-place source update.
+        self.assertIn("docs/MACOS_SIGNING.md#test-the-signed-installer-on-your-mac", docs_index)
         self.assertIn(f"such as v{current}", snap_workflow)
         self.assertIn(f"# NV Broadcast v{current}", release_notes)
 
@@ -1275,7 +1277,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('rm -rf -- "$INSTALL_DIR/venv"', script)
         self.assertIn('pkill -f "^${INSTALL_DIR}/venv/bin/python -m nvbroadcast', script)
         self.assertIn("sys.version_info < (3, 14)", script)
-        self.assertIn('pip install -q "openai-whisper>=20231117"', script)
+        self.assertIn('-m pip install -q "openai-whisper>=20231117"', script)
 
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
@@ -1493,29 +1495,29 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("`.[cuda,meeting]`", readme)
         self.assertIn("./install.sh --runtime auto --with-meeting", readme)
 
-    def test_macos_packages_require_the_runtime_wheel_baseline(self):
+    def test_macos_source_support_is_distinct_from_pkg_wheel_baseline(self):
         installer = (REPO_ROOT / "install_macos.sh").read_text()
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
         website = (REPO_ROOT / "docs" / "index.html").read_text()
 
-        self.assertIn('[[ "$MACOS_VER" -lt 13 ]]', installer)
-        self.assertIn("macOS 13 (Ventura) or newer", installer)
+        self.assertIn('"$MACOS_VER" -lt 15', installer)
+        self.assertIn("macOS 15 (Sequoia) or newer", installer)
         self.assertIn('[[ "$MACOS_ARCH" != "arm64" ]]', installer)
         self.assertIn("supports Apple Silicon Macs only", installer)
-        self.assertIn(
-            "for p in python3.13 python3.12 python3.11 python3; do", installer
-        )
-        self.assertIn('"$minor" -le 13', installer)
+        self.assertIn("for minor in 13 12 11; do", installer)
+        self.assertIn("(3, 11) <= sys.version_info[:2] <= (3, 13)", installer)
+        self.assertIn("import cairo", installer)
+        self.assertIn("import gi", installer)
         setup = (REPO_ROOT / "scripts" / "setup_macos_runtime.sh").read_text()
         self.assertIn("for minor in 13 12 11; do", setup)
         self.assertIn("(3, 11) <= sys.version_info[:2] <= (3, 13)", setup)
         self.assertIn("import gi", setup)
         self.assertIn('hostArchitectures="arm64"', build_script)
         self.assertIn('<os-version min="13.0"/>', build_script)
-        self.assertIn("Apple Silicon Mac with macOS 13+", readme)
+        self.assertIn("Apple Silicon Mac with macOS 15+", readme)
         self.assertIn("Python 3.11-3.13", readme)
-        self.assertIn("macOS 13 Ventura or newer", website)
+        self.assertIn("macOS 15 Sequoia or newer", website)
         self.assertIn("Apple Silicon (M1+) required", website)
 
     def test_sponsor_walls_keep_action_markers_balanced(self):
