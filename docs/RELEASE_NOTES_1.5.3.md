@@ -1,7 +1,7 @@
 # NV Broadcast v1.5.3
 
-**Candidate notes. This version has not been published.** Final package,
-hardware, licensing, and release checks are tracked in
+**Release candidate; planned stable publication 10 October 2026.** Final package,
+hardware, and release checks are tracked in
 [the release readiness record](RELEASE_READINESS_1.5.3.md).
 
 This maintenance release brings together the recording, compact-window,
@@ -39,6 +39,8 @@ Discovery does not start a broadcast without the user's configured opt-in.
 CPU modes create CPU inference sessions. GPU availability checks use the
 selected device, and temporary GPU memory pressure is reported as retryable.
 Cold CUDA and TensorRT checks allow time for first-use kernel compilation.
+The AMD64 Snap bundles CUDA support without the TensorRT SDK libraries;
+TensorRT is available only in installations with its required runtime.
 
 Background processing preserves more moving finger gaps and avoids several
 bright-edge and white-clothing contamination cases. Dilate and Softness now

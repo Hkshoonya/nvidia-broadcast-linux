@@ -43,7 +43,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-10-05">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-10-10">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
         # Direct website downloads follow the latest published release only
@@ -189,7 +189,6 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_install_script_uses_supported_tensorrt_command(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
         pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
-        requirement = "tensorrt-cu12-libs==10.16.0.72"
         wheel_requirement = (
             "tensorrt-cu12-libs @ https://pypi.nvidia.com/tensorrt-cu12-libs/"
             "tensorrt_cu12_libs-10.16.0.72-py3-none-manylinux_2_28_x86_64.whl"
@@ -541,6 +540,11 @@ class PackagingMetadataTests(unittest.TestCase):
             time.sleep(1.1)
             self.assertEqual(first, build())
 
+            environment["SOURCE_DATE_EPOCH"] = "4102444800"
+            future = build()
+            time.sleep(1.1)
+            self.assertEqual(future, build())
+
             environment["SOURCE_DATE_EPOCH"] = "1600000000"
             self.assertNotEqual(first, build())
             environment["SOURCE_DATE_EPOCH"] = "invalid"
@@ -588,6 +592,11 @@ class PackagingMetadataTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(header.split()[1], "nvbroadcast")
+
+            environment["SOURCE_DATE_EPOCH"] = "4102444800"
+            future, _ = build()
+            time.sleep(1.1)
+            self.assertEqual(future, build()[0])
 
             environment["SOURCE_DATE_EPOCH"] = "1600000000"
             self.assertNotEqual(first, build()[0])

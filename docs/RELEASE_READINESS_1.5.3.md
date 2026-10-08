@@ -4,11 +4,15 @@ Assessment started **5 October 2026**, from main commit
 `254ec93b5351c8e50815b3bf03dce6ae91ef1726`. The latest published version remains
 [v1.5.2, published 4 September 2026](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.2).
 
-**Status: release preparation; not approved for publication.** The version
-metadata and candidate notes describe the next maintenance release. No tag,
-Store promotion, website download change, or public Flatpak submission is part
-of this preparation. The planned metadata date must be reconciled with the
-actual publication date before tagging.
+**Status: maintainer-authorized release execution, 8 October 2026.** The
+maintainer authorized verified PR merges and the v1.5.3 release. Planned stable
+publication is **10 October 2026**, after applicable candidate feedback and
+affected-behavior checks. This authorization permits the main merge, fixed tag,
+draft assets, verified Store candidate and eventual stable publication once
+their technical gates pass; it does not record those actions as completed.
+Public website downloads stay on v1.5.2 until publication, and supported public
+Flatpak distribution remains excluded. Keep actual workflow, artifact, Store
+revision, device acceptance and publication receipts in the release record.
 
 ## Scope and freeze
 
@@ -123,11 +127,38 @@ authentication service in the release scope. Remote downloads, privileged
 native hooks, optional runtime installation, and bundled native libraries still
 need their applicable checks.
 
-At this point, final-artifact security and hardware qualification are pending,
-and complete license/notice contents must be checked on the rebuilt artifacts.
-**The candidate is not yet verified for
-public release.** Follow [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the
-recorded merge, tag, attestation, candidate, soak, and publication sequence.
+Exact-source checks, native artifact/source/notices, public DEB/RPM CPU
+upgrades, unsigned installed macOS runtime and both Snap confined generated
+recordings passed at reviewed source `0e4d2b5`, integrated with exact tree
+equality at `51bcb12`. All six subsequent PR checks passed against the current
+main/release integration. Fresh actual-Snap Python advisory lookups found no
+known findings or skipped upstream identities in their bounded scope.
+
+The date amendment exposed a native reproducibility defect: clamping mtimes
+does not normalize generated files whose timestamps precede a future release
+epoch. The DEB builder now normalizes the complete staging tree, and RPM
+normalizes source staging and its final buildroot. Future-epoch repeat-build
+checks cover both formats. This changes archive metadata without changing
+application, runtime-checker, installer or dependency behavior. Carry forward unchanged
+functional evidence, verify rebuilt/tag-bound package metadata, payloads,
+checksums and provenance, and complete the affected candidate tests. Earlier
+package hashes remain historical. Both original Apple submissions now report
+Accepted in authenticated status-only runs, but their signed uploads were not
+retained and cannot qualify the current PKG. The final tag-built macOS package
+must complete its own signing/notarization/staple/Gatekeeper gates once.
+
+The maintainer completed the installed v1.5.3 Snap x10 check: camera preview,
+compact-window Camera/Audio controls, Show Preview, CPU/DocZeus availability,
+moving open-hand Blur/Remove and saved video with audible speech all passed.
+Actual confined CPU/CUDA inference and fresh CuPy compilation also passed;
+the narrow Snap CUDA profile does not bundle TensorRT libraries. A nondefault
+physical microphone was not explicitly confirmed. Mac prerequisites are now
+installed on the maintainer's M2 Mac; the final signed package's physical
+camera/microphone test and the tag/candidate/soak sequence remain pending.
+**Stable publication is authorized but not yet technically qualified.** Follow
+[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) without restarting unchanged
+behavior merely for metadata, while recording the affected installer/candidate
+window and any accepted non-blocking limitations.
 
 
 ## macOS blocker amendment, 7 October 2026
