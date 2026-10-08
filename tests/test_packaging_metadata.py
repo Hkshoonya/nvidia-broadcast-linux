@@ -46,14 +46,15 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f'<release version="{current}" date="2026-10-10">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
-        # Direct website downloads follow the latest published release only
-        # after its artifacts and Store revisions are public.
-        published = "1.5.2"
+        # Website native downloads are updated after release publication;
+        # Snap channel availability is reported separately.
+        published = current
         self.assertIn(f"nvbroadcast_{published}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{published}-1.noarch.rpm", docs_index)
-        # macOS source instructions link to separate PKG verification/setup;
-        # they do not advertise an older package as an in-place source update.
+        self.assertIn(f"NVBroadcast-{published}-1.pkg", docs_index)
         self.assertIn("docs/MACOS_SIGNING.md#test-the-signed-installer-on-your-mac", docs_index)
+        self.assertIn("/opt/nvbroadcast/scripts/setup_macos_runtime.sh", docs_index)
+        self.assertIn("/usr/local/bin/nvbroadcast", docs_index)
         self.assertIn(f"such as v{current}", snap_workflow)
         self.assertIn(f"# NV Broadcast v{current}", release_notes)
 
@@ -101,6 +102,7 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_published_native_downloads_protect_legacy_upgrades(self):
         website = (REPO_ROOT / "docs" / "index.html").read_text()
         commands = website.split("const commands = {", 1)[1].split("};", 1)[0]
+        commands = commands.split("\n  snap:", 1)[0]
 
         self.assertNotIn("sudo dpkg -i", commands)
         self.assertIn("nvbroadcast-native-upgrade", commands)
@@ -153,7 +155,7 @@ class PackagingMetadataTests(unittest.TestCase):
         nodes = {node["@type"]: node for node in graph}
         self.assertEqual(nodes["WebSite"]["url"], f"{canonical}/")
         application = nodes["SoftwareApplication"]
-        self.assertEqual(application["softwareVersion"], "1.5.2")
+        self.assertEqual(application["softwareVersion"], "1.5.3")
         self.assertEqual(application["applicationCategory"], "MultimediaApplication")
         self.assertEqual(application["offers"]["price"], "0")
 

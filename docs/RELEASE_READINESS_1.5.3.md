@@ -4,15 +4,22 @@ Assessment started **5 October 2026**, from main commit
 `254ec93b5351c8e50815b3bf03dce6ae91ef1726`. The latest published version remains
 [v1.5.2, published 4 September 2026](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.2).
 
-**Status: maintainer-authorized release execution, 8 October 2026.** The
-maintainer authorized verified PR merges and the v1.5.3 release. Planned stable
-publication is **10 October 2026**, after applicable candidate feedback and
-affected-behavior checks. This authorization permits the main merge, fixed tag,
-draft assets, verified Store candidate and eventual stable publication once
-their technical gates pass; it does not record those actions as completed.
-Public website downloads stay on v1.5.2 until publication, and supported public
-Flatpak distribution remains excluded. Keep actual workflow, artifact, Store
-revision, device acceptance and publication receipts in the release record.
+**Status: merged, tagged and draft packages verified; candidate/soak/publication
+remain pending, 8 October 2026.** PR #136 merged into main at
+`048d4f4005a56e6a7b235739f0176e0264bc3fa7`, exactly matching the tested integration
+tree `f2ffa891c607a3effb653a545eb150c2a4f6c5e0`. The immutable `v1.5.3` tag points
+to that source. The maintainer authorized this merge, tag, verified Store
+candidate and eventual stable publication once the technical gates pass.
+[Tag package run 37835368212](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/37835368212)
+completed native build/test, actual macOS signing/notarization, package
+attestation and draft-release creation. A draft is not a public release.
+
+Planned stable publication is **10 October 2026**, after applicable candidate
+feedback and soak. Website download changes are prepared for publication;
+the deployed website stays on the current public release until then. Supported
+public Flatpak distribution remains excluded. Keep actual artifact, Store
+revision, device acceptance and publication receipts in the release record;
+verify public asset URLs and Store versions before deploying the website update.
 
 ## Scope and freeze
 
@@ -55,17 +62,18 @@ On 5 October, the maintainer confirmed that a legal friend completed the
 review and directed work to proceed. The candidate retains the current terms,
 adds the missing complete GPLv3 text, and aligns references with the existing
 GPLv3-or-later grant. The technical acceptance recorded in #100 is complete;
-that issue remains open only until the reviewed candidate in PR #136 merges
-into main. Final release artifacts still need source-bound notice,
-contributor-credit, metadata, and component/provider checks. Those release checks
-do not add a new #100 closure gate or imply unreported legal clearance.
+PR #136 has now merged into main and #100 was resolved on 8 October with the
+merge and qualification references. Final package/source checks preserve the
+complete license, notice and contributor records. Component/provider scope
+remains recorded with each package; those release checks do not add a new #100
+closure gate or imply unreported legal clearance.
 
 The first ARM64 release workflow exposed three GPU retry/memory-pressure tests
 that inherited the runner's ARM64 platform restriction instead of declaring
 their Linux x86_64 scenario. The candidate now sets that scenario explicitly
 in those tests; application platform restrictions are unchanged. All 43
 dependency-installer tests and the three cases under a simulated ARM64 host
-passed locally. The actual ARM64 workflow must pass on the amended head.
+passed locally. The final tag workflow's actual ARM64 Linux gate has now passed.
 
 ## Evidence and remaining decisions
 
@@ -74,16 +82,16 @@ automatically to newly built v1.5.3 artifacts.
 
 | Area | Existing evidence | Remaining release work |
 | --- | --- | --- |
-| Unit, packaging, and CI | #135: 940 local tests passed; six PR checks passed; merged source tree equals the tested head | Run checks on the v1.5.3 head and manual release-build workflows |
-| Small window UI | Maintainer tested Camera/Audio and restored camera preview in an installed development Snap | Repeat on the exact release candidate |
-| Recording | Installed Snap speech playback passed; exact development DEB/RPM/Flatpak physical-camera recordings passed, with generated selected audio; extended Flatpak recording passed | Final artifact tests, native/Flatpak desktop and physical-microphone acceptance, applicable codec/provider redistribution checks |
+| Unit, packaging, and CI | Final main/tag tree equals the tested integration; applicable PR checks and tag Build Packages run 37835368212 passed | Verify the remaining tag/Snap candidate results and record publication receipts |
+| Small window UI | Installed v1.5.3 development Snap and owner physical signed-PKG camera/compact controls passed | Record exact Store-candidate acceptance and affected soak results |
+| Recording | Installed Snap speech playback and final signed-PKG built-in-microphone Mic Test, complete speech Rec and microphone-only Meeting transcription passed; prior native/Flatpak capture and generated-media evidence is retained | Exact Store-candidate acceptance; native/Flatpak physical-microphone and desktop follow-up remains in #112, separate from the completed Mac scope; preserve provider scope and unavailable-second-mic limitation |
 | CPU/GPU behavior | Installed CPU fallback, GPU recovery, live CUDA, and cold-cache probe fixes were verified before their merges | Exact candidate CPU/CUDA/TensorRT checks on applicable devices; record memory pressure separately from a broken installation |
 | Matte quality (#91) | Patched Remove passed direct-window and backlit moving-hand feedback | Final-package Blur/Replace, fine hair, white clothing, and extreme sliders; document any accepted residual limitation |
 | Source recovery (#53) | Failed-install preservation, CPU/CUDA transitions, rollback and source window startup tested in #133 | Candidate source update/rollback check; production native runtime packs remain a separate unfinished scope |
-| Native artifacts (#60) | CPU prototypes passed eight lifecycle cells; unsigned archives reproduced in recorded builders | Build the production DEB/RPM, bind the exact upgrade helper, verify final manifests/provenance and installer transactions; do not claim hermetic production payloads |
-| License/redistribution (#100) | Maintainer confirmed a legal friend reviewed the existing terms; complete GPLv3 text and consistent grant references added; issue acceptance is complete | Merge PR #136 into main, then resolve #100 with the merge and qualification references. Continue exact final-artifact notice/component checks in the release record |
+| Native artifacts (#60) | Final tag DEB/RPM, bound helper, source/notices and hosted provenance passed independent checks; fresh public v1.5.2 to exact final CPU upgrades passed 17 steps on Ubuntu 24.04 and 16 on Fedora 44; eight historical prototype lifecycle cells are retained separately | Record candidate/publication receipts; production runtime payloads remain non-hermetic, with locked/offline dependencies, RPM signing and full lifecycle work separate |
+| License/redistribution (#100) | Existing terms reviewed under maintainer-confirmed arrangement; complete GPLv3 and grant references shipped; PR #136 merged and #100 resolved | Preserve exact artifact notice/component evidence and the recorded review scope |
 | Flatpak (#95) | Development build, dependency closure, model trust, recording, physical camera, and initial virtual-camera read passed | CPU release conditions below; remains excluded until applicable gates pass |
-| macOS | Maintainer requested GitHub-runner signing and a physical Mac test on 7 October; package/audio blockers and signing tooling are being qualified | Configure protected Installer/notary credentials, pass installed-runtime and actual signed/notarized/stapled package checks, then physical Mac acceptance; see [MACOS_SIGNING.md](MACOS_SIGNING.md) |
+| macOS | Exact tag PKG passed actual Installer/team signing, Accepted notarization, stapling, Gatekeeper, payload/checksum and hosted provenance; owner M2 camera, compact controls, CPU effects, built-in-mic speech Rec, OBS output and microphone-only Meeting passed | Candidate/soak/publication record; a second mic was unavailable, numeric FPS and physical upgrade/uninstall were not supplied; keep macOS 13/14, Intel and CoreML outside qualified scope |
 | Snap edge automation (#90) | Current public channels reported aligned on reviewed 185/184 | Verify connected builder configuration and scoped edge credentials before merging the edge-promotion draft |
 | NixOS (#18) | Package/module evaluation and Xvfb startup passed | No real NixOS machine available; draft remains unsupported pending physical-device acceptance |
 
@@ -101,8 +109,8 @@ Still required for that CPU package:
    used X11; generated tone checks do not establish audible physical speech.
 2. Verify complete license/notice contents, accepted contributor credit, and
    bundled codec/dependency scope on the exact Flatpak artifact under the
-   maintainer-confirmed arrangement. #100's separate remaining gate is the
-   PR #136 main merge.
+   maintainer-confirmed arrangement. #100 was resolved after the separate
+   PR #136 main merge; that does not supply final Flatpak distribution clearance.
 3. Confirm a permanent application ID, naming/non-affiliation wording, real
    application screenshots, and passing final artifact lint.
 4. Review payload size and the distribution route. The development manifest
@@ -145,20 +153,43 @@ checksums and provenance, and complete the affected candidate tests. Earlier
 package hashes remain historical. Both original Apple submissions now report
 Accepted in authenticated status-only runs, but their signed uploads were not
 retained and cannot qualify the current PKG. The final tag-built macOS package
-must complete its own signing/notarization/staple/Gatekeeper gates once.
+completed its own signing/notarization/staple/Gatekeeper gates once.
 
 The maintainer completed the installed v1.5.3 Snap x10 check: camera preview,
 compact-window Camera/Audio controls, Show Preview, CPU/DocZeus availability,
 moving open-hand Blur/Remove and saved video with audible speech all passed.
 Actual confined CPU/CUDA inference and fresh CuPy compilation also passed;
 the narrow Snap CUDA profile does not bundle TensorRT libraries. A nondefault
-physical microphone was not explicitly confirmed. Mac prerequisites are now
-installed on the maintainer's M2 Mac; the final signed package's physical
-camera/microphone test and the tag/candidate/soak sequence remain pending.
-**Stable publication is authorized but not yet technically qualified.** Follow
-[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) without restarting unchanged
-behavior merely for metadata, while recording the affected installer/candidate
-window and any accepted non-blocking limitations.
+physical microphone was not explicitly confirmed for that Snap session.
+
+The final signed macOS package is 488,100 bytes, SHA-256
+`8a4df3d903f80d90b866adcd6571f34368b015aeae8023f35aba8472c61af2e2`, signed by
+**Developer ID Installer: WeMakeSense LLC (T39RXSKKZ6)**. New Apple submission
+`4e82228e-8dc6-401c-9788-445964a562e4` reports Accepted and its log identifies the
+exact pre-staple upload. Native CI verified the trusted timestamp, matching
+Installer/team identity, unchanged payload, stapled ticket, Gatekeeper's
+Notarized Developer ID acceptance and final-byte checksum. Independent
+inspection verified all 83 source inputs, equal unsigned/pre-staple/final
+payloads and scripts, signing evidence hashes, actual XAR signature and the
+hosted tag attestation. The Mac runtime identity is
+`7a5e963ab32bab096655feed0da13a348796039507d3096ddb2aa65c0de1dcf2`.
+
+Following the exact signed-package instructions, the maintainer reported a
+successful physical test on their MacBook Air M2: setup/app startup, camera and
+compact controls, CPU Blur/Remove, built-in-microphone Mic Test and complete
+speech recording/playback, processed OBS video in another app, and
+microphone-only Meeting recording/transcription. No second microphone was
+available. The owner's checksum/runtime output was not separately supplied;
+package identity is bound by the verified instructions and downloaded
+artifact. Numeric FPS, physical upgrade/uninstall and other Mac versions were
+not reported. These limits remain distinct from the passed acceptance scope.
+
+**Stable publication is authorized; applicable Store-candidate testing and soak
+remain pending.** Follow [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) without
+restarting unchanged behavior merely for metadata. Record the exact candidate
+revisions, affected test window, accepted limitations and public publication
+receipts. The prepared website update must be finalized against actual public
+asset URLs and channel versions after publication.
 
 
 ## macOS blocker amendment, 7 October 2026

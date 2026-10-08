@@ -1,8 +1,9 @@
 # NV Broadcast v1.5.3
 
-**Release candidate; planned stable publication 10 October 2026.** Final package,
-hardware, and release checks are tracked in
-[the release readiness record](RELEASE_READINESS_1.5.3.md).
+**Tagged candidate; stable publication remains pending candidate testing and
+soak.** The immutable `v1.5.3` tag and verified draft packages are built. The
+planned publication date is 10 October 2026; actual channel and publication
+receipts are tracked in [the release readiness record](RELEASE_READINESS_1.5.3.md).
 
 This maintenance release brings together the recording, compact-window,
 background-edge, and runtime-recovery fixes merged since v1.5.2.
@@ -62,6 +63,22 @@ Python bindings; its direct wheel download shows the actual transfer.
 GStreamer initialization also works with the newer 1.28 typelib and the older
 private PyGObject binding used by the runtime experiments.
 
+macOS now has a Developer ID Installer-signed, notarized and stapled PKG for
+Apple Silicon with the supported macOS 15+ Homebrew stack. Installer places
+admin-owned source and the packaged launcher; runtime setup runs separately
+as the regular user. CPU processing and OBS Virtual Camera are supported.
+Mic Test, video recording with microphone speech, and microphone-only Meeting
+capture are available. System-audio loopback, processed virtual-microphone
+output and CoreML acceleration remain outside the qualified Mac scope; the
+proprietary Camera Extension prototype is not installed by the package.
+
+The maintainer reported passing physical camera, compact controls,
+Blur/Remove, built-in-microphone Mic Test and complete speech recording,
+processed OBS video in another application, and microphone-only Meeting
+recording/transcription on a MacBook Air M2 after following the final signed
+package instructions. A second physical microphone was unavailable; measured
+FPS and upgrade/uninstall lifecycle results were not supplied.
+
 The Python 3.14 source-installer contribution came from
 [`@KadotyGamer`](https://github.com/KadotyGamer) in
 [PR #103](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/103).
@@ -73,8 +90,9 @@ All previously accepted contributors remain in the packaged About credits,
 The candidate retains the existing native/source and Snap installation
 contracts. The complete offline CPU/CUDA runtime packages under `packaging/`
 are maintainer prototypes. Production native installers still require network
-dependency resolution; their full offline, signing, and runtime-pack work
-remains tracked in #53 and #60.
+dependency resolution; offline runtime locks, RPM signing and production
+runtime-pack work remain tracked in #53 and #60. The final macOS PKG's Installer
+signing/notarization is verified separately below.
 
 Upgrades from affected native v1.4.0 or older installations must use the
 `nvbroadcast-native-upgrade` helper and package from the **same release**,
@@ -84,6 +102,12 @@ Final v1.5.3 download links will be added only after publication.
 
 Flatpak remains an x86_64 CPU development package pending its desktop,
 microphone, licensing, identity, and distribution checks. No Flathub release
-or GPU/aarch64 Flatpak support is announced here. macOS Developer ID signing
-and notarization are also pending; account approval alone does not establish
-signed-package readiness.
+or GPU/aarch64 Flatpak support is announced here.
+
+The [actual tag package workflow](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/37835368212)
+passed macOS signing, Accepted notarization, ticket stapling, Gatekeeper and
+exact-payload checks, then attested the final packages and created a draft
+release. The verified `NVBroadcast-1.5.3-1.pkg` checksum is
+`8a4df3d903f80d90b866adcd6571f34368b015aeae8023f35aba8472c61af2e2`.
+Public downloads and Snap stable promotion remain pending the applicable
+candidate/soak/publication steps; a successful draft build is not publication.
