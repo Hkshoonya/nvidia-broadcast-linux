@@ -89,7 +89,13 @@ class FlatpakPackagingTests(unittest.TestCase):
         self.assertIn(
             "python3 -m nvbroadcast.video.recording_smoke", workflow
         )
-        self.assertNotIn("upload-artifact", workflow)
+        self.assertIn("export_development_bundle.py", workflow)
+        self.assertRegex(workflow, r"actions/upload-artifact@[0-9a-f]{40}")
+        self.assertIn("path: dist/flatpak-development/", workflow)
+        self.assertIn("if-no-files-found: error", workflow)
+        self.assertIn("retention-days: 14", workflow)
+        self.assertNotIn("gh release", workflow)
+        self.assertNotIn("flatpak build-update-repo", workflow)
         self.assertNotRegex(workflow, r"(?m)^\s+push:\s*$")
 
     def test_dependency_inputs_include_cpu_and_meeting_runtime_only(self):
