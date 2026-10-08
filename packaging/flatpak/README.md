@@ -28,8 +28,10 @@ The manifest grants network access for release checks, checksum-verified
 app-owned model downloads, and pinned, SHA-256-verified faster-whisper model
 retrieval, plus Wayland with X11 fallback, PulseAudio compatibility, and access
 to the StatusNotifier watcher. The finished-runtime smoke check verifies that
-the faster-whisper trust manifest is packaged; first-use download and inference
-in an ordinary-user Flatpak session still need testing. Recording follows the
+the faster-whisper trust manifest is packaged. Installed ordinary-user tests on
+2 October 2026 passed first-use faster-whisper download, corrupt-cache rejection, and CPU
+inference for the tiny model; other models and each final release artifact still
+need their applicable checks (see issue #95). Recording follows the
 desktop's XDG Videos directory, so the manifest grants only
 `--filesystem=xdg-videos:create` to keep those files visible after the app exits,
 including when the user customizes that directory. The manifest does not grant the rest of the
@@ -97,6 +99,28 @@ builder, which avoids changing the host package set. The scoped Flatpak workflow
 runs when packaging inputs change and can be dispatched manually after other
 source changes or before a release.
 
+Successful workflow runs retain a `flatpak-development-cpu-x86_64` artifact for
+14 days. It contains an unsigned `.flatpak` bundle, `SHA256SUMS`, and
+`bundle-provenance.json` recording the checked-out Git revision, pinned builder
+image, application OSTree commit, runtime reference, and build-input hashes.
+Before retaining the bundle, the workflow imports it into a fresh temporary
+repository, checks the commit and all OSTree objects, and compares packaged app
+source, resources, project license, notices, and sandbox metadata with the build.
+It also compares source and build inputs with the recorded Git revision, rejecting
+staged or unstaged edits and untracked shipping inputs.
+This check does not install the app or access physical devices.
+
+Download the artifact from the completed **Flatpak Development Build** run and
+verify its files before using it for an agreed hardware test:
+
+```bash
+sha256sum --check SHA256SUMS
+```
+
+The bundle does not include the GNOME Platform runtime. Development artifacts
+are test inputs; uploading one to GitHub Actions does not qualify it as a stable
+release or submit it to Flathub. The public-distribution gates below still apply.
+
 Before review, validate the manifest and finished artifacts with the current
 Flathub linter:
 
@@ -114,7 +138,7 @@ as an application screenshot.
 
 ## Public-distribution blockers
 
-Before any Flatpak release, all of these gates must be closed:
+Before an x86_64 CPU Flatpak release, these applicable gates must be closed:
 
 1. Test physical camera capture, v4l2loopback output, background effects, mode
    switching, recording, microphone processing, virtual microphone output,
@@ -129,16 +153,27 @@ Before any Flatpak release, all of these gates must be closed:
    close the current `metainfo-missing-screenshots` linter error.
 5. Review the name, icon, screenshots, and description for NVIDIA trademark and
    affiliation clarity.
-6. Exercise first-use faster-whisper download, pinned-file verification,
-   corrupted-cache rejection, and inference in an ordinary-user Flatpak session.
-7. Validate CUDA and TensorRT from the NVIDIA driver through a real model
-   execution, then decide whether their binary wheels may be redistributed.
-8. Build and test a separate `aarch64` dependency set; do not infer support from
-   the `x86_64` build.
-9. Review the roughly 1.2 GB application payload measured for this baseline and
+6. Repeat applicable model-trust checks on the final artifact. The installed
+   tiny-model first-use, corruption-rejection, and CPU-inference checks passed
+   on 2 October; they do not qualify every model or a later artifact.
+7. Review the roughly 1.2 GB application payload measured for this baseline and
    decide whether meeting transcription should become an optional extension.
-10. Re-check current Flathub submission and automated-content policies. This
-   upstream development manifest is not a Flathub submission.
+8. Resolve Flathub's source-build requirement for the current prebuilt Python
+   dependencies, or obtain an applicable exception before a submission. Its
+   [current policy](https://docs.flathub.org/docs/for-app-authors/requirements)
+   also requires human-authored submission work. This upstream development
+   manifest is not a Flathub submission.
+
+CUDA and TensorRT, plus aarch64, are separate future variants. A GPU variant requires
+real driver/model execution and NVIDIA wheel redistribution review; aarch64
+requires its own dependency graph and hardware tests. Neither is advertised
+by the initial x86_64 CPU package.
+
+Installed development-package physical-camera recording and initial
+virtual-camera output passed on 5 October on X11. Native Wayland behavior,
+physical/processed/virtual microphone acceptance, client reconnects, and final
+package qualification remain open. See issue #95 and the
+[v1.5.3 readiness record](../../docs/RELEASE_READINESS_1.5.3.md).
 
 Passing a container build proves dependency closure and sandbox startup only.
 It does not prove camera, microphone, GPU, desktop-portal, or host-driver

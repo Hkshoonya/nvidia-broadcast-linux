@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """NVIDIA Broadcast - setup once and forget.
@@ -3134,7 +3134,7 @@ class NVBroadcastApp(Adw.Application):
         from nvbroadcast.audio.devices import resolve_pipewire_target
         from nvbroadcast.audio.virtual_mic import virtual_mic_backend
 
-        if IS_LINUX and virtual_mic_backend() == "pulse":
+        if IS_MACOS or (IS_LINUX and virtual_mic_backend() == "pulse"):
             return self.config.audio.mic_device
         return resolve_pipewire_target(self.config.audio.mic_device)
 
@@ -3296,6 +3296,11 @@ class NVBroadcastApp(Adw.Application):
         return self._speaker_monitor
 
     def _refresh_speaker_monitor(self):
+        if IS_MACOS:
+            self.config.audio.speaker_denoise = False
+            if self._speaker_monitor:
+                self._speaker_monitor.stop()
+            return
         if not self.config.audio.speaker_denoise:
             if self._speaker_monitor:
                 self._speaker_monitor.stop()
@@ -3311,7 +3316,14 @@ class NVBroadcastApp(Adw.Application):
         monitor.start()
 
     def set_speaker_denoise(self, enabled: bool):
-        self.config.audio.speaker_denoise = enabled
+        self.config.audio.speaker_denoise = enabled and not IS_MACOS
+        if IS_MACOS:
+            if self._speaker_monitor:
+                self._speaker_monitor.stop()
+            if self._window:
+                self._window.set_status("Speaker noise removal is unavailable on macOS.")
+            save_config(self.config)
+            return
         if enabled:
             self._refresh_speaker_monitor()
         else:

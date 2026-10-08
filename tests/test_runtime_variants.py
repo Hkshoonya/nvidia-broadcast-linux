@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts import install_runtime_variant
+from nvbroadcast.runtime.artifact import ArtifactEnvironment
 from nvbroadcast.runtime.variants import (
     FASTER_WHISPER_REQUIREMENT,
     FASTER_WHISPER_VERSION,
@@ -338,7 +339,9 @@ class RuntimeVariantTests(unittest.TestCase):
                 ),
             ],
         )
-        validate_meeting_dependencies.assert_called_once_with("cuda", "faster")
+        validate_meeting_dependencies.assert_called_once_with(
+            "cuda", "faster", development=False
+        )
         run.assert_called_once_with(
             [
                 install_runtime_variant.sys.executable,
@@ -382,7 +385,9 @@ class RuntimeVariantTests(unittest.TestCase):
                 ),
             ],
         )
-        validate_meeting_dependencies.assert_called_once_with("cpu", "all")
+        validate_meeting_dependencies.assert_called_once_with(
+            "cpu", "all", development=False
+        )
 
     def test_refuses_cpu_to_cuda_before_mutation(self):
         self._assert_owner_transition_is_refused(
@@ -474,6 +479,7 @@ class RuntimeVariantTests(unittest.TestCase):
             mock.patch.object(
                 install_runtime_variant, "run_pip", side_effect=run_pip
             ),
+            mock.patch.object(install_runtime_variant, "validate_meeting_dependencies"),
             mock.patch.object(install_runtime_variant.subprocess, "run"),
         ):
             install_runtime_variant.install(
@@ -572,6 +578,7 @@ class RuntimeVariantTests(unittest.TestCase):
         environment.dependency_closure_problems.assert_called_once_with(
             {"onnxruntime": "onnxruntime-gpu"},
             roots={"nvbroadcast", "faster-whisper"},
+            root_extras={"nvbroadcast": {"cuda", "meeting-support"}},
         )
 
     def test_cpu_meeting_closure_uses_standard_runtime_requirement(self):
@@ -593,7 +600,8 @@ class RuntimeVariantTests(unittest.TestCase):
             )
 
         environment.dependency_closure_problems.assert_called_once_with(
-            None, roots={"nvbroadcast", "faster-whisper"}
+            None, roots={"nvbroadcast", "faster-whisper"},
+            root_extras={"nvbroadcast": {"cpu", "meeting-support"}},
         )
 
     def test_all_meeting_closure_includes_supported_openai_whisper_root(self):
@@ -617,6 +625,7 @@ class RuntimeVariantTests(unittest.TestCase):
         environment.dependency_closure_problems.assert_called_once_with(
             None,
             roots={"nvbroadcast", "faster-whisper", "openai-whisper"},
+            root_extras={"nvbroadcast": {"cpu", "meeting-support", "meeting"}},
         )
 
     def test_meeting_closure_rejects_unresolved_backend_dependency(self):
@@ -650,6 +659,86 @@ class RuntimeVariantTests(unittest.TestCase):
             install_runtime_variant.validate_meeting_dependencies(
                 "cpu", "faster"
             )
+
+
+class RuntimeDependencyClosureTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.site = self.root / "lib/python3.12/site-packages"
+        self.site.mkdir(parents=True)
+
+    def distribution(self, name, version, requirements=()):
+        directory = self.site / f"{name.replace('-', '_')}-{version}.dist-info"
+        directory.mkdir()
+        (directory / "METADATA").write_text(
+            f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n" +
+            "".join(f"Requires-Dist: {requirement}\n" for requirement in requirements)
+        )
+
+    def environment(self):
+        return ArtifactEnvironment.inspect(self.root, "amd64")
+
+    def test_installer_without_meeting_rejects_missing_variant_dependency_before_probe(self):
+        self.distribution("nvbroadcast", "1.0", ('required-cpu-leaf; extra == "cpu"',))
+        self.distribution("onnxruntime", "1.24.4")
+        with (
+            mock.patch.object(install_runtime_variant, "runtime_owner_inventory",
+                              side_effect=[{}, {"onnxruntime": ("1.24.4",)}]),
+            mock.patch.object(install_runtime_variant, "run_pip") as pip,
+            mock.patch.object(install_runtime_variant.subprocess, "run") as probe,
+            mock.patch("nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+                       return_value=self.environment()),
+            self.assertRaisesRegex(RuntimeError, "missing package required-cpu-leaf"),
+        ):
+            install_runtime_variant.install(Path("/project"), "cpu", "none")
+        pip.assert_called_once_with("install", "--upgrade", "/project[cpu]")
+        probe.assert_not_called()
+
+    def test_cuda_selection_requires_cupy_and_ignores_unselected_meeting_extra(self):
+        self.distribution("nvbroadcast", "1.0", (
+            'cupy-cuda12x>=14.1.1,<15; extra == "cuda"',
+            'unselected-meeting; extra == "meeting-support"',
+        ))
+        self.distribution("onnxruntime-gpu", "1.24.4")
+        with mock.patch("nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+                        side_effect=self.environment):
+            with self.assertRaisesRegex(RuntimeError, "missing package cupy-cuda12x"):
+                install_runtime_variant.validate_meeting_dependencies("cuda", "none")
+            self.distribution("cupy-cuda12x", "14.2.0")
+            install_runtime_variant.validate_meeting_dependencies("cuda", "none")
+
+    def test_meeting_selection_requires_project_support_extra(self):
+        self.distribution("nvbroadcast", "1.0", ('soundfile; extra == "meeting-support"',))
+        self.distribution("faster-whisper", "1.2.1", ("onnxruntime>=1.14,<2",))
+        self.distribution("onnxruntime-gpu", "1.24.4")
+        with mock.patch("nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+                        side_effect=self.environment):
+            with self.assertRaisesRegex(RuntimeError, "missing package soundfile"):
+                install_runtime_variant.validate_meeting_dependencies("cuda", "faster")
+            self.distribution("soundfile", "0.13.1")
+            install_runtime_variant.validate_meeting_dependencies("cuda", "faster")
+
+    def test_all_meeting_keeps_python_guard_and_selected_development_extra(self):
+        self.distribution("nvbroadcast", "1.0", (
+            'openai-whisper; extra == "meeting" and python_version < "3.14"',
+            'development-leaf; extra == "dev"',
+        ))
+        self.distribution("faster-whisper", "1.2.1")
+        self.distribution("onnxruntime", "1.24.4")
+        environment = self.environment()
+        environment.markers.update(python_version="3.14", python_full_version="3.14.0")
+        with (
+            mock.patch("nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+                       return_value=environment),
+            mock.patch.object(install_runtime_variant.sys, "version_info", (3, 14)),
+        ):
+            install_runtime_variant.validate_meeting_dependencies("cpu", "all")
+            with self.assertRaisesRegex(RuntimeError, "missing package development-leaf"):
+                install_runtime_variant.validate_meeting_dependencies(
+                    "cpu", "all", development=True
+                )
 
 
 if __name__ == "__main__":

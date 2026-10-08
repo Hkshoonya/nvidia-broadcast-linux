@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.5.2
+Version:        1.5.3
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -121,6 +121,18 @@ echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclus
 install -d %{buildroot}/etc/modules-load.d
 echo 'v4l2loopback' > %{buildroot}/etc/modules-load.d/nvbroadcast-v4l2loopback.conf
 
+# Clamping alone leaves generated mtimes variable before a future release epoch.
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    # RPM copies relative %doc/%license files after this section. Prepopulate
+    # their usual paths so those copies do not create entries with new mtimes.
+    DOC_DIR="%{buildroot}%{_docdir}/%{expand:%{?_docdir_fmt}%{!?_docdir_fmt:%{name}-%{version}}}"
+    LICENSE_DIR="%{buildroot}%{_licensedir}/%{expand:%{?_docdir_fmt}%{!?_docdir_fmt:%{name}-%{version}}}"
+    install -d "$DOC_DIR" "$LICENSE_DIR"
+    cp -p README.md CONTRIBUTORS.md "$DOC_DIR/"
+    cp -p LICENSE NOTICE "$LICENSE_DIR/"
+    find %{buildroot} -exec touch --no-dereference --date "@$SOURCE_DATE_EPOCH" -- {} +
+fi
+
 %pre
 pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |$)' 2>/dev/null || true
 
@@ -187,6 +199,14 @@ fi
 %doc README.md CONTRIBUTORS.md
 
 %changelog
+* Sat Oct 10 2026 doczeus <harshit@kshoonya.com> - 1.5.3-1
+- Keep Camera, Audio, and preview controls usable in small windows
+- Preserve MP4 video and audio across capture changes and expose saved recordings
+- Recover CPU/GPU availability and discover cameras connected after startup
+- Improve moving matte edges and verify pinned meeting-model downloads
+- Preserve source runtimes through failed upgrades and rollback
+- Initialize GStreamer compatibly with newer typelibs
+
 * Fri Sep 04 2026 doczeus <harshit@kshoonya.com> - 1.5.2-1
 - Retry exact camera modes with a working advertised encoding at startup
 - Select and validate a fully supported Python for source installations

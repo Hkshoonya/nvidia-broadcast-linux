@@ -26,7 +26,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.5.2"
+        current = "1.5.3"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -43,7 +43,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-09-04">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-10-10">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
         # Direct website downloads follow the latest published release only
@@ -51,7 +51,9 @@ class PackagingMetadataTests(unittest.TestCase):
         published = "1.5.2"
         self.assertIn(f"nvbroadcast_{published}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{published}-1.noarch.rpm", docs_index)
-        self.assertIn(f"NVBroadcast-{published}-1.pkg", docs_index)
+        # macOS source instructions link to separate PKG verification/setup;
+        # they do not advertise an older package as an in-place source update.
+        self.assertIn("docs/MACOS_SIGNING.md#test-the-signed-installer-on-your-mac", docs_index)
         self.assertIn(f"such as v{current}", snap_workflow)
         self.assertIn(f"# NV Broadcast v{current}", release_notes)
 
@@ -187,7 +189,6 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_install_script_uses_supported_tensorrt_command(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
         pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
-        requirement = "tensorrt-cu12-libs==10.16.0.72"
         wheel_requirement = (
             "tensorrt-cu12-libs @ https://pypi.nvidia.com/tensorrt-cu12-libs/"
             "tensorrt_cu12_libs-10.16.0.72-py3-none-manylinux_2_28_x86_64.whl"
@@ -355,7 +356,7 @@ class PackagingMetadataTests(unittest.TestCase):
             "setup_deps.sh",
             "install.sh",
             "install_macos.sh",
-            "build-packages.sh",
+            "scripts/setup_macos_runtime.sh",
             "packaging/debian/postinst",
             "packaging/rpm/nvbroadcast.spec",
             ".github/workflows/pr-checks.yml",
@@ -376,7 +377,7 @@ class PackagingMetadataTests(unittest.TestCase):
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
         self.assertGreaterEqual(
             build_script.count("export PYTHONNOUSERSITE=1"),
-            4,
+            3,
         )
         self.assertIn("Environment=PYTHONNOUSERSITE=1", build_script)
 
@@ -465,7 +466,7 @@ class PackagingMetadataTests(unittest.TestCase):
             REPO_ROOT / "setup_deps.sh",
             REPO_ROOT / "packaging" / "debian" / "postinst",
             REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec",
-            REPO_ROOT / "build-packages.sh",
+            REPO_ROOT / "scripts" / "setup_macos_runtime.sh",
         )
         for installer in installers:
             self.assertIn("pip>=26.2", installer.read_text(), str(installer))
@@ -539,6 +540,11 @@ class PackagingMetadataTests(unittest.TestCase):
             time.sleep(1.1)
             self.assertEqual(first, build())
 
+            environment["SOURCE_DATE_EPOCH"] = "4102444800"
+            future = build()
+            time.sleep(1.1)
+            self.assertEqual(future, build())
+
             environment["SOURCE_DATE_EPOCH"] = "1600000000"
             self.assertNotEqual(first, build())
             environment["SOURCE_DATE_EPOCH"] = "invalid"
@@ -586,6 +592,11 @@ class PackagingMetadataTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(header.split()[1], "nvbroadcast")
+
+            environment["SOURCE_DATE_EPOCH"] = "4102444800"
+            future, _ = build()
+            time.sleep(1.1)
+            self.assertEqual(future, build()[0])
 
             environment["SOURCE_DATE_EPOCH"] = "1600000000"
             self.assertNotEqual(first, build()[0])
@@ -803,12 +814,12 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn(attest_action, builder)
 
         self.assertIn(
-            "needs: [build-linux, build-macos, test-macos, test-linux, test-python]",
+            "needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-macos]",
             attestation_job,
         )
         self.assertIn("artifacts/linux-packages/deb/*.deb", attestation_job)
         self.assertIn("artifacts/linux-packages/rpm/*.rpm", attestation_job)
-        self.assertIn("artifacts/macos-packages/*.pkg", attestation_job)
+        self.assertIn("artifacts/macos-signed-packages/*.pkg", attestation_job)
         self.assertIn("artifacts/SHA256SUMS.packages", attestation_job)
         self.assertIn("steps.snapcraft.outputs.snap", snap_builder)
         self.assertEqual(build_workflow.count(attest_action), 1)
@@ -1040,8 +1051,8 @@ class PackagingMetadataTests(unittest.TestCase):
 
         self.assertIn("artifacts/linux-packages/deb/*.deb", release_job)
         self.assertIn("artifacts/linux-packages/rpm/*.rpm", release_job)
-        self.assertIn("artifacts/macos-packages/*.pkg", release_job)
-        self.assertNotIn("artifacts/macos-packages/pkg/*.pkg", release_job)
+        self.assertIn("artifacts/macos-signed-packages/*.pkg", release_job)
+        self.assertNotIn("artifacts/macos-signed-packages/pkg/*.pkg", release_job)
         self.assertIn("fail_on_unmatched_files: true", release_job)
 
     def test_macos_ci_installs_the_actual_project_dependency_set(self):
@@ -1232,13 +1243,20 @@ class PackagingMetadataTests(unittest.TestCase):
             spec,
         )
 
-    def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
+    def test_macos_pkg_requires_unprivileged_runtime_setup(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()
         pkg_builder = script.split("build_pkg() {", 1)[1]
         self.assertIn("install_runtime_variant.py", script)
-        self.assertIn("--variant cpu --meeting-backends faster", script)
-        self.assertIn('rm -rf -- "$INSTALL_DIR/.venv"', script)
-        self.assertIn('pkill -f "^${INSTALL_DIR}/.venv/bin/python -m nvbroadcast', script)
+        setup = (REPO_ROOT / "scripts" / "setup_macos_runtime.sh").read_text()
+        postinstall = pkg_builder.split("<< 'POSTINST'", 1)[1].split("\nPOSTINST", 1)[0]
+        self.assertNotIn("-m venv", postinstall)
+        self.assertNotIn("pip install", postinstall)
+        self.assertNotIn("brew --prefix", postinstall)
+        self.assertIn("Runtime setup is still required", postinstall)
+        self.assertIn("--variant cpu --meeting-backends faster", setup)
+        self.assertIn("(( EUID == 0 ))", setup)
+        self.assertIn("macos-runtime-id", setup)
+        self.assertNotIn("rm -rf", setup)
         self.assertIn(
             'mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/scripts"', pkg_builder
         )
@@ -1268,7 +1286,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('rm -rf -- "$INSTALL_DIR/venv"', script)
         self.assertIn('pkill -f "^${INSTALL_DIR}/venv/bin/python -m nvbroadcast', script)
         self.assertIn("sys.version_info < (3, 14)", script)
-        self.assertIn('pip install -q "openai-whisper>=20231117"', script)
+        self.assertIn('-m pip install -q "openai-whisper>=20231117"', script)
 
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
@@ -1486,30 +1504,29 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("`.[cuda,meeting]`", readme)
         self.assertIn("./install.sh --runtime auto --with-meeting", readme)
 
-    def test_macos_packages_require_the_runtime_wheel_baseline(self):
+    def test_macos_source_support_is_distinct_from_pkg_wheel_baseline(self):
         installer = (REPO_ROOT / "install_macos.sh").read_text()
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
         website = (REPO_ROOT / "docs" / "index.html").read_text()
 
-        self.assertIn('[[ "$MACOS_VER" -lt 13 ]]', installer)
-        self.assertIn("macOS 13 (Ventura) or newer", installer)
+        self.assertIn('"$MACOS_VER" -lt 15', installer)
+        self.assertIn("macOS 15 (Sequoia) or newer", installer)
         self.assertIn('[[ "$MACOS_ARCH" != "arm64" ]]', installer)
         self.assertIn("supports Apple Silicon Macs only", installer)
-        self.assertIn(
-            "for p in python3.13 python3.12 python3.11 python3; do", installer
-        )
-        self.assertIn('"$minor" -le 13', installer)
-        self.assertIn(
-            "for p in python3.13 python3.12 python3.11 python3; do",
-            build_script,
-        )
-        self.assertIn('[ "$minor" -le 13 ]', build_script)
+        self.assertIn("for minor in 13 12 11; do", installer)
+        self.assertIn("(3, 11) <= sys.version_info[:2] <= (3, 13)", installer)
+        self.assertIn("import cairo", installer)
+        self.assertIn("import gi", installer)
+        setup = (REPO_ROOT / "scripts" / "setup_macos_runtime.sh").read_text()
+        self.assertIn("for minor in 13 12 11; do", setup)
+        self.assertIn("(3, 11) <= sys.version_info[:2] <= (3, 13)", setup)
+        self.assertIn("import gi", setup)
         self.assertIn('hostArchitectures="arm64"', build_script)
         self.assertIn('<os-version min="13.0"/>', build_script)
-        self.assertIn("Apple Silicon Mac with macOS 13+", readme)
+        self.assertIn("Apple Silicon Mac with macOS 15+", readme)
         self.assertIn("Python 3.11-3.13", readme)
-        self.assertIn("macOS 13 Ventura or newer", website)
+        self.assertIn("macOS 15 Sequoia or newer", website)
         self.assertIn("Apple Silicon (M1+) required", website)
 
     def test_sponsor_walls_keep_action_markers_balanced(self):

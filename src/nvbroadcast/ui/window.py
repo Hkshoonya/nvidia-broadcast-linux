@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """Main window - NVIDIA Broadcast layout."""
@@ -36,7 +36,7 @@ from nvbroadcast.video.virtual_camera import (
     select_camera_mode,
     get_firefox_profiles, is_firefox_pipewire_disabled, set_firefox_pipewire,
 )
-from nvbroadcast.core.platform import IS_LINUX, supports_tensorrt_python
+from nvbroadcast.core.platform import IS_LINUX, IS_MACOS, supports_tensorrt_python
 from nvbroadcast.core.resources import find_app_icon
 from nvbroadcast.core.recordings import recordings_directory, legacy_recordings_directory
 
@@ -1332,6 +1332,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._mic_selector = DeviceSelector("Microphone")
         self._mic_selector.connect("device-changed", self._on_mic_changed)
         mic_card.append(self._mic_selector)
+        if IS_MACOS:
+            audio_note = Gtk.Label(label=(
+                "Recordings and Mic Test use the original microphone on macOS. "
+                "Processed virtual microphone output and speaker noise removal are unavailable."
+            ))
+            audio_note.set_wrap(True)
+            audio_note.set_xalign(0)
+            audio_note.set_margin_start(16)
+            audio_note.set_margin_end(16)
+            audio_note.add_css_class("device-label")
+            mic_card.append(audio_note)
 
         # VU meter (progress bar showing mic level)
         vu_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -1433,10 +1444,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         test_row.append(self._test_duration_selector)
 
         self._test_source_selector = DeviceSelector("Source")
-        self._test_source_selector.set_devices([
+        test_sources = [
             {"name": "Processed", "device": "processed"},
             {"name": "Original", "device": "original"},
-        ])
+        ]
+        self._test_source_selector.set_devices(test_sources[1:] if IS_MACOS else test_sources)
         self._test_source_selector.set_selected_index(0)
         self._test_source_selector.connect("device-changed", self._on_test_source_changed)
         test_row.append(self._test_source_selector)
@@ -1471,7 +1483,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._speaker_selector.connect("device-changed", self._on_speaker_changed)
         spk_card.append(self._speaker_selector)
 
-        self._speaker_toggle = EffectToggle("Noise Removal", "Remove noise from incoming audio")
+        self._speaker_toggle = EffectToggle(
+            "Noise Removal", "Unavailable on macOS" if IS_MACOS else "Remove noise from incoming audio"
+        )
+        self._speaker_toggle.set_sensitive(not IS_MACOS)
         self._speaker_toggle.connect("toggled", self._on_speaker_toggled)
         spk_card.append(self._speaker_toggle)
         box.append(self._build_collapsible_card("speakers", "Speakers", spk_card, expanded=True))
@@ -2574,6 +2589,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         duration = int(self._test_duration_selector.get_selected_device() or "30")
         source_mode = self._test_source_selector.get_selected_device() or "processed"
         if source_mode == "processed":
+            if IS_MACOS:
+                self._test_status.set_text("Processed microphone output is unavailable on macOS. Select Original.")
+                return
             if not (self._app.config.audio.noise_removal or self._app.config.audio.voice_fx_enabled):
                 self._test_status.set_text("Enable Noise Removal or Voice Effects for Processed test.")
                 return
@@ -2587,10 +2605,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         def on_done():
             self._test_rec_btn.set_sensitive(True)
             self._test_rec_btn.set_label(f"Record {duration}s")
-            self._test_play_btn.set_sensitive(True)
-            self._test_status.set_text(f"{label} sample ready. Click Play.")
+            error = self._mic_test.last_error
+            self._test_play_btn.set_sensitive(not error)
+            self._test_status.set_text(
+                f"Recording failed: {error}" if error else f"{label} sample ready. Click Play."
+            )
 
         self._mic_test.start_recording(mic, duration=duration, on_complete=on_done)
+        if not self._mic_test.is_recording:
+            self._test_rec_btn.set_label(f"Record {duration}s")
+            self._test_status.set_text(f"Recording failed: {self._mic_test.last_error}")
 
     def _on_test_play(self, btn):
         if not hasattr(self, '_mic_test'):
@@ -2606,9 +2630,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._test_rec_btn.set_sensitive(True)
             self._test_rec_btn.set_label(f"Record {current_duration}s")
             self._test_play_btn.set_sensitive(True)
-            self._test_status.set_text("Ready")
+            error = self._mic_test.last_error
+            self._test_status.set_text(f"Playback failed: {error}" if error else "Ready")
 
         self._mic_test.play_recording(speaker_device=speaker, on_complete=on_done)
+        if not self._mic_test.is_playing:
+            on_done()
 
     def _sync_voice_fx_ui_from_config(self):
         a = self._app.config.audio
@@ -2984,7 +3011,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # toggle off = pin the classic RNNoise engine.
         self._noise_ai_toggle.active = a.noise_engine in ("auto", "deepfilter")
         self._noise_ai_toggle.set_sensitive(a.noise_removal)
-        self._speaker_toggle.active = a.speaker_denoise
+        self._speaker_toggle.active = a.speaker_denoise and not IS_MACOS
         self._vfx_toggle.active = a.voice_fx_enabled
         self._vfx_preset.set_sensitive(a.voice_fx_enabled)
         self._vfx_gpu_toggle.active = a.voice_fx_use_gpu
@@ -3323,7 +3350,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._noise_toggle.active = True
             self._noise_slider.set_sensitive(True)
 
-        if a.speaker_denoise:
+        if a.speaker_denoise and not IS_MACOS:
             self._speaker_toggle.active = True
         self._vfx_toggle.active = a.voice_fx_enabled
         self._vfx_preset.set_sensitive(a.voice_fx_enabled)

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v1.5.3 - Recording, Small Windows, and Runtime Recovery
+
+Release candidate; publication and final package acceptance are pending.
+
+- **Usable Small Windows** - Camera and Audio controls remain readable in
+  narrow windows. Show Preview restores the camera picture at the minimum
+  window size without hiding the controls, including with Meeting Notes open.
+- **GStreamer Startup Compatibility** - Initialize GStreamer with an explicit
+  empty argument list so older private PyGObject bindings work with the newer
+  GStreamer 1.28 typelib.
 - **Recoverable Source Updates** - Build and verify each Linux source runtime
   before switching the application and virtual-camera launchers. Failed installs
   preserve the working environment; `./install.sh --rollback-runtime` rechecks
@@ -39,7 +49,7 @@
   PyPI forwarding stub. Pip now identifies the 4.3 GB transfer as a download
   instead of appearing stuck at `Preparing metadata` ([Issue #120](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/120)).
 - **Camera Discovery After Startup** - When the app opens before a physical camera is ready, the visible window now retries discovery, clears cached failed probes, and refreshes resolution and frame-rate choices when the camera appears. A refresh button also handles cameras connected or replaced later without restarting the app, and disconnected devices no longer remain in the Source list ([Issue #121](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/121)).
-- **Reject Ambiguous Runtime Ownership** - Runtime selection now rejects multiple installed copies of the same ONNX Runtime distribution, including identical versions, before treating an environment as a valid CPU or CUDA variant. This also blocks CUDA support installation into those ambiguous environments; transactional candidate activation and rollback remain follow-up work ([Issue #53](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/53)).
+- **Reject Ambiguous Runtime Ownership** - Runtime selection now rejects multiple installed copies of the same ONNX Runtime distribution, including identical versions, before treating an environment as a valid CPU or CUDA variant. This also blocks CUDA support installation into those ambiguous environments. Source updates now use verified generations and rollback; authenticated runtime-pack delivery remains follow-up work ([Issue #53](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/53)).
 - **TensorRT on Python 3.14** - Zeus and Killer can use pinned TensorRT 10 shared libraries without Python bindings. Source and in-app installers verify real ONNX Runtime provider execution before enabling the modes, and the README explains the first engine build delay ([Issue #35](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/35)).
 - **Working Edge Controls in Every Background Mode** - Dilate and Softness now adjust Replace and Remove mattes as well as Blur. The shipped values (3 and 5) preserve each mode's existing output; Replace adjusts around its narrow outline to avoid adding a default halo ([Issue #106](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/106)).
 - **Lower Replacement Processing Cost** - Background replacement reuses mask tone curves, limits edge and color cleanup to relevant pixels, runs compatible temporal blends on the selected GPU, avoids returning unused model output, and copies denoise history and skin-smoothing regions more efficiently while retaining camera resolution and per-frame inference.

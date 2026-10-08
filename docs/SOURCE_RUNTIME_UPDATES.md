@@ -16,6 +16,12 @@ in fresh candidate processes. It repeats the final checks after optional
 packages have been installed. Only then does it atomically replace
 `selection.json`, containing both the active and previous generation.
 
+Dependency checks include the selected CPU/CUDA and meeting extras and extras
+requested by transitive dependencies. Rollback uses the current checkout's
+dependency checker in the previous generation's interpreter, so older
+checker APIs cannot bypass verification or prevent recovery. The checkout's
+application modules are not added to that interpreter's import path.
+
 The `nvbroadcast` and `nvbroadcast-vcam` launchers read that selection and exec
 the selected interpreter in isolation. Audio subprocesses inherit that
 interpreter. Without a selection, the launchers use the legacy `.venv`, which

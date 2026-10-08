@@ -377,6 +377,8 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertIn("CUDA provider session creation failed", reason)
         self.assertIn("libcudnn.so.9", reason)
 
+    @mock.patch.object(dependency_installer, "IS_LINUX", True)
+    @mock.patch.object(dependency_installer, "IS_ARM64", False)
     def test_gpu_memory_pressure_is_reported_as_temporary_and_retryable(self):
         installer = dependency_installer.DependencyInstaller()
         failed = RuntimeProbeResult.failure(
@@ -447,6 +449,8 @@ class DependencyInstallerTests(unittest.TestCase):
         clear_cache.assert_called_once_with()
         reason.assert_called_once_with("doczeus")
 
+    @mock.patch.object(dependency_installer, "IS_LINUX", True)
+    @mock.patch.object(dependency_installer, "IS_ARM64", False)
     def test_retry_mode_runtime_uses_captured_gpu_without_retargeting_installer(self):
         installer = dependency_installer.DependencyInstaller(gpu_index=0)
         with mock.patch.object(
@@ -527,6 +531,8 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertEqual(installer.gpu_index, 0)
         self.assertTrue(installer.restart_pending("cupy"))
 
+    @mock.patch.object(dependency_installer, "IS_LINUX", True)
+    @mock.patch.object(dependency_installer, "IS_ARM64", False)
     def test_explicit_retry_uses_snapshot_even_when_device_matches_live_target(self):
         installer = dependency_installer.DependencyInstaller(gpu_index=0)
         with mock.patch.object(
