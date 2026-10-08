@@ -134,27 +134,39 @@ def validate_selected_owner(project: Path, variant: str) -> None:
         )
 
 
-def validate_meeting_dependencies(variant: str, meeting_backends: str) -> None:
+def validate_meeting_dependencies(
+    variant: str, meeting_backends: str, *, development: bool = False
+) -> None:
+    """Validate the selected project extras and optional meeting backends."""
     from nvbroadcast.runtime.artifact import ArtifactEnvironment
     from nvbroadcast.runtime.variants import FASTER_WHISPER_VERSION
 
     environment = ArtifactEnvironment.current()
-    roots = {"nvbroadcast", "faster-whisper"}
+    roots = {"nvbroadcast"}
+    extras = {variant}
+    if development:
+        extras.add("dev")
+    if meeting_backends != "none":
+        roots.add("faster-whisper")
+        extras.add("meeting-support")
+    if meeting_backends == "all":
+        extras.add("meeting")
     if meeting_backends == "all" and sys.version_info < (3, 14):
         roots.add("openai-whisper")
     problems = environment.dependency_closure_problems(
         {"onnxruntime": "onnxruntime-gpu"} if variant == "cuda" else None,
         roots=roots,
+        root_extras={"nvbroadcast": extras},
     )
     backend_versions = environment.installed.get("faster-whisper", ())
-    if backend_versions != (FASTER_WHISPER_VERSION,):
+    if meeting_backends != "none" and backend_versions != (FASTER_WHISPER_VERSION,):
         found = ", ".join(backend_versions) if backend_versions else "none"
         problems.append(
             f"faster-whisper must be {FASTER_WHISPER_VERSION}, found {found}"
         )
     if problems:
         details = "\n".join(f"- {problem}" for problem in sorted(set(problems)))
-        raise RuntimeError(f"Meeting backend dependency check failed:\n{details}")
+        raise RuntimeError(f"Runtime dependency check failed:\n{details}")
 
 
 def install(
@@ -187,8 +199,8 @@ def install(
         # Keep backend installation outside dependency resolution so its
         # onnxruntime requirement cannot replace the selected runtime owner.
         run_pip("install", "--no-deps", FASTER_WHISPER_REQUIREMENT)
-        validate_meeting_dependencies(variant, meeting_backends)
     validate_selected_owner(project, variant)
+    validate_meeting_dependencies(variant, meeting_backends, development=development)
     subprocess.run(
         [sys.executable, "-m", "nvbroadcast.runtime", "--variant", variant],
         check=True,

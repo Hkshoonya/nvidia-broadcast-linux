@@ -100,7 +100,7 @@ def state_digest(state: dict | None) -> str:
 def verify_runtime(path: Path, variant: str | None, meeting: str) -> str:
     """Use the candidate interpreter, never inference imported by the installer."""
     verification = r"""
-import importlib, json, pathlib, sys
+import importlib, importlib.util, json, pathlib, sys
 import gi
 for name, version in (("Gtk", "4.0"), ("Adw", "1"), ("Gst", "1.0")):
     gi.require_version(name, version)
@@ -113,28 +113,40 @@ from nvbroadcast.video.effects import VideoEffects
 for compositing in ("cpu", "cupy", "gstreamer_gl"):
     effects = VideoEffects(compositing=compositing)
 from nvbroadcast.runtime.variants import detect_runtime_variant
-from nvbroadcast.runtime.artifact import ArtifactEnvironment
+# Rollback generations can predate the checker's root_extras API. Load only
+# the current checkout's verifier under a private module name; adding src to
+# sys.path would incorrectly substitute checkout modules for candidate imports.
+spec = importlib.util.spec_from_file_location("_nvbroadcast_dependency_verifier", sys.argv[3])
+checker = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = checker
+spec.loader.exec_module(checker)
 variant = detect_runtime_variant()
 if variant is None or (sys.argv[1] and variant.value != sys.argv[1]):
     raise RuntimeError("Missing, duplicate or unexpected ONNX runtime owner")
 roots = {"nvbroadcast"}
+extras = {variant.value}
 if sys.argv[2] != "none":
     import faster_whisper
     roots.add("faster-whisper")
+    extras.add("meeting-support")
+    if sys.argv[2] == "all":
+        extras.add("meeting")
     if sys.argv[2] == "all" and sys.version_info < (3, 14):
         import whisper
         roots.add("openai-whisper")
-problems = ArtifactEnvironment.current().dependency_closure_problems(
+problems = checker.ArtifactEnvironment.current().dependency_closure_problems(
     {"onnxruntime": "onnxruntime-gpu"} if variant.value == "cuda" else None,
     roots=roots,
+    root_extras={"nvbroadcast": extras},
 )
 if problems:
     raise RuntimeError("Dependency validation failed: " + "; ".join(problems))
 print("NVB_RUNTIME=" + variant.value)
 """
     python = str(path / "bin/python")
+    checker = Path(__file__).resolve().parents[1] / "src/nvbroadcast/runtime/artifact.py"
     result = subprocess.run(
-        [python, "-I", "-c", verification, variant or "", meeting],
+        [python, "-I", "-c", verification, variant or "", meeting, str(checker)],
         check=True,
         capture_output=True,
         text=True,

@@ -68,6 +68,15 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
         )
         runtime_owner = "onnxruntime-gpu" if variant == "cuda" else "onnxruntime"
         self._add_distribution(runtime_owner, "1.24.4")
+        if variant == "cuda":
+            self._add_distribution("cupy-cuda12x", "14.2.0")
+            self._add_distribution("cuda-pathfinder", "1.3.4")
+            for name in (
+                "nvidia-cublas-cu12", "nvidia-cuda-runtime-cu12", "nvidia-cudnn-cu12",
+                "nvidia-curand-cu12", "nvidia-cufft-cu12", "nvidia-nvjitlink-cu12",
+                "nvidia-cuda-nvrtc-cu12",
+            ):
+                self._add_distribution(name, "12.0")
 
     def _add_valid_python_runtime(self) -> None:
         (self.snap_root / "pyvenv.cfg").write_text(
@@ -350,6 +359,56 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
 
         self.assertTrue(any("onnxruntime-gpu" in problem for problem in problems))
         self.assertTrue(any("unexpected runtime distribution" in problem for problem in problems))
+
+    def test_cuda_profile_rejects_missing_selected_cupy_and_native_root(self):
+        self._add_valid_runtime("cuda")
+        for name, version in (("cupy-cuda12x", "14.2.0"),
+                              ("nvidia-cudnn-cu12", "12.0")):
+            directory = self.site_packages / f"{name.replace('-', '_')}-{version}.dist-info"
+            (directory / "METADATA").unlink()
+            directory.rmdir()
+        _, problems = dependency_problems(
+            self.snap_root, "amd64", ("CPUExecutionProvider", "CUDAExecutionProvider")
+        )
+        self.assertTrue(any("missing: cupy-cuda12x" in p for p in problems))
+        self.assertTrue(any("missing: nvidia-cudnn-cu12" in p for p in problems))
+
+    def test_cuda_profile_rejects_incompatible_cupy(self):
+        self._add_valid_runtime("cuda")
+        metadata = self.site_packages / "cupy_cuda12x-14.2.0.dist-info/METADATA"
+        metadata.write_text(metadata.read_text().replace("Version: 14.2.0", "Version: 15.0"))
+        _, problems = dependency_problems(
+            self.snap_root, "amd64", ("CPUExecutionProvider", "CUDAExecutionProvider")
+        )
+        self.assertTrue(any("cupy-cuda12x versions 15.0 do not satisfy" in p for p in problems))
+
+    def test_snap_selects_meeting_support_but_not_full_cuda_or_openai_extra(self):
+        self._add_valid_runtime("cuda")
+        metadata = self.site_packages / "nvbroadcast-1.4.0.dist-info/METADATA"
+        with metadata.open("a") as stream:
+            stream.write('Requires-Dist: soundfile; extra == "meeting-support"\n'
+                         'Requires-Dist: nvidia-nvjpeg-cu12; extra == "cuda"\n')
+        _, problems = dependency_problems(
+            self.snap_root, "amd64", ("CPUExecutionProvider", "CUDAExecutionProvider")
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("missing package soundfile", problems[0])
+        self._add_distribution("soundfile", "0.13.1")
+        _, problems = dependency_problems(
+            self.snap_root, "amd64", ("CPUExecutionProvider", "CUDAExecutionProvider")
+        )
+        self.assertEqual(problems, [])
+
+    def test_snap_propagates_transitive_extra_requirements(self):
+        self._add_valid_runtime()
+        metadata = self.site_packages / "faster_whisper-1.2.1.dist-info/METADATA"
+        with metadata.open("a") as stream:
+            stream.write("Requires-Dist: backend[feature]\n")
+        self._add_distribution("backend", "1.0", ('required-leaf; extra == "feature"',))
+        _, problems = dependency_problems(
+            self.snap_root, "arm64", ("CPUExecutionProvider",)
+        )
+        self.assertTrue(any("missing package required-leaf" in p for p in problems))
 
 
 if __name__ == "__main__":

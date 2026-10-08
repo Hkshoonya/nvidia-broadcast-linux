@@ -1,3 +1,6 @@
+from contextlib import redirect_stdout
+import importlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -6,8 +9,11 @@ import tempfile
 import unittest
 from unittest import mock
 import venv
+from types import ModuleType
 
 from scripts import source_runtime as runtime
+from nvbroadcast.runtime.artifact import ArtifactEnvironment
+from nvbroadcast.runtime.variants import RuntimeVariant
 
 
 class SourceRuntimeTests(unittest.TestCase):
@@ -300,6 +306,101 @@ class SourceRuntimeTests(unittest.TestCase):
         self.store.rollback()
         output = subprocess.check_output([str(prefix / "bin/nvbroadcast")], text=True)
         self.assertEqual(json.loads(output)[0], str(self.project / ".venv"))
+
+
+class SourceRuntimeVerificationExtrasTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.site = self.root / "lib/python3.12/site-packages"
+        self.site.mkdir(parents=True)
+        self.gi = ModuleType("gi")
+        self.gi.require_version = mock.Mock()
+        effects = ModuleType("nvbroadcast.video.effects")
+        effects.VideoEffects = mock.Mock()
+        self.modules = {"gi": self.gi, "nvbroadcast.video.effects": effects,
+                        "nvbroadcast.app": ModuleType("nvbroadcast.app"),
+                        "faster_whisper": ModuleType("faster_whisper"),
+                        "whisper": ModuleType("whisper")}
+
+    def distribution(self, name, version="1.0", requirements=()):
+        directory = self.site / f"{name.replace('-', '_')}-{version}.dist-info"
+        directory.mkdir()
+        (directory / "METADATA").write_text(
+            f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n" +
+            "".join(f"Requires-Dist: {requirement}\n" for requirement in requirements)
+        )
+
+    def run_verification(self, variant, meeting):
+        environment = ArtifactEnvironment.inspect(self.root, "amd64")
+
+        def run(arguments, **_kwargs):
+            if arguments[2] == "-c":
+                # Execute the exact candidate verification program against
+                # real fixture metadata. Native imports and the later device
+                # execution probe are replaced; no ML runtime is loaded.
+                output = io.StringIO()
+                with mock.patch.object(sys, "argv", ["-c", *arguments[4:]]), redirect_stdout(output):
+                    exec(arguments[3], {})
+                return subprocess.CompletedProcess(arguments, 0, output.getvalue(), "")
+            return subprocess.CompletedProcess(arguments, 0)
+
+        with (
+            mock.patch.dict(sys.modules, self.modules),
+            mock.patch("nvbroadcast.runtime.variants.detect_runtime_variant",
+                       return_value=RuntimeVariant(variant)),
+            mock.patch.object(importlib.metadata, "distributions",
+                              return_value=environment.distributions),
+            mock.patch.object(runtime.subprocess, "run", side_effect=run),
+            mock.patch.object(importlib, "import_module", return_value=ModuleType("fixture")),
+        ):
+            return runtime.verify_runtime(self.root, variant, meeting)
+
+    def test_candidate_verification_rejects_missing_selected_cuda_extra(self):
+        self.distribution("nvbroadcast", requirements=(
+            'cupy-cuda12x>=14.1.1,<15; extra == "cuda"',
+        ))
+        self.distribution("onnxruntime-gpu", "1.24.4")
+        with self.assertRaisesRegex(RuntimeError, "missing package cupy-cuda12x"):
+            self.run_verification("cuda", "none")
+        self.distribution("cupy-cuda12x", "14.2.0")
+        self.assertEqual(self.run_verification("cuda", "none"), "cuda")
+
+    def test_candidate_verification_selects_only_requested_meeting_extras(self):
+        self.distribution("nvbroadcast", requirements=(
+            'support-leaf; extra == "meeting-support"',
+            'compatibility-leaf; extra == "meeting"',
+        ))
+        self.distribution("faster-whisper", "1.2.1")
+        self.distribution("openai-whisper", "1.0")
+        self.distribution("onnxruntime", "1.24.4")
+        self.assertEqual(self.run_verification("cpu", "none"), "cpu")
+        with self.assertRaisesRegex(RuntimeError, "missing package support-leaf"):
+            self.run_verification("cpu", "faster")
+        self.distribution("support-leaf")
+        self.assertEqual(self.run_verification("cpu", "faster"), "cpu")
+        with self.assertRaisesRegex(RuntimeError, "missing package compatibility-leaf"):
+            self.run_verification("cpu", "all")
+        self.distribution("compatibility-leaf")
+        self.assertEqual(self.run_verification("cpu", "all"), "cpu")
+
+    def test_older_generation_uses_current_checker_without_importing_checkout_app(self):
+        self.distribution("nvbroadcast", requirements=(
+            'required-leaf; extra == "cpu"',
+        ))
+        self.distribution("onnxruntime", "1.24.4")
+        old = ModuleType("nvbroadcast.runtime.artifact")
+        old.ArtifactEnvironment = mock.Mock()
+        old.ArtifactEnvironment.current.side_effect = TypeError("old checker API")
+        self.modules[old.__name__] = old
+        with self.assertRaisesRegex(RuntimeError, "missing package required-leaf"):
+            self.run_verification("cpu", "none")
+        self.distribution("required-leaf")
+        previous_paths = list(sys.path)
+        self.assertEqual(self.run_verification("cpu", "none"), "cpu")
+        self.assertEqual(sys.path, previous_paths)
+        old.ArtifactEnvironment.current.assert_not_called()
 
 
 if __name__ == "__main__":
