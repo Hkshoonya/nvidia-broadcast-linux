@@ -188,10 +188,11 @@ SVC
 
     # Build .deb
     mkdir -p dist/deb
-    # dpkg-deb uses SOURCE_DATE_EPOCH to clamp generated file and archive
-    # timestamps. Use the Debian changelog date for direct local builds too.
+    # A future release epoch does not clamp newly generated, earlier mtimes.
+    # Normalize every staging entry, including control files, before archiving.
     local deb_source_date_epoch
     deb_source_date_epoch="$(package_source_date_epoch)"
+    find "$PKG_DIR" -exec touch --no-dereference --date "@$deb_source_date_epoch" -- {} +
     SOURCE_DATE_EPOCH="$deb_source_date_epoch" dpkg-deb -Zxz --root-owner-group --build \
         "$PKG_DIR" \
         "dist/deb/nvbroadcast_${VERSION}-${REV}_all.deb"
@@ -232,6 +233,7 @@ build_rpm() {
     find "$TAR_ROOT/$TAR_DIR/src" -type d \
         \( -name "__pycache__" -o -name "*.egg-info" \) \
         -prune -exec rm -rf {} +
+    find "$TAR_ROOT/$TAR_DIR" -exec touch --no-dereference --date "@$rpm_source_date_epoch" -- {} +
     (cd "$TAR_ROOT" && tar czf "$TAR_PATH" "$TAR_DIR")
 
     # Copy and update spec with current version

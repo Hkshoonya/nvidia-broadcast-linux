@@ -62,7 +62,7 @@
   <content_rating type="oars-1.1" />
 
   <releases>
-    <release version="1.5.3" date="2026-10-05">
+    <release version="1.5.3" date="2026-10-10">
       <description>
         <p>Recording, small windows, and runtime recovery</p>
         <ul>
