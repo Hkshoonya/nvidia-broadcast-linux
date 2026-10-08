@@ -38,10 +38,16 @@ class _MacTools:
         self.submission_id = SUBMISSION_ID
         self.submit_returncode = 0
         self.submit_json = None
+        self.submit_stderr = ""
+        self.info_status = None
+        self.info_id = None
+        self.info_returncode = 0
+        self.info_json = None
         self.log_status = None
         self.log_id = None
         self.log_hash = None
         self.omit_log = False
+        self.omit_log_hash = False
         self.fail = None
         self.timeout = None
         self.altered_phase = None
@@ -133,14 +139,24 @@ class _MacTools:
                 "id": self.submission_id, "status": self.status,
             })
             returncode = self.submit_returncode
+            errors = self.submit_stderr
+        elif step == "notarytool-info":
+            output = self.info_json if self.info_json is not None else json.dumps({
+                "id": self.info_id if self.info_id is not None else self.submission_id,
+                "status": self.info_status if self.info_status is not None else self.status,
+            })
+            returncode = self.info_returncode
         elif step == "notarytool-log":
             if not self.omit_log:
-                Path(arguments[-1]).write_text(json.dumps({
+                log = {
                     "jobId": self.log_id or self.submission_id,
                     "status": self.log_status or self.status,
                     "sha256": self.log_hash or self.upload_hash,
                     "issues": [{"severity": "warning", "message": "retained warning"}],
-                }))
+                }
+                if self.omit_log_hash:
+                    del log["sha256"]
+                Path(arguments[-1]).write_text(json.dumps(log))
         elif step == "stapler-staple":
             package = Path(arguments[3])
             package.write_bytes(package.read_bytes() + b".ticket")
@@ -197,6 +213,50 @@ class MacOSSigningTests(unittest.TestCase):
         self.assertEqual(manifest["status"], "failed")
         self.assertIsNone(manifest["artifact"])
         self.assertFalse(list(self.root.glob(".nvbroadcast-signing-*")))
+
+    def prepare_checkpoint(self):
+        self.checkpoint = self.root / "checkpoint"
+        self.tools.submit_returncode = 124
+        self.tools.submit_json = ""
+        self.tools.submit_stderr = json.dumps({
+            "id": SUBMISSION_ID,
+            "message": "Timeout of 1800 second(s) was reached before processing completed.",
+        })
+        with self.assertRaisesRegex(signing.SigningError, "wait timed out"):
+            self.sign(checkpoint_directory=self.checkpoint)
+        self.source_pin = hashlib.sha256(self.original).hexdigest()
+        self.signed_pin = hashlib.sha256(self.original + b".signed").hexdigest()
+        self.tools.submit_returncode = 0
+        self.tools.submit_json = None
+        self.tools.submit_stderr = ""
+        self.tools.calls.clear()
+        self.evidence = self.root / "resume-evidence"
+
+    def resume(self, **overrides):
+        arguments = dict(
+            source=self.source, output=self.output, checkpoint_directory=self.checkpoint,
+            source_sha256=self.source_pin, signed_sha256=self.signed_pin,
+            team_id=TEAM_ID, keychain=self.keychain, notary_profile="release notary profile",
+            evidence_directory=self.evidence,
+        )
+        arguments.update(overrides)
+        return signing.resume_package(**arguments)
+
+    def assert_no_sign_or_submit(self):
+        for arguments, _ in self.tools.calls:
+            self.assertNotEqual(Path(arguments[0]).name, "productsign")
+            self.assertNotEqual(arguments[1:3], ["notarytool", "submit"])
+
+    def assert_resume_failed(self):
+        retained = (self.checkpoint / "signed-upload.pkg").read_bytes()
+        checkpoint = (self.checkpoint / "checkpoint.json").read_bytes()
+        with self.assertRaises((signing.SigningError, OSError)):
+            self.resume()
+        self.assertFalse(os.path.lexists(self.output))
+        self.assertEqual((self.checkpoint / "signed-upload.pkg").read_bytes(), retained)
+        self.assertEqual((self.checkpoint / "checkpoint.json").read_bytes(), checkpoint)
+        self.assertFalse(list(self.root.glob(".nvbroadcast-signing-*")))
+        self.assert_no_sign_or_submit()
 
     def test_success_checks_every_gate_and_only_hashes_the_stapled_artifact(self):
         summary = self.sign()
@@ -342,6 +402,283 @@ class MacOSSigningTests(unittest.TestCase):
         self.tools.timeout = "notarytool-submit"
         self.assert_failed()
         self.assertTrue(any("partial output" in path.read_text() for path in self.evidence.glob("*.stdout.txt")))
+
+    def test_empty_stdout_timeout_retains_stderr_uuid_without_inventing_apple_status(self):
+        self.tools.submit_returncode = 124
+        self.tools.submit_json = ""
+        self.tools.submit_stderr = json.dumps({
+            "id": SUBMISSION_ID,
+            "message": "Timeout of 1800 second(s) was reached before processing completed.",
+        })
+        self.assert_failed()
+        summary = json.loads((self.evidence / "summary.json").read_text())
+        self.assertEqual(summary["submission_id"], SUBMISSION_ID)
+        self.assertIsNone(summary["notarization_status"])
+        self.assertEqual(summary["notarization_wait_status"], "timed_out")
+        self.assertIn("wait timed out", summary["error"])
+        self.assertFalse(self.tools.stapled)
+
+    def test_checkpoint_retains_exact_timeout_upload_with_private_permissions(self):
+        self.prepare_checkpoint()
+        checkpoint = json.loads((self.checkpoint / "checkpoint.json").read_text())
+        self.assertEqual((self.checkpoint / "signed-upload.pkg").read_bytes(), self.original + b".signed")
+        self.assertEqual(checkpoint["source_sha256"], self.source_pin)
+        self.assertEqual(checkpoint["signed_upload_sha256"], self.signed_pin)
+        self.assertEqual(checkpoint["submission_id"], SUBMISSION_ID)
+        self.assertEqual(checkpoint["state"], "pending")
+        self.assertIsNone(checkpoint["notarization_status"])
+        self.assertEqual(checkpoint["notarization_wait_status"], "timed_out")
+        self.assertEqual(stat.S_IMODE(self.checkpoint.stat().st_mode), 0o700)
+        for name in ("checkpoint.json", "signed-upload.pkg"):
+            self.assertEqual(stat.S_IMODE((self.checkpoint / name).stat().st_mode), 0o600)
+        self.assertFalse(self.output.exists())
+        self.assertFalse(list(self.root.glob(".nvbroadcast-signing-*")))
+
+    def test_outer_timeout_retains_upload_without_guessing_submission_id(self):
+        checkpoint = self.root / "checkpoint"
+        self.tools.timeout = "notarytool-submit"
+        with self.assertRaises(signing.SigningError):
+            self.sign(checkpoint_directory=checkpoint)
+        metadata = json.loads((checkpoint / "checkpoint.json").read_text())
+        self.assertIsNone(metadata["submission_id"])
+        self.assertEqual(metadata["notarization_wait_status"], "timed_out")
+        self.assertEqual((checkpoint / "signed-upload.pkg").read_bytes(), self.original + b".signed")
+        self.assertFalse(self.output.exists())
+        self.assertTrue(any("partial output" in path.read_text() for path in self.evidence.glob("*.stdout.txt")))
+
+    def test_outer_timeout_can_record_a_complete_stderr_uuid_but_cannot_release(self):
+        checkpoint = self.root / "checkpoint"
+
+        def interrupted(arguments, **kwargs):
+            if arguments[1:3] == ["notarytool", "submit"]:
+                raise subprocess.TimeoutExpired(arguments, kwargs["timeout"], output=b"", stderr=json.dumps({
+                    "id": SUBMISSION_ID, "message": "Processing has not completed.",
+                }).encode())
+            return self.tools(arguments, **kwargs)
+
+        self.run.side_effect = interrupted
+        with self.assertRaises(signing.SigningError):
+            self.sign(checkpoint_directory=checkpoint)
+        metadata = json.loads((checkpoint / "checkpoint.json").read_text())
+        self.assertEqual(metadata["submission_id"], SUBMISSION_ID)
+        self.assertEqual(metadata["notarization_wait_status"], "timed_out")
+        self.assertIsNone(metadata["notarization_status"])
+        self.assertFalse(self.output.exists())
+
+    def test_conflicting_timeout_identifiers_are_not_guessed(self):
+        self.tools.submit_returncode = 124
+        self.tools.submit_json = json.dumps({"id": SUBMISSION_ID, "status": "In Progress"})
+        self.tools.submit_stderr = json.dumps({"id": OTHER_SUBMISSION})
+        self.assert_failed()
+        self.assertIsNone(json.loads((self.evidence / "summary.json").read_text())["submission_id"])
+
+    def test_checkpoint_is_not_created_before_signature_and_payload_gates(self):
+        checkpoint = self.root / "checkpoint"
+        self.tools.trusted = False
+        with self.assertRaises(signing.SigningError):
+            self.sign(checkpoint_directory=checkpoint)
+        self.assertFalse(checkpoint.exists())
+        self.assertFalse(self.output.exists())
+
+    def test_resume_accepted_submission_checks_all_gates_without_signing_or_uploading(self):
+        self.prepare_checkpoint()
+        retained = (self.checkpoint / "signed-upload.pkg").read_bytes()
+        metadata = (self.checkpoint / "checkpoint.json").read_bytes()
+        summary = self.resume()
+        self.assertTrue(summary["resumed"])
+        self.assertEqual(summary["status"], "verified")
+        self.assertEqual(summary["submission_id"], SUBMISSION_ID)
+        self.assertEqual(summary["signed_upload_sha256"], self.signed_pin)
+        self.assertEqual(summary["final_sha256"], hashlib.sha256(self.output.read_bytes()).hexdigest())
+        self.assertNotEqual(summary["signed_upload_sha256"], summary["final_sha256"])
+        self.assertEqual(self.output.read_bytes(), self.original + b".signed.ticket")
+        self.assertEqual((self.checkpoint / "signed-upload.pkg").read_bytes(), retained)
+        self.assertEqual((self.checkpoint / "checkpoint.json").read_bytes(), metadata)
+        self.assertEqual(self.source.read_bytes(), self.original)
+        self.assert_no_sign_or_submit()
+        calls = [arguments for arguments, _ in self.tools.calls]
+        info = next(arguments for arguments in calls if arguments[1:3] == ["notarytool", "info"])
+        self.assertEqual(info[3], SUBMISSION_ID)
+        self.assertEqual(info[info.index("--keychain") + 1], str(self.keychain))
+        for phase in ("signed", "final"):
+            self.assertEqual(
+                json.loads((self.evidence / "expand-input-inventory.json").read_text()),
+                json.loads((self.evidence / f"expand-{phase}-inventory.json").read_text()),
+            )
+        manifest = json.loads((self.evidence / "evidence-manifest.json").read_text())
+        self.assertEqual(manifest["artifact"]["sha256"], summary["final_sha256"])
+        for member in manifest["evidence"]:
+            self.assertEqual(member["sha256"], hashlib.sha256((self.evidence / member["name"]).read_bytes()).hexdigest())
+
+    def test_resume_refuses_unaccepted_missing_or_mismatched_info_and_logs(self):
+        self.prepare_checkpoint()
+        scenarios = (
+            {"info_status": "In Progress"}, {"info_status": "Invalid"},
+            {"info_returncode": 1}, {"info_id": OTHER_SUBMISSION},
+            {"info_json": "[]"}, {"info_json": "not JSON"},
+            {"info_json": json.dumps({"status": "Accepted"})},
+            {"info_json": json.dumps({"id": "invalid", "status": "Accepted"})},
+            {"fail": "notarytool-info"}, {"fail": "notarytool-log"},
+            {"log_id": OTHER_SUBMISSION}, {"log_status": "Invalid"},
+            {"log_hash": "0" * 64}, {"omit_log": True}, {"omit_log_hash": True},
+        )
+        for index, settings in enumerate(scenarios):
+            with self.subTest(settings=settings):
+                self.tools = _MacTools()
+                self.tools.upload_hash = self.signed_pin
+                self.run.side_effect = self.tools
+                for name, value in settings.items():
+                    setattr(self.tools, name, value)
+                self.evidence = self.root / f"resume-evidence-{index}"
+                self.assert_resume_failed()
+                self.assertFalse(self.tools.stapled)
+
+    def test_resume_preserves_all_native_verification_failure_gates(self):
+        self.prepare_checkpoint()
+        scenarios = (
+            {"trusted": False}, {"timestamp": False},
+            {"signer": f"Developer ID Installer: Other Developer ({TEAM_ID})"},
+            {"signer": f"Developer ID Installer: Example ({OTHER_TEAM})"},
+            {"signer": f"Developer ID Application: Example ({TEAM_ID})"},
+            {"fail": "stapler-staple"}, {"fail": "stapler-validate"},
+            {"fail": "gatekeeper"}, {"assessment_disabled": True},
+            {"final_signer": f"Developer ID Application: Example ({TEAM_ID})"},
+        ) + tuple(
+            {"altered_phase": phase, "alteration": alteration}
+            for phase in ("signed", "final")
+            for alteration in ("bytes", "mode", "symlink", "missing", "extra", "special-file")
+        )
+        for index, settings in enumerate(scenarios):
+            with self.subTest(settings=settings):
+                self.tools = _MacTools()
+                self.tools.upload_hash = self.signed_pin
+                self.run.side_effect = self.tools
+                for name, value in settings.items():
+                    setattr(self.tools, name, value)
+                self.evidence = self.root / f"native-resume-evidence-{index}"
+                self.assert_resume_failed()
+
+    def test_resume_requires_independent_source_and_signed_hash_pins_before_native_calls(self):
+        self.prepare_checkpoint()
+        for overrides in ({"source_sha256": "0" * 64}, {"signed_sha256": "0" * 64},
+                          {"source_sha256": "invalid"}, {"team_id": OTHER_TEAM}):
+            with self.subTest(overrides=overrides), self.assertRaises(signing.SigningError):
+                self.resume(**overrides)
+        self.assertFalse(self.tools.calls)
+
+    def test_resume_rejects_changed_source_or_upload_before_native_calls(self):
+        self.prepare_checkpoint()
+        for path in (self.source, self.checkpoint / "signed-upload.pkg"):
+            with self.subTest(path=path):
+                original = path.read_bytes()
+                path.write_bytes(b"x" * len(original))
+                with self.assertRaises(signing.SigningError):
+                    self.resume()
+                self.assertFalse(self.tools.calls)
+                path.write_bytes(original)
+
+    def test_resume_rejects_tampered_metadata_even_if_its_hashes_are_changed_together(self):
+        self.prepare_checkpoint()
+        path = self.checkpoint / "checkpoint.json"
+        checkpoint = json.loads(path.read_text())
+        checkpoint["signed_upload_sha256"] = "0" * 64
+        path.write_text(json.dumps(checkpoint))
+        (self.checkpoint / "signed-upload.pkg").write_bytes(b"tampered archive")
+        with self.assertRaises(signing.SigningError):
+            self.resume()
+        self.assertFalse(self.tools.calls)
+
+    def test_resume_rejects_invalid_checkpoint_schema_uuid_state_and_size_before_commands(self):
+        self.prepare_checkpoint()
+        path = self.checkpoint / "checkpoint.json"
+        original = json.loads(path.read_text())
+        for key, value in (("schema_version", True), ("schema_version", 2),
+                           ("submission_id", None), ("submission_id", "invalid"),
+                           ("state", "rejected"), ("source_bytes", 1),
+                           ("signed_upload_bytes", True), ("signer", "wrong signer")):
+            with self.subTest(key=key, value=value):
+                path.write_text(json.dumps(dict(original, **{key: value})))
+                with self.assertRaises(signing.SigningError):
+                    self.resume()
+                self.assertFalse(self.tools.calls)
+
+    def test_resume_refuses_symlinked_checkpoint_files_and_existing_output_before_commands(self):
+        self.prepare_checkpoint()
+        for name in ("checkpoint.json", "signed-upload.pkg"):
+            path = self.checkpoint / name
+            target = self.root / f"retained-{name}"
+            path.rename(target)
+            path.symlink_to(target)
+            with self.subTest(name=name), self.assertRaises((signing.SigningError, OSError)):
+                self.resume()
+            self.assertFalse(self.tools.calls)
+            path.unlink()
+            target.rename(path)
+        linked = self.root / "linked-checkpoint"
+        linked.symlink_to(self.checkpoint, target_is_directory=True)
+        with self.assertRaises(signing.SigningError):
+            self.resume(checkpoint_directory=linked)
+        for path in (self.source, self.keychain):
+            target = path.with_name("original-" + path.name)
+            path.rename(target)
+            path.symlink_to(target)
+            with self.subTest(path=path), self.assertRaises(signing.SigningError):
+                self.resume()
+            self.assertFalse(self.tools.calls)
+            path.unlink()
+            target.rename(path)
+        self.output.write_bytes(b"existing output")
+        with self.assertRaises(signing.SigningError):
+            self.resume()
+        self.assertEqual(self.output.read_bytes(), b"existing output")
+        self.assertFalse(self.tools.calls)
+
+    def test_resume_rechecks_original_source_and_retained_upload_before_output_creation(self):
+        self.prepare_checkpoint()
+        self.tools.before_assess = lambda: (self.checkpoint / "signed-upload.pkg").write_bytes(b"changed upload")
+        with self.assertRaises(signing.SigningError):
+            self.resume()
+        self.assertFalse(self.output.exists())
+        self.assertFalse(json.loads((self.evidence / "summary.json").read_text())["original_unchanged"])
+        self.assert_no_sign_or_submit()
+
+    def test_resume_rechecks_original_unsigned_source_before_output_creation(self):
+        self.prepare_checkpoint()
+        self.tools.before_assess = lambda: self.source.write_bytes(b"changed input")
+        with self.assertRaises(signing.SigningError):
+            self.resume()
+        self.assertFalse(self.output.exists())
+        self.assertFalse(json.loads((self.evidence / "summary.json").read_text())["original_unchanged"])
+        self.assert_no_sign_or_submit()
+
+    def test_resume_preserves_a_racing_output_and_does_not_mark_it_verified(self):
+        self.prepare_checkpoint()
+        self.tools.before_assess = lambda: self.output.write_bytes(b"another process's file")
+        with self.assertRaises(FileExistsError):
+            self.resume()
+        self.assertEqual(self.output.read_bytes(), b"another process's file")
+        self.assertEqual(json.loads((self.evidence / "summary.json").read_text())["status"], "failed")
+        self.assertIsNone(json.loads((self.evidence / "evidence-manifest.json").read_text())["artifact"])
+        self.assert_no_sign_or_submit()
+
+    def test_resume_cli_requires_both_pins_and_does_not_require_an_installer_identity(self):
+        self.prepare_checkpoint()
+        arguments = [
+            "sign_macos_package.py", "--input", str(self.source), "--output", str(self.output),
+            "--team-id", TEAM_ID, "--keychain", str(self.keychain), "--notary-profile", "release notary profile",
+            "--evidence-dir", str(self.evidence), "--resume-from", str(self.checkpoint),
+            "--source-sha256", self.source_pin,
+        ]
+        with mock.patch.object(signing.sys, "argv", arguments), mock.patch.object(signing.sys, "stderr"):
+            with self.assertRaises(SystemExit) as error:
+                signing.main()
+        self.assertEqual(error.exception.code, 2)
+        self.assertFalse(self.tools.calls)
+        arguments.extend(["--signed-sha256", self.signed_pin])
+        with mock.patch.object(signing.sys, "argv", arguments), mock.patch.object(signing.sys, "stdout"):
+            self.assertEqual(signing.main(), 0)
+        self.assertEqual(self.output.read_bytes(), self.original + b".signed.ticket")
+        self.assert_no_sign_or_submit()
 
     def test_original_changed_during_signing_prevents_final_artifact(self):
         self.tools.before_assess = lambda: self.source.write_bytes(b"changed input")
