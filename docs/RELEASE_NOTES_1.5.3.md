@@ -1,8 +1,12 @@
 # NV Broadcast v1.5.3
 
-**Tagged candidate; stable publication remains pending candidate testing and
-soak.** The immutable `v1.5.3` tag and verified draft packages are built. The
-planned publication date is 10 October 2026; actual channel and publication
+**Store candidate promoted; stable publication remains pending applicable
+candidate checks and feedback.** The immutable `v1.5.3` tag and verified draft
+packages are built. Snap candidate is revision **190 on AMD64 / 189 on ARM64**;
+stable remains v1.5.2 at **185 / 184**. The affected feedback window started
+8 October 2026 at **20:55:02 UTC**; its earliest 48-hour milestone is
+**10 October at 20:55:02 UTC**, subject to remaining checks and regressions.
+This is not a guaranteed publication time. Actual channel and publication
 receipts are tracked in [the release readiness record](RELEASE_READINESS_1.5.3.md).
 
 This maintenance release brings together the recording, compact-window,
@@ -94,6 +98,14 @@ dependency resolution; offline runtime locks, RPM signing and production
 runtime-pack work remain tracked in #53 and #60. The final macOS PKG's Installer
 signing/notarization is verified separately below.
 
+A carried-forward RPM reporting limitation remains in this immutable tag:
+if CUDA runtime setup and its clean CPU fallback both fail, the RPM postinstall
+scriptlet can still report success. The focused follow-up in
+[PR #142](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/142) is merged
+for subsequent work and reports that failure explicitly; it is not included in
+v1.5.3. Successful CUDA and CPU installation paths are unaffected by this
+reporting defect.
+
 Upgrades from affected native v1.4.0 or older installations must use the
 `nvbroadcast-native-upgrade` helper and package from the **same release**,
 verified against that release's checksums and provenance. The helper is bound
@@ -109,5 +121,17 @@ passed macOS signing, Accepted notarization, ticket stapling, Gatekeeper and
 exact-payload checks, then attested the final packages and created a draft
 release. The verified `NVBroadcast-1.5.3-1.pkg` checksum is
 `8a4df3d903f80d90b866adcd6571f34368b015aeae8023f35aba8472c61af2e2`.
+The [candidate promotion workflow](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/37842894804)
+completed for the immutable tag. Public Store SHA3-384 digests and sizes match
+the actual reviewed files and their own source-bound attestations. Store
+candidate revision 190 is installed: accepted local Snap assertions, mounted
+source/runtime input checks and exclusive CPU inference passed. The maintainer
+confirmed smooth camera preview and usable compact controls. New CUDA/CuPy
+checks remain deferred because concurrent Ollama use leaves insufficient free
+memory on the selected GPU; neither check started. Earlier x10 execution and
+speech-recording evidence remains explicitly retained through exact application
+and native runtime input matching, rather than relabeled as new revision 190
+tests.
 Public downloads and Snap stable promotion remain pending the applicable
-candidate/soak/publication steps; a successful draft build is not publication.
+candidate checks, feedback and publication steps; candidate promotion is not
+stable publication.

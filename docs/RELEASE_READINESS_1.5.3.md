@@ -4,8 +4,9 @@ Assessment started **5 October 2026**, from main commit
 `254ec93b5351c8e50815b3bf03dce6ae91ef1726`. The latest published version remains
 [v1.5.2, published 4 September 2026](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.2).
 
-**Status: merged, tagged and draft packages verified; candidate/soak/publication
-remain pending, 8 October 2026.** PR #136 merged into main at
+**Status: merged, tagged, draft packages verified and Store candidate promoted;
+applicable candidate checks, feedback and stable publication remain pending,
+8 October 2026.** PR #136 merged into main at
 `048d4f4005a56e6a7b235739f0176e0264bc3fa7`, exactly matching the tested integration
 tree `f2ffa891c607a3effb653a545eb150c2a4f6c5e0`. The immutable `v1.5.3` tag points
 to that source. The maintainer authorized this merge, tag, verified Store
@@ -14,8 +15,10 @@ candidate and eventual stable publication once the technical gates pass.
 completed native build/test, actual macOS signing/notarization, package
 attestation and draft-release creation. A draft is not a public release.
 
-Planned stable publication is **10 October 2026**, after applicable candidate
-feedback and soak. Website download changes are prepared for publication;
+The affected feedback window starts **8 October 2026 at 20:55:02 UTC**. Its
+earliest 48-hour milestone is **10 October 2026 at 20:55:02 UTC**, subject to
+remaining candidate checks and regressions; no publication time is guaranteed.
+Website download changes are prepared for publication;
 the deployed website stays on the current public release until then. Supported
 public Flatpak distribution remains excluded. Keep actual artifact, Store
 revision, device acceptance and publication receipts in the release record;
@@ -82,17 +85,17 @@ automatically to newly built v1.5.3 artifacts.
 
 | Area | Existing evidence | Remaining release work |
 | --- | --- | --- |
-| Unit, packaging, and CI | Final main/tag tree equals the tested integration; applicable PR checks and tag Build Packages run 37835368212 passed | Verify the remaining tag/Snap candidate results and record publication receipts |
-| Small window UI | Installed v1.5.3 development Snap and owner physical signed-PKG camera/compact controls passed | Record exact Store-candidate acceptance and affected soak results |
-| Recording | Installed Snap speech playback and final signed-PKG built-in-microphone Mic Test, complete speech Rec and microphone-only Meeting transcription passed; prior native/Flatpak capture and generated-media evidence is retained | Exact Store-candidate acceptance; native/Flatpak physical-microphone and desktop follow-up remains in #112, separate from the completed Mac scope; preserve provider scope and unavailable-second-mic limitation |
-| CPU/GPU behavior | Installed CPU fallback, GPU recovery, live CUDA, and cold-cache probe fixes were verified before their merges | Exact candidate CPU/CUDA/TensorRT checks on applicable devices; record memory pressure separately from a broken installation |
+| Unit, packaging, and CI | Final main/tag tree equals the tested integration; applicable PR checks, tag Build Packages run 37835368212 and paired Snap candidate promotion run 37842894804 passed | Record remaining candidate acceptance, affected feedback and stable/publication receipts |
+| Small window UI | Installed Store candidate 190 owner moving preview, compact Camera/Audio controls and Show Preview passed; physical signed-PKG camera/compact controls passed | Record affected feedback and any regressions |
+| Recording | Earlier x10 Snap speech playback is retained through exact application/native input matching; final signed-PKG built-in-microphone Mic Test, complete speech Rec and microphone-only Meeting transcription passed; prior native/Flatpak capture and generated-media evidence is retained | No new physical recording was claimed for Store 190; native/Flatpak physical-microphone and desktop follow-up remains in #112, separate from the completed Mac scope; preserve provider scope and unavailable-second-mic limitation |
+| CPU/GPU behavior | Installed Store 190 exclusive CPU inference and loaded native-file binding passed; earlier x10 CPU/CUDA/CuPy execution remains separate, with matching inputs | New exact-190 CUDA/CuPy execution awaits sufficient selected-GPU capacity; neither started under the reserve guard. TensorRT SDK is outside this Snap profile; record affected feedback and distinguish capacity from provider failure |
 | Matte quality (#91) | Patched Remove passed direct-window and backlit moving-hand feedback | Final-package Blur/Replace, fine hair, white clothing, and extreme sliders; document any accepted residual limitation |
 | Source recovery (#53) | Failed-install preservation, CPU/CUDA transitions, rollback and source window startup tested in #133 | Candidate source update/rollback check; production native runtime packs remain a separate unfinished scope |
 | Native artifacts (#60) | Final tag DEB/RPM, bound helper, source/notices and hosted provenance passed independent checks; fresh public v1.5.2 to exact final CPU upgrades passed 17 steps on Ubuntu 24.04 and 16 on Fedora 44; eight historical prototype lifecycle cells are retained separately | Record candidate/publication receipts; production runtime payloads remain non-hermetic, with locked/offline dependencies, RPM signing and full lifecycle work separate |
 | License/redistribution (#100) | Existing terms reviewed under maintainer-confirmed arrangement; complete GPLv3 and grant references shipped; PR #136 merged and #100 resolved | Preserve exact artifact notice/component evidence and the recorded review scope |
 | Flatpak (#95) | Development build, dependency closure, model trust, recording, physical camera, and initial virtual-camera read passed | CPU release conditions below; remains excluded until applicable gates pass |
 | macOS | Exact tag PKG passed actual Installer/team signing, Accepted notarization, stapling, Gatekeeper, payload/checksum and hosted provenance; owner M2 camera, compact controls, CPU effects, built-in-mic speech Rec, OBS output and microphone-only Meeting passed | Candidate/soak/publication record; a second mic was unavailable, numeric FPS and physical upgrade/uninstall were not supplied; keep macOS 13/14, Intel and CoreML outside qualified scope |
-| Snap edge automation (#90) | Current public channels reported aligned on reviewed 185/184 | Verify connected builder configuration and scoped edge credentials before merging the edge-promotion draft |
+| Snap edge automation (#90) | Candidate is 190/189; stable and edge remain v1.5.2 at 185/184 in the verified Store receipt | Verify connected builder configuration and scoped edge credentials before merging the edge-promotion draft |
 | NixOS (#18) | Package/module evaluation and Xvfb startup passed | No real NixOS machine available; draft remains unsupported pending physical-device acceptance |
 
 ## Flatpak decision for this release
@@ -155,12 +158,58 @@ Accepted in authenticated status-only runs, but their signed uploads were not
 retained and cannot qualify the current PKG. The final tag-built macOS package
 completed its own signing/notarization/staple/Gatekeeper gates once.
 
-The maintainer completed the installed v1.5.3 Snap x10 check: camera preview,
-compact-window Camera/Audio controls, Show Preview, CPU/DocZeus availability,
+The maintainer previously completed the v1.5.3 development Snap x10 check:
+camera preview, compact-window Camera/Audio controls, Show Preview, CPU/DocZeus availability,
 moving open-hand Blur/Remove and saved video with audible speech all passed.
 Actual confined CPU/CUDA inference and fresh CuPy compilation also passed;
 the narrow Snap CUDA profile does not bundle TensorRT libraries. A nondefault
 physical microphone was not explicitly confirmed for that Snap session.
+
+[Candidate promotion run 37842894804](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/37842894804),
+attempt 1, completed successfully from immutable tag source `048d4f4`. The
+public Store receipt at **8 October 20:56:23 UTC** verifies latest/candidate
+**AMD64 revision 190 / ARM64 revision 189**, both v1.5.3. Their Store SHA3-384
+digests and sizes match fresh reads of the actual reviewed files, which retain
+their own exact-run/tag/source cryptographic attestations. This verifies the
+Store record against those files without claiming a fresh CDN transfer or
+detached Snap assertion check. Stable and edge remain v1.5.2 at **185 / 184**.
+The stable promotion step was skipped. The preserved candidate run, Store
+response and digest bindings are in
+`dist/qualification/snap/candidate-run-37842894804-attempt-1/` in the tag checkout.
+
+Store candidate revision **190 is now installed**. The accepted local Snap
+assertion chain binds its revision, size and SHA3-384 to the qualified reviewed
+artifact. Actual mounted checks verified 704 files, including all 64 application
+source files and 79 source/resource/notice copies. Fresh installed CPU inference
+returned `[1, 4, 9, 16]` with profiling proving exclusive CPUExecutionProvider
+execution. All 78 installed wheel RECORD inputs and the seven native files
+actually mapped by that CPU check match the qualified hashes. This uses
+snapd's accepted assertion database and bounded mounted inputs; the root-owned
+backing archive was not independently rehashed. The maintainer confirmed the
+moving preview, compact Camera/Audio controls and Show Preview work. Their
+Store-190 physical recording check was not repeated.
+
+New exact-190 CUDA/CuPy checks **did not start**: concurrent Ollama use left only
+389 MiB free on the selected RTX 5070 at immediate preflight, below the 4,096 MiB
+reserve. They remain pending host capacity; this supplies neither a new GPU
+pass nor a provider failure. The exact application-code/native-input comparison
+retains earlier x10 CPU/CUDA/CuPy and physical evidence separately, including
+the same 82 previously exercised native libraries. Distinct tag/review archive
+hashes remain recorded. Installed identity, CPU/native bindings, capacity and
+owner acceptance receipts are in `dist/release-1.5.3/candidate/installed/` in
+the tag checkout. Remaining acceptance and regressions are recorded against
+candidate revisions 190/189.
+
+The immutable tag retains a known RPM reporting limitation reproduced in both
+public v1.5.2 and final v1.5.3: if CUDA setup and its clean CPU fallback both
+fail, POSTIN can return success and continue integration. Successful CUDA,
+successful fallback CPU and direct CPU outcomes are unchanged. The targeted
+[PR #142](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/142) follow-up
+merged on 8 October at 21:06:07 UTC as main commit
+`1f8865833d7be9ab2bbee028ee05009dcf8656f1`, adding explicit failed-fallback
+status for subsequent work; it is not included in v1.5.3. The release tag
+remains `048d4f4`. This is a carried-forward reporting limitation, not a new
+release regression.
 
 The final signed macOS package is 488,100 bytes, SHA-256
 `8a4df3d903f80d90b866adcd6571f34368b015aeae8023f35aba8472c61af2e2`, signed by
@@ -184,8 +233,9 @@ package identity is bound by the verified instructions and downloaded
 artifact. Numeric FPS, physical upgrade/uninstall and other Mac versions were
 not reported. These limits remain distinct from the passed acceptance scope.
 
-**Stable publication is authorized; applicable Store-candidate testing and soak
-remain pending.** Follow [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) without
+**Store-candidate promotion is complete; stable publication is authorized but
+applicable candidate checks and feedback remain pending.** Follow
+[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) without
 restarting unchanged behavior merely for metadata. Record the exact candidate
 revisions, affected test window, accepted limitations and public publication
 receipts. The prepared website update must be finalized against actual public
