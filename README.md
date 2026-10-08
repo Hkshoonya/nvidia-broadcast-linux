@@ -313,7 +313,10 @@ prints the current environment path. Developer-managed `.venv` and Makefile
 setups are separate. See [source runtime updates](docs/SOURCE_RUNTIME_UPDATES.md)
 for failure recovery and the host-runtime boundary.
 
-### macOS — One Command Install
+### macOS — Source Install
+
+Install [Apple Silicon Homebrew](https://brew.sh) at `/opt/homebrew` first.
+Run the source installer as your logged-in user, without sudo:
 
 ```bash
 git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git
@@ -321,8 +324,32 @@ cd nvidia-broadcast-linux
 ./install_macos.sh
 ```
 
-Requires an Apple Silicon Mac with macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio for virtual-camera output. The installer provisions GStreamer and GTK4 and can install OBS. After installing OBS, open it once, start and stop **Virtual Camera**, then close OBS so its camera backend is registered for NV Broadcast.
-CPU modes use CoreML acceleration. Intel macOS is not included in v1.5.2 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
+Requires an Apple Silicon Mac with macOS 15+ for the supported Homebrew stack.
+The installer provisions `python@3.13 pygobject3 gtk4 libadwaita gstreamer`,
+selects a Homebrew Python 3.11-3.13 with working GTK/Adw/GStreamer bindings,
+and checks the required native plugins before replacing the source runtime.
+OBS Studio is required for virtual-camera output and can be installed by the
+installer. Open OBS once, start and stop **Virtual Camera**, then close OBS so
+its camera backend is registered for NV Broadcast. The installer validates
+`CPUExecutionProvider`; these checks do not qualify CoreML availability or
+acceleration.
+Intel macOS is unsupported because no secure current MediaPipe wheel is
+available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are
+Linux-only and require an NVIDIA GPU. Homebrew classifies macOS 13/14 as
+unsupported; the lower PKG/wheel platform declaration does not qualify current
+Homebrew setup. See [Homebrew installation requirements](https://docs.brew.sh/Installation).
+
+To update this source installation, stop NV Broadcast, update the checkout to
+the intended release, and rerun `./install_macos.sh`. It installs under
+`~/.local/share/nvbroadcast` and creates `~/.local/bin/nvbroadcast`. Prerequisite
+failures leave the previous environment in place, but this legacy installer
+rebuilds its `venv` in place: a later pip/runtime failure can require rerunning
+the installer, and it has no runtime rollback. User configuration and cached
+models are retained; Homebrew dependency changes are not rolled back.
+A PKG installation is separate; follow its verified
+[package installation and per-user setup steps](docs/MACOS_SIGNING.md#test-the-signed-installer-on-your-mac)
+and use `/usr/local/bin/nvbroadcast` explicitly so the source launcher does not
+shadow it. Installing a PKG does not replace this legacy source environment.
 
 ### Linux — Snap Package
 
@@ -358,7 +385,7 @@ The installer:
 ### Update Behavior
 
 - **Git checkout / manual Linux packages** — the app checks GitHub Releases and opens the matching release download page when a newer stable build is available
-- **macOS package installs** — the app prefers the latest `.pkg` release asset when one is published; the package updates an installation whose Homebrew, Python, GStreamer, GTK, and OBS prerequisites are already configured by `install_macos.sh`
+- **macOS installs** — the app prefers the latest `.pkg` release asset when one is published. Current PKG installs use admin-owned source under `/opt/nvbroadcast` and a separate per-user runtime; complete the package's setup step after each new package. To keep a legacy source installation, update its checkout and rerun `install_macos.sh` instead.
 - **Snap installs** — the app opens the Snap Store listing; stable refreshes are normally handled by `snapd`
 
 ### Verify Release Downloads

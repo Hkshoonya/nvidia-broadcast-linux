@@ -9,7 +9,9 @@ import re
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -465,6 +467,359 @@ fi
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("without sudo", result.stderr)
         self.assertEqual(self.commands(), "")
+
+
+class MacSourceInstallTests(unittest.TestCase):
+    """Run the legacy source installer with fixtures, never host installers."""
+
+    write_executable = staticmethod(MacPackageInstallTests.write_executable)
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.home = self.root / "home with spaces"
+        self.project = self.root / "checkout with spaces"
+        self.tools = self.root / "tools"
+        self.brew = self.root / "homebrew"
+        for path in (self.home, self.project, self.tools):
+            path.mkdir()
+        self.log = self.root / "commands.log"
+        self.install = self.home / ".local" / "share" / "nvbroadcast"
+        (self.install / "venv").mkdir(parents=True)
+        (self.install / "venv" / "previous-runtime").write_text("old runtime")
+        self.environment = dict(
+            os.environ,
+            HOME=str(self.home),
+            PATH=f"{self.tools}:/usr/bin:/bin",
+            MACOS_SOURCE_LOG=str(self.log),
+            MACOS_SOURCE_BREW=str(self.brew),
+            MACOS_SOURCE_VERSION="15.7.9",
+            MACOS_SOURCE_ARCH="arm64",
+            MACOS_SOURCE_FAIL="",
+        )
+        for directory in ("src", "data", "models", "configs", "scripts"):
+            (self.project / directory).mkdir()
+        for filename in ("pyproject.toml", "LICENSE", "NOTICE", "README.md", "CONTRIBUTORS.md"):
+            (self.project / filename).write_text("source fixture\n")
+        (self.project / "src" / "source.txt").write_text("new source\n")
+        (self.project / "scripts" / "install_runtime_variant.py").write_text("fixture\n")
+        self.write_executable(
+            self.tools / "uname",
+            'if [[ "${1:-}" == "-m" ]]; then echo "$MACOS_SOURCE_ARCH"; else echo Darwin; fi',
+        )
+        self.write_executable(self.tools / "sw_vers", 'echo "$MACOS_SOURCE_VERSION"')
+        self.write_executable(self.tools / "obs", "exit 0")
+        for name in ("curl", "pkill", "pip"):
+            self.write_executable(
+                self.tools / name,
+                f'echo "{name} $*" >> "$MACOS_SOURCE_LOG"; '
+                + ("exit 99" if name == "curl" else "exit 0"),
+            )
+        self.write_executable(
+            self.brew / "bin" / "brew",
+            'echo "brew $*" >> "$MACOS_SOURCE_LOG"\n'
+            'if [[ "$1" == "install" && "$MACOS_SOURCE_FAIL" == "brew" ]]; then exit 14; fi\n'
+            'if [[ "$1" == "--prefix" ]]; then echo "$MACOS_SOURCE_BREW"; fi',
+        )
+        (self.tools / "brew").symlink_to(self.brew / "bin" / "brew")
+        self.provide_python(13)
+
+    def provide_python(self, minor, *, compatible=True, on_path=True):
+        path = self.brew / "opt" / f"python@3.{minor}" / "bin" / f"python3.{minor}"
+        body = r'''
+echo "python $0 $*" >> "$MACOS_SOURCE_LOG"
+echo "python-env ${PYTHONHOME-unset}:${PYTHONPATH-unset}:${PYTHONNOUSERSITE-unset}" >> "$MACOS_SOURCE_LOG"
+case "$1" in
+    --version) echo "Python 3.MINOR.1" ;;
+    -)
+        probe=$(/bin/cat)
+        if [[ "$probe" == *"import gi"* ]]; then
+            if [[ PROBE_STATUS != 0 ]]; then exit 16; fi
+            if [[ "$0" == *"/venv/"* && "$MACOS_SOURCE_FAIL" == "gi" ]]; then exit 19; fi
+        fi
+        ;;
+    -m)
+        if [[ "$2" == "venv" ]]; then
+            if [[ "$MACOS_SOURCE_FAIL" == "venv" ]]; then exit 17; fi
+            mkdir -p "$3/bin"
+            cp "$0" "$3/bin/python"
+            chmod 755 "$3/bin/python"
+            printf 'export PATH="%s/bin:$PATH"\n' "$3" > "$3/bin/activate"
+        elif [[ "$2 $3" == "pip check" && "$MACOS_SOURCE_FAIL" == "closure" ]]; then
+            exit 21
+        elif [[ "$2" == "nvbroadcast.runtime" && "$MACOS_SOURCE_FAIL" == "verification" ]]; then
+            exit 22
+        fi
+        ;;
+    *)
+        if [[ "$1" == *"install_runtime_variant.py"* && "$MACOS_SOURCE_FAIL" == "runtime" ]]; then
+            exit 20
+        fi
+        ;;
+esac
+'''.replace("MINOR", str(minor)).replace("PROBE_STATUS", "0" if compatible else "1")
+        self.write_executable(path, body)
+        if on_path:
+            (self.tools / f"python3.{minor}").symlink_to(path)
+        return path
+
+    def run_installer(self, *, outside_checkout=False):
+        script = (ROOT / "install_macos.sh").read_text()
+        script = script.replace("(( EUID == 0 ))", "(( 1000 == 0 ))")
+        script = script.replace("/opt/homebrew", str(self.brew))
+        for name in ("uname", "sw_vers"):
+            script = script.replace(f"/usr/bin/{name}", str(self.tools / name))
+        path = self.project / "install_macos.sh"
+        path.write_text(script)
+        return subprocess.run(
+            ["/bin/bash", str(path)],
+            cwd=self.root if outside_checkout else self.project,
+            env=self.environment,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+
+    def commands(self):
+        return self.log.read_text() if self.log.exists() else ""
+
+    def test_incompatible_homebrew_bindings_preserve_previous_runtime(self):
+        self.provide_python(13, compatible=False, on_path=False)
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("working GTK/Adw/GStreamer bindings", result.stderr)
+        self.assertTrue((self.install / "venv" / "previous-runtime").exists())
+        self.assertFalse((self.install / "src").exists())
+        self.assertNotIn("-m venv", self.commands())
+
+    def test_current_homebrew_support_floor_is_checked_before_installing(self):
+        self.environment["MACOS_SOURCE_VERSION"] = "14.6.1"
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("macOS 15", result.stdout + result.stderr)
+        self.assertEqual(self.commands(), "")
+        self.assertTrue((self.install / "venv" / "previous-runtime").exists())
+
+    def test_missing_aac_parser_executes_real_preflight_and_preserves_previous_runtime(self):
+        # The candidate interpreter executes the installer's exact stdin probe
+        # with fake GI modules. Every required factory except aacparse exists.
+        runner = self.root / "desktop-probe.py"
+        runner.write_text('''import sys
+import types
+
+sys.version_info = (3, 13, 0, "final", 0)
+gi = types.ModuleType("gi")
+gi.require_version = lambda *_: None
+repository = types.ModuleType("gi.repository")
+repository.Gst = types.SimpleNamespace(
+    init=lambda _: None,
+    ElementFactory=types.SimpleNamespace(find=lambda name: None if name == "aacparse" else object()),
+    DeviceProviderFactory=types.SimpleNamespace(find=lambda name: object()),
+)
+for namespace in ("Adw", "GstApp", "GstVideo", "Gtk"):
+    setattr(repository, namespace, object())
+sys.modules.update({"cairo": types.ModuleType("cairo"), "gi": gi, "gi.repository": repository})
+exec(compile(sys.stdin.read(), "source installer preflight", "exec"), {})
+''')
+        self.environment.update(
+            MACOS_SOURCE_INTERPRETER=sys.executable,
+            MACOS_SOURCE_DESKTOP_RUNNER=str(runner),
+        )
+        candidate = self.brew / "opt" / "python@3.13" / "bin" / "python3.13"
+        self.write_executable(
+            candidate,
+            'echo "real desktop probe $*" >> "$MACOS_SOURCE_LOG"\n'
+            '[[ "$1" == "-" ]]\n'
+            'exec "$MACOS_SOURCE_INTERPRETER" "$MACOS_SOURCE_DESKTOP_RUNNER"',
+        )
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Missing GStreamer plugins: aacparse", result.stderr)
+        self.assertIn("real desktop probe -", self.commands())
+        self.assertEqual((self.install / "venv" / "previous-runtime").read_text(), "old runtime")
+        self.assertFalse((self.install / "src").exists())
+        self.assertNotIn("-m venv", self.commands())
+
+    def test_dependency_closure_failure_does_not_publish_launcher(self):
+        self.environment["MACOS_SOURCE_FAIL"] = "closure"
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("-m pip check", self.commands())
+        self.assertFalse((self.home / ".local" / "bin" / "nvbroadcast").exists())
+
+    def test_homebrew_failure_preserves_previous_runtime(self):
+        self.environment["MACOS_SOURCE_FAIL"] = "brew"
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((self.install / "venv" / "previous-runtime").exists())
+        self.assertFalse((self.install / "src").exists())
+        self.assertNotIn("-m venv", self.commands())
+
+    def test_missing_native_homebrew_does_not_run_path_brew_or_download(self):
+        (self.brew / "bin" / "brew").unlink()
+        (self.tools / "brew").unlink()
+        self.write_executable(self.tools / "brew", 'echo "HOSTILE" >> "$MACOS_SOURCE_LOG"; exit 99')
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Homebrew is required", result.stderr)
+        self.assertEqual(self.commands(), "")
+        self.assertTrue((self.install / "venv" / "previous-runtime").exists())
+
+    def test_wrong_homebrew_prefix_preserves_previous_runtime(self):
+        self.environment["MACOS_SOURCE_BREW"] = "/usr/local"
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Apple Silicon", result.stderr)
+        self.assertNotIn("brew install", self.commands())
+        self.assertTrue((self.install / "venv" / "previous-runtime").exists())
+
+    def test_intel_refusal_is_version_independent_and_preserves_runtime(self):
+        self.environment["MACOS_SOURCE_ARCH"] = "x86_64"
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("supports Apple Silicon Macs only", result.stdout)
+        self.assertNotIn("v1.5.2", result.stdout)
+        self.assertEqual(self.commands(), "")
+        self.assertTrue((self.install / "venv" / "previous-runtime").exists())
+
+    def test_path_python_is_ignored_and_compatible_homebrew_fallback_is_used(self):
+        self.provide_python(13, compatible=False, on_path=False)
+        fallback = self.provide_python(12)
+        (self.tools / "python3.13").unlink()
+        self.write_executable(self.tools / "python3.13", 'echo "HOSTILE" >> "$MACOS_SOURCE_LOG"; exit 99')
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"python {fallback} -m venv", self.commands())
+        self.assertNotIn("HOSTILE", self.commands())
+        self.assertNotIn("gst-plugins-base", self.commands())
+        self.assertIn("brew install --quiet python@3.13 pygobject3 gtk4 libadwaita gstreamer", self.commands())
+
+    def test_missing_required_source_file_does_not_delete_old_environment(self):
+        (self.project / "NOTICE").unlink()
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((self.install / "venv" / "previous-runtime").exists())
+        self.assertNotIn("-m venv", self.commands())
+
+    def test_post_install_failures_preserve_existing_launcher_and_config(self):
+        launcher = self.home / ".local" / "bin" / "nvbroadcast"
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text("old launcher\n")
+        config = self.home / "Library" / "Application Support" / "nvbroadcast" / "config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text("user settings\n")
+        for failure in ("venv", "runtime", "closure", "gi", "verification"):
+            with self.subTest(failure=failure):
+                self.environment["MACOS_SOURCE_FAIL"] = failure
+                result = self.run_installer()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(launcher.read_text(), "old launcher\n")
+                self.assertEqual(config.read_text(), "user settings\n")
+                self.assertNotIn("Installation complete", result.stdout)
+
+    def test_success_from_another_directory_keeps_config_models_and_uses_explicit_python(self):
+        config = self.home / "Library" / "Application Support" / "nvbroadcast" / "config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text("user settings\n")
+        (self.install / "models").mkdir()
+        (self.install / "models" / "cached-model.onnx").write_text("cached model")
+        self.environment.update(PYTHONHOME="ambient home", PYTHONPATH="ambient imports")
+        result = self.run_installer(outside_checkout=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.install / "NOTICE").read_bytes(), (self.project / "NOTICE").read_bytes())
+        self.assertEqual((self.install / "src" / "source.txt").read_text(), "new source\n")
+        self.assertEqual(config.read_text(), "user settings\n")
+        self.assertEqual((self.install / "models" / "cached-model.onnx").read_text(), "cached model")
+        self.assertFalse((self.install / "venv" / "previous-runtime").exists())
+        self.assertIn("-m pip check", self.commands())
+        self.assertIn("-m nvbroadcast.runtime --variant cpu", self.commands())
+        self.assertIn("python-env unset:unset:1", self.commands())
+        self.assertNotIn("ambient", self.commands())
+        self.assertNotIn("coremltools", self.commands())
+
+        self.log.unlink()
+        launcher = self.home / ".local" / "bin" / "nvbroadcast"
+        launched = subprocess.run(
+            ["/bin/bash", str(launcher), "--fixture", "value with spaces"],
+            env=self.environment,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        self.assertEqual(launched.returncode, 0, launched.stderr)
+        self.assertIn(f"python {self.install}/venv/bin/python -m nvbroadcast --fixture value with spaces", self.commands())
+        self.assertIn("python-env unset:unset:1", self.commands())
+        self.assertNotIn("brew", self.commands())
+
+
+    def test_desktop_probe_requires_native_capture_playback_and_recording_plugins(self):
+        # Execute the actual probe using fake introspection modules. No native
+        # GStreamer library, device discovery or hardware pipeline is used.
+        script = (ROOT / "install_macos.sh").read_text()
+        probe = script.split("check_desktop_stack() {", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+        required = {
+            "avfvideosrc", "osxaudiosrc", "osxaudiosink", "videoconvert",
+            "audioconvert", "audioresample", "x264enc", "h264parse", "aacparse", "mp4mux",
+        }
+        for missing in (None, "avfvideosrc", "osxaudiosrc", "osxaudiosink", "x264enc", "aacparse", "mp4mux", "osxaudiodeviceprovider", "aac"):
+            with self.subTest(missing=missing):
+                def element(name):
+                    if name in {"avenc_aac", "voaacenc"}:
+                        return object() if missing != "aac" and name == "voaacenc" else None
+                    return object() if name in required and name != missing else None
+
+                gst = types.SimpleNamespace(
+                    init=mock.Mock(),
+                    ElementFactory=types.SimpleNamespace(find=element),
+                    DeviceProviderFactory=types.SimpleNamespace(
+                        find=lambda name: None if missing == name else object()
+                    ),
+                )
+                gi = types.ModuleType("gi")
+                gi.require_version = mock.Mock()
+                repository = types.ModuleType("gi.repository")
+                repository.Gst = gst
+                for namespace in ("Adw", "GstApp", "GstVideo", "Gtk"):
+                    setattr(repository, namespace, object())
+                modules = {"cairo": types.ModuleType("cairo"), "gi": gi, "gi.repository": repository}
+                with mock.patch.dict(sys.modules, modules), \
+                     mock.patch.object(sys, "version_info", (3, 13, 0, "final", 0)):
+                    if missing is None:
+                        exec(compile(probe, "source installer desktop probe", "exec"), {})
+                    else:
+                        with self.assertRaisesRegex(SystemExit, "Missing GStreamer plugins"):
+                            exec(compile(probe, "source installer desktop probe", "exec"), {})
+                gst.init.assert_called_once_with([])
+
+    def test_source_launcher_refuses_root_and_cannot_fall_back_when_venv_is_missing(self):
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        launcher = self.home / ".local" / "bin" / "nvbroadcast"
+        original = launcher.read_text()
+        self.write_executable(self.tools / "python", 'echo "HOSTILE" >> "$MACOS_SOURCE_LOG"; exit 99')
+        for failure in ("root", "missing venv"):
+            with self.subTest(failure=failure):
+                self.log.unlink(missing_ok=True)
+                if failure == "root":
+                    launcher.write_text(original.replace("(( 1000 == 0 ))", "(( 0 == 0 ))"))
+                else:
+                    launcher.write_text(original)
+                    (self.install / "venv" / "bin" / "python").unlink()
+                launched = subprocess.run(
+                    ["/bin/bash", str(launcher)],
+                    env=self.environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
+                self.assertNotEqual(launched.returncode, 0)
+                if failure == "root":
+                    self.assertIn("without sudo", launched.stderr)
+                self.assertEqual(self.commands(), "")
 
 
 if __name__ == "__main__":

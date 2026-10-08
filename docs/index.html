@@ -45,7 +45,7 @@
       "url": "https://nvbroadcast.com/",
       "downloadUrl": "https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest",
       "softwareVersion": "1.5.2",
-      "operatingSystem": "Linux, macOS 13 or later",
+      "operatingSystem": "Linux, macOS 15 or later on Apple Silicon",
       "applicationCategory": "MultimediaApplication",
       "description": "AI virtual camera with background effects, auto framing, eye contact, noise removal, recording, and local meeting transcription",
       "image": "https://nvbroadcast.com/og-image.png",
@@ -1570,16 +1570,18 @@ button:focus-visible, a:focus-visible {
           </div>
           <div class="terminal-body" role="code">
             <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('macos')">Copy</button>
-            <div class="terminal-line"><span class="comment"># macOS (Apple Silicon)</span></div>
+            <div class="terminal-line"><span class="comment"># Source install: Apple Silicon macOS 15+, /opt/homebrew required</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd nvidia-broadcast-linux</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">./install_macos.sh</span></div>
-            <div class="terminal-line"><span class="comment"># Upgrade later: install the newer .pkg after this one-time source setup</span></div>
+            <div class="terminal-line"><span class="comment"># Source updates: stop the app, update this checkout, rerun the installer</span></div>
           </div>
         </div>
         <p class="install-note">
-          Existing configured installs can download the update package: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.2/NVBroadcast-1.5.2-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.5.2-1.pkg</a><br>
-          Requires Apple Silicon, macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio. After installing OBS, open it once, start and stop Virtual Camera, then close OBS. Intel macOS is not included in v1.5.2 because a secure current MediaPipe wheel is unavailable.
+          Install <a href="https://brew.sh" target="_blank" rel="noopener">Apple Silicon Homebrew</a> at <code>/opt/homebrew</code> first and run without sudo. Requires macOS 15+; the installer provisions Python 3.13, GTK4, Libadwaita and GStreamer and checks Python 3.11-3.13 bindings and native plugins. OBS Studio is required for virtual-camera output: open it once, start and stop Virtual Camera, then close OBS. Intel macOS is unsupported because a secure current MediaPipe wheel is unavailable.<br>
+          The installer validates <code>CPUExecutionProvider</code>; these checks do not qualify CoreML availability or acceleration.<br>
+          Source updates rebuild <code>~/.local/share/nvbroadcast/venv</code> in place; prerequisite failures preserve the old environment, but later installation failures have no runtime rollback. Configuration and cached models are retained; Homebrew dependency changes are not rolled back.<br>
+          A verified PKG is a separate installation with its own per-user setup. Follow the <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/MACOS_SIGNING.md#test-the-signed-installer-on-your-mac" target="_blank" rel="noopener">package setup instructions</a> and use <code>/usr/local/bin/nvbroadcast</code> so the source launcher does not shadow it. Installing a PKG does not replace the source environment.
         </p>
       </div>
 
@@ -1599,9 +1601,9 @@ button:focus-visible, a:focus-visible {
       <div class="req-card">
         <h3>macOS</h3>
         <ul>
-          <li>macOS 13 Ventura or newer</li>
+          <li>macOS 15 Sequoia or newer for supported Homebrew setup</li>
           <li>Apple Silicon (M1+) required</li>
-          <li>Homebrew, Python 3.11-3.13</li>
+          <li>Apple Silicon Homebrew at /opt/homebrew; Python 3.11-3.13 with compatible bindings</li>
           <li>OBS Studio for virtual-camera output</li>
           <li>CPU modes (no NVIDIA needed)</li>
         </ul>

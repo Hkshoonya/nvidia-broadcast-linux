@@ -99,6 +99,28 @@ builder, which avoids changing the host package set. The scoped Flatpak workflow
 runs when packaging inputs change and can be dispatched manually after other
 source changes or before a release.
 
+Successful workflow runs retain a `flatpak-development-cpu-x86_64` artifact for
+14 days. It contains an unsigned `.flatpak` bundle, `SHA256SUMS`, and
+`bundle-provenance.json` recording the checked-out Git revision, pinned builder
+image, application OSTree commit, runtime reference, and build-input hashes.
+Before retaining the bundle, the workflow imports it into a fresh temporary
+repository, checks the commit and all OSTree objects, and compares packaged app
+source, resources, project license, notices, and sandbox metadata with the build.
+It also compares source and build inputs with the recorded Git revision, rejecting
+staged or unstaged edits and untracked shipping inputs.
+This check does not install the app or access physical devices.
+
+Download the artifact from the completed **Flatpak Development Build** run and
+verify its files before using it for an agreed hardware test:
+
+```bash
+sha256sum --check SHA256SUMS
+```
+
+The bundle does not include the GNOME Platform runtime. Development artifacts
+are test inputs; uploading one to GitHub Actions does not qualify it as a stable
+release or submit it to Flathub. The public-distribution gates below still apply.
+
 Before review, validate the manifest and finished artifacts with the current
 Flathub linter:
 
