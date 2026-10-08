@@ -15,6 +15,7 @@ on:
       - 'packaging/flatpak/**'
       - 'pyproject.toml'
       - 'src/**'
+      - 'tests/test_flatpak*.py'
   workflow_dispatch:
 
 env:
@@ -43,7 +44,7 @@ jobs:
       - name: Validate packaging policy
         env:
           PYTHONPATH: src
-        run: python3 -m unittest discover -s tests -p 'test_flatpak_packaging.py'
+        run: python3 -m unittest discover -s tests -p 'test_flatpak*.py'
 
       - name: Lint manifest
         run: |
@@ -101,3 +102,27 @@ jobs:
             "$BUILDER_IMAGE" \
             flatpak-builder-lint appstream \
             flatpak-build/files/share/metainfo/com.doczeus.NVBroadcast.metainfo.xml
+
+      - name: Export and verify development bundle
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+          git diff HEAD --exit-code
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$BUILDER_IMAGE" \
+            python3 packaging/flatpak/export_development_bundle.py \
+            --output dist/flatpak-development \
+            --source-revision "$SOURCE_REVISION" \
+            --builder-image "$BUILDER_IMAGE"
+
+      - name: Retain verified development bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: flatpak-development-cpu-x86_64-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: dist/flatpak-development/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
