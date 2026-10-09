@@ -8,6 +8,8 @@ umask 022
 readonly TARGET_VERSION='@TARGET_VERSION@'
 readonly TARGET_REVISION='@TARGET_REVISION@'
 readonly TARGET_RPM_RELEASE='@TARGET_RPM_RELEASE@'
+readonly TARGET_DEB_ARCH='@TARGET_DEB_ARCH@'
+readonly TARGET_RPM_ARCH='@TARGET_RPM_ARCH@'
 readonly EXPECTED_DEB_SHA256='@DEB_SHA256@'
 readonly EXPECTED_RPM_SHA256='@RPM_SHA256@'
 readonly LEGACY_RPM_PREUN='pkill -f "nvbroadcast" 2>/dev/null || true'
@@ -16,14 +18,16 @@ readonly SAFE_PROCESS_KILL="pkill -f '^/opt/nvbroadcast/\\.venv/bin/python -m nv
 WORK_DIR=""
 PATCH_TEMP=""
 STAGED_PACKAGE=""
+OFFLINE=false
 
 usage() {
     cat <<EOF
-Usage: sudo ./nvbroadcast-native-upgrade /path/to/package.deb
-       sudo ./nvbroadcast-native-upgrade /path/to/package.rpm
+Usage: sudo ./nvbroadcast-native-upgrade [--offline] /path/to/package.deb
+       sudo ./nvbroadcast-native-upgrade [--offline] /path/to/package.rpm
 
 Installs the exact NV Broadcast ${TARGET_VERSION}-${TARGET_REVISION} native
 release artifact and safely migrates affected older package scripts.
+Use --offline when native OS prerequisites are already installed or cached.
 EOF
 }
 
@@ -147,10 +151,26 @@ stage_package() {
         die "package SHA-256 does not match the attested ${TARGET_VERSION} release artifact"
 }
 
+verify_private_native_runtime() {
+    case "$TARGET_REVISION" in
+        *.cpu|*.cuda)
+            [[ ! -e /usr/lib/nvbroadcast/.transaction && ! -L /usr/lib/nvbroadcast/.transaction ]] || \
+                die "native runtime configuration is incomplete; repair the exact package before launch"
+            /usr/lib/nvbroadcast/check-packages || \
+                die "native runtime package state is incomplete"
+            /usr/lib/nvbroadcast/runtime/bin/python -I -B \
+                /usr/lib/nvbroadcast/validate-install.py --variant "${TARGET_REVISION##*.}" || \
+                die "installed native runtime failed integrity or dependency verification"
+            ;;
+    esac
+}
+
 install_debian_package() {
     local source="$1"
     local package_name package_version package_arch status installed_version
     local installed_after
+    local -a offline_options=()
+    [[ "$OFFLINE" != true ]] || offline_options+=(--no-download)
 
     need_command apt-get
     need_command dpkg
@@ -164,7 +184,8 @@ install_debian_package() {
     [[ "$package_name" == "nvbroadcast" ]] || die "DEB package name is not nvbroadcast"
     [[ "$package_version" == "${TARGET_VERSION}-${TARGET_REVISION}" ]] || \
         die "DEB version is $package_version, expected ${TARGET_VERSION}-${TARGET_REVISION}"
-    [[ "$package_arch" == "all" ]] || die "DEB architecture is $package_arch, expected all"
+    [[ "$package_arch" == "$TARGET_DEB_ARCH" ]] || \
+        die "DEB architecture is $package_arch, expected $TARGET_DEB_ARCH"
 
     status="$(dpkg-query -W -f='${db:Status-Abbrev}' nvbroadcast 2>/dev/null || true)"
     [[ "$status" == i* ]] || \
@@ -178,17 +199,18 @@ install_debian_package() {
         "$package_version" "$installed_version"
     if [[ "$status" == ii* ]]; then
         DEBIAN_FRONTEND=noninteractive \
-            apt-get install --yes --no-remove "$STAGED_PACKAGE"
+            apt-get "${offline_options[@]}" install --yes --no-remove "$STAGED_PACKAGE"
     else
         printf 'NV Broadcast upgrade: recovering interrupted dpkg state %s.\n' "$status"
         dpkg --unpack "$STAGED_PACKAGE"
         DEBIAN_FRONTEND=noninteractive \
-            apt-get --fix-broken install --yes --no-remove
+            apt-get "${offline_options[@]}" --fix-broken install --yes --no-remove
     fi
 
     installed_after="$(dpkg-query -W -f='${Version}' nvbroadcast 2>/dev/null || true)"
     [[ "$installed_after" == "$package_version" ]] || \
         die "DEB transaction finished without installing $package_version"
+    verify_private_native_runtime
 }
 
 semantic_version_less() {
@@ -211,12 +233,23 @@ semantic_version_less() {
     ((10#$left_patch < 10#$right_patch))
 }
 
+rpm_release_less() {
+    local left="$1" right="$2" comparison
+    # Release strings enter an RPM Lua expression. Reject quoting, macros and
+    # whitespace before passing metadata to RPM's native version comparison.
+    [[ "$left" =~ ^[A-Za-z0-9._+~^-]+$ && "$right" =~ ^[A-Za-z0-9._+~^-]+$ ]] || return 1
+    comparison="$(rpm --eval "%{lua:print(rpm.vercmp('$left', '$right'))}")" || return 1
+    [[ "$comparison" == -1 ]]
+}
+
 install_rpm_package() {
     local source="$1"
     local package_name package_version package_release package_arch
     local installed_version installed_release installed_preun installed_after
     local requirement requirements
     local -a target_requirements=()
+    local -a offline_options=()
+    [[ "$OFFLINE" != true ]] || offline_options+=(--disablerepo='*')
 
     need_command dnf
     need_command rpm
@@ -231,15 +264,18 @@ install_rpm_package() {
         die "RPM version is $package_version, expected $TARGET_VERSION"
     [[ "$package_release" == "$TARGET_RPM_RELEASE" ]] || \
         die "RPM release is $package_release, expected $TARGET_RPM_RELEASE"
-    [[ "$package_arch" == "noarch" ]] || \
-        die "RPM architecture is $package_arch, expected noarch"
+    [[ "$package_arch" == "$TARGET_RPM_ARCH" ]] || \
+        die "RPM architecture is $package_arch, expected $TARGET_RPM_ARCH"
 
     rpm -q nvbroadcast >/dev/null 2>&1 || \
         die "nvbroadcast is not installed; use dnf to perform a normal clean install"
     installed_version="$(rpm -q --qf '%{VERSION}' nvbroadcast)"
     installed_release="$(rpm -q --qf '%{RELEASE}' nvbroadcast)"
-    semantic_version_less "$installed_version" "$TARGET_VERSION" || \
-        die "target $TARGET_VERSION is not newer than installed version $installed_version"
+    if ! semantic_version_less "$installed_version" "$TARGET_VERSION"; then
+        [[ "$installed_version" == "$TARGET_VERSION" ]] && \
+            rpm_release_less "$installed_release" "$TARGET_RPM_RELEASE" || \
+            die "target ${TARGET_VERSION}-${TARGET_RPM_RELEASE} is not newer than installed version ${installed_version}-${installed_release}"
+    fi
 
     printf 'NV Broadcast upgrade: installing verified RPM %s-%s over %s-%s.\n' \
         "$package_version" "$package_release" "$installed_version" "$installed_release"
@@ -261,22 +297,27 @@ install_rpm_package() {
             die "verified RPM reported no installable requirements"
 
         printf 'NV Broadcast upgrade: resolving verified RPM dependencies before legacy migration.\n'
-        dnf --assumeyes install "${target_requirements[@]}"
+        dnf "${offline_options[@]}" --assumeyes install "${target_requirements[@]}"
         rpm --upgrade --test --nopreun "$STAGED_PACKAGE"
         printf 'NV Broadcast upgrade: bypassing the exact known legacy RPM pre-uninstall script.\n'
         rpm --upgrade --nopreun "$STAGED_PACKAGE"
     elif has_unfamiliar_nvbroadcast_kill <<< "$installed_preun"; then
         die "installed RPM pre-uninstall script is unfamiliar; refusing to bypass it"
     else
-        dnf --assumeyes install "$STAGED_PACKAGE"
+        dnf "${offline_options[@]}" --assumeyes install "$STAGED_PACKAGE"
     fi
 
     installed_after="$(rpm -q --qf '%{VERSION}-%{RELEASE}' nvbroadcast 2>/dev/null || true)"
     [[ "$installed_after" == "${TARGET_VERSION}-${TARGET_RPM_RELEASE}" ]] || \
         die "RPM transaction finished without installing ${TARGET_VERSION}-${TARGET_RPM_RELEASE}"
+    verify_private_native_runtime
 }
 
 main() {
+    if [[ "${1:-}" == --offline ]]; then
+        OFFLINE=true
+        shift
+    fi
     if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
         usage
         return 0

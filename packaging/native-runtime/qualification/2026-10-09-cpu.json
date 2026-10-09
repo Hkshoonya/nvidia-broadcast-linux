@@ -1,0 +1,634 @@
+{
+  "adapter_revision": "561759919a1ec978aa03c3f074b2fee21a93af6d",
+  "application_revision": "c2dd08211266ddbde461b239777d039a47d9215f",
+  "date": "2026-10-09",
+  "guard_review": {
+    "artifacts": {
+      "check-python.log": "9d82ee9369f1808e869c6fd495722a69881600067239379d5eb1f18b84892e8b",
+      "check-python.sh": "928e30c54ece313d6ba14690590d6b01d8c696ce7c7196f7dce34415312bbd78",
+      "check.log": "9d82ee9369f1808e869c6fd495722a69881600067239379d5eb1f18b84892e8b",
+      "check.sh": "9c4751801bff4b1bf817be4367f7a8d2df5aa26544f9102a2d6dbc3ed34667f1",
+      "reviewed-inputs.json": "c2426ac069b06d25dc316a81bef901c1377acb78db844e54de098e6ef6d0ca80"
+    },
+    "fixture_image": "sha256:b4215156c71cac4ca6a318baa523f166540768ef3594314adbb1450b7c9b5366",
+    "hook_sha256": "41a97ab33e33463c95556cc224ec7f8d3632b1b723e6c4ec03f5d9f69ccba379",
+    "note": "Initial generated-launcher input predates unrelated content-manifest edits; reviewer confirmed final lock fragment and hook match the tested inputs.",
+    "scope": "Independent ordinary-user shared lock across exec/private CPython3.13, exclusive prepare lock, hostile prefix/marker/lock rejection, suspicious legacy preservation, stable uninstall lock inode"
+  },
+  "lifecycle": {
+    "deb": {
+      "harness": {
+        "file_sha256": "63e309b31750dae8dc35b5c2bd1a8ecfcf8cd32d7285eb70acd4e549debab3eb",
+        "revision": "b008d004fdfc8075da6f9b516a180edac8d4d48f"
+      },
+      "image": "sha256:b4215156c71cac4ca6a318baa523f166540768ef3594314adbb1450b7c9b5366",
+      "interruption": {
+        "boundary": "mid-unpack",
+        "exit_note": "setsid --fork --wait returns the terminating signal number9; separately reproduced with a minimal SIGKILL probe.",
+        "manager_exit": 9,
+        "minimum_observed_bytes": 1048576,
+        "observed_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13.dpkg-new",
+        "signal": "SIGKILL to package-manager process group",
+        "tid_max": 1791576595,
+        "tid_min": 1791576594
+      },
+      "recording": {
+        "audio_encoder": "voaacenc",
+        "audio_peak": 0.8085297346115112,
+        "audio_samples": 49152,
+        "file_bytes": 211661,
+        "status": "pass",
+        "video_encoder": "x264enc",
+        "video_frames": 24
+      },
+      "status": "pass",
+      "steps": [
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "sentinels",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "install",
+          "sha256": "01174fa59a9c5088b51c07d3eff2a5b8208bf0846941a4cd0b0fdb8e46bc6d2d"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "installed-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "installed-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "installed-inference-media-window",
+          "sha256": "f68b354be09569626a14d04c4987b763ec546e819636a55762c8096572764082"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "generated-recording",
+          "sha256": "bb3c0d8124d4a41346f3c9632cffcc59e61d35a7381d97a22e94d067d3437865"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "start-installed-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "verify-launcher-lifetime-lock",
+          "sha256": "419a24bc5e5176c0a397fb02964032d9f3f51da842c7fb34685659a4ca27896c"
+        },
+        {
+          "exit_code": 1,
+          "expected_failure": true,
+          "name": "launcher-lock-upgrade-refused",
+          "sha256": "5a32047db2e19d3e57fb0bd6aa36935050c050a26ed77246d9b10613dcfd9bf2"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "stop-installed-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "start-held-runtime",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "wait-held-runtime",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 1,
+          "expected_failure": true,
+          "name": "running-upgrade-refused",
+          "sha256": "eeab345da606e346d5acdead8c934d95ebee285dcbf78e46a3e4bbd2175901a8"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "stop-held-runtime",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "preserved-running-selection",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "upgrade",
+          "sha256": "063a28cd4e4e1bc7e5174ea0a6923087bf9114abc2a91b0df8f0caf02b595aaa"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "upgraded-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "upgraded-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "upgraded-inference-media-window",
+          "sha256": "790f3e1c08fda622889051ee5326c2f2aa20d8f861da58a69a615ca5f8e55e62"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "rollback",
+          "sha256": "def8a422d727a011c499930e947ae3a9595dc63bcfacbfc04e7e0031a6cb0e44"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "rolled-back-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "rolled-back-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "rolled-back-inference-media-window",
+          "sha256": "5aec49fc545cf5d65a144b9884444bc5acc2cf6a9030edbe51f5cea93059f4e1"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "reinstall",
+          "sha256": "9dd3cd31e3f4bceeaabaab917f763fa5a1703e7097c62c93307d7cf093680edf"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "corrupt-required-file",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 1,
+          "expected_failure": true,
+          "name": "corruption-rejected",
+          "sha256": "514334d370c4ad1ba243ea91c1fb592ca055a87cad60424d0c6306dff8a11f6a"
+        },
+        {
+          "exit_code": 78,
+          "expected_failure": true,
+          "name": "corrupt-launch-blocked",
+          "sha256": "fbae88ef8e3b22d8e9c33f4dd5c9c06f8bb7d59583f2f3500cce9f9d3f718778"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "corruption-repair",
+          "sha256": "9dd3cd31e3f4bceeaabaab917f763fa5a1703e7097c62c93307d7cf093680edf"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "repaired-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "repaired-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "repaired-inference-media-window",
+          "sha256": "8f2d886cb140deb42617da7be6d448114b6b0c06fbd2ca2c27ed2b327b9fbd09"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "kill-package-manager",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 78,
+          "expected_failure": true,
+          "name": "interrupted-launch-blocked",
+          "sha256": "fbae88ef8e3b22d8e9c33f4dd5c9c06f8bb7d59583f2f3500cce9f9d3f718778"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "interrupted-repair",
+          "sha256": "063a28cd4e4e1bc7e5174ea0a6923087bf9114abc2a91b0df8f0caf02b595aaa"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "interruption-repaired-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "interruption-repaired-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "interruption-repaired-inference-media-window",
+          "sha256": "44b4cd71592b471c015afcc4df0e16ef1147e677b3154d3490fcce054c39b4fe"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "remove",
+          "sha256": "c26af83948f326243da01d96708ff0d2e2bcfd4d2619615385393c7391ba770b"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "preservation",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "steps_completed": 39,
+      "trace_sha256": "ed22dc1ae46e84faa4a1036389842470882fd9bf91da1bba668f67612968c378"
+    },
+    "rpm": {
+      "fragment_preservation": {
+        "bytes_preserved": 43504155,
+        "interpreter_fragment": {
+          "mode": 128,
+          "original": "bin/python3.13;6ac94a4a",
+          "payload_path": "bin/python3.13",
+          "scope": "runtime",
+          "sha256": "1a193b91466da477159f48de63ff471d4e4e8d2304f0bf757ea5807354ada500",
+          "size": 40697856,
+          "stored_as": "bin/python3.13;6ac94a4a",
+          "tid": "6ac94a4a"
+        },
+        "method": "Bounded prototype recovery verifies timestamp, root ownership, selected payload hash and prefix bytes, preserves fragments in fresh quarantine, then exact package replay and strict installed file-set validation. Requires authenticated retained build staging; not shipped end-user repair.",
+        "recognized_fragments": 44,
+        "report_sha256": "9d12abc2df9954fca8895ee769ba77a9653e8ae43d689e3987a4ccbf384f620d"
+      },
+      "harness": {
+        "file_sha256": "63e309b31750dae8dc35b5c2bd1a8ecfcf8cd32d7285eb70acd4e549debab3eb",
+        "revision": "b008d004fdfc8075da6f9b516a180edac8d4d48f"
+      },
+      "image": "sha256:c5cb226d51d0bc9e3c13861649a7ba73b06d0b09d9f866501a1569b48c562ab5",
+      "interruption": {
+        "boundary": "mid-unpack",
+        "exit_note": "setsid --fork --wait returns the terminating signal number9; separately reproduced with a minimal SIGKILL probe.",
+        "manager_exit": 9,
+        "minimum_observed_bytes": 1048576,
+        "observed_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13;6ac94a4a",
+        "signal": "SIGKILL to package-manager process group",
+        "tid_max": 1791576654,
+        "tid_min": 1791576650
+      },
+      "recording": {
+        "audio_encoder": "fdkaacenc",
+        "audio_peak": 0.8150238394737244,
+        "audio_samples": 51200,
+        "file_bytes": 143537,
+        "status": "pass",
+        "video_encoder": "openh264enc",
+        "video_frames": 24
+      },
+      "status": "pass",
+      "steps": [
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "sentinels",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "install",
+          "sha256": "966606a6146416107dbc2bcca0d660d579a36d3590e95bfd17e323c5eea0ea70"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "installed-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "installed-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "installed-inference-media-window",
+          "sha256": "9c8ed11f9f2cabf3d3f924378dd522f549504a953b12b1fd4e8e0366cae54c46"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "generated-recording",
+          "sha256": "f8a1127a1908b1625e8002eb25716ba3317257caff540cb44311a39eb8c0daec"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "start-installed-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "verify-launcher-lifetime-lock",
+          "sha256": "419a24bc5e5176c0a397fb02964032d9f3f51da842c7fb34685659a4ca27896c"
+        },
+        {
+          "exit_code": 1,
+          "expected_failure": true,
+          "name": "launcher-lock-upgrade-refused",
+          "sha256": "a0421e2fc90c95f9e463c3535b162087d182a04f9b827ef4677871c2593af903"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "stop-installed-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "start-held-runtime",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "wait-held-runtime",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 1,
+          "expected_failure": true,
+          "name": "running-upgrade-refused",
+          "sha256": "c12dc97a7894f73b5f2b08cea1dff0f19854c80e7e18c2d51f37a3620d40bca2"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "stop-held-runtime",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "preserved-running-selection",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "upgrade",
+          "sha256": "ba6d3f2d803b2011436b094a1c48a1b8a1fe6e8f79f2ee542e3861c8db57c226"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "upgraded-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "upgraded-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "upgraded-inference-media-window",
+          "sha256": "7da1e8fcb0f1a87ccd7561f4fdf5d3db8e53027f47ee58cdede473d4a2636e01"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "rollback",
+          "sha256": "9b2831d70663414043fb45f8ba6599cd4eda88b5c327eb1576d8cbe514f5ae4b"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "rolled-back-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "rolled-back-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "rolled-back-inference-media-window",
+          "sha256": "a8fc38fc641c50d41e3b83a060d18ba8ba1dee3c69461a33f677d891c215e62a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "reinstall",
+          "sha256": "b368a810af44cdcb6335fbe7dedc484ffb934246f238c5ece88fa51100da0fa3"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "corrupt-required-file",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 1,
+          "expected_failure": true,
+          "name": "corruption-rejected",
+          "sha256": "514334d370c4ad1ba243ea91c1fb592ca055a87cad60424d0c6306dff8a11f6a"
+        },
+        {
+          "exit_code": 78,
+          "expected_failure": true,
+          "name": "corrupt-launch-blocked",
+          "sha256": "fbae88ef8e3b22d8e9c33f4dd5c9c06f8bb7d59583f2f3500cce9f9d3f718778"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "corruption-repair",
+          "sha256": "b368a810af44cdcb6335fbe7dedc484ffb934246f238c5ece88fa51100da0fa3"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "repaired-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "repaired-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "repaired-inference-media-window",
+          "sha256": "af35ef7831f6bf780f387ba286d23b3fcae50e4f066202be52f7007ce46bbfcb"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "kill-package-manager",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 78,
+          "expected_failure": true,
+          "name": "interrupted-launch-blocked",
+          "sha256": "fbae88ef8e3b22d8e9c33f4dd5c9c06f8bb7d59583f2f3500cce9f9d3f718778"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "preserve-rpm-unpack-fragments",
+          "sha256": "7ecf9c3400ab3bbbe84ed393262cec3836a7f045a93a5eb62ad327e22ea862e6"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "interrupted-repair",
+          "sha256": "ba6d3f2d803b2011436b094a1c48a1b8a1fe6e8f79f2ee542e3861c8db57c226"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "interruption-repaired-integrity",
+          "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "interruption-repaired-launcher",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "interruption-repaired-inference-media-window",
+          "sha256": "9d31b989599b8365d5661fd698e54e7f5d2cef21badb0de76b40aa20455b4a34"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "remove",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "exit_code": 0,
+          "expected_failure": false,
+          "name": "preservation",
+          "sha256": "3a409f2d6007ac08025114543781cbb6ec0cb1c96fb860e4434cc463ea2cbae9"
+        }
+      ],
+      "steps_completed": 40,
+      "trace_sha256": "30f582faeaca3ffec19b9dd863911decebfc62bcc91164802e87e6b9def89a4a"
+    }
+  },
+  "packages": [
+    {
+      "artifact": "deb/nvbroadcast_1.5.3-2.cpu_amd64.deb",
+      "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "bytes": 390250984,
+      "content_sha256": "6be007632a158bb59cc5ee8abc01ff24fd129209e12403419fc48fc723ec0dd5",
+      "family": "deb",
+      "sha256": "fa539467c0364eaa0a2f3ef416e819ba332fa47552288d1aea8106682f3fa76a",
+      "variant": "cpu",
+      "version": "1.5.3-2.cpu"
+    },
+    {
+      "artifact": "rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-2.cpu.x86_64.rpm",
+      "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+      "bytes": 389853871,
+      "content_sha256": "937fed67343d9d10a9dbe085876ffe5868a69219872834b8dc2200a317bad0b6",
+      "family": "rpm",
+      "sha256": "24617fcc423d2cca1eb982337d65fc84a6c73149790759bc45e1a9adb9cee424",
+      "variant": "cpu",
+      "version": "1.5.3-2.cpu"
+    },
+    {
+      "artifact": "deb/nvbroadcast_1.5.3-3.cpu_amd64.deb",
+      "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "bytes": 390250984,
+      "content_sha256": "2732731a82af97747cad035c0343e8ea1057cc1586e8ce2f5b74d7b9c4caf9bc",
+      "family": "deb",
+      "sha256": "4381582cd7a376c0cef228cb189de891a6309808793a028844ece770cf461053",
+      "variant": "cpu",
+      "version": "1.5.3-3.cpu"
+    },
+    {
+      "artifact": "rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-3.cpu.x86_64.rpm",
+      "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+      "bytes": 389853871,
+      "content_sha256": "a7c32799661697906f0ef0c5f36a2688abb382cb116177d7fdd0a408ab275224",
+      "family": "rpm",
+      "sha256": "c67cd512d1ec645d20752de5143581e27a7c0cacc31a450bb119790c01c0eb19",
+      "variant": "cpu",
+      "version": "1.5.3-3.cpu"
+    }
+  ],
+  "remaining_promotion_gates": [
+    "Authenticated delivery of exact pinned builder images to CI",
+    "Production RPM key configuration and final-byte signing/checksum/helper sequence",
+    "Authenticated shipped end-user recovery interface for bounded RPM unpack fragments",
+    "Rebuild and desktop/device acceptance from current main including PR146 application fixes",
+    "Legacy native-package migration and concurrent legacy-launcher qualification",
+    "Fresh CUDA payload/variant switching and real GPU acceptance on current application source",
+    "Power-loss/fsync and clean-VM desktop/media/device acceptance",
+    "macOS/other platforms and remaining issue60 support scope"
+  ],
+  "repeat_runtime_manifest_sha256": "78b046e3a6db105680bdc98cdddb877d16201cdcc04ad43001fe122ea8ecfb9e",
+  "reviewed_source_revision": "b008d004fdfc8075da6f9b516a180edac8d4d48f",
+  "runtime_manifest_sha256": "78b046e3a6db105680bdc98cdddb877d16201cdcc04ad43001fe122ea8ecfb9e",
+  "schema_version": 1,
+  "scope": "Disconnected x86_64 CPU native adapter qualification; no public artifacts or default release recipe activation",
+  "targeted_tests": {
+    "log_sha256": "3fe935c9e452dfde539f559167d199efa0dd745c330bd27e4bed05f3ef26e3f8",
+    "passed": 69,
+    "subtests_passed": 37
+  }
+}
