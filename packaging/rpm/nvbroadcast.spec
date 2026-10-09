@@ -148,10 +148,10 @@ case "$(uname -m)" in
 esac
 
 install_runtime() {
-  rm -rf -- /opt/nvbroadcast/.venv
-  python3 -m venv /opt/nvbroadcast/.venv --system-site-packages
+  rm -rf -- /opt/nvbroadcast/.venv || return
+  python3 -m venv /opt/nvbroadcast/.venv --system-site-packages || return
   /opt/nvbroadcast/.venv/bin/pip install --upgrade \
-    "pip>=26.2" "setuptools>=83.0.0" wheel -q
+    "pip>=26.2" "setuptools>=83.0.0" wheel -q || return
   /opt/nvbroadcast/.venv/bin/python /opt/nvbroadcast/scripts/install_runtime_variant.py \
     --project /opt/nvbroadcast --variant "$1" --meeting-backends faster
 }
