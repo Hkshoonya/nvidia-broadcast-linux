@@ -166,9 +166,57 @@ class MacOfflineCandidateTests(unittest.TestCase):
             runtime.pip_install(Path("/user/.venv/bin/python"), self.bundle, self.bundle / "requirements.txt")
         arguments = run.call_args.args
         for flag in ("--isolated", "--no-index", "--no-deps", "--require-hashes", "--only-binary=:all:",
-                     "--ignore-installed", "--disable-pip-version-check", "--no-cache-dir"):
+                     "--force-reinstall", "--disable-pip-version-check", "--no-cache-dir"):
             self.assertIn(flag, arguments)
         self.assertNotIn("--upgrade", arguments)
+
+    def test_offline_install_replaces_bootstrap_metadata_without_duplicate_owners(self):
+        environment = self.root / "real-venv"
+        subprocess.run([sys.executable, "-m", "venv", str(environment)], check=True,
+                       capture_output=True, text=True)
+        python = environment / "bin/python"
+        requirement = self.root / "fixture-requirement.txt"
+        for version in ("1.0", "2.0"):
+            name = "nvb_offline_fixture"
+            info = f"{name}-{version}.dist-info"
+            wheel = self.wheels / f"{name}-{version}-py3-none-any.whl"
+            contents = {
+                f"{name}.py": f"VERSION = '{version}'\n",
+                f"{info}/METADATA": f"Metadata-Version: 2.3\nName: nvb-offline-fixture\nVersion: {version}\n",
+                f"{info}/WHEEL": "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+            }
+            contents[f"{info}/RECORD"] = "".join(f"{path},,\n" for path in [*contents, f"{info}/RECORD"])
+            with zipfile.ZipFile(wheel, "w") as archive:
+                for path, content in contents.items():
+                    archive.writestr(path, content)
+            requirement.write_text(runtime.requirements([runtime.wheel_record(wheel)]))
+            runtime.pip_install(python, self.bundle, requirement)
+        result = subprocess.run([str(python), "-c", '''
+from importlib import metadata
+import nvb_offline_fixture
+assert nvb_offline_fixture.VERSION == '2.0'
+versions = [d.version for d in metadata.distributions() if d.metadata['Name'] == 'nvb-offline-fixture']
+assert versions == ['2.0'], versions
+'''], check=True, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+
+    def test_local_metadata_owner_must_be_unique_even_if_first_record_matches(self):
+        prefix = self.root / "metadata-env"
+        local = prefix / "lib/python3.13/site-packages"
+        external = self.root / "external-native-site"
+        for directory, version in ((local, "1.0"), (external, "9.0")):
+            record = directory / f"fixture-{version}.dist-info"
+            record.mkdir(parents=True)
+            (record / "METADATA").write_text(f"Metadata-Version: 2.3\nName: fixture\nVersion: {version}\n")
+        packages = [{"name": "fixture", "version": "1.0"}]
+        paths = [str(local), str(local), str(external)]
+        self.assertEqual(runtime.pinned_distribution_problems(packages, prefix, paths), [])
+        stale = local / "fixture-0.9.dist-info"
+        stale.mkdir()
+        (stale / "METADATA").write_text("Metadata-Version: 2.3\nName: fixture\nVersion: 0.9\n")
+        problems = runtime.pinned_distribution_problems(packages, prefix, paths)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("Expected one local fixture==1.0 owner", problems[0])
 
     def test_candidate_preinstall_reuses_native_privilege_policy(self):
         script = builder.root_preinstall()

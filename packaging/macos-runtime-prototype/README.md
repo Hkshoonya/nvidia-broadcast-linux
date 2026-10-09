@@ -63,7 +63,9 @@ previous runtimes are not replaced. Candidate app config/cache paths are separat
 Before installing anything, setup verifies every wheel's metadata and SHA-256,
 rejects duplicate/extra/missing wheels, requires exactly the CPU ONNX Runtime
 owner, and verifies the complete package identity. Pip runs with `--isolated
---no-index --no-deps --require-hashes --only-binary=:all: --ignore-installed`.
+--no-index --no-deps --require-hashes --only-binary=:all: --force-reinstall`.
+Reinstalling removes stale local ensurepip metadata while pip's venv boundary
+prevents removing global Homebrew distributions.
 All selected wheels must be installed in the private venv at their exact versions;
 Homebrew supplies the native bindings through the existing system-site ABI.
 The ready marker is written only after dependency closure, ownership, native

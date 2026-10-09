@@ -158,8 +158,21 @@ def pip_install(python: Path, bundle: Path, requirement_file: Path) -> None:
     # Isolated ignores user config and PIP_* injection; no deps forbids resolver
     # work, hash-checking binds every wheel, and no-index prohibits index use.
     run(python, "-m", "pip", "--isolated", "install", "--no-index", "--no-deps",
-        "--require-hashes", "--only-binary=:all:", "--ignore-installed", "--no-cache-dir",
+        "--require-hashes", "--only-binary=:all:", "--force-reinstall", "--no-cache-dir",
         "--disable-pip-version-check", "--find-links", bundle / "wheels", "-r", requirement_file)
+
+
+def pinned_distribution_problems(packages: list[dict], prefix: Path, search_paths: list[str]) -> list[str]:
+    prefix = prefix.resolve()
+    local_paths = sorted({str(Path(path).resolve()) for path in search_paths
+                          if path and Path(path).resolve().is_relative_to(prefix)})
+    owners = {}
+    for distribution in metadata.distributions(path=local_paths):
+        name = distribution.metadata.get("Name")
+        if name:
+            owners.setdefault(canonical(name), []).append(distribution.version)
+    return [f"Expected one local {item['name']}=={item['version']} owner, found {owners.get(item['name'], [])}"
+            for item in packages if owners.get(item["name"], []) != [item["version"]]]
 
 
 def verify_runtime(bundle: Path, runtime: Path) -> dict:
@@ -171,6 +184,7 @@ def verify_runtime(bundle: Path, runtime: Path) -> dict:
     problems = validate_current_runtime("cpu")
     problems += ArtifactEnvironment.current().dependency_closure_problems(
         roots=("nvbroadcast", "faster-whisper"), root_extras={"nvbroadcast": ("cpu", "meeting-support")})
+    problems += pinned_distribution_problems(manifest["packages"], Path(sys.prefix), sys.path)
     for item in manifest["packages"]:
         dist = metadata.distribution(item["name"])
         if dist.version != item["version"] or not Path(dist.locate_file("")).resolve().is_relative_to(Path(sys.prefix).resolve()):
