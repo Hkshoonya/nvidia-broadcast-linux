@@ -1,13 +1,16 @@
 # NV Broadcast v1.5.3
 
-**Store candidate promoted; stable publication remains pending applicable
-candidate checks and feedback.** The immutable `v1.5.3` tag and verified draft
-packages are built. Snap candidate is revision **190 on AMD64 / 189 on ARM64**;
-stable remains v1.5.2 at **185 / 184**. The affected feedback window started
-8 October 2026 at **20:55:02 UTC**; its earliest 48-hour milestone is
-**10 October at 20:55:02 UTC**, subject to remaining checks and regressions.
-This is not a guaranteed publication time. Actual channel and publication
-receipts are tracked in [the release readiness record](RELEASE_READINESS_1.5.3.md).
+**Published 9 October 2026.** [v1.5.3 downloads](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.3)
+and Snap stable are available. Stable and candidate use the same tested
+revisions: **190 on AMD64 / 189 on ARM64**. The immutable release tag and
+verified package bytes are unchanged.
+
+The maintainer directed publication on 9 October after the applicable technical
+checks and a fresh feedback review, shortening the originally planned
+observation period. More than 21 hours of candidate observation had elapsed;
+a completed 48-hour window is not claimed. Exact publication receipts,
+retained evidence and limitations are recorded in
+[the release readiness record](RELEASE_READINESS_1.5.3.md).
 
 This maintenance release brings together the recording, compact-window,
 background-edge, and runtime-recovery fixes merged since v1.5.2.
@@ -91,12 +94,12 @@ All previously accepted contributors remain in the packaged About credits,
 
 ## Package scope and upgrade instructions
 
-The candidate retains the existing native/source and Snap installation
+The release retains the existing native/source and Snap installation
 contracts. The complete offline CPU/CUDA runtime packages under `packaging/`
 are maintainer prototypes. Production native installers still require network
 dependency resolution; offline runtime locks, RPM signing and production
-runtime-pack work remain tracked in #53 and #60. The final macOS PKG's Installer
-signing/notarization is verified separately below.
+runtime-pack work remain tracked in #60 and design PR #77. The final macOS
+PKG's Installer signing/notarization is verified separately below.
 
 A carried-forward RPM reporting limitation remains in this immutable tag:
 if CUDA runtime setup and its clean CPU fallback both fail, the RPM postinstall
@@ -124,7 +127,18 @@ Upgrades from affected native v1.4.0 or older installations must use the
 `nvbroadcast-native-upgrade` helper and package from the **same release**,
 verified against that release's checksums and provenance. The helper is bound
 to the exact DEB/RPM bytes. See [artifact verification](RELEASE_VERIFICATION.md).
-Final v1.5.3 download links will be added only after publication.
+Downloads:
+
+- [Debian/Ubuntu DEB](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.3/nvbroadcast_1.5.3-1_all.deb)
+- [Fedora/RHEL RPM](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.3/nvbroadcast-1.5.3-1.noarch.rpm)
+- [Signed Apple Silicon macOS PKG](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.3/NVBroadcast-1.5.3-1.pkg)
+- [Snap Store](https://snapcraft.io/nvbroadcast)
+
+The [native upgrade helper](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.3/nvbroadcast-native-upgrade)
+and [package checksums](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.3/SHA256SUMS.packages)
+belong to these exact native packages. The release page also provides the
+tag-built ARM64 Snap and its attested checksum manifest; the separate
+Store-review builds retain their own provenance.
 
 Flatpak remains an x86_64 CPU development package pending its desktop,
 microphone, identity, and distribution checks. Project licensing metadata and
@@ -140,7 +154,7 @@ release. The verified `NVBroadcast-1.5.3-1.pkg` checksum is
 The [candidate promotion workflow](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/37842894804)
 completed for the immutable tag. Public Store SHA3-384 digests and sizes match
 the actual reviewed files and their own source-bound attestations. Store
-candidate revision 190 is installed: accepted local Snap assertions, mounted
+revision 190 is installed: accepted local Snap assertions, mounted
 source/runtime input checks and exclusive CPU inference passed. The maintainer
 confirmed smooth camera preview and usable compact controls. With GPU memory
 available on 9 October, revision 190 passed actual CUDA inference with CPU
@@ -150,6 +164,13 @@ inputs. These small runtime probes do not measure camera FPS or long-run
 performance. Earlier x10 speech-recording evidence remains explicitly retained
 through exact application and native runtime input matching; no new physical
 recording is claimed for revision 190.
-Public downloads and Snap stable promotion remain pending the applicable
-candidate checks, feedback and publication steps; candidate promotion is not
-stable publication.
+[Stable promotion run 37973824069](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/37973824069)
+released those same reviewed revisions. All seven public GitHub assets passed
+fresh anonymous downloads, size/digest checks and verification of their
+source-bound attestations.
+
+The original runtime/source-recovery report #53 and recording report #112 were
+closed on 9 October. Remaining runtime-pack delivery and native lifecycle work are retained
+in #60 and PR #77; broader Flatpak desktop/audio and distribution qualification
+remain in #95. These fixes do not claim the larger packaging work or every
+hardware configuration is complete.
