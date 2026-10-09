@@ -113,6 +113,13 @@ still requires dedicated lifecycle qualification.
 User settings, recordings and shared virtual-camera driver configuration are
 preserved. Native repair uses exact authenticated packages through dpkg or RPM;
 these package-owned environments never use the source-generation activator.
+An RPM killed during payload unpack can leave temporary files that a reinstall
+does not remove. The qualification harness preserves only recognized fragments
+whose transaction timestamp and bytes match the selected authenticated payload,
+then replays the package and verifies the exact installed file set. Its bounded
+recovery helper currently needs retained build staging/content manifests and is
+qualification tooling; a shipped authenticated end-user recovery interface is
+still a promotion gate. Unknown fragments are rejected, never broadly deleted.
 
 This adapter blocks interrupted launches but does not keep the previous runtime
 launchable during a package-manager transaction. Package metadata, native
@@ -155,6 +162,12 @@ exercise CPU inference, application imports, synthetic video/audio EOS and a
 mapped GTK window. No physical device, host display/audio socket or user home
 is mounted. This is container lifecycle evidence, not clean-VM desktop/device
 acceptance or real GPU qualification.
+The recording probe encodes generated moving video and a generated tone with
+the application's selected H.264/AAC encoders, then decodes the MP4 and checks
+frame count, audio length and signal level. Lock contention includes the actual
+installed Python launcher. Mid-unpack interruption must observe a native staging
+file larger than 1 MiB before killing the manager; a marker-only interruption
+must not be reported as unpack recovery.
 
 ```bash
 python3 packaging/native-runtime/qualify.py \
