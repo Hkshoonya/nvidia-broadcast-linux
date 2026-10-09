@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import struct
@@ -1134,6 +1135,142 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertNotIn('[cuda]"', postinst)
         self.assertIn("pkill -f", rpm_spec.split("%pre", 1)[1].split("%post", 1)[0])
         self.assertNotIn('pkill -f "nvbroadcast"', rpm_spec)
+
+    @staticmethod
+    def _run_native_postinstall(
+        postinstall, *, gpu, cuda_status, cpu_status, shell="/bin/sh",
+        fail_stage="", fail_once=False,
+    ):
+        with tempfile.TemporaryDirectory(prefix="nvb-native-postinstall-") as tmp:
+            root = Path(tmp)
+            commands = root / "commands"
+            commands.mkdir()
+            calls = root / "calls"
+            calls.touch()
+            for name in ("modprobe.d", "modules-load.d"):
+                (root / name).mkdir()
+            for name in ("mkdir", "cp", "grep"):
+                (commands / name).symlink_to(shutil.which(name))
+            stage_check = (
+                'record_stage() {\n'
+                '  [ -n "$NVB_TEST_FAIL_STAGE" ] || return 0\n'
+                '  printf "%s\\n" "$1" >> "$NVB_TEST_CALLS"\n'
+                '  if [ "$1" = "$NVB_TEST_FAIL_STAGE" ] && {\n'
+                '    [ "$NVB_TEST_FAIL_ONCE" != 1 ] || [ ! -f "$NVB_TEST_FAILED" ];\n'
+                '  }; then\n'
+                '    : > "$NVB_TEST_FAILED"\n'
+                '    return 42\n'
+                '  fi\n'
+                '}\n'
+            )
+            stubs = {
+                "rm": (
+                    'if [ "$3" = "$NVB_TEST_VENV" ]; then\n'
+                    '  record_stage cleanup || exit $?\n'
+                    'fi\n'
+                    f'exec {shlex.quote(shutil.which("rm"))} "$@"\n'
+                ),
+                "uname": "printf '%s\\n' x86_64\n",
+                "modprobe": 'printf "%s\\n" integration >> "$NVB_TEST_CALLS"\n',
+                "python3": (
+                    # A failed venv command can leave usable files behind.
+                    'mkdir -p "$3/bin"\n'
+                    'cp "$NVB_TEST_PIP" "$3/bin/pip"\n'
+                    'cp "$NVB_TEST_PYTHON" "$3/bin/python"\n'
+                    'record_stage venv || exit $?\n'
+                ),
+                "pip": "record_stage bootstrap || exit $?\nexit 0\n",
+                "python": (
+                    'while [ "$1" != "--variant" ]; do shift; done\n'
+                    'printf "%s\\n" "$2" >> "$NVB_TEST_CALLS"\n'
+                    'case "$2" in\n'
+                    '  cuda) exit "$NVB_TEST_CUDA_STATUS" ;;\n'
+                    '  cpu) exit "$NVB_TEST_CPU_STATUS" ;;\n'
+                    "esac\n"
+                ),
+            }
+            if gpu:
+                stubs["nvidia-smi"] = "exit 0\n"
+            for name, body in stubs.items():
+                stub = commands / name
+                stub.write_text("#!/bin/sh\n" + stage_check + body)
+                stub.chmod(0o755)
+            script = postinstall.replace(
+                "/opt/nvbroadcast", shlex.quote(str(root / "application"))
+            ).replace("/etc/modprobe.d", shlex.quote(str(root / "modprobe.d")))
+            script = script.replace(
+                "/etc/modules-load.d", shlex.quote(str(root / "modules-load.d"))
+            ).replace("/usr/share/", str(root / "share") + "/")
+            assert "/opt/nvbroadcast" not in script
+            assert "/etc/" not in script
+            assert "/usr/share/" not in script
+            environment = dict(
+                os.environ,
+                PATH=str(commands),
+                NVB_TEST_CALLS=str(calls),
+                NVB_TEST_PIP=str(commands / "pip"),
+                NVB_TEST_PYTHON=str(commands / "python"),
+                NVB_TEST_CUDA_STATUS=str(cuda_status),
+                NVB_TEST_CPU_STATUS=str(cpu_status),
+                NVB_TEST_VENV=str(root / "application" / ".venv"),
+                NVB_TEST_FAIL_STAGE=fail_stage,
+                NVB_TEST_FAIL_ONCE="1" if fail_once else "0",
+                NVB_TEST_FAILED=str(root / "failed"),
+            )
+            result = subprocess.run(
+                [shell, "-c", script],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return result, calls.read_text().splitlines()
+
+    def test_rpm_postinstall_propagates_failed_cpu_fallback(self):
+        spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        postinstall = spec.split("\n%post\n", 1)[1].split("\n%preun\n", 1)[0]
+        cases = (
+            (True, 1, 1, 1, ["cuda", "cpu"]),
+            (True, 1, 0, 0, ["cuda", "cpu", "integration"]),
+            (True, 0, 1, 0, ["cuda", "integration"]),
+            (False, 0, 1, 1, ["cpu"]),
+            (False, 0, 0, 0, ["cpu", "integration"]),
+        )
+        for gpu, cuda_status, cpu_status, expected_status, expected_calls in cases:
+            with self.subTest(gpu=gpu, cuda_status=cuda_status, cpu_status=cpu_status):
+                result, calls = self._run_native_postinstall(
+                    postinstall, gpu=gpu, cuda_status=cuda_status, cpu_status=cpu_status
+                )
+                self.assertEqual(result.returncode, expected_status, result.stderr)
+                self.assertEqual(calls, expected_calls)
+                if gpu and cuda_status and cpu_status:
+                    self.assertIn("CPU runtime setup failed", result.stderr)
+
+    def test_native_postinstalls_stop_after_failed_runtime_stage(self):
+        deb_postinstall = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
+        spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        rpm_postinstall = spec.split("\n%post\n", 1)[1].split("\n%preun\n", 1)[0]
+        stages = ["cleanup", "venv", "bootstrap"]
+        for package, postinstall, shell in (
+            ("DEB", deb_postinstall, "/bin/bash"),
+            ("RPM", rpm_postinstall, "/bin/sh"),
+        ):
+            for index, fail_stage in enumerate(stages):
+                failed_attempt = stages[:index + 1]
+                for gpu, fail_once in ((False, False), (True, False), (True, True)):
+                    with self.subTest(package=package, stage=fail_stage,
+                                      gpu=gpu, fail_once=fail_once):
+                        result, calls = self._run_native_postinstall(
+                            postinstall, gpu=gpu, cuda_status=0, cpu_status=0,
+                            shell=shell, fail_stage=fail_stage, fail_once=fail_once,
+                        )
+                        if fail_once:
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            expected = failed_attempt + stages + ["cpu", "integration"]
+                        else:
+                            self.assertNotEqual(result.returncode, 0, result.stdout)
+                            expected = failed_attempt * (2 if gpu else 1)
+                        self.assertEqual(calls, expected, result.stderr)
 
     def test_virtual_camera_label_is_nvbroadcast_everywhere(self):
         constants = (REPO_ROOT / "src" / "nvbroadcast" / "core" / "constants.py").read_text()

@@ -148,10 +148,10 @@ case "$(uname -m)" in
 esac
 
 install_runtime() {
-  rm -rf -- /opt/nvbroadcast/.venv
-  python3 -m venv /opt/nvbroadcast/.venv --system-site-packages
+  rm -rf -- /opt/nvbroadcast/.venv || return
+  python3 -m venv /opt/nvbroadcast/.venv --system-site-packages || return
   /opt/nvbroadcast/.venv/bin/pip install --upgrade \
-    "pip>=26.2" "setuptools>=83.0.0" wheel -q
+    "pip>=26.2" "setuptools>=83.0.0" wheel -q || return
   /opt/nvbroadcast/.venv/bin/python /opt/nvbroadcast/scripts/install_runtime_variant.py \
     --project /opt/nvbroadcast --variant "$1" --meeting-backends faster
 }
@@ -162,7 +162,10 @@ if ! install_runtime "$RUNTIME_VARIANT"; then
   fi
   echo "NV Broadcast: CUDA runtime failed; recreating clean CPU environment."
   RUNTIME_VARIANT="cpu"
-  install_runtime "$RUNTIME_VARIANT"
+  if ! install_runtime "$RUNTIME_VARIANT"; then
+    echo "NV Broadcast: CPU runtime setup failed; installation cannot complete." >&2
+    exit 1
+  fi
 fi
 
 # pip's local project build can leave metadata beside package-owned sources.
