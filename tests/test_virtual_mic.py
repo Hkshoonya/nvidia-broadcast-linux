@@ -236,6 +236,7 @@ class PulseVirtualMicIntegrationTests(unittest.TestCase):
                 "XDG_CACHE_HOME": str(root / "cache"),
                 "PULSE_RUNTIME_PATH": str(root),
                 "PULSE_SERVER": f"unix:{root}/native",
+                "LC_ALL": "C",
             }
             with (root / "server.log").open("w+") as log:
                 server = subprocess.Popen(
