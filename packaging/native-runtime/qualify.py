@@ -106,6 +106,19 @@ def main() -> None:
         verify("installed")
         execute("generated-recording", ["bash", "/source/packaging/runtime-prototype/desktop_probe.sh",
             "/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "/source/packaging/native-runtime/recording_probe.py"], user=True)
+        execute("start-installed-launcher", ["bash", "/source/packaging/runtime-prototype/desktop_probe.sh",
+            "sh", "-c", 'echo $$ > /tmp/installed-launcher.pid; exec /usr/bin/nvbroadcast'], user=True, detached=True)
+        execute("verify-launcher-lifetime-lock", ["sh", "-eu", "-c",
+            'for attempt in $(seq 1 100); do '
+            'if test -s /tmp/installed-launcher.pid; then pid=$(cat /tmp/installed-launcher.pid); '
+            'if test "$(readlink /proc/$pid/fd/9 2>/dev/null || true)" = /var/lib/nvbroadcast/runtime.lock '
+            '&& tr "\\000" " " < /proc/$pid/cmdline | grep -q "python -I -B -m nvbroadcast"; '
+            'then echo "Installed Python launcher retains runtime lock FD9"; exit 0; fi; fi; sleep 0.1; done; exit 1'], user=True)
+        execute("launcher-lock-upgrade-refused", install(second, "/second"), failure=True)
+        execute("stop-installed-launcher", ["sh", "-eu", "-c",
+            'kill "$(cat /tmp/installed-launcher.pid)"; '
+            'for attempt in $(seq 1 100); do if flock --exclusive --nonblock /var/lib/nvbroadcast/runtime.lock true; '
+            'then test ! -e /usr/lib/nvbroadcast/.transaction; exit 0; fi; sleep 0.1; done; exit 1'])
         execute("start-held-runtime", ["/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "-c",
             'import os,time;open("/tmp/held-runtime.pid","w").write(str(os.getpid()));time.sleep(180)'], user=True, detached=True)
         execute("wait-held-runtime", ["sh", "-c", "until test -s /tmp/held-runtime.pid; do sleep 0.05; done"])
