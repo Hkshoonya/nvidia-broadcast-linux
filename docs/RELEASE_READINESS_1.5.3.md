@@ -5,8 +5,8 @@ Assessment started **5 October 2026**, from main commit
 [v1.5.2, published 4 September 2026](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.2).
 
 **Status: merged, tagged, draft packages verified and Store candidate promoted;
-applicable candidate checks, feedback and stable publication remain pending,
-8 October 2026.** PR #136 merged into main at
+installed candidate CPU/CUDA/CuPy checks passed; feedback and stable publication
+remain pending, 9 October 2026.** PR #136 merged into main at
 `048d4f4005a56e6a7b235739f0176e0264bc3fa7`, exactly matching the tested integration
 tree `f2ffa891c607a3effb653a545eb150c2a4f6c5e0`. The immutable `v1.5.3` tag points
 to that source. The maintainer authorized this merge, tag, verified Store
@@ -88,7 +88,7 @@ automatically to newly built v1.5.3 artifacts.
 | Unit, packaging, and CI | Final main/tag tree equals the tested integration; applicable PR checks, tag Build Packages run 37835368212 and paired Snap candidate promotion run 37842894804 passed | Record remaining candidate acceptance, affected feedback and stable/publication receipts |
 | Small window UI | Installed Store candidate 190 owner moving preview, compact Camera/Audio controls and Show Preview passed; physical signed-PKG camera/compact controls passed | Record affected feedback and any regressions |
 | Recording | Earlier x10 Snap speech playback is retained through exact application/native input matching; final signed-PKG built-in-microphone Mic Test, complete speech Rec and microphone-only Meeting transcription passed; prior native/Flatpak capture and generated-media evidence is retained | No new physical recording was claimed for Store 190; native/Flatpak physical-microphone and desktop follow-up remains in #112, separate from the completed Mac scope; preserve provider scope and unavailable-second-mic limitation |
-| CPU/GPU behavior | Installed Store 190 exclusive CPU inference and loaded native-file binding passed; earlier x10 CPU/CUDA/CuPy execution remains separate, with matching inputs | New exact-190 CUDA/CuPy execution awaits sufficient selected-GPU capacity; neither started under the reserve guard. TensorRT SDK is outside this Snap profile; record affected feedback and distinguish capacity from provider failure |
+| CPU/GPU behavior | Installed Store 190 exclusive CPU inference passed; on 9 October, CUDA inference with CPU fallback disabled and fresh CuPy NVRTC execution passed on RTX 5070. All 78 wheel RECORD inputs and 82 loaded native package files match the qualified review inputs | Record affected feedback. These small execution probes do not measure camera FPS or long-run performance. TensorRT SDK is outside this Snap profile; earlier x10 evidence remains separately identified |
 | Matte quality (#91) | Patched Remove passed direct-window and backlit moving-hand feedback | Final-package Blur/Replace, fine hair, white clothing, and extreme sliders; document any accepted residual limitation |
 | Source recovery (#53) | Failed-install preservation, CPU/CUDA transitions, rollback and source window startup tested in #133 | Candidate source update/rollback check; production native runtime packs remain a separate unfinished scope |
 | Native artifacts (#60) | Final tag DEB/RPM, bound helper, source/notices and hosted provenance passed independent checks; fresh public v1.5.2 to exact final CPU upgrades passed 17 steps on Ubuntu 24.04 and 16 on Fedora 44; eight historical prototype lifecycle cells are retained separately | Record candidate/publication receipts; production runtime payloads remain non-hermetic, with locked/offline dependencies, RPM signing and full lifecycle work separate |
@@ -189,16 +189,22 @@ backing archive was not independently rehashed. The maintainer confirmed the
 moving preview, compact Camera/Audio controls and Show Preview work. Their
 Store-190 physical recording check was not repeated.
 
-New exact-190 CUDA/CuPy checks **did not start**: concurrent Ollama use left only
-389 MiB free on the selected RTX 5070 at immediate preflight, below the 4,096 MiB
-reserve. They remain pending host capacity; this supplies neither a new GPU
-pass nor a provider failure. The exact application-code/native-input comparison
-retains earlier x10 CPU/CUDA/CuPy and physical evidence separately, including
-the same 82 previously exercised native libraries. Distinct tag/review archive
-hashes remain recorded. Installed identity, CPU/native bindings, capacity and
-owner acceptance receipts are in `dist/release-1.5.3/candidate/installed/` in
-the tag checkout. Remaining acceptance and regressions are recorded against
-candidate revisions 190/189.
+On 8 October, the exact-190 GPU checks did not start because selected-device
+memory was below the 4,096 MiB reserve. On 9 October, with 11,757 MiB free on
+RTX 5070, both confined checks passed using fresh private caches. CUDA completed
+in 62.350282 seconds wall time with CPU fallback disabled and profiling showing
+only CUDA kernel execution. CuPy compiled and executed a fresh NVRTC kernel in
+2.076677 seconds. Both returned `[1, 4, 9, 16]`; neither timed out or emitted
+stderr. Fresh hashes bind all 78 wheel RECORD inputs and 82 mapped native
+package files to the qualified review inputs. These startup checks do not
+measure preview FPS, all processing models or long-run GPU performance.
+
+The earlier x10 physical evidence and distinct tag/review archive hashes remain
+recorded separately. Installed identity, provider/native bindings and owner
+acceptance receipts are in `dist/release-1.5.3/candidate/installed/`; the new
+GPU evidence is under `gpu/retry-20261009T171844Z/`. No CPU repeat, capture,
+configuration change or process unloading was needed. Remaining feedback and
+regressions are recorded against candidate revisions 190/189.
 
 The immutable tag retains a known RPM reporting limitation reproduced in both
 public v1.5.2 and final v1.5.3: if CUDA setup and its clean CPU fallback both
@@ -210,6 +216,15 @@ merged on 8 October at 21:06:07 UTC as main commit
 status for subsequent work; it is not included in v1.5.3. The release tag
 remains `048d4f4`. This is a carried-forward reporting limitation, not a new
 release regression.
+
+The 9 October installer review reproduced a separate mandatory-stage failure
+path in both DEB and RPM: cleanup, venv creation or bootstrap pip failure can be
+hidden by a later successful runtime command. The affected function bodies are
+identical in v1.5.2, v1.5.3 and pre-fix main. The six explicit failure guards in
+[PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143) address it
+for subsequent work. All 18 controlled failure cases failed before the fix and
+passed afterward, with independent review. The immutable release tag is
+unchanged; package-manager rollback and atomic activation remain separate.
 
 The final signed macOS package is 488,100 bytes, SHA-256
 `8a4df3d903f80d90b866adcd6571f34368b015aeae8023f35aba8472c61af2e2`, signed by

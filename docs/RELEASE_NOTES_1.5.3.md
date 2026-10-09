@@ -106,6 +106,12 @@ for subsequent work and reports that failure explicitly; it is not included in
 v1.5.3. Successful CUDA and CPU installation paths are unaffected by this
 reporting defect.
 
+DEB and RPM also retain a prerequisite-failure reporting limitation: failed
+environment cleanup, creation, or bootstrap dependency setup can be hidden by
+a later successful command. The same function bodies occur in v1.5.2 and this
+tag. [PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143)
+addresses those failures for subsequent work; this tag is unchanged.
+
 Upgrades from affected native v1.4.0 or older installations must use the
 `nvbroadcast-native-upgrade` helper and package from the **same release**,
 verified against that release's checksums and provenance. The helper is bound
@@ -126,12 +132,14 @@ completed for the immutable tag. Public Store SHA3-384 digests and sizes match
 the actual reviewed files and their own source-bound attestations. Store
 candidate revision 190 is installed: accepted local Snap assertions, mounted
 source/runtime input checks and exclusive CPU inference passed. The maintainer
-confirmed smooth camera preview and usable compact controls. New CUDA/CuPy
-checks remain deferred because concurrent Ollama use leaves insufficient free
-memory on the selected GPU; neither check started. Earlier x10 execution and
-speech-recording evidence remains explicitly retained through exact application
-and native runtime input matching, rather than relabeled as new revision 190
-tests.
+confirmed smooth camera preview and usable compact controls. With GPU memory
+available on 9 October, revision 190 passed actual CUDA inference with CPU
+fallback disabled and fresh CuPy NVRTC compilation on RTX 5070. All 78 wheel
+RECORD inputs and 82 loaded native package files match the qualified review
+inputs. These small runtime probes do not measure camera FPS or long-run
+performance. Earlier x10 speech-recording evidence remains explicitly retained
+through exact application and native runtime input matching; no new physical
+recording is claimed for revision 190.
 Public downloads and Snap stable promotion remain pending the applicable
 candidate checks, feedback and publication steps; candidate promotion is not
 stable publication.
