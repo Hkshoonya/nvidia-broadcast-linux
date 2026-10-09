@@ -3,6 +3,9 @@
 This is an unsigned, opt-in issue #60 experiment. It does not alter the normal
 source PKG, signing workflow, stable release, or installed native launcher.
 The experimental identifier is `com.doczeus.nvbroadcast.offline-candidate`.
+This candidate requires **macOS 14 (Sonoma) or newer**. The canonical PyAV 16
+arm64 CPython 3.13 supplier wheels require macOS 14; a real runner resolution for
+macOS 13 failed for that reason. The shipping package's support policy is unchanged.
 
 The candidate keeps the tested **Homebrew CPython 3.13, PyGObject, Pycairo,
 GTK4, libadwaita and GStreamer** contract. It replaces destination source builds,
@@ -25,9 +28,9 @@ clean committed checkout and provide the native prerequisites first:
 `inputs.json` pins the resolver and builder wheels by exact supplier URL and
 SHA-256. The build uses the committed application source and canonical
 `cpu,meeting-support` extras, plus the managed faster-whisper version. It resolves
-only on the build host, targeting arm64 CPython 3.13 and a macOS 13 wheel baseline.
+only on the build host, targeting arm64 CPython 3.13 and a macOS 14 wheel baseline.
 The generated PEP 751 lock retains supplier URLs and wheel hashes. An exact
-macOS 13 arm64 CPython 3.13 wheel selection becomes `manifest.json` and hash-checked
+macOS 14 arm64 CPython 3.13 wheel selection becomes `manifest.json` and hash-checked
 `requirements.txt` in the package. No sdists enter the runtime. Keep and review
 these outputs before treating a particular candidate as reproducible; this
 initial experiment intentionally refreshes the dependency lock during builds.
@@ -38,7 +41,8 @@ Homebrew installed versions and GStreamer plugin versions/paths. Homebrew ABI
 changes fail the probe instead of silently choosing a different Python version.
 Build-host inventory and destination inventory are separately retained. The
 wheel deployment baseline does not prove that current Homebrew bottles run on
-macOS 13; qualification applies only to the exact runner OS recorded in evidence.
+every supported OS; qualification applies only to the exact runner OS recorded
+in evidence. Selection uses the declared floor, not the builder's newer OS tags.
 
 ## Separate installation and offline verification
 
@@ -93,3 +97,4 @@ Primary supplier references consulted 2026-10-09:
 - [pip offline and no-dependency installation options](https://pip.pypa.io/en/stable/cli/pip_install/)
 - [Homebrew PyGObject formula and Python ABI dependencies](https://formulae.brew.sh/formula/pygobject3)
 - [Pinned uv release](https://github.com/astral-sh/uv/releases/tag/0.11.7)
+- [PyAV 16.1.0 supplier wheel filenames and hashes](https://pypi.org/pypi/av/16.1.0/json)

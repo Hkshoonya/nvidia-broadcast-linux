@@ -34,6 +34,8 @@ def root_preinstall() -> str:
     script = source.split("<< 'PREINST'\n", 1)[1].split("\nPREINST", 1)[0]
     script = script.replace("/opt/nvbroadcast", "/opt/nvbroadcast-offline-candidate")
     script = script.replace("/usr/local/bin/nvbroadcast", "/usr/local/bin/nvbroadcast-offline-candidate")
+    script = script.replace('"${BASH_REMATCH[1]}" -lt 13', '"${BASH_REMATCH[1]}" -lt 14')
+    script = script.replace("macOS 13 (Ventura)", "macOS 14 (Sonoma)")
     # Our payload differs from the source installer. Check EVERY existing
     # candidate descendant; no legacy venv exemption is needed at this path.
     start = script.index("# Existing package subtrees")
@@ -55,6 +57,8 @@ def build(work: Path):
     work.mkdir(parents=True, exist_ok=False)
     (work / "native-build-inventory.json").write_text(json.dumps(native, indent=2) + "\n")
     pins = json.loads((HERE / "inputs.json").read_text())
+    if pins["minimum_macos"] != runtime.MINIMUM_MACOS:
+        raise ValueError("Builder and runtime deployment floors disagree")
     inputs = work / "inputs"
     inputs.mkdir()
     bootstrap = work / "bootstrap"
@@ -99,7 +103,7 @@ def build(work: Path):
                 "--python", sys.executable, "--python-version", "3.13", "--no-python-downloads",
                 "--python-platform", "aarch64-apple-darwin", "--only-binary", ":all:",
                 "--format", "pylock.toml", "--output-file", lock_path,
-                env={**os.environ, "MACOSX_DEPLOYMENT_TARGET": "13.0", "UV_NO_CONFIG": "1"})
+                env={**os.environ, "MACOSX_DEPLOYMENT_TARGET": runtime.MINIMUM_MACOS, "UV_NO_CONFIG": "1"})
     # Keep the lock portable; all other wheels retain supplier URLs and hashes.
     lock_text = lock_path.read_text().replace(json.dumps(str(app_wheel)), json.dumps("app-wheel/" + app_wheel.name))
     lock_path.write_text("# Generated on macOS arm64 by the pinned resolver.\n" + "\n".join(
@@ -109,7 +113,7 @@ def build(work: Path):
     bundle.mkdir(parents=True)
     (bundle / "wheels").mkdir()
     # uv's platform lock can contain several compatible wheel alternatives.
-    # Select exactly one using explicit macOS 13 arm64 CPython 3.13 tags;
+    # Select exactly one using explicit macOS 14 arm64 CPython 3.13 tags;
     # record the complete original lock as well as the selected wheel hashes.
     lock = tomllib.loads(lock_path.read_text())
     selection = runtime.run(python, HERE / "wheel_target.py",
@@ -126,14 +130,14 @@ def build(work: Path):
         choices = [wheel for wheel in package.get("wheels", [])
                    if ranks[prepare.filename({"url": wheel["url"]})] is not None]
         if not choices:
-            raise ValueError(f"No macOS 13 arm64 CPython 3.13 wheel for {package['name']}")
+            raise ValueError(f"No macOS {runtime.MINIMUM_MACOS} arm64 CPython 3.13 wheel for {package['name']}")
         selected = min(choices, key=lambda wheel: ranks[prepare.filename({"url": wheel["url"]})])
         prepare.fetch(bundle / "wheels", {"url": selected["url"], "sha256": selected["hashes"]["sha256"]})
     packages = sorted((runtime.wheel_record(path) for path in (bundle / "wheels").iterdir()), key=lambda item: item["name"])
     if len({item["name"] for item in packages}) != len(packages):
         raise ValueError("Target lock has more than one wheel per distribution; select an exact target before packaging")
     (bundle / "requirements.txt").write_text(runtime.requirements(packages))
-    manifest = {"schema_version": 1, "target": runtime.TARGET, "minimum_macos": "13.0",
+    manifest = {"schema_version": 1, "target": runtime.TARGET, "minimum_macos": runtime.MINIMUM_MACOS,
                 "source_revision": revision, "source_date_epoch": epoch, "packages": packages,
                 "resolver": pins["uv"], "native_build_inventory": native,
                 "limits": ["Homebrew native dependencies and CPython are external prerequisites",

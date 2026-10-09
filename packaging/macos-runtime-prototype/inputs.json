@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "target": "macos-arm64-cp313-cpu",
-  "minimum_macos": "13.0",
+  "minimum_macos": "14.0",
   "uv": {
     "version": "0.11.7",
     "url": "https://github.com/astral-sh/uv/releases/download/0.11.7/uv-aarch64-apple-darwin.tar.gz",

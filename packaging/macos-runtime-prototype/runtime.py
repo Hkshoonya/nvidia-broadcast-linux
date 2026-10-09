@@ -24,6 +24,7 @@ import zipfile
 
 BREW = Path("/opt/homebrew")
 TARGET = "macos-arm64-cp313-cpu"
+MINIMUM_MACOS = "14.0"
 
 
 def run(*args, **kwargs):
@@ -44,7 +45,7 @@ def tree_digest(root: Path) -> str:
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
             raise ValueError(f"Redirected package payload: {path}")
-        if not path.is_file() or path.name == "macos-runtime-id":
+        if not path.is_file() or path == root / "macos-runtime-id":
             continue
         relative = path.relative_to(root).as_posix().encode()
         payload = path.read_bytes()
@@ -83,7 +84,8 @@ def requirements(packages: list[dict]) -> str:
 
 def validate_bundle(bundle: Path) -> dict:
     manifest = json.loads((bundle / "manifest.json").read_text())
-    if manifest.get("schema_version") != 1 or manifest.get("target") != TARGET:
+    if (manifest.get("schema_version") != 1 or manifest.get("target") != TARGET
+            or manifest.get("minimum_macos") != MINIMUM_MACOS):
         raise ValueError("Unsupported wheelhouse contract")
     expected = manifest["packages"]
     if not expected or len({item["name"] for item in expected}) != len(expected):
@@ -107,6 +109,8 @@ def validate_bundle(bundle: Path) -> dict:
 def native_probe() -> dict:
     if (platform.system(), platform.machine(), sys.version_info[:2]) != ("Darwin", "arm64", (3, 13)):
         raise RuntimeError("Candidate requires macOS arm64 Homebrew CPython 3.13")
+    if tuple(map(int, platform.mac_ver()[0].split(".")[:2])) < (14, 0):
+        raise RuntimeError("Candidate requires macOS 14 or newer for the pinned PyAV wheel ABI")
     base = Path(sys.base_prefix).resolve()
     if not base.is_relative_to(BREW) or not Path(sys.executable).exists():
         raise RuntimeError("Candidate requires Apple Silicon Homebrew Python")

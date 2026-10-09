@@ -50,7 +50,8 @@ class MacOfflineCandidateTests(unittest.TestCase):
 
     def manifest(self):
         packages = sorted((runtime.wheel_record(path) for path in self.wheels.iterdir()), key=lambda item: item["name"])
-        manifest = {"schema_version": 1, "target": runtime.TARGET, "packages": packages}
+        manifest = {"schema_version": 1, "target": runtime.TARGET,
+                    "minimum_macos": runtime.MINIMUM_MACOS, "packages": packages}
         (self.bundle / "manifest.json").write_text(json.dumps(manifest))
         (self.bundle / "requirements.txt").write_text(runtime.requirements(packages))
         (self.bundle / "macos-runtime-id").write_text(runtime.tree_digest(self.bundle) + "\n")
@@ -172,7 +173,7 @@ class MacOfflineCandidateTests(unittest.TestCase):
     def test_candidate_preinstall_reuses_native_privilege_policy(self):
         script = builder.root_preinstall()
         for phrase in ("admin-owned", "ACL requires administrator review", "Refusing symlinked",
-                       "running system volume", "Apple Silicon", "macOS 13"):
+                       "running system volume", "Apple Silicon", "macOS 14"):
             self.assertIn(phrase, script)
         self.assertIn("/usr/bin/find -P /opt/nvbroadcast-offline-candidate -print", script)
         self.assertNotIn("/usr/local/bin/nvbroadcast;", script)
@@ -192,13 +193,22 @@ class MacOfflineCandidateTests(unittest.TestCase):
         intel = "sample-1.0-cp313-cp313-macosx_13_0_x86_64.whl"
         universal = "sample-1.0-cp312-abi3-macosx_11_0_universal2.whl"
         other_abi = "sample-1.0-cp314-cp314-macosx_13_0_arm64.whl"
-        ranks = wheel_target.rank_wheels([old, newer, intel, universal, other_abi])
+        ranks = wheel_target.rank_wheels([old, newer, intel, universal, other_abi], minimum_macos=(13, 0))
         self.assertIsNotNone(ranks[old])
         self.assertIsNone(ranks[newer])
         self.assertIsNone(ranks[intel])
         self.assertIsNone(ranks[other_abi])
         self.assertIsNotNone(ranks[universal])
         self.assertLess(ranks[old], ranks[universal])
+
+    def test_candidate_floor_matches_pinned_pyav_and_rejects_higher_tags(self):
+        pinned = "av-16.1.0-cp313-cp313-macosx_14_0_arm64.whl"
+        newer = "av-16.1.0-cp313-cp313-macosx_15_0_arm64.whl"
+        self.assertIsNotNone(wheel_target.rank_wheels([pinned])[pinned])
+        self.assertIsNone(wheel_target.rank_wheels([newer])[newer])
+        pins = json.loads((HERE / "inputs.json").read_text())
+        self.assertEqual(pins["minimum_macos"], runtime.MINIMUM_MACOS)
+        self.assertEqual(runtime.MINIMUM_MACOS, "14.0")
 
 
 if __name__ == "__main__":

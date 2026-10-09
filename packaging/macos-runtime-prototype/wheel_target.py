@@ -7,8 +7,8 @@ from packaging.tags import compatible_tags, cpython_tags, mac_platforms
 from packaging.utils import parse_wheel_filename
 
 
-def rank_wheels(names: list[str]) -> dict[str, int | None]:
-    platforms = list(mac_platforms(version=(13, 0), arch="arm64"))
+def rank_wheels(names: list[str], minimum_macos=(14, 0)) -> dict[str, int | None]:
+    platforms = list(mac_platforms(version=minimum_macos, arch="arm64"))
     target_tags = [*cpython_tags(python_version=(3, 13), abis=["cp313"], platforms=platforms),
                    *compatible_tags(python_version=(3, 13), interpreter="cp313", platforms=platforms)]
     ranks = {tag: index for index, tag in reversed(list(enumerate(target_tags)))}
