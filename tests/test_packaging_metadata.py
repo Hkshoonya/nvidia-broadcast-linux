@@ -49,7 +49,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
         # Website native downloads are updated after release publication;
         # Snap channel availability is reported separately.
-        published = current
+        published = "1.5.3"
         self.assertIn(f"nvbroadcast_{published}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{published}-1.noarch.rpm", docs_index)
         self.assertIn(f"NVBroadcast-{published}-1.pkg", docs_index)

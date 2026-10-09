@@ -15,7 +15,7 @@ candidate and eventual stable publication once the technical gates pass.
 completed native build/test, actual macOS signing/notarization, package
 attestation and draft-release creation. A draft is not a public release.
 
-The affected feedback window starts **8 October 2026 at 20:55:02 UTC**. Its
+The affected feedback window started **8 October 2026 at 20:55:02 UTC**. Its
 earliest 48-hour milestone is **10 October 2026 at 20:55:02 UTC**, subject to
 remaining candidate checks and regressions; no publication time is guaranteed.
 Website download changes are prepared for publication;
@@ -42,8 +42,9 @@ dependency validation: selected CPU/CUDA and meeting extras, and extras requeste
 by transitive dependencies, could be omitted while a candidate was reported
 complete. Source rollback still verifies older generations using their own
 interpreter and application imports. The shipped checker and installer bytes
-change, so earlier package hashes and installed-runtime evidence do not qualify
-this amendment; rebuild and repeat the affected checks on the final head.
+changed, so earlier package hashes and installed-runtime evidence did not qualify
+this amendment. The final tag packages were rebuilt and the affected checks
+completed as recorded below; the earlier hashes remain historical evidence.
 
 The same amendment fixes the legacy macOS source installer's prerequisite
 selection and required native-plugin checks before replacing its existing venv.
@@ -55,8 +56,9 @@ the public-distribution or physical-device gates below.
 
 The release audit found one notice error under #100: RobustVideoMatting was
 labeled MIT, while its referenced v1.0.0 source tag contains GPLv3. Correcting
-that source label changes distributed notice bytes and invalidates earlier
-candidate package hashes. Rebuild the final packages and bound upgrade helper.
+that source label changed distributed notice bytes and invalidated earlier
+candidate package hashes. The final packages and bound upgrade helper were
+rebuilt and their exact source, notices and provenance verified below.
 The [licensing review packet](LICENSING_REVIEW_1.5.3.md) records the exact source
 identity, proposed review path, and model/codec questions; it does not alter
 the project's attribution terms or supply legal clearance.
@@ -85,7 +87,7 @@ automatically to newly built v1.5.3 artifacts.
 
 | Area | Existing evidence | Remaining release work |
 | --- | --- | --- |
-| Unit, packaging, and CI | Final main/tag tree equals the tested integration; applicable PR checks, tag Build Packages run 37835368212 and paired Snap candidate promotion run 37842894804 passed | Record remaining candidate acceptance, affected feedback and stable/publication receipts |
+| Unit, packaging, and CI | The frozen release merge/tag tree equals the tested integration; applicable PR checks, tag Build Packages run 37835368212 and paired Snap candidate promotion run 37842894804 passed | Record remaining candidate acceptance, affected feedback and stable/publication receipts; subsequent main fixes do not change the frozen release |
 | Small window UI | Installed Store candidate 190 owner moving preview, compact Camera/Audio controls and Show Preview passed; physical signed-PKG camera/compact controls passed | Record affected feedback and any regressions |
 | Recording | Earlier x10 Snap speech playback is retained through exact application/native input matching; final signed-PKG built-in-microphone Mic Test, complete speech Rec and microphone-only Meeting transcription passed; prior native/Flatpak capture and generated-media evidence is retained | No new physical recording was claimed for Store 190; native/Flatpak physical-microphone and desktop follow-up remains in #112, separate from the completed Mac scope; preserve provider scope and unavailable-second-mic limitation |
 | CPU/GPU behavior | Installed Store 190 exclusive CPU inference passed; on 9 October, CUDA inference with CPU fallback disabled and fresh CuPy NVRTC execution passed on RTX 5070. All 78 wheel RECORD inputs and 82 loaded native package files match the qualified review inputs | Record affected feedback. These small execution probes do not measure camera FPS or long-run performance. TensorRT SDK is outside this Snap profile; earlier x10 evidence remains separately identified |
@@ -96,7 +98,7 @@ automatically to newly built v1.5.3 artifacts.
 | Flatpak (#95) | Development build, dependency closure, model trust, recording, physical camera, and initial virtual-camera read passed | CPU release conditions below; remains excluded until applicable gates pass |
 | macOS | Exact tag PKG passed actual Installer/team signing, Accepted notarization, stapling, Gatekeeper, payload/checksum and hosted provenance; owner M2 camera, compact controls, CPU effects, built-in-mic speech Rec, OBS output and microphone-only Meeting passed | Candidate/soak/publication record; a second mic was unavailable, numeric FPS and physical upgrade/uninstall were not supplied; keep macOS 13/14, Intel and CoreML outside qualified scope |
 | Snap edge automation (#90) | Candidate is 190/189; stable and edge remain v1.5.2 at 185/184 in the verified Store receipt | Verify connected builder configuration and scoped edge credentials before merging the edge-promotion draft |
-| NixOS (#18) | Package/module evaluation and Xvfb startup passed | No real NixOS machine available; draft remains unsupported pending physical-device acceptance |
+| NixOS (#18) | Draft integration `e1fee563` reports v1.5.3; offline package build passed 1,140 tests and exclusive CPU inference, module evaluation and all six GitHub checks passed | No real NixOS machine available; draft remains unsupported pending physical camera, v4l2loopback, microphone and virtual-microphone acceptance; it is outside the frozen release |
 
 ## Flatpak decision for this release
 
@@ -110,10 +112,11 @@ Still required for that CPU package:
    camera, effects, microphone processing and virtual output, shortcuts/tray,
    recording, and client reconnect behavior. Current recorded desktop testing
    used X11; generated tone checks do not establish audible physical speech.
-2. Verify complete license/notice contents, accepted contributor credit, and
-   bundled codec/dependency scope on the exact Flatpak artifact under the
-   maintainer-confirmed arrangement. #100 was resolved after the separate
-   PR #136 main merge; that does not supply final Flatpak distribution clearance.
+2. Preserve the verified license/notice contents, accepted contributor credit,
+   and recorded dependency scope when selecting a public artifact. The retained
+   development artifact's exact project source/notices passed inspection;
+   #136 merged and #100 was resolved. That completed metadata work does not
+   establish Flathub policy acceptance or the remaining distribution gates.
 3. Confirm a permanent application ID, naming/non-affiliation wording, real
    application screenshots, and passing final artifact lint.
 4. Review payload size and the distribution route. The development manifest
@@ -222,8 +225,10 @@ path in both DEB and RPM: cleanup, venv creation or bootstrap pip failure can be
 hidden by a later successful runtime command. The affected function bodies are
 identical in v1.5.2, v1.5.3 and pre-fix main. The six explicit failure guards in
 [PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143) address it
-for subsequent work. All 18 controlled failure cases failed before the fix and
-passed afterward, with independent review. The immutable release tag is
+for subsequent work. It merged on 9 October at 17:28:06 UTC as main commit
+`086f1a5815f65a1f1ce0cb217184cc6e361cce57`. All 18 controlled failure cases failed
+before the fix and passed afterward; independent review and all five CI checks
+passed. The immutable release tag is
 unchanged; package-manager rollback and atomic activation remain separate.
 
 The final signed macOS package is 488,100 bytes, SHA-256
@@ -272,6 +277,7 @@ The new signing path requires a timestamped Installer identity, accepted
 notarization, a stapled ticket and Gatekeeper acceptance. Tag artifact hashes
 and attestations bind final signed bytes; unsigned macOS packages cannot enter
 that release path. Prior package hashes/source identities remain historical
-baseline evidence and do not qualify the amended payload. Rebuild affected
-packages, verify Linux regressions, run actual Mac package/runtime CI, and
-record signing plus physical-device acceptance before claiming readiness.
+baseline evidence and do not qualify the amended payload. Those affected
+rebuild, Linux regression, actual Mac package/runtime CI, signing and available
+physical-device checks are now complete in the scopes recorded above. The
+remaining candidate feedback and publication steps still apply.

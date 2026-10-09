@@ -110,7 +110,8 @@ DEB and RPM also retain a prerequisite-failure reporting limitation: failed
 environment cleanup, creation, or bootstrap dependency setup can be hidden by
 a later successful command. The same function bodies occur in v1.5.2 and this
 tag. [PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143)
-addresses those failures for subsequent work; this tag is unchanged.
+merged on 9 October to address those failures for subsequent work; this tag
+is unchanged.
 
 Upgrades from affected native v1.4.0 or older installations must use the
 `nvbroadcast-native-upgrade` helper and package from the **same release**,
@@ -119,8 +120,10 @@ to the exact DEB/RPM bytes. See [artifact verification](RELEASE_VERIFICATION.md)
 Final v1.5.3 download links will be added only after publication.
 
 Flatpak remains an x86_64 CPU development package pending its desktop,
-microphone, licensing, identity, and distribution checks. No Flathub release
-or GPU/aarch64 Flatpak support is announced here.
+microphone, identity, and distribution checks. Project licensing metadata and
+retained development-artifact notices are verified; the binary-wheel/source-build
+distribution route remains unresolved. No Flathub release or GPU/aarch64 Flatpak
+support is announced here.
 
 The [actual tag package workflow](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/37835368212)
 passed macOS signing, Accepted notarization, ticket stapling, Gatekeeper and
