@@ -160,6 +160,39 @@ class NativePackageUpgradeTests(unittest.TestCase):
         self.assertIn('"$package_release" == "$TARGET_RPM_RELEASE"', content)
         self.assertIn('"${TARGET_VERSION}-${TARGET_RPM_RELEASE}"', content)
 
+    def test_renderer_binds_private_runtime_architecture_and_variant(self):
+        for variant in ("cpu", "cuda"):
+            deb = self.root / f"nvbroadcast_9.8.7-2.{variant}_amd64.deb"
+            rpm = self.root / f"nvbroadcast-9.8.7-2.{variant}.x86_64.rpm"
+            deb.write_bytes(b"complete private deb")
+            rpm.write_bytes(b"complete private rpm")
+            content = RENDERER.render_helper(TEMPLATE_PATH, deb, rpm, "9.8.7", f"2.{variant}", self.output)
+            self.assertIn("readonly TARGET_DEB_ARCH='amd64'", content)
+            self.assertIn("readonly TARGET_RPM_ARCH='x86_64'", content)
+            self.assertIn(f"readonly TARGET_REVISION='2.{variant}'", content)
+            self.assertNotRegex(content, r"@(TARGET_|DEB_SHA256|RPM_SHA256)")
+            subprocess.run(["bash", "-n", str(self.output)], check=True)
+
+    def test_renderer_rejects_mixed_runtime_variants_and_architectures(self):
+        deb = self.root / "nvbroadcast_9.8.7-2.cpu_amd64.deb"
+        rpm = self.root / "nvbroadcast-9.8.7-2.cuda.x86_64.rpm"
+        deb.write_bytes(b"cpu")
+        rpm.write_bytes(b"cuda")
+        with self.assertRaisesRegex(RENDERER.RenderError, "unexpected release artifact"):
+            RENDERER.render_helper(TEMPLATE_PATH, deb, rpm, "9.8.7", "2.cpu", self.output)
+        for revision in ("2.cpu;bad", "2.unknown", "2.cpu\\n"):
+            with self.assertRaisesRegex(RENDERER.RenderError, "unsafe package revision"):
+                RENDERER.render_helper(TEMPLATE_PATH, deb, rpm, "9.8.7", revision, self.output)
+
+    def test_offline_help_and_release_comparison_reject_shell_input(self):
+        self.render()
+        help_result = subprocess.run(["bash", str(self.output), "--offline", "--help"], capture_output=True, text=True)
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("--offline", help_result.stdout)
+        comparison = subprocess.run(["bash", "-c", 'source "$1"; rpm_release_less "$2" 2.cpu',
+            "bash", str(self.output), "1');bad"], capture_output=True, text=True)
+        self.assertNotEqual(comparison.returncode, 0)
+
     def test_renderer_rejects_unsafe_rpm_dist_suffix(self):
         unsafe_rpm = self.rpm.with_name("nvbroadcast-9.8.7-1.fc43;bad.noarch.rpm")
         self.rpm.rename(unsafe_rpm)
@@ -316,7 +349,7 @@ class NativePackageUpgradeTests(unittest.TestCase):
         self.assertIn("installed_preun=\"$(rpm -q --qf '%{PREUN}'", content)
         self.assertIn('[[ "$installed_preun" == "$LEGACY_RPM_PREUN" ]]', content)
         self.assertIn('requirements="$(rpm -qp --requires', content)
-        self.assertIn('dnf --assumeyes install "${target_requirements[@]}"', content)
+        self.assertIn('dnf "${offline_options[@]}" --assumeyes install "${target_requirements[@]}"', content)
         self.assertIn('rpm --upgrade --test --nopreun "$STAGED_PACKAGE"', content)
         self.assertIn('rpm --upgrade --nopreun "$STAGED_PACKAGE"', content)
         self.assertNotIn("tsflags=nopreun", content)
@@ -331,7 +364,7 @@ class NativePackageUpgradeTests(unittest.TestCase):
         self.assertIn('[[ "$status" == i* ]]', content)
         self.assertIn('if [[ "$status" == ii* ]]', content)
         self.assertIn('dpkg --unpack "$STAGED_PACKAGE"', content)
-        self.assertIn("apt-get --fix-broken install --yes --no-remove", content)
+        self.assertIn('apt-get "${offline_options[@]}" --fix-broken install --yes --no-remove', content)
 
 
 if __name__ == "__main__":
