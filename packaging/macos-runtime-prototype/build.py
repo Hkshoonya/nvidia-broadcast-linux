@@ -53,6 +53,7 @@ def build(work: Path):
     if runtime.run("git", "status", "--porcelain", cwd=ROOT, capture_output=True, text=True).stdout:
         raise RuntimeError("Build requires a committed clean source checkout")
     work.mkdir(parents=True, exist_ok=False)
+    (work / "native-build-inventory.json").write_text(json.dumps(native, indent=2) + "\n")
     pins = json.loads((HERE / "inputs.json").read_text())
     inputs = work / "inputs"
     inputs.mkdir()

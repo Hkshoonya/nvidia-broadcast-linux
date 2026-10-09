@@ -59,6 +59,15 @@ class MacOfflineCandidateTests(unittest.TestCase):
         result = runtime.validate_bundle(self.bundle)
         self.assertEqual(len(result["packages"]), 7)
 
+    def test_vendored_dependency_metadata_is_not_a_second_wheel_owner(self):
+        path = self.wheels / "pip-1.0-py3-none-any.whl"
+        with zipfile.ZipFile(path, "a") as archive:
+            archive.writestr("pip/_vendor/packaging-26.0.dist-info/METADATA",
+                             "Metadata-Version: 2.3\nName: packaging\nVersion: 26.0\n")
+        self.assertEqual(runtime.wheel_record(path)["name"], "pip")
+        self.manifest()
+        runtime.validate_bundle(self.bundle)
+
     def test_wheel_tampering_and_undeclared_wheel_are_rejected(self):
         path = next(self.wheels.iterdir())
         original = path.read_bytes()

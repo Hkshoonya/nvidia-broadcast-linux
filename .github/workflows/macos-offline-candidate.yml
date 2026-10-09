@@ -102,7 +102,7 @@ jobs:
               if [[ -f "$runtime/$name" ]]; then cp "$runtime/$name" dist/macos-offline-evidence/; fi
             done
           fi
-          for name in package.json pylock.macos-arm64-cp313-cpu.toml offline-install.log installer.log; do
+          for name in package.json native-build-inventory.json pylock.macos-arm64-cp313-cpu.toml offline-install.log installer.log; do
             if [[ -f "dist/macos-offline-candidate/$name" ]]; then
               cp "dist/macos-offline-candidate/$name" dist/macos-offline-evidence/
             fi
