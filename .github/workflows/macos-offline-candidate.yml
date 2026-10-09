@@ -42,12 +42,14 @@ jobs:
           test "$(uname -m)" = arm64
           /opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
           /opt/homebrew/bin/brew list --versions
-          /opt/homebrew/opt/python@3.13/bin/python3.13 -m unittest -v tests.test_macos_offline_candidate
 
       - name: Build unsigned isolated candidate and exact wheel manifest
         run: |
           /opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/build.py \
             --directory "$PWD/dist/macos-offline-candidate"
+
+      - name: Test inventory and target selection with pinned builder tools
+        run: dist/macos-offline-candidate/builder/bin/python -m unittest -v tests.test_macos_offline_candidate
 
       - name: Install candidate package on the disposable runner
         run: |

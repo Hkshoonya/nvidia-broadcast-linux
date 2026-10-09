@@ -27,7 +27,7 @@ SHA-256. The build uses the committed application source and canonical
 `cpu,meeting-support` extras, plus the managed faster-whisper version. It resolves
 only on the build host, targeting arm64 CPython 3.13 and a macOS 13 wheel baseline.
 The generated PEP 751 lock retains supplier URLs and wheel hashes. An exact
-runner-compatible wheel selection becomes `manifest.json` and hash-checked
+macOS 13 arm64 CPython 3.13 wheel selection becomes `manifest.json` and hash-checked
 `requirements.txt` in the package. No sdists enter the runtime. Keep and review
 these outputs before treating a particular candidate as reproducible; this
 initial experiment intentionally refreshes the dependency lock during builds.

@@ -108,17 +108,11 @@ def build(work: Path):
     bundle.mkdir(parents=True)
     (bundle / "wheels").mkdir()
     # uv's platform lock can contain several compatible wheel alternatives.
-    # Select exactly one using the actual arm64 CPython runner's tag order;
+    # Select exactly one using explicit macOS 13 arm64 CPython 3.13 tags;
     # record the complete original lock as well as the selected wheel hashes.
     lock = tomllib.loads(lock_path.read_text())
-    selection = runtime.run(python, "-c", '''
-import json, sys
-from packaging.tags import sys_tags
-from packaging.utils import parse_wheel_filename
-tags = {tag: rank for rank, tag in enumerate(sys_tags())}
-print(json.dumps({name: min((tags[t] for t in parse_wheel_filename(name)[3] if t in tags), default=None)
-                  for name in json.load(sys.stdin)}))
-''', input=json.dumps([prepare.filename({"url": wheel["url"]})
+    selection = runtime.run(python, HERE / "wheel_target.py",
+        input=json.dumps([prepare.filename({"url": wheel["url"]})
                       for package in lock["packages"] for wheel in package.get("wheels", [])]),
         capture_output=True, text=True)
     ranks = json.loads(selection.stdout)
@@ -131,7 +125,7 @@ print(json.dumps({name: min((tags[t] for t in parse_wheel_filename(name)[3] if t
         choices = [wheel for wheel in package.get("wheels", [])
                    if ranks[prepare.filename({"url": wheel["url"]})] is not None]
         if not choices:
-            raise ValueError(f"No runner-compatible wheel for {package['name']}")
+            raise ValueError(f"No macOS 13 arm64 CPython 3.13 wheel for {package['name']}")
         selected = min(choices, key=lambda wheel: ranks[prepare.filename({"url": wheel["url"]})])
         prepare.fetch(bundle / "wheels", {"url": selected["url"], "sha256": selected["hashes"]["sha256"]})
     packages = sorted((runtime.wheel_record(path) for path in (bundle / "wheels").iterdir()), key=lambda item: item["name"])

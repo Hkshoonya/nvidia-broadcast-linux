@@ -20,6 +20,9 @@ spec = importlib.util.spec_from_file_location("mac_offline_builder", HERE / "bui
 builder = importlib.util.module_from_spec(spec)
 with mock.patch.dict(sys.modules, {"runtime": runtime}):
     spec.loader.exec_module(builder)
+spec = importlib.util.spec_from_file_location("mac_offline_target", HERE / "wheel_target.py")
+wheel_target = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(wheel_target)
 
 
 class MacOfflineCandidateTests(unittest.TestCase):
@@ -173,6 +176,20 @@ class MacOfflineCandidateTests(unittest.TestCase):
         for item in [pins["uv"], *pins["bootstrap"]]:
             self.assertRegex(item["sha256"], r"^[0-9a-f]{64}$")
             self.assertTrue(item["url"].startswith("https://"))
+
+    def test_target_wheel_selection_cannot_raise_deployment_floor_to_runner_os(self):
+        old = "sample-1.0-cp313-cp313-macosx_13_0_arm64.whl"
+        newer = "sample-1.0-cp313-cp313-macosx_15_0_arm64.whl"
+        intel = "sample-1.0-cp313-cp313-macosx_13_0_x86_64.whl"
+        universal = "sample-1.0-cp312-abi3-macosx_11_0_universal2.whl"
+        other_abi = "sample-1.0-cp314-cp314-macosx_13_0_arm64.whl"
+        ranks = wheel_target.rank_wheels([old, newer, intel, universal, other_abi])
+        self.assertIsNotNone(ranks[old])
+        self.assertIsNone(ranks[newer])
+        self.assertIsNone(ranks[intel])
+        self.assertIsNone(ranks[other_abi])
+        self.assertIsNotNone(ranks[universal])
+        self.assertLess(ranks[old], ranks[universal])
 
 
 if __name__ == "__main__":
