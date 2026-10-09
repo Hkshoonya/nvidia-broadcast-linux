@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.nvbroadcast.NVBroadcast</id>
+  <name>NV Broadcast</name>
+  <summary>Improve your camera and microphone</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="com.nvbroadcast">
+    <name>Doczeus</name>
+  </developer>
+  <description>
+    <p>
+      Prepare your camera and microphone for calls, streams, and local recordings.
+      Blur, replace, or remove your camera background, clean up microphone noise,
+      and transcribe meetings locally after downloading a speech model.
+    </p>
+    <p>
+      This Flatpak uses CPU processing on x86_64 computers. It includes camera
+      effects, microphone processing, MP4 recording, and local meeting tools.
+      NVIDIA GPU processing modes are not included in this package.
+    </p>
+    <p>
+      Virtual-camera output requires a v4l2loopback device configured on the host.
+      The application needs direct camera and audio access. It cannot install
+      host drivers from inside its sandbox.
+    </p>
+    <p>
+      NV Broadcast is an independent community project by Doczeus. It is not
+      affiliated with, endorsed by, or distributed by NVIDIA Corporation.
+    </p>
+  </description>
+  <url type="homepage">https://nvbroadcast.com</url>
+  <url type="bugtracker">https://github.com/Hkshoonya/nvidia-broadcast-linux/issues</url>
+  <url type="vcs-browser">https://github.com/Hkshoonya/nvidia-broadcast-linux</url>
+  <url type="donation">https://github.com/sponsors/Hkshoonya</url>
+  <launchable type="desktop-id">com.nvbroadcast.NVBroadcast.desktop</launchable>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+  </categories>
+  <keywords>
+    <keyword>broadcast</keyword>
+    <keyword>camera</keyword>
+    <keyword>background</keyword>
+    <keyword>microphone</keyword>
+    <keyword>meeting</keyword>
+    <keyword>transcription</keyword>
+  </keywords>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Camera and microphone controls before starting a broadcast</caption>
+      <image type="source" width="990" height="690">https://nvbroadcast.com/screenshots/flatpak-controls.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Audio controls in a compact window</caption>
+      <image type="source" width="630" height="690">https://nvbroadcast.com/screenshots/flatpak-audio.png</image>
+    </screenshot>
+  </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#76b900</color>
+    <color type="primary" scheme_preference="dark">#324d10</color>
+  </branding>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="1.5.3" date="2026-10-09">
+      <description>
+        <p>Camera, audio, and preview controls fit small windows. Recordings retain
+        complete video and audio across effect changes, and saved files are
+        accessible from the Recordings menu. Camera discovery and processing
+        recovery are improved.</p>
+      </description>
+    </release>
+  </releases>
+</component>

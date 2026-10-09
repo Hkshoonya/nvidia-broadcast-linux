@@ -34,10 +34,14 @@ class FlatpakBundleTests(unittest.TestCase):
         for name in (
             "src/nvbroadcast/__main__.py", "src/nvbroadcast/ai/trust.json",
             "LICENSE", "NOTICE", "CONTRIBUTORS.md",
-            "packaging/flatpak/com.doczeus.NVBroadcast.yml",
+            "packaging/flatpak/com.nvbroadcast.NVBroadcast.yml",
             "packaging/flatpak/python3-flatpak-requirements.yaml",
             "packaging/flatpak/requirements.txt",
         ):
+            path = self.source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name)
+        for name in bundle.FLATPAK_METADATA.values():
             path = self.source / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(name)
@@ -97,7 +101,7 @@ class FlatpakBundleTests(unittest.TestCase):
         self.assertEqual(evidence["application_commit"], self.commit)
         self.assertFalse(evidence["public_distribution_qualified"])
         self.assertFalse(evidence["host_installation_performed"])
-        self.assertEqual(len(evidence["verification"]["source_payloads"]), 5)
+        self.assertEqual(len(evidence["verification"]["source_payloads"]), 9)
         self.assertEqual(
             evidence["bundle"]["sha256"], hashlib.sha256(b"test bundle").hexdigest()
         )
