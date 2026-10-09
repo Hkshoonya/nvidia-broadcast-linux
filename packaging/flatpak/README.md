@@ -46,6 +46,16 @@ cannot expose those nodes with a filesystem permission and does not provide a
 portal for virtual-camera output. This broad device permission must remain a
 visible security tradeoff during review.
 
+## Desktop integration
+
+The tray requires a desktop StatusNotifierWatcher; GNOME users generally need
+an extension providing one. Global shortcuts require the host's
+GlobalShortcuts portal. When the desktop lacks that portal, the sandbox reports
+shortcuts unavailable rather than editing host desktop settings. These are
+conditional desktop capabilities; a missing portal does not prevent camera,
+audio, or recording use. Test tray recovery after a watcher restart and the
+shortcut grant/activation flow on desktops that provide those features.
+
 ## Host prerequisite
 
 Flatpak cannot install or load kernel modules. Before hardware testing, create
@@ -135,9 +145,9 @@ flatpak-builder-lint builddir flatpak-build
 
 The package includes Flatpak-specific desktop metadata and real application
 controls screenshots under `docs/screenshots/`. They show an isolated idle
-application, with no personal camera or microphone input. Metadata points to
-the project's HTTPS website; confirm those URLs are deployed before publishing
-a bundle. The full build-directory linter must pass without suppressing
+application, with no personal camera or microphone input. Metadata pins
+the exact screenshot source commit on GitHub over HTTPS; confirm those URLs
+resolve to the reviewed PNG bytes before publishing a bundle. The full build-directory linter must pass without suppressing
 `metainfo-missing-screenshots`.
 
 ## Public-distribution gates

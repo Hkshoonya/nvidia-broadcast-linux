@@ -49,11 +49,11 @@
   <screenshots>
     <screenshot type="default">
       <caption>Camera and microphone controls before starting a broadcast</caption>
-      <image type="source" width="990" height="690">https://nvbroadcast.com/screenshots/flatpak-controls.png</image>
+      <image type="source" width="990" height="690">https://raw.githubusercontent.com/Hkshoonya/nvidia-broadcast-linux/3e7bb7aa20b18a698a9a60630689abb0a8fd5b9f/docs/screenshots/flatpak-controls.png</image>
     </screenshot>
     <screenshot>
       <caption>Audio controls in a compact window</caption>
-      <image type="source" width="630" height="690">https://nvbroadcast.com/screenshots/flatpak-audio.png</image>
+      <image type="source" width="630" height="690">https://raw.githubusercontent.com/Hkshoonya/nvidia-broadcast-linux/3e7bb7aa20b18a698a9a60630689abb0a8fd5b9f/docs/screenshots/flatpak-audio.png</image>
     </screenshot>
   </screenshots>
   <branding>

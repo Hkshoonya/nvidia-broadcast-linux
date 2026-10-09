@@ -17,7 +17,9 @@ These screenshots document the current controls. They do not establish a
 working camera, audio device, AI effect, or Wayland desktop session. Final
 hardware acceptance remains separately recorded in issue #95.
 
-The source screenshot files are published by GitHub Pages at
-`https://nvbroadcast.com/screenshots/flatpak-controls.png` and
-`https://nvbroadcast.com/screenshots/flatpak-audio.png` after this change is
-merged and deployed. Check both URLs before public Flatpak publication.
+AppStream references immutable GitHub raw URLs at source commit
+`3e7bb7aa20b18a698a9a60630689abb0a8fd5b9f`. This lets PR checks fetch the exact
+reviewed PNGs before the metadata change deploys to the website, and prevents a
+later website edit from silently changing the listed screenshots. The same files
+are available through GitHub Pages after merge; publishing screenshots does not
+publish or qualify the Flatpak itself.
