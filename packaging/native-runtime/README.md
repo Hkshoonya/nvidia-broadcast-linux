@@ -15,7 +15,7 @@ platform gates. These candidates must not replace frozen v1.5.3 downloads.
 
 ## Build contract
 
-`builders.json` pins the complete configuration IDs of the three qualified
+`builders.json` pins the inspected local Docker image IDs of the three qualified
 local OCI images and records their installed native package inventories.
 The builder refuses a different image, including a rebuilt image with the
 same friendly tag. These images are not yet published in an authenticated
@@ -27,9 +27,9 @@ CI must first obtain these exact images through one of these reviewed paths:
 
 1. An OCI registry reference pinned to its immutable manifest digest, with
    provenance authenticating the builder source and the workflow that produced
-   it. After pulling, the local image configuration ID must equal the pin.
+   it. After pulling, the inspected local image ID must equal the pin.
 2. A `docker save` archive with a pinned SHA-256 and authenticated provenance,
-   checked before `docker load`. Its resulting configuration ID must also match.
+   checked before `docker load`. Its resulting inspected image ID must also match.
 
 Do not regenerate floating apt/dnf images in a release workflow and remove the
 identity check to accommodate them. An intentional builder update changes the
@@ -49,14 +49,18 @@ python3 packaging/native-runtime/build.py \
   --rpm-image sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c
 ```
 
-The output must be a new directory. `packages.json` binds source identity,
+The output must be a new directory. `packages.json` binds application source identity,
 variant, version, artifact sizes/hashes, builder IDs and runtime manifest hash.
 The payload contains interpreter supplier metadata/licenses, exact wheels'
 installation records, a complete PEP 751 dependency lock and builder inventory.
 The dependency lock has no moving application pin: the application's wheel is
 built offline from the requested Git archive, and its exact hash is added to
 the final lock before installation. All installed Python source files are
-compared against that Git commit before either native package is built.
+compared against that Git commit before either native package is built. The
+adapter's Git revision, tree and executable input hashes are recorded separately
+in `build-provenance.json`, `packages.json` and installed `package.json`. Building
+with uncommitted executable adapter inputs is refused. The application source
+and adapter revisions may differ and must not be described interchangeably.
 
 Dependency wheels retain their reviewed dependency epoch; only the application
 wheel uses the current source epoch. This distinction preserves dependency
@@ -85,7 +89,13 @@ The launcher runs private Python with `-I -B`; system and user Python modules
 cannot enter the private import path, and launch does not mutate package files.
 Before replacing the private interpreter, the native prepare hook refuses a
 running application. Quit Broadcast and its virtual-camera service before an
-upgrade. A transaction marker prevents launching a partially unpacked runtime.
+upgrade. Each native launcher holds a shared lock for its process lifetime;
+prepare takes the same lock exclusively while checking legacy/orphan processes
+and creating the transaction marker. This serializes new native launches with
+the start of unpack. The marker then blocks launches until configuration ends.
+The root-owned zero-byte `/var/lib/nvbroadcast/runtime.lock` inode is retained
+across removal/reinstallation to preserve lock identity. Package/state parent
+directories and marker types, ownership and permissions are checked before writes.
 Configuration verifies every runtime file, directory, symlink, permission and
 root owner, checks distribution closure including the selected CPU/CUDA and
 meeting-support extras, verifies the managed faster-whisper version and
@@ -97,6 +107,9 @@ marker and verified upgrade helper prevent interpreting that as usable success.
 The new prefix avoids legacy RPM removal hooks that erase `/opt/nvbroadcast`.
 Generated legacy `.venv` files are removed only after the new package passes
 configuration, and only when native ownership of the old installer was detected.
+Redirected, writable or user-owned legacy environments are preserved for manual
+review. Legacy launchers do not participate in the new lock; their migration
+still requires dedicated lifecycle qualification.
 User settings, recordings and shared virtual-camera driver configuration are
 preserved. Native repair uses exact authenticated packages through dpkg or RPM;
 these package-owned environments never use the source-generation activator.

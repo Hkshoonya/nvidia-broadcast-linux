@@ -33,6 +33,7 @@ class NativeProductionTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.runtime = self.root / "runtime"
         self.runtime.mkdir()
+        self.runtime.chmod(0o755)
         self.file = self.runtime / "module.py"
         self.file.write_bytes(b"package contents")
         self.file.chmod(0o644)
@@ -76,6 +77,14 @@ class NativeProductionTests(unittest.TestCase):
         link.symlink_to(self.runtime, target_is_directory=True)
         with self.assertRaisesRegex(ValueError, "real directory"):
             validator.validate(link, self.manifest, owner=os.getuid())
+
+    def test_writable_or_wrong_owner_runtime_root_is_rejected(self):
+        self.runtime.chmod(0o777)
+        with self.assertRaisesRegex(ValueError, "runtime root"):
+            self.validate()
+        self.runtime.chmod(0o755)
+        with self.assertRaisesRegex(ValueError, "runtime root"):
+            validator.validate(self.runtime, self.manifest, owner=os.getuid() + 1)
 
     def test_unreviewed_builder_fails_before_invocation(self):
         pins = self.root / "builders.json"

@@ -66,6 +66,20 @@ def verified_images(path: Path, provided: dict[str, str]) -> dict:
     return pins
 
 
+def recipe_identity() -> dict:
+    paths = [HERE / name for name in ("build.py", "builders.json", "package-hooks.sh", "validate_install.py",
+        "pylock.linux-x86_64-cp313-cpu.toml", "pylock.linux-x86_64-cp313-cuda.toml")]
+    paths += [PROTOTYPE / name for name in ("prepare.py", "assemble.py", "inputs.json", "pylock.build.toml", "build-bindings.sh")]
+    paths.append(HERE.parent / "native-prototype/build.py")
+    relative = [str(path.relative_to(REPO)) for path in paths]
+    dirty = subprocess.check_output(["git", "status", "--porcelain", "--", *relative], cwd=REPO, text=True)
+    if dirty:
+        raise ValueError("commit the executable adapter and pinned build inputs before qualification")
+    return {"revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
+            "tree": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=REPO, text=True).strip(),
+            "files": {str(path.relative_to(REPO)): prepare.digest(path) for path in paths}}
+
+
 def verify_application_source(runtime: Path, revision: str) -> None:
     roots = list(runtime.glob("lib/python*/site-packages/nvbroadcast"))
     if len(roots) != 1:
@@ -181,16 +195,35 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
     native.write(base / "check-packages", check, 0o755)
     for name in ("nvbroadcast", "nvbroadcast-vcam"):
         path = stage / "usr/bin" / name
-        path.write_text(path.read_text().replace(" prototype:", ":"))
+        lock_check = (
+            "lock=/var/lib/nvbroadcast/runtime.lock\n"
+            "for directory in /var /var/lib /var/lib/nvbroadcast; do\n"
+            "    if [ -L \"$directory\" ] || [ ! -d \"$directory\" ]; then exit 78; fi\n"
+            "    owner=$(stat -c '%u' -- \"$directory\")\n"
+            "    permissions=$(stat -c '%a' -- \"$directory\")\n"
+            "    if [ \"$owner\" != 0 ] || [ \"$((0$permissions & 0022))\" -ne 0 ]; then exit 78; fi\n"
+            "done\n"
+            "if [ -L \"$lock\" ] || [ ! -f \"$lock\" ] || [ \"$(stat -c '%u:%g:%h' -- \"$lock\")\" != 0:0:1 ]; then\n"
+            "    echo 'NVBroadcast runtime lock is missing or unsafe; repair the native package.' >&2; exit 78\nfi\n"
+            "permissions=$(stat -c '%a' -- \"$lock\")\n"
+            "[ \"$((0$permissions & 0022))\" -eq 0 ] || exit 78\n"
+            "exec 9< \"$lock\"\n"
+            "if ! flock --shared --nonblock 9; then\n"
+            "    echo 'NVBroadcast native transaction is preparing; retry after it completes.' >&2; exit 75\nfi\n"
+            "[ \"$(stat -Lc '%d:%i' /proc/$$/fd/9)\" = \"$(stat -c '%d:%i' -- \"$lock\")\" ] || exit 78\n")
+        path.write_text(path.read_text().replace("set -eu\n", "set -eu\n" + lock_check).replace(" prototype:", ":").replace(
+            "if [ -e /usr/lib/nvbroadcast/.transaction ]; then",
+            "if [ -e /usr/lib/nvbroadcast/.transaction ] || [ -L /usr/lib/nvbroadcast/.transaction ]; then"))
     path = stage / "usr/lib/systemd/user/nvbroadcast-vcam.service"
     path.write_text(path.read_text().replace(" prototype virtual camera", " virtual camera"))
     shutil.copyfile(HERE / "validate_install.py", base / "validate-install.py")
     shutil.copyfile(runtime.parent / "manifest.json", base / "runtime-manifest.json")
     native.write(base / "package.json", json.dumps({"schema_version": 1, "variant": args.variant,
-        "version": version, "source": source, "runtime_manifest_sha256": prepare.digest(runtime.parent / "manifest.json")}, sort_keys=True) + "\n")
+        "version": version, "source": source, "adapter": args.adapter,
+        "runtime_manifest_sha256": prepare.digest(runtime.parent / "manifest.json")}, sort_keys=True) + "\n")
     dependency = native.DEPENDENCIES[family]
     if family == "deb":
-        dependency += ", gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly, v4l-utils, pulseaudio-utils, pipewire-bin | pipewire-utils"
+        dependency += ", gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly, v4l-utils, pulseaudio-utils, pipewire-bin | pipewire-utils, util-linux"
         native.write(stage / "DEBIAN/control", f"Package: nvbroadcast\nVersion: {version}\nArchitecture: amd64\n"
             "Maintainer: doczeus <harshit@kshoonya.com>\nSection: video\nPriority: optional\n"
             f"Depends: {dependency}\nRecommends: v4l2loopback-dkms, gir1.2-ayatanaappindicator3-0.1\n"
@@ -204,18 +237,18 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
         command = ["dpkg-deb", "--root-owner-group", "-Zzstd", "-z8", "--threads-max=2", "--build", "/stage", f"/work/{artifact.name}"]
         image = args.deb_image
     else:
-        dependency += ", gstreamer1-plugins-bad-free, v4l-utils, pulseaudio-utils, pipewire-utils"
+        dependency += ", gstreamer1-plugins-bad-free, v4l-utils, pulseaudio-utils, pipewire-utils, util-linux"
         release = f"{args.package_revision}.{args.variant}"
         spec_text = (f"Name: nvbroadcast\nVersion: {source['version']}\nRelease: {release}\n"
             "Summary: NVBroadcast complete offline application runtime\nLicense: GPL-3.0-or-later AND LicenseRef-Bundled-Dependencies\n"
             f"BuildArch: x86_64\nAutoReqProv: no\nRequires: {dependency}\n"
+            "Recommends: libayatana-appindicator-gtk3, gstreamer1-plugin-openh264, openh264\n"
             "%global __os_install_post %{nil}\n%global _build_id_links none\n%global debug_package %{nil}\n"
             "%global _binary_payload w8.zstdio\n%description\nPrivate Python and hash-locked application dependencies.\n"
             "%install\nmkdir -p %{buildroot}\ncp -a /stage/. %{buildroot}/\n"
-            "%pretrans\n" + hook("prepare", version, args.variant, family) + "\n%posttrans\n" + hook("finish", version, args.variant, family) +
-            '\n%preun\nif [ "$1" -eq 0 ]; then\n' + hook("prepare", version, args.variant, family) +
-            '\nfi\n%postun\nif [ "$1" -eq 0 ]; then\n' + hook("remove", version, args.variant, family) + "\nfi\n%files -f /work/files.txt\n%defattr(-,root,root,-)\n")
-        spec_text = spec_text.replace("'%s\\n'", "'%%s\\n'").replace("'%{NAME}", "'%%{NAME}")
+            "%pretrans\n" + hook("prepare", version, args.variant, family).replace("%", "%%") + "\n%posttrans\n" + hook("finish", version, args.variant, family).replace("%", "%%") +
+            '\n%preun\nif [ "$1" -eq 0 ]; then\n' + hook("prepare", version, args.variant, family).replace("%", "%%") +
+            '\nfi\n%postun\nif [ "$1" -eq 0 ]; then\n' + hook("remove", version, args.variant, family).replace("%", "%%") + "\nfi\n%files -f /work/files.txt\n%defattr(-,root,root,-)\n")
         native.write(work / "package.spec", spec_text)
         native.write(work / "files.txt", "\n".join(("%dir " if p.is_dir() and not p.is_symlink() else "") + json.dumps("/" + str(p.relative_to(stage))).replace("%", "%%")
             for p in sorted(stage.rglob("*")) if not (p.is_dir() and len(p.relative_to(stage).parts) < 3)) + "\n")
@@ -223,12 +256,21 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
         command = ["rpmbuild", "-bb", "--define", "_topdir /work/build", "--define", "_buildhost nvbroadcast.invalid",
                    "--define", "use_source_date_epoch_as_buildtime 1", "--define", "clamp_mtime_to_source_date_epoch 1", "/work/package.spec"]
         image = args.rpm_image
+    content = {}
+    for path in sorted(stage.rglob("*")):
+        if path.is_relative_to(stage / "DEBIAN"):
+            continue
+        content["/" + str(path.relative_to(stage))] = (
+            {"symlink": os.readlink(path)} if path.is_symlink() else
+            {"sha256": prepare.digest(path), "size": path.stat().st_size} if path.is_file() else {"directory": True})
+    (work / "content.json").write_text(json.dumps(content, indent=2, sort_keys=True) + "\n")
     for path in (stage, *stage.rglob("*")):
         os.utime(path, (source["source_date_epoch"],) * 2, follow_symlinks=False)
     docker(image, {stage: "/stage:ro", work: "/work"}, command, work / "build.log", source["source_date_epoch"])
     return {"family": family, "variant": args.variant, "version": version, "artifact": str(artifact.relative_to(output)),
             "sha256": prepare.digest(artifact), "bytes": artifact.stat().st_size, "builder_image": image,
-            "runtime_manifest_sha256": prepare.digest(runtime.parent / "manifest.json"), "source": source}
+            "runtime_manifest_sha256": prepare.digest(runtime.parent / "manifest.json"), "source": source, "adapter": args.adapter,
+            "content": str((work / "content.json").relative_to(output)), "content_sha256": prepare.digest(work / "content.json")}
 
 
 def main() -> None:
@@ -252,10 +294,12 @@ def main() -> None:
     if args.runtime and (not args.manifest_sha256 or not re.fullmatch(r"[0-9a-f]{64}", args.manifest_sha256)):
         parser.error("--runtime requires an externally verified --manifest-sha256")
     source = source_identity(args.source)
+    args.adapter = recipe_identity()
     verified_images(HERE / "builders.json", {role: getattr(args, role + "_image") for role in ("bindings", "deb", "rpm")})
     os.umask(0o022)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    (output / "build-provenance.json").write_text(json.dumps({"application": source, "adapter": args.adapter}, indent=2, sort_keys=True) + "\n")
     runtime = args.runtime.resolve(strict=True) if args.runtime else assemble(args, output, source)
     if args.runtime and prepare.digest(runtime.parent / "manifest.json") != args.manifest_sha256:
         raise ValueError("runtime manifest differs from supplied trusted identity")

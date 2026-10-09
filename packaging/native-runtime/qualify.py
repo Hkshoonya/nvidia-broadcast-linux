@@ -33,6 +33,9 @@ def selected(directory: Path, family: str) -> dict:
     artifact = (directory / package["artifact"]).resolve(strict=True)
     if not artifact.is_relative_to(directory) or sha(artifact) != package["sha256"]:
         raise ValueError("package artifact identity mismatch")
+    content = (directory / package["content"]).resolve(strict=True)
+    if not content.is_relative_to(directory) or sha(content) != package["content_sha256"]:
+        raise ValueError("package content manifest identity mismatch")
     return package
 
 
@@ -52,7 +55,9 @@ def main() -> None:
     name = "nvb-native-qualification-" + uuid.uuid4().hex[:12]
     stages = []
     result = {"status": "running", "family": args.family, "image": image,
-              "packages": [first, second], "steps": stages}
+              "packages": [first, second], "steps": stages,
+              "harness": {"file_sha256": sha(Path(__file__)),
+                  "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()}}
 
     def save():
         (output / "result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
@@ -99,6 +104,8 @@ def main() -> None:
             "else touch /tmp/no-system-python; fi"])
         execute("install", install(first, "/first"))
         verify("installed")
+        execute("generated-recording", ["bash", "/source/packaging/runtime-prototype/desktop_probe.sh",
+            "/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "/source/packaging/native-runtime/recording_probe.py"], user=True)
         execute("start-held-runtime", ["/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "-c",
             'import os,time;open("/tmp/held-runtime.pid","w").write(str(os.getpid()));time.sleep(180)'], user=True, detached=True)
         execute("wait-held-runtime", ["sh", "-c", "until test -s /tmp/held-runtime.pid; do sleep 0.05; done"])
@@ -119,25 +126,52 @@ def main() -> None:
         execute("corrupt-launch-blocked", ["/usr/bin/nvbroadcast", "--help"], user=True, failure=True)
         execute("corruption-repair", install(first, "/first"))
         verify("repaired")
-        # Kill the actual native transaction after its launch-block marker.
+        # Observe a large payload staging file before killing the unpacker.
         command = install(second, "/second")
         interruption_log = output / "interruption-manager.log"
         with interruption_log.open("w") as stream:
             manager = subprocess.Popen(["docker", "exec", name, "setsid", "--fork", "--wait", "sh", "-c",
                 'echo $$ > /tmp/manager.pid; exec "$@"', "manager", *command], stdout=stream, stderr=subprocess.STDOUT)
-            deadline = time.monotonic() + 30
+            deadline = time.monotonic() + 120
+            observed_path = ""
+            tid_min = int(time.time())
             while time.monotonic() < deadline:
-                ready = subprocess.run(["docker", "exec", name, "test", "-f", "/usr/lib/nvbroadcast/.transaction"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                if ready.returncode == 0:
+                pattern = "*;????????" if args.family == "rpm" else "*.dpkg-new"
+                ready = subprocess.run(["docker", "exec", name, "sh", "-c",
+                    'test -f /usr/lib/nvbroadcast/.transaction && find /usr/lib/nvbroadcast/runtime -type f -name "$1" -size +1M -print -quit',
+                    "watch", pattern], capture_output=True, text=True)
+                if ready.returncode == 0 and ready.stdout.strip():
+                    observed_path = ready.stdout.strip()
                     break
                 if manager.poll() is not None:
-                    raise RuntimeError("native transaction finished before interruption")
+                    raise RuntimeError("native transaction finished before observing payload unpack")
                 time.sleep(0.025)
             else:
-                raise RuntimeError("native transaction did not write its marker")
+                raise RuntimeError("native transaction did not expose a payload staging file")
             execute("kill-package-manager", ["sh", "-c", 'kill -KILL -"$(cat /tmp/manager.pid)"'])
             manager.wait(timeout=30)
+            result["interruption"] = {"boundary": "mid-unpack", "observed_path": observed_path,
+                "minimum_observed_bytes": 1048576, "manager_exit": manager.returncode,
+                "tid_min": tid_min, "tid_max": int(time.time())}
+            save()
         execute("interrupted-launch-blocked", ["/usr/bin/nvbroadcast", "--help"], user=True, failure=True)
+        if args.family == "rpm":
+            stage = "/second/rpm/stage"
+            runtime = "/usr/lib/nvbroadcast/runtime"
+            # The builder's content hash binds these retained read-only staging
+            # bytes. Preserve only authenticated RPM partial-file prefixes;
+            # unknown files abort recovery without broad cleanup.
+            report_text = execute("preserve-rpm-unpack-fragments", [stage + runtime + "/bin/python", "-I", "-B",
+                "/source/packaging/native-prototype/recover_rpm_unpacked.py", "--runtime", runtime,
+                "--payload", stage + runtime, "--manifest", stage + "/usr/lib/nvbroadcast/runtime-manifest.json",
+                "--baseline-manifest", "/first/rpm/stage/usr/lib/nvbroadcast/runtime-manifest.json",
+                "--tid-min", str(result["interruption"]["tid_min"]), "--tid-max", str(result["interruption"]["tid_max"]),
+                "--quarantine", "/var/lib/nvb-runtime-recovery", "--native-source", stage,
+                "--native-manifest", "/second/" + second["content"], "--native-baseline", "/first/" + first["content"]])
+            report = json.loads(report_text.split("RESULT=", 1)[1])
+            if not report["preserved"]:
+                raise RuntimeError("mid-unpack interruption left no authenticated RPM fragments")
+            (output / "rpm-unpack-preservation.json").write_text(json.dumps(report, indent=2) + "\n")
         execute("interrupted-repair", install(second, "/second"))
         verify("interruption-repaired")
         execute("remove", ["dpkg", "--purge", "nvbroadcast"] if args.family == "deb" else ["rpm", "-e", "nvbroadcast"])

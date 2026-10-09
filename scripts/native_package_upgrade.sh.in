@@ -154,7 +154,7 @@ stage_package() {
 verify_private_native_runtime() {
     case "$TARGET_REVISION" in
         *.cpu|*.cuda)
-            [[ ! -e /usr/lib/nvbroadcast/.transaction ]] || \
+            [[ ! -e /usr/lib/nvbroadcast/.transaction && ! -L /usr/lib/nvbroadcast/.transaction ]] || \
                 die "native runtime configuration is incomplete; repair the exact package before launch"
             /usr/lib/nvbroadcast/check-packages || \
                 die "native runtime package state is incomplete"

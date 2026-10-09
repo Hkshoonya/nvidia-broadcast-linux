@@ -15,6 +15,10 @@ import sys
 def validate(root: Path, manifest: dict, *, owner: int = 0) -> None:
     if root.is_symlink() or not root.is_dir():
         raise ValueError("runtime root must be a real directory")
+    root_info = root.stat()
+    if (root_info.st_uid != owner or root_info.st_gid != owner
+            or stat.S_IMODE(root_info.st_mode) != 0o755):
+        raise ValueError("runtime root must have trusted ownership and mode 0755")
     paths = {str(p.relative_to(root)): p for p in root.rglob("*")}
     if paths.keys() != manifest.keys():
         raise ValueError("runtime file set differs from package manifest")
@@ -76,6 +80,8 @@ def main() -> None:
     args = parser.parse_args()
     if not sys.flags.isolated or not sys.flags.dont_write_bytecode:
         parser.error("validation requires isolated Python with bytecode disabled")
+    if Path(sys.prefix).resolve() != args.root.resolve() or Path(sys.base_prefix).resolve() != args.root.resolve():
+        parser.error("validation must run with the package's private interpreter")
     validate(args.root, json.loads(args.manifest.read_text()))
     from nvbroadcast.runtime.artifact import ArtifactEnvironment
     from nvbroadcast.runtime.variants import detect_runtime_variant, RuntimeVariant
