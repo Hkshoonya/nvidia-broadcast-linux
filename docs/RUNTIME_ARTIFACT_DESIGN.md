@@ -71,8 +71,9 @@ Rocky 9's missing native PortAudio dependency remains unresolved. Enterprise
 Linux variants, Zypper, Linux AArch64 and a private macOS interpreter are
 separate target gates, not implied by the Linux x86-64 decision. The current
 macOS wheelhouse proposal in [PR #148](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/148)
-retains Homebrew Python and is an intermediate step, not the private-interpreter
-PKG contract below.
+targets macOS 14+ on Apple Silicon and retains Homebrew Python. It is an
+intermediate step; the proposed private-interpreter PKG contract below keeps
+its own macOS compatibility qualification gate.
 
 The prototype results establish feasibility and deterministic assembly within
 their recorded builder scope. They do not establish authenticated production
