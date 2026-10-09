@@ -36,6 +36,26 @@ REQUIRED_RUNTIME = {
     "opencv-contrib-python": SpecifierSet(">=4.8.1.78,<5"),
     "faster-whisper": SpecifierSet(f"=={FASTER_WHISPER_VERSION}"),
 }
+# Snap installs this narrower CUDA profile explicitly with --no-deps. It
+# deliberately omits NVImageCodec/NVJPEG, so the full project cuda extra is
+# not the Snap contract. Require the actual selected roots even when nothing
+# in the installed base metadata depends on them.
+REQUIRED_CUDA_RUNTIME = {
+    "cupy-cuda12x": SpecifierSet(">=14.1.1,<15"),
+    "cuda-pathfinder": SpecifierSet(">=1.3.4,<2"),
+    **{
+        name: SpecifierSet()
+        for name in (
+            "nvidia-cublas-cu12",
+            "nvidia-cuda-runtime-cu12",
+            "nvidia-cudnn-cu12",
+            "nvidia-curand-cu12",
+            "nvidia-cufft-cu12",
+            "nvidia-nvjitlink-cu12",
+            "nvidia-cuda-nvrtc-cu12",
+        )
+    },
+}
 IMPORT_PROBES = ("packaging", "setuptools", "onnxruntime")
 RUNTIME_VERSION = SpecifierSet("==1.24.4")
 
@@ -208,7 +228,11 @@ def dependency_problems(
 
     problems: list[str] = []
 
-    for package_name, specifier in REQUIRED_RUNTIME.items():
+    variant = expected_variant(platform_machine)
+    required = dict(REQUIRED_RUNTIME)
+    if variant is RuntimeVariant.CUDA:
+        required.update(REQUIRED_CUDA_RUNTIME)
+    for package_name, specifier in required.items():
         versions = environment.installed.get(canonicalize_name(package_name), ())
         if not versions:
             problems.append(f"required runtime package is missing: {package_name}{specifier}")
@@ -234,7 +258,6 @@ def dependency_problems(
         )
         problems.append(f"Snap must have exactly one OpenCV owner; found: {rendered}")
 
-    variant = expected_variant(platform_machine)
     contract = RUNTIME_CONTRACTS[variant]
     problems.extend(
         runtime_ownership_problems(variant, environment.installed, providers)
@@ -253,7 +276,12 @@ def dependency_problems(
         if variant is RuntimeVariant.CUDA
         else {}
     )
-    problems.extend(environment.dependency_closure_problems(substitutions))
+    extras = {"meeting-support"}
+    if variant is RuntimeVariant.CPU:
+        extras.add("cpu")
+    problems.extend(environment.dependency_closure_problems(
+        substitutions, root_extras={"nvbroadcast": extras}
+    ))
     return len(environment.installed), sorted(set(problems))
 
 

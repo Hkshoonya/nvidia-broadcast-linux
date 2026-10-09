@@ -1,6 +1,6 @@
 # NV Broadcast - Unofficial NVIDIA Broadcast for Linux and other OS
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 # This software was created by doczeus as an open-source unofficial
@@ -18,8 +18,8 @@ replacement, auto-framing, video enhancement, and noise cancellation.
 Created by doczeus (https://github.com/Hkshoonya)
 """
 
-__version__ = "1.5.2"
+__version__ = "1.5.3"
 __author__ = "doczeus"
-__license__ = "GPL-3.0"
+__license__ = "GPL-3.0-or-later"
 __url__ = "https://nvbroadcast.com"
 __copyright__ = "Copyright (c) 2026 doczeus"

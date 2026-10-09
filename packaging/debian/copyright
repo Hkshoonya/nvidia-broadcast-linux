@@ -5,9 +5,9 @@ Source: https://github.com/Hkshoonya/nvidia-broadcast-linux
 
 Files: *
 Copyright: 2026 doczeus
-License: GPL-3.0+
+License: GPL-3.0-or-later
 
-License: GPL-3.0+
+License: GPL-3.0-or-later
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
  the Free Software Foundation, either version 3 of the License, or
@@ -20,3 +20,8 @@ License: GPL-3.0+
  .
  On Debian systems, the complete text of the GNU General Public License
  version 3 can be found in `/usr/share/common-licenses/GPL-3'.
+ .
+ The complete upstream LICENSE is also installed at /opt/nvbroadcast/LICENSE
+ and retains the project-specific attribution requirements. See that file and
+ /opt/nvbroadcast/NOTICE for the original creator, contributor credits, and
+ separate NVIDIA non-affiliation notice.

@@ -4,11 +4,20 @@
 # Licensed under GPL-3.0
 #
 # Installs NV Broadcast on macOS using Homebrew.
-# CPU-only inference (CoreML on Apple Silicon when available).
+# Validates CPUExecutionProvider; CoreML acceleration is not qualified here.
 # Virtual camera via pyvirtualcam + OBS Studio.
 
 set -euo pipefail
 export PYTHONNOUSERSITE=1
+unset PYTHONHOME PYTHONPATH
+umask 077
+
+if (( EUID == 0 )); then
+    echo "Error: Run the macOS source installer as your logged-in user, without sudo." >&2
+    exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -24,56 +33,48 @@ echo -e "${NC}"
 
 # ── Pre-flight checks ────────────────────────────────────────────────────────
 
-if [[ "$(uname)" != "Darwin" ]]; then
+if [[ "$(/usr/bin/uname -s)" != "Darwin" ]]; then
     echo -e "${RED}Error: This installer is for macOS only.${NC}"
     echo "For Linux, use: ./install.sh"
     exit 1
 fi
 
-MACOS_ARCH=$(uname -m)
+MACOS_ARCH=$(/usr/bin/uname -m)
 if [[ "$MACOS_ARCH" != "arm64" ]]; then
-    echo -e "${RED}Error: v1.5.2 supports Apple Silicon Macs only.${NC}"
+    echo -e "${RED}Error: NV Broadcast supports Apple Silicon Macs only.${NC}"
     echo "A secure current MediaPipe wheel is not available for Intel macOS."
     exit 1
 fi
 
-# Check macOS version (the selected ONNX Runtime wheel requires 13+)
-MACOS_VER=$(sw_vers -productVersion | cut -d. -f1)
-if [[ "$MACOS_VER" -lt 13 ]]; then
-    echo -e "${RED}Error: macOS 13 (Ventura) or newer required.${NC}"
+# Current Homebrew dependencies are supported on Apple Silicon macOS 15+.
+# The lower wheel/PKG platform declaration does not qualify Homebrew setup.
+MACOS_VERSION=$(/usr/bin/sw_vers -productVersion)
+MACOS_VER="${MACOS_VERSION%%.*}"
+if [[ ! "$MACOS_VER" =~ ^[0-9]+$ || "$MACOS_VER" -lt 15 ]]; then
+    echo -e "${RED}Error: macOS 15 (Sequoia) or newer required for the supported Homebrew runtime.${NC}"
     exit 1
 fi
 
 echo -e "${GREEN}[1/7]${NC} Checking prerequisites..."
 
-# Check Homebrew
-if ! command -v brew &>/dev/null; then
-    echo -e "${YELLOW}Homebrew not found. Installing...${NC}"
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# Use the same native Homebrew prefix as the packaged runtime setup. An Intel
+# brew or unrelated Python earlier in PATH cannot supply the required GI ABI.
+BREW="/opt/homebrew/bin/brew"
+if [[ ! -x "$BREW" ]]; then
+    echo "Error: Apple Silicon Homebrew is required at /opt/homebrew." >&2
+    echo "Install Homebrew from https://brew.sh as your logged-in user, then rerun this installer." >&2
+    exit 1
 fi
-
-# Check Python versions covered by the Apple Silicon release matrix
-PYTHON=""
-for p in python3.13 python3.12 python3.11 python3; do
-    if command -v "$p" &>/dev/null; then
-        ver=$("$p" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
-        major=$(echo "$ver" | cut -d. -f1)
-        minor=$(echo "$ver" | cut -d. -f2)
-        if [[ "$major" -eq 3 && "$minor" -ge 11 && "$minor" -le 13 ]]; then
-            PYTHON="$p"
-            break
-        fi
-    fi
-done
-
-if [[ -z "$PYTHON" ]]; then
-    echo -e "${YELLOW}Python 3.11-3.13 not found. Installing Python 3.12 via Homebrew...${NC}"
-    brew install python@3.12
-    PYTHON="python3.12"
+BREW_PREFIX=$("$BREW" --prefix)
+if [[ "$BREW_PREFIX" != "/opt/homebrew" ]]; then
+    echo "Error: This installer requires the Apple Silicon /opt/homebrew prefix." >&2
+    exit 1
 fi
+export PATH="$BREW_PREFIX/bin:$PATH"
+export GST_PLUGIN_PATH="$BREW_PREFIX/lib/gstreamer-1.0"
+export GI_TYPELIB_PATH="$BREW_PREFIX/lib/girepository-1.0"
 
-echo -e "  Python: $($PYTHON --version)"
-echo -e "  macOS: $(sw_vers -productVersion)"
+echo -e "  macOS: $MACOS_VERSION"
 echo -e "  Arch: $MACOS_ARCH"
 
 # ── Step 2: Install system dependencies ──────────────────────────────────────
@@ -81,18 +82,53 @@ echo -e "  Arch: $MACOS_ARCH"
 echo ""
 echo -e "${GREEN}[2/7]${NC} Installing system dependencies via Homebrew..."
 
-brew install --quiet \
-    gstreamer \
-    gst-plugins-base \
-    gst-plugins-good \
-    gst-plugins-bad \
-    gtk4 \
-    libadwaita \
-    pygobject3 \
-    gobject-introspection \
-    pkg-config
+# GStreamer now includes the former separate gst-plugins-* formulae.
+"$BREW" install --quiet python@3.13 pygobject3 gtk4 libadwaita gstreamer
 
 echo -e "  GStreamer, GTK4, Libadwaita installed"
+
+# Select only a supported Homebrew interpreter with usable native bindings,
+# before copying source or replacing an existing installer-owned environment.
+check_desktop_stack() {
+    "$1" - <<'PY'
+import sys
+if not ((3, 11) <= sys.version_info[:2] <= (3, 13)):
+    raise SystemExit("Python 3.11-3.13 required")
+import ensurepip
+import venv
+import cairo
+import gi
+for namespace, version in (("Gtk", "4.0"), ("Adw", "1"), ("Gst", "1.0"),
+                           ("GstApp", "1.0"), ("GstVideo", "1.0")):
+    gi.require_version(namespace, version)
+from gi.repository import Adw, Gst, GstApp, GstVideo, Gtk
+Gst.init([])
+required = ("avfvideosrc", "osxaudiosrc", "osxaudiosink", "videoconvert",
+            "audioconvert", "audioresample", "x264enc", "h264parse", "aacparse", "mp4mux")
+missing = [name for name in required if Gst.ElementFactory.find(name) is None]
+if Gst.DeviceProviderFactory.find("osxaudiodeviceprovider") is None:
+    missing.append("osxaudiodeviceprovider")
+if not any(Gst.ElementFactory.find(name) for name in ("avenc_aac", "voaacenc")):
+    missing.append("avenc_aac or voaacenc")
+if missing:
+    raise SystemExit("Missing GStreamer plugins: " + ", ".join(missing))
+PY
+}
+
+PYTHON=""
+for minor in 13 12 11; do
+    candidate="$BREW_PREFIX/opt/python@3.$minor/bin/python3.$minor"
+    if [[ -x "$candidate" ]] && check_desktop_stack "$candidate"; then
+        PYTHON="$candidate"
+        break
+    fi
+done
+if [[ -z "$PYTHON" ]]; then
+    echo "Error: A supported Python with working GTK/Adw/GStreamer bindings is required." >&2
+    echo "  /opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer" >&2
+    exit 1
+fi
+echo -e "  Python: $("$PYTHON" --version) ($PYTHON)"
 
 # ── Step 3: Create Python venv ───────────────────────────────────────────────
 
@@ -102,46 +138,50 @@ echo -e "${GREEN}[3/7]${NC} Setting up Python environment..."
 INSTALL_DIR="$HOME/.local/share/nvbroadcast"
 mkdir -p "$INSTALL_DIR"
 
-# Copy source
-cp -r src pyproject.toml LICENSE NOTICE README.md CONTRIBUTORS.md \
-    data models configs "$INSTALL_DIR/" 2>/dev/null || true
+# Resolve inputs relative to this checkout; missing required files are errors.
+cp -R "$SCRIPT_DIR/src" "$SCRIPT_DIR/data" "$SCRIPT_DIR/configs" "$INSTALL_DIR/"
+cp "$SCRIPT_DIR/pyproject.toml" "$SCRIPT_DIR/LICENSE" "$SCRIPT_DIR/NOTICE" \
+    "$SCRIPT_DIR/README.md" "$SCRIPT_DIR/CONTRIBUTORS.md" "$INSTALL_DIR/"
 mkdir -p "$INSTALL_DIR/scripts"
-cp scripts/install_runtime_variant.py "$INSTALL_DIR/scripts/"
+cp "$SCRIPT_DIR/scripts/install_runtime_variant.py" "$INSTALL_DIR/scripts/"
 mkdir -p "$INSTALL_DIR/models"
+if [[ -d "$SCRIPT_DIR/models" ]]; then
+    cp -R "$SCRIPT_DIR/models/." "$INSTALL_DIR/models/"
+fi
 
 # Stop old runtime before replacing installer-owned environment.
 pkill -f "^${INSTALL_DIR}/venv/bin/python -m nvbroadcast( |$)" 2>/dev/null || true
 # Recreate environment so CPU remains sole runtime owner.
 rm -rf -- "$INSTALL_DIR/venv"
-$PYTHON -m venv "$INSTALL_DIR/venv" --system-site-packages
-source "$INSTALL_DIR/venv/bin/activate"
+"$PYTHON" -m venv "$INSTALL_DIR/venv" --system-site-packages
+RUNTIME_PYTHON="$INSTALL_DIR/venv/bin/python"
 
-pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel -q
+"$RUNTIME_PYTHON" -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel -q
 
 # ── Step 4: Install pip dependencies ─────────────────────────────────────────
 
 echo ""
 echo -e "${GREEN}[4/7]${NC} Installing Python dependencies..."
 
-python "$INSTALL_DIR/scripts/install_runtime_variant.py" \
+"$RUNTIME_PYTHON" "$INSTALL_DIR/scripts/install_runtime_variant.py" \
     --project "$INSTALL_DIR" --variant cpu --meeting-backends faster
 
-if python - <<'PY'
+if "$RUNTIME_PYTHON" - <<'PY'
 import sys
 raise SystemExit(0 if sys.version_info < (3, 14) else 1)
 PY
 then
-    pip install -q "openai-whisper>=20231117" 2>/dev/null || \
+    "$RUNTIME_PYTHON" -m pip install -q "openai-whisper>=20231117" 2>/dev/null || \
         echo -e "${YELLOW}  openai-whisper install failed; faster-whisper remains the supported local backend.${NC}"
 else
     echo -e "${YELLOW}  Skipping openai-whisper on Python 3.14+; faster-whisper remains installed.${NC}"
 fi
 
-# Try CoreML support for Apple Silicon
-if [[ "$MACOS_ARCH" == "arm64" ]]; then
-    echo -e "  Apple Silicon detected — installing CoreML provider..."
-    pip install -q coremltools 2>/dev/null || true
-fi
+# The runtime installer checks CPU ownership and inference execution. Recheck
+# dependency closure and native bindings after optional pip packages, too.
+"$RUNTIME_PYTHON" -m pip check
+check_desktop_stack "$RUNTIME_PYTHON"
+"$RUNTIME_PYTHON" -m nvbroadcast.runtime --variant cpu
 
 echo -e "  Python packages installed"
 
@@ -153,16 +193,22 @@ echo -e "${GREEN}[5/7]${NC} Creating launcher..."
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/nvbroadcast" << 'LAUNCHER'
 #!/usr/bin/env bash
+set -euo pipefail
 export PYTHONNOUSERSITE=1
+unset PYTHONHOME PYTHONPATH
+if (( EUID == 0 )); then
+    echo "Error: Run NV Broadcast as your logged-in user, without sudo." >&2
+    exit 1
+fi
 INSTALL_DIR="$HOME/.local/share/nvbroadcast"
-source "$INSTALL_DIR/venv/bin/activate"
 
 # Set GStreamer plugin path for Homebrew
-export GST_PLUGIN_PATH="$(brew --prefix)/lib/gstreamer-1.0"
-export GI_TYPELIB_PATH="$(brew --prefix)/lib/girepository-1.0"
+export PATH="/opt/homebrew/bin:$PATH"
+export GST_PLUGIN_PATH="/opt/homebrew/lib/gstreamer-1.0"
+export GI_TYPELIB_PATH="/opt/homebrew/lib/girepository-1.0"
 
 cd "$INSTALL_DIR"
-exec python -m nvbroadcast "$@"
+exec "$INSTALL_DIR/venv/bin/python" -m nvbroadcast "$@"
 LAUNCHER
 chmod +x "$HOME/.local/bin/nvbroadcast"
 echo -e "  Launcher: ~/.local/bin/nvbroadcast"
@@ -181,7 +227,7 @@ else
     read -p "  Install OBS for virtual camera support? [Y/n] " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-        brew install --cask obs
+        "$BREW" install --cask obs
         OBS_AVAILABLE=true
         echo -e "  OBS installed"
     else
@@ -254,9 +300,11 @@ echo ""
 echo "  Run:  nvbroadcast"
 echo ""
 echo "  Make sure ~/.local/bin is in your PATH:"
+# Print the command literally so the user's shell expands HOME and PATH later.
+# shellcheck disable=SC2016
 echo '  export PATH="$HOME/.local/bin:$PATH"'
 echo ""
-echo -e "  ${GREEN}Apple Silicon detected${NC} — CPU modes with CoreML acceleration"
+echo -e "  ${GREEN}Apple Silicon detected${NC} — verified CPU runtime"
 echo ""
 echo -e "  ${YELLOW}Note:${NC} GPU modes (Killer/Zeus/DocZeus/CUDA) require"
 echo "  an NVIDIA GPU and are Linux-only."

@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """Face relighting — gentle fill light guided by scene brightness.
