@@ -1,6 +1,8 @@
 # Reproducible Runtime Artifact Design
 
-Status: design-only draft for [Issue #60](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/60)
+Status: design for [Issue #60](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/60),
+with the initial Linux x86-64 Stage 0 decision recorded on 9 October 2026.
+Implementation and release gates remain separate.
 
 This document proposes how NV Broadcast release artifacts can carry a complete,
 locked Python runtime without resolving dependencies during installation. It is
@@ -21,18 +23,67 @@ maintainer's [design constraints for Issue
 | Maintained dependency source | Accepted | `pyproject.toml` remains the source maintainers edit. Target locks and manifests are generated outputs. |
 | Project Python support | Accepted | Keep `requires-python = ">=3.11"`. A release payload may use one fixed CPython ABI without narrowing source-install support. |
 | Lock format | Accepted | Generate one PEP 751 `pylock.<target>.toml` file for each target and runtime variant. |
-| Lock tool | Proposed | Use an exact, checksum-pinned `uv` release for resolution and PEP 751 export. Record that tool identity in generated metadata. |
+| Lock tool | Selected for initial Linux implementation | Use an exact, checksum-pinned `uv` release for resolution and PEP 751 export. Record that tool identity in generated metadata. |
 | First runtime variants | Accepted | Build CPU and CUDA artifacts. TensorRT is not part of the first milestone. |
 | Meeting compatibility | Accepted | Preserve the OpenAI Whisper compatibility path. Managed-runtime metadata must declare `faster-whisper` directly and suppress only its `onnxruntime` dependency for runtime-owner selection. |
-| Native interpreter | Proposed | Evaluate a hash-pinned `python-build-standalone` CPython archive owned by the DEB, RPM, or PKG. Approval depends on redistribution, native-binding, relocation, and oldest-platform tests. |
-| Native package shape | Open | Compare a self-contained package per variant with an application/runtime package split before selecting either model. |
+| Native interpreter | Selected for Linux x86-64; other targets proposed | Use a hash-pinned `python-build-standalone` CPython archive owned by the Linux native package. Other targets retain their own native-binding, relocation, and oldest-platform gates. |
+| Native package shape | Selected for initial Linux adapter | Use a self-contained `nvbroadcast` package with distinct CPU/CUDA revisions. Retain the split layout as an evaluated alternative; see the dated decision below. |
 | Verification evidence | Accepted | Finalize target-specific signing, notarization, and stapling before lifecycle and hardware tests. Those tests and their attestations name the exact finalized artifact digest; unsigned payload digests remain separate reproducibility evidence. |
 | Reproducibility claim | Accepted | Milestone 1 reproduces assembly from exact upstream artifacts. Independently rebuilding every third-party wheel from source is later supply-chain work. |
-| Runtime activation | Accepted boundary | Package-managed and Snap installations remain externally managed. Atomic candidate activation is limited to user-owned source installs under Issue #53. |
+| Runtime activation | Accepted boundary | Package-managed and Snap installations remain externally managed. Atomic candidate activation is limited to user-owned source installs; remaining implementation from Issue #53 is consolidated under Issue #60. |
 
 No open item may be silently converted into an implementation choice. A later
 implementation PR must either cite the accepted decision or keep both options
 behind separate build prototypes.
+
+### Stage 0 decision — 9 October 2026
+
+The maintainer selects the pinned private-CPython strategy and a self-contained
+package for the first Linux x86-64 adapter. The original interpreter and
+package-shape feasibility hold is satisfied for this scope by the merged
+investigations below. Accepting this design does not require completion of
+every later implementation or public-release gate in Issue #60.
+
+| Evidence | Result supporting the decision |
+| --- | --- |
+| [#134 private-runtime investigation](https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/859ba2b78214aa910d4b323159fd4dee0d45c2af/packaging/runtime-prototype/README.md) | Pinned CPython 3.13.16 archive and license inventory, private-ABI bindings, offline assembly, isolation/relocation, complete CPU closure, and seven-distribution runtime probes; repeated wheel and payload content matched. |
+| [#135 native lifecycle comparison](https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/254ec93b5351c8e50815b3bf03dce6ae91ef1726/packaging/native-prototype/README.md) | Both self-contained and split DEB/RPM layouts passed recorded clean/legacy install, upgrade, rollback, interruption/repair, removal and preservation checks. The reproduced legacy RPM cleanup collision motivated the separate private prefix. |
+| [#137 CPU/CUDA qualification](https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/d8bd295c879c27b1b8f243062f194dd672da6179/packaging/native-prototype/CUDA_SWITCHING.md) | Both layouts exercised complete CPU/CUDA replacement, exact ownership and closure, real RPM unpack interruption with bounded authenticated fragment preservation, and repeated archive/content comparisons. GPU execution evidence is separate from device-less transaction tests. |
+
+The selected initial adapter retains the package name `nvbroadcast` and owns
+the application, private interpreter and dependency closure under
+`/usr/lib/nvbroadcast/runtime`. Distinct `N.cpu` and `N.cuda` package revisions
+identify the variants; the native package manager installs one version of that
+package. Upgrade, variant replacement and rollback are explicit package-manager
+transactions. A self-contained package keeps the first production adapter's
+version and ownership checks simple. The split model remains a possible later
+optimization for smaller application-only updates, with additional solver and
+lifecycle obligations.
+
+[PR #149](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/149) implements
+this direction in an explicit adapter under review. It has not replaced the
+default release recipes or the published v1.5.3 packages. Its final artifacts,
+legacy migration and supported platform acceptance require their own evidence.
+
+The qualified private-runtime cells are Ubuntu 22.04/24.04/26.04, Debian 12/13
+and Fedora 43/44; package lifecycle evidence is narrower, as recorded above.
+Rocky 9's missing native PortAudio dependency remains unresolved. Enterprise
+Linux variants, Zypper, Linux AArch64 and a private macOS interpreter are
+separate target gates, not implied by the Linux x86-64 decision. The current
+macOS wheelhouse proposal in [PR #148](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/148)
+retains Homebrew Python and is an intermediate step, not the private-interpreter
+PKG contract below.
+
+The prototype results establish feasibility and deterministic assembly within
+their recorded builder scope. They do not establish authenticated production
+builder delivery, snapshotted native toolchains, complete SPDX SBOMs, final
+RPM signing, or every physical-device lifecycle. The unpruned prototype retains
+pip; the stricter payload policy below remains a production requirement.
+Canonical packaging extras and resolver metadata also remain Stage 1 work:
+the current resolver adds the managed faster-whisper version explicitly and
+verifies a narrowly scoped metadata override, while the examples below propose
+the maintained-extra and `uv` exclusion form. Neither difference invalidates
+the completed Stage 0 feasibility result.
 
 ## Goals and invariants
 
@@ -71,15 +122,16 @@ requirement.
 
 ### Initial artifact cells
 
-The first implementation should prove the following cells. `cp313` is a
-proposed ABI for official native packages because it is inside the existing
-`>=3.11` contract and matches the preferred interpreter from Issue #72. It is
-not a change to source-install compatibility.
+Each cell below needs its own evidence before public promotion. The first
+selected implementation scope is Linux x86-64; the other proposed cells do not
+inherit its qualification. `cp313` is inside the existing `>=3.11` contract and
+matches the preferred interpreter from Issue #72. Selecting it for a managed
+payload does not change source-install compatibility.
 
 | Target ID | Platform | Python owner and ABI | Variant | Wheel platform contract | Intended consumers | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| `linux-x86_64-cp313-cpu` | glibc Linux, x86-64 | Private package-owned CPython, `cp313` | CPU | `manylinux_2_28_x86_64` or stricter compatible tag | DEB and RPM prototypes | Proposed |
-| `linux-x86_64-cp313-cuda12` | glibc Linux, x86-64 | Private package-owned CPython, `cp313` | CUDA 12 | `manylinux_2_28_x86_64` or stricter compatible tag | DEB and RPM prototypes | Proposed |
+| `linux-x86_64-cp313-cpu` | glibc Linux, x86-64 | Private package-owned CPython, `cp313` | CPU | `manylinux_2_28_x86_64` or stricter compatible tag | DEB and RPM | Prototype-qualified; production gates remain |
+| `linux-x86_64-cp313-cuda12` | glibc Linux, x86-64 | Private package-owned CPython, `cp313` | CUDA 12 | `manylinux_2_28_x86_64` or stricter compatible tag | DEB and RPM | Prototype-qualified; production gates remain |
 | `linux-aarch64-cp313-cpu` | glibc Linux, AArch64 | Private package-owned CPython, `cp313` | CPU | `manylinux_2_28_aarch64` or stricter compatible tag | DEB and RPM prototypes | Proposed |
 | `macos-arm64-cp313-cpu` | macOS 13+, Apple Silicon | Private PKG-owned CPython, `cp313` | CPU/CoreML | `macosx_13_0_arm64` or compatible older tag | macOS PKG prototype | Proposed |
 | `snap-core24-amd64-cp312-cuda12` | Snap `core24`, x86-64 | Snap base/runtime, `cp312` | CUDA 12 | Snap build environment | amd64 Snap | Existing ownership model |
@@ -116,13 +168,13 @@ libraries may remain host-owned, but the package adapter must declare their
 versions and the runtime manifest must declare its required shared-library
 contract.
 
-The private-interpreter proposal passes its design gate only if a prototype:
+Each private-interpreter target passes its feasibility gate only if a prototype:
 
 - verifies the interpreter archive's source, license set, checksum, relocation,
   and update procedure;
 - builds or obtains every required Python ABI extension from locked inputs;
 - imports GTK/GStreamer bindings with user and system Python sites disabled;
-- runs on the oldest supported glibc and macOS targets; and
+- runs on the oldest supported systems for that target; and
 - leaves the system Python executable, packages, and import paths unchanged.
 
 If that prototype fails, the fallback is a distro-interpreter matrix. Each
@@ -200,6 +252,12 @@ the `faster-whisper` wheel and every other applicable dependency declared by
 that wheel while selecting exactly one ONNX Runtime owner. This design-only PR
 documents the required future metadata; it does not change current source
 installer behavior.
+
+The lock examples also select `meeting` to illustrate its existing compatibility
+marker. The qualified managed prototype instead selects `meeting-support` and
+the explicit faster-whisper backend; it does not bundle OpenAI Whisper/Torch.
+Keeping that source-install compatibility path does not require every managed
+payload to select both transcription backends.
 
 The guarded OpenAI Whisper dependency remains governed by its existing Python
 marker. For a selected feature set, lock generation evaluates that marker
@@ -452,7 +510,7 @@ artifact:
       "digest": { "sha256": "<final artifact sha256>" }
     }
   ],
-  "predicateType": "https://nvbroadcast.domjarvis.com/attestations/runtime-verification/v1",
+  "predicateType": "https://nvbroadcast.com/attestations/runtime-verification/v1",
   "predicate": {
     "targetId": "linux-x86_64-cp313-cuda12",
     "sourceCommit": "<full commit SHA>",
@@ -553,9 +611,11 @@ files while preserving user configuration and recordings.
 
 ### DEB/RPM alternatives
 
-Both alternatives use architecture-specific packages and one runtime variant
-per environment. Package names below illustrate the required relationships;
-the final names remain part of the open decision.
+Both evaluated alternatives use architecture-specific packages and one runtime
+variant per environment. The table preserves the relationships tested in the
+prototypes. The initial adapter selects the self-contained shape with the
+same-name package identity described in the dated decision above; the prototype
+names below are not required production names.
 
 | Behavior | Self-contained variant package | Split application/runtime packages |
 | --- | --- | --- |
@@ -566,24 +626,30 @@ the final names remain part of the open decision.
 | Upgrade | One package-manager transaction replaces application and runtime together | One transaction must upgrade application and exact-version runtime together; mixed versions are unsatisfied dependencies |
 | Variant switch | Installing the other variant removes the current whole package and installs the new one | Installing the other runtime removes the current runtime while leaving the application package installed |
 | Rollback | Reinstall the exact earlier variant package through the package manager | Reinstall the exact earlier application and runtime pair in one transaction |
-| Uninstall | Removing the variant removes all `/opt` application/runtime files | Removing application leaves a manually installed runtime eligible for explicit removal; auto-installed runtimes are eligible for package-manager autoremove |
+| Uninstall | Removing the variant removes its package-owned application/runtime files | Removing application leaves a manually installed runtime eligible for explicit removal; auto-installed runtimes are eligible for package-manager autoremove |
 | Trade-off | Simplest consistency and rollback; duplicates application files across variants | Smaller variant switch and less duplication; more solver, repository, and lifecycle complexity |
 
-For Debian, the selected model must use versioned `Provides`, `Conflicts`, and
-only the `Breaks`/`Replaces` relationships required for real file ownership
-transitions. For RPM, it must define equivalent versioned `Provides`,
-`Conflicts`, and narrowly scoped `Obsoletes` behavior. Neither model may use a
+For separate package names, Debian must use versioned `Provides`, `Conflicts`,
+and only the `Breaks`/`Replaces` relationships required for real file ownership
+transitions. RPM needs equivalent versioned `Provides`, `Conflicts`, and narrowly
+scoped `Obsoletes` behavior. The selected same-name self-contained adapter uses
+the package manager's single-version ownership instead; additional conflict or
+replacement declarations are needed only for a real ownership transition.
+Neither model may use a
 package script to silently exchange CPU and CUDA files behind the package
 manager's database.
 
-Selection remains open until both prototypes demonstrate:
+The merged investigations provide the initial Linux selection evidence for the
+following checks. A production adapter must repeat them for its exact artifacts
+and each platform it advertises:
 
 - install and upgrade from the current `nvbroadcast` package;
 - CPU-to-CUDA and CUDA-to-CPU transactions;
 - interrupted transaction recovery;
 - exact-version rollback;
 - uninstall and purge without orphaned package-owned runtimes;
-- correct behavior under APT/dpkg, DNF/RPM, and Zypper; and
+- correct behavior under its supported APT/dpkg or DNF/RPM adapter; Zypper
+  remains a separate required gate before advertising openSUSE; and
 - acceptable installed and repository size.
 
 Native package rollback is a package-manager operation. It does not use the
@@ -730,6 +796,9 @@ Trust rules:
 
 ### Stage 0: Accept the design and close open package choices
 
+The initial Linux x86-64 interpreter and package-model decision is recorded
+above. Other native targets retain their own feasibility gates.
+
 - Review the target matrix, matrix/manifest schemas, `uv` choice, native
   interpreter candidate, Python/native-library boundary, scoped
   `faster-whisper` dependency policy, and finalized-artifact CI trust model.
@@ -738,8 +807,10 @@ Trust rules:
 - Record supported distribution versions and native dependency profiles from
   clean-system evidence.
 
-Exit criterion: maintainers accept one interpreter strategy and one DEB/RPM
-package model, with ownership, upgrade, rollback, and uninstall semantics.
+Exit criterion for each initial implementation scope: maintainers accept one
+interpreter strategy and one package model, with ownership, upgrade, rollback,
+and uninstall semantics. The dated Linux decision satisfies that design gate;
+it does not claim Stage 1 or Stage 2 complete.
 
 ### Stage 1: Locks, wheelhouses, and runtime payloads
 
@@ -774,7 +845,8 @@ checksums, SBOMs, and provenance.
 
 ### Stage 3: User-owned source runtime candidates
 
-- Under Issue #53, add versioned, hash-verified candidates, verification,
+- Under Issue #60, continuing the source-runtime work from resolved Issue #53,
+  add versioned, hash-verified candidates, verification,
   atomic activation, application restart, and rollback only for user-owned
   source installations.
 - Do not mutate DEB, RPM, PKG, Snap, or Nix environments from the application.
