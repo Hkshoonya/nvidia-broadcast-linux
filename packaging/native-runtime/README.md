@@ -73,7 +73,8 @@ untrusted payload and treat that as an authenticated manifest.
 ## Native installation and recovery
 
 Both packages own a complete private interpreter and Python dependency closure.
-They depend on native GTK, GStreamer, audio and device libraries supplied by the
+They depend on native GTK, GStreamer, PipeWire/PulseAudio command utilities,
+audio and device libraries supplied by the
 operating system. Offline installation therefore assumes those declared native
 dependencies are already installed or available in a trusted local OS mirror.
 The packages never invoke pip, uv, a network downloader, or a resolver from a
@@ -86,7 +87,9 @@ Before replacing the private interpreter, the native prepare hook refuses a
 running application. Quit Broadcast and its virtual-camera service before an
 upgrade. A transaction marker prevents launching a partially unpacked runtime.
 Configuration verifies every runtime file, directory, symlink, permission and
-root owner, checks distribution closure and single-provider ownership, then
+root owner, checks distribution closure including the selected CPU/CUDA and
+meeting-support extras, verifies the managed faster-whisper version and
+single-provider ownership, then
 clears that marker. Corruption leaves it in place and reports a configuration
 failure. RPM script errors may leave a package registered as installed; the
 marker and verified upgrade helper prevent interpreting that as usable success.

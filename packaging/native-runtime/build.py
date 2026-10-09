@@ -190,7 +190,7 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
         "version": version, "source": source, "runtime_manifest_sha256": prepare.digest(runtime.parent / "manifest.json")}, sort_keys=True) + "\n")
     dependency = native.DEPENDENCIES[family]
     if family == "deb":
-        dependency += ", gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly, v4l-utils, pulseaudio-utils"
+        dependency += ", gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly, v4l-utils, pulseaudio-utils, pipewire-bin | pipewire-utils"
         native.write(stage / "DEBIAN/control", f"Package: nvbroadcast\nVersion: {version}\nArchitecture: amd64\n"
             "Maintainer: doczeus <harshit@kshoonya.com>\nSection: video\nPriority: optional\n"
             f"Depends: {dependency}\nRecommends: v4l2loopback-dkms, gir1.2-ayatanaappindicator3-0.1\n"
@@ -204,7 +204,7 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
         command = ["dpkg-deb", "--root-owner-group", "-Zzstd", "-z8", "--threads-max=2", "--build", "/stage", f"/work/{artifact.name}"]
         image = args.deb_image
     else:
-        dependency += ", gstreamer1-plugins-bad-free, v4l-utils, pulseaudio-utils"
+        dependency += ", gstreamer1-plugins-bad-free, v4l-utils, pulseaudio-utils, pipewire-utils"
         release = f"{args.package_revision}.{args.variant}"
         spec_text = (f"Name: nvbroadcast\nVersion: {source['version']}\nRelease: {release}\n"
             "Summary: NVBroadcast complete offline application runtime\nLicense: GPL-3.0-or-later AND LicenseRef-Bundled-Dependencies\n"

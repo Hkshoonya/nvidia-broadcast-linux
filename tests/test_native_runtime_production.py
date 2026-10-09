@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+from importlib import metadata
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +105,40 @@ class NativeProductionTests(unittest.TestCase):
             packages = {p["name"] for p in lock["packages"]}
             self.assertEqual(packages & {"onnxruntime", "onnxruntime-gpu"}, {owner})
             self.assertNotIn("nvbroadcast", packages)
+
+    def environment(self, packages):
+        from nvbroadcast.runtime.artifact import ArtifactEnvironment
+        from packaging.markers import default_environment
+        distributions = []
+        installed = {}
+        for name, version, requirements in packages:
+            directory = self.root / f"{name}-{version}.dist-info"
+            directory.mkdir()
+            data = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
+            data += "".join("Requires-Dist: " + raw + "\n" for raw in requirements)
+            (directory / "METADATA").write_text(data)
+            distributions.append(metadata.PathDistribution(directory))
+            installed[name] = (version,)
+        return ArtifactEnvironment((), tuple(distributions), installed, default_environment())
+
+    def test_installed_extra_version_bounds_are_enforced(self):
+        environment = self.environment([
+            ("nvbroadcast", "1.5.3", ['onnxruntime>=1.24.4; extra == "cpu"']),
+            ("faster-whisper", "1.2.1", []), ("onnxruntime", "1.23.0", [])])
+        with self.assertRaisesRegex(ValueError, "onnxruntime>=1.24.4"):
+            validator.validate_dependencies(environment, "cpu")
+
+    def test_cuda_cannot_substitute_an_unreviewed_selected_extra(self):
+        environment = self.environment([
+            ("nvbroadcast", "1.5.3", ['onnxruntime>=1.24.4; extra == "cuda"']),
+            ("faster-whisper", "1.2.1", []), ("onnxruntime-gpu", "1.24.4", [])])
+        with self.assertRaisesRegex(ValueError, "unreviewed CUDA"):
+            validator.validate_dependencies(environment, "cuda")
+
+    def test_missing_managed_meeting_backend_is_rejected(self):
+        environment = self.environment([("nvbroadcast", "1.5.3", []), ("onnxruntime", "1.24.4", [])])
+        with self.assertRaisesRegex(ValueError, "managed faster-whisper"):
+            validator.validate_dependencies(environment, "cpu")
 
 
 if __name__ == "__main__":

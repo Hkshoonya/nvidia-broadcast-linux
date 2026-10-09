@@ -40,6 +40,34 @@ def validate(root: Path, manifest: dict, *, owner: int = 0) -> None:
             raise ValueError(f"unexpected directory: {relative}")
 
 
+def validate_dependencies(environment, variant: str) -> None:
+    from nvbroadcast.runtime.variants import FASTER_WHISPER_VERSION
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+    extras = {variant, "meeting-support"}
+    if any(len(values) != 1 for values in environment.installed.values()):
+        raise ValueError("duplicate distribution ownership")
+    substitutions = {}
+    if variant == "cuda":
+        for distribution in environment.distributions:
+            name = canonicalize_name(distribution.metadata["Name"])
+            selected_extras = extras if name == "nvbroadcast" else set(distribution.metadata.get_all("Provides-Extra", []))
+            for raw in distribution.requires or ():
+                requirement = Requirement(raw)
+                if requirement.marker and not any(requirement.marker.evaluate({**environment.markers, "extra": extra})
+                                                   for extra in {"", *selected_extras}):
+                    continue
+                if (canonicalize_name(requirement.name) == "onnxruntime"
+                        and name != "faster-whisper"):
+                    raise ValueError("unreviewed CUDA dependency substitution")
+        substitutions["onnxruntime"] = "onnxruntime-gpu"
+    problems = environment.dependency_closure_problems(substitutions, root_extras={"nvbroadcast": extras})
+    if environment.installed.get("faster-whisper") != (FASTER_WHISPER_VERSION,):
+        problems.append("managed faster-whisper backend is missing or has the wrong version")
+    if problems:
+        raise ValueError("incomplete runtime: " + "; ".join(problems))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path("/usr/lib/nvbroadcast/runtime"))
@@ -51,27 +79,10 @@ def main() -> None:
     validate(args.root, json.loads(args.manifest.read_text()))
     from nvbroadcast.runtime.artifact import ArtifactEnvironment
     from nvbroadcast.runtime.variants import detect_runtime_variant, RuntimeVariant
-    from packaging.requirements import Requirement
-    from packaging.utils import canonicalize_name
     environment = ArtifactEnvironment.current()
     if detect_runtime_variant() != RuntimeVariant(args.variant):
         raise ValueError("installed runtime variant does not match package")
-    if any(len(values) != 1 for values in environment.installed.values()):
-        raise ValueError("duplicate distribution ownership")
-    substitutions = {}
-    if args.variant == "cuda":
-        for distribution in environment.distributions:
-            for raw in distribution.requires or ():
-                requirement = Requirement(raw)
-                if requirement.marker and not requirement.marker.evaluate(environment.markers):
-                    continue
-                if (canonicalize_name(requirement.name) == "onnxruntime"
-                        and canonicalize_name(distribution.metadata["Name"]) != "faster-whisper"):
-                    raise ValueError("unreviewed CUDA dependency substitution")
-        substitutions["onnxruntime"] = "onnxruntime-gpu"
-    problems = environment.dependency_closure_problems(substitutions)
-    if problems:
-        raise ValueError("incomplete runtime: " + "; ".join(problems))
+    validate_dependencies(environment, args.variant)
     print(json.dumps({"status": "pass", "variant": args.variant,
                       "distributions": len(environment.distributions)}))
 
