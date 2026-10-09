@@ -153,6 +153,12 @@ native dependencies fail clearly; they are not silently downloaded in this mode.
 
 ## Qualification
 
+The [2026-10-09 CPU record](qualification/2026-10-09-cpu.json) binds the tested
+artifacts, application/adapter revisions, fixtures and trace hashes. Ubuntu
+24.04 passed 39 lifecycle stages and Fedora 44 passed 40, including actual
+mid-unpack interruption and strict repair. It records the precise remaining
+promotion gates; the tested c2dd082 application payload predates PR #146.
+
 `qualify.py` consumes two versioned package sets and verifies their hashes before
 launching disconnected disposable fixtures. It performs install, upgrade,
 rollback, reinstall, deliberate corruption and exact repair, actual native
