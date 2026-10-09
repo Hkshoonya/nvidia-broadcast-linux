@@ -82,6 +82,7 @@ class FlatpakPackagingTests(unittest.TestCase):
         ):
             self.assertIn(packaged_input, workflow)
         self.assertIn("flatpak-builder-lint manifest", workflow)
+        self.assertIn("flatpak-builder-lint builddir flatpak-build", workflow)
         self.assertIn("python3 -m pip check", workflow)
         self.assertIn('_model_entry("base", faster_whisper.__version__)', workflow)
         self.assertIn("/app/share/doc/nvbroadcast/NOTICE", workflow)

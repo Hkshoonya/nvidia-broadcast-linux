@@ -103,6 +103,14 @@ jobs:
             flatpak-builder-lint appstream \
             flatpak-build/files/share/metainfo/com.nvbroadcast.NVBroadcast.metainfo.xml
 
+      - name: Validate finished Flatpak directory
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace:ro" \
+            -w /workspace \
+            "$BUILDER_IMAGE" \
+            flatpak-builder-lint builddir flatpak-build
+
       - name: Export and verify development bundle
         env:
           SOURCE_REVISION: ${{ github.sha }}
