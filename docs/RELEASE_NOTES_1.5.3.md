@@ -106,6 +106,13 @@ for subsequent work and reports that failure explicitly; it is not included in
 v1.5.3. Successful CUDA and CPU installation paths are unaffected by this
 reporting defect.
 
+The source installer's separate generation-based recovery passed final CPU
+qualification on 9 October: upgrade from an older reviewed source generation,
+preservation of the working runtime after a real package-index failure,
+rollback using the older interpreter/imports, and return to the release
+generation. Source setup still resolves dependencies online; this check does
+not establish native-package rollback or complete offline runtime delivery.
+
 DEB and RPM also retain a prerequisite-failure reporting limitation: failed
 environment cleanup, creation, or bootstrap dependency setup can be hidden by
 a later successful command. The same function bodies occur in v1.5.2 and this

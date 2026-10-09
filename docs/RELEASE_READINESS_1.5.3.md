@@ -92,7 +92,7 @@ automatically to newly built v1.5.3 artifacts.
 | Recording | Earlier x10 Snap speech playback is retained through exact application/native input matching; final signed-PKG built-in-microphone Mic Test, complete speech Rec and microphone-only Meeting transcription passed; prior native/Flatpak capture and generated-media evidence is retained | No new physical recording was claimed for Store 190; native/Flatpak physical-microphone and desktop follow-up remains in #112, separate from the completed Mac scope; preserve provider scope and unavailable-second-mic limitation |
 | CPU/GPU behavior | Installed Store 190 exclusive CPU inference passed; on 9 October, CUDA inference with CPU fallback disabled and fresh CuPy NVRTC execution passed on RTX 5070. All 78 wheel RECORD inputs and 82 loaded native package files match the qualified review inputs | Record affected feedback. These small execution probes do not measure camera FPS or long-run performance. TensorRT SDK is outside this Snap profile; earlier x10 evidence remains separately identified |
 | Matte quality (#91) | Patched Remove passed direct-window and backlit moving-hand feedback | Final-package Blur/Replace, fine hair, white clothing, and extreme sliders; document any accepted residual limitation |
-| Source recovery (#53) | Failed-install preservation, CPU/CUDA transitions, rollback and source window startup tested in #133 | Candidate source update/rollback check; production native runtime packs remain a separate unfinished scope |
+| Source recovery (#53) | On 9 October, the exact frozen source passed CPU runtime upgrade from reviewed generation `96c83fb`, real failed-index preservation and rollback/return with each generation's own interpreter/imports; the older checker lacks `root_extras`, exercising the compatibility path | Source CUDA transitions, full system/device installation and production native runtime packs remain outside this final CPU qualification; #53 remains open |
 | Native artifacts (#60) | Final tag DEB/RPM, bound helper, source/notices and hosted provenance passed independent checks; fresh public v1.5.2 to exact final CPU upgrades passed 17 steps on Ubuntu 24.04 and 16 on Fedora 44; eight historical prototype lifecycle cells are retained separately | Record candidate/publication receipts; production runtime payloads remain non-hermetic, with locked/offline dependencies, RPM signing and full lifecycle work separate |
 | License/redistribution (#100) | Existing terms reviewed under maintainer-confirmed arrangement; complete GPLv3 and grant references shipped; PR #136 merged and #100 resolved | Preserve exact artifact notice/component evidence and the recorded review scope |
 | Flatpak (#95) | Development build, dependency closure, model trust, recording, physical camera, and initial virtual-camera read passed | CPU release conditions below; remains excluded until applicable gates pass |
@@ -132,6 +132,18 @@ Primary policy references checked on 5 October 2026:
 and [application verification](https://docs.flathub.org/docs/for-app-authors/verification).
 
 ## Security and publication status
+
+The final source-recovery qualification used a disposable Ubuntu 24.04
+container as ordinary UID 1000, with no host mounts, display/audio sockets or
+physical devices. It ran each source installer's actual runtime section, then
+the complete frozen `install.sh --rollback-runtime` entry point twice. The
+forced unavailable-index failure left the selection bytes and generation
+directory set unchanged. Both rollbacks reran pinned CPU inference; all 62
+installed application Python files matched each generation's source. The
+older baseline `96c83fb` is a reviewed source generation, not the public
+v1.5.2 source tag. No dependency or inference stubs were used. This completes
+the final CPU source update/rollback check, without claiming source CUDA,
+offline delivery, physical devices or power-loss recovery.
 
 No new security clearance follows from a version bump or passing unit tests.
 Run the release checklist's dependency audit, Bandit, package/source inspection,
