@@ -57,6 +57,8 @@ jobs:
             python3-gi \
             python3-gi-cairo \
             fonts-dejavu-core \
+            pulseaudio \
+            pulseaudio-utils \
             xvfb \
             xauth \
             gir1.2-gtk-4.0 \

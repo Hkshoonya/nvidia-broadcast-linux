@@ -8,7 +8,13 @@
 import os
 from pathlib import Path
 
-APP_ID = "com.doczeus.NVBroadcast"
+from nvbroadcast.core.platform import running_in_flatpak
+
+APP_ID = (
+    "com.nvbroadcast.NVBroadcast"
+    if running_in_flatpak()
+    else "com.doczeus.NVBroadcast"
+)
 APP_NAME = "NV Broadcast"
 APP_SUBTITLE = "by doczeus | AI Powered"
 
