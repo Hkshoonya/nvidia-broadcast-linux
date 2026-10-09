@@ -109,7 +109,9 @@ jobs:
             -v "$PWD:/workspace:ro" \
             -w /workspace \
             "$BUILDER_IMAGE" \
-            flatpak-builder-lint builddir flatpak-build
+            flatpak-builder-lint --exceptions \
+            --user-exceptions packaging/flatpak/upstream-lint-exceptions.json \
+            builddir flatpak-build
 
       - name: Export and verify development bundle
         env:

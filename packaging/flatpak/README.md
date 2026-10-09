@@ -140,7 +140,9 @@ Flathub linter:
 flatpak-builder-lint manifest packaging/flatpak/com.nvbroadcast.NVBroadcast.yml
 flatpak-builder-lint appstream \
   flatpak-build/files/share/metainfo/com.nvbroadcast.NVBroadcast.metainfo.xml
-flatpak-builder-lint builddir flatpak-build
+flatpak-builder-lint --exceptions \
+  --user-exceptions packaging/flatpak/upstream-lint-exceptions.json \
+  builddir flatpak-build
 ```
 
 The package includes Flatpak-specific desktop metadata and real application
@@ -148,7 +150,11 @@ controls screenshots under `docs/screenshots/`. They show an isolated idle
 application, with no personal camera or microphone input. Metadata pins
 the exact screenshot source commit on GitHub over HTTPS; confirm those URLs
 resolve to the reviewed PNG bytes before publishing a bundle. The full build-directory linter must pass without suppressing
-`metainfo-missing-screenshots`.
+`metainfo-missing-screenshots`. The local upstream lint profile exempts only
+`appstream-external-screenshot-url`: independently hosted screenshots cannot be
+mirrored by Flathub's publishing service. AppStream still fetches and validates
+the real HTTPS images, and missing screenshots remain an error. This local
+hosting exception is not a Flathub-approved exception.
 
 ## Public-distribution gates
 

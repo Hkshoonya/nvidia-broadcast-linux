@@ -82,7 +82,8 @@ class FlatpakPackagingTests(unittest.TestCase):
         ):
             self.assertIn(packaged_input, workflow)
         self.assertIn("flatpak-builder-lint manifest", workflow)
-        self.assertIn("flatpak-builder-lint builddir flatpak-build", workflow)
+        self.assertIn("builddir flatpak-build", workflow)
+        self.assertIn("--user-exceptions packaging/flatpak/upstream-lint-exceptions.json", workflow)
         self.assertIn("python3 -m pip check", workflow)
         self.assertIn('_model_entry("base", faster_whisper.__version__)', workflow)
         self.assertIn("/app/share/doc/nvbroadcast/NOTICE", workflow)
@@ -107,6 +108,14 @@ class FlatpakPackagingTests(unittest.TestCase):
         self.assertNotIn("onnxruntime-gpu", requirements)
         self.assertNotIn("tensorrt", requirements)
         self.assertNotIn("cupy", requirements)
+
+    def test_upstream_lint_profile_only_exempts_flathub_image_mirroring(self):
+        import json
+
+        profile = json.loads((FLATPAK_DIR / "upstream-lint-exceptions.json").read_text())
+        self.assertEqual(profile, {
+            "com.nvbroadcast.NVBroadcast": ["appstream-external-screenshot-url"]
+        })
 
     def test_flatpak_metadata_has_its_own_identity_and_cpu_scope(self):
         import configparser
