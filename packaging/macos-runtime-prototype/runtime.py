@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from email.parser import BytesParser
 import hashlib
+import importlib
 from importlib import metadata
 import json
 import os
@@ -176,13 +177,21 @@ def verify_runtime(bundle: Path, runtime: Path) -> dict:
             problems.append(f"Wheel not installed locally at its pinned version: {item['name']}")
     if problems:
         raise RuntimeError("Invalid runtime closure: " + "; ".join(problems))
+    module_records = {}
+    for name in ("nvbroadcast", "numpy", "PIL", "cv2", "mediapipe", "av", "onnx", "onnxruntime",
+                 "pyvirtualcam", "scipy", "psutil", "ctranslate2", "faster_whisper", "tokenizers", "soundfile"):
+        module = importlib.import_module(name)
+        path = Path(module.__file__).resolve()
+        if not path.is_relative_to(Path(sys.prefix).resolve()):
+            raise RuntimeError(f"Application dependency imported outside the private environment: {name}: {path}")
+        module_records[name] = {"file": str(path), "version": getattr(module, "__version__", None)}
     native = native_probe()
     run(sys.executable, "-m", "pip", "--isolated", "check")
     result_path = runtime / "generated-media.json"
     run(sys.executable, bundle / "validate_macos_runtime.py", "--output", result_path)
     return {"manifest_sha256": digest(bundle / "manifest.json"), "native": native,
             "media": json.loads(result_path.read_text()), "dependency_closure": "pass",
-            "distribution_inventory": manifest["packages"]}
+            "distribution_inventory": manifest["packages"], "application_module_imports": module_records}
 
 
 def install(bundle: Path, runtime: Path) -> None:
