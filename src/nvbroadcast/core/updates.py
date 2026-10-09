@@ -85,8 +85,8 @@ def resolve_update_target(release: ReleaseInfo) -> UpdateTarget:
         return UpdateTarget(
             button_label="Open Release Notes",
             tooltip=(
-                "Flatpak updates are delivered by the configured remote; "
-                f"open the release notes for v{release.version}"
+                f"Open release notes for v{release.version}; "
+                "Flatpak updates depend on your installation source"
             ),
             url=release.html_url or LATEST_RELEASE_URL,
         )

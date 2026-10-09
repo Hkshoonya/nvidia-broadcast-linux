@@ -142,7 +142,10 @@ def _create_pulse_virtual_mic() -> bool:
             "load-module",
             "module-null-sink",
             f"sink_name={VIRTUAL_MIC_SINK_NAME}",
-            f"sink_properties=device.description={VIRTUAL_MIC_INPUT_DESCRIPTION}",
+            # pactl joins arguments before Pulse parses the module options,
+            # then Pulse parses this value again as a property list. Preserve
+            # both layers of quotes so the space is part of the description.
+            f"sink_properties='device.description=\"{VIRTUAL_MIC_INPUT_DESCRIPTION}\"'",
             "rate=48000",
             "channels=2",
             "channel_map=front-left,front-right",

@@ -2,8 +2,10 @@
 
 This directory prepares an upstream Flatpak build without making it part of a
 stable release. The current manifest is an `x86_64`, CPU ONNX Runtime baseline
-for sandbox and integration testing. It is not ready for public distribution or
-submission to Flathub.
+for sandbox and integration testing. It is an upstream development build. The intended first distribution is a
+reviewed CPU/x86_64 bundle from this project; desktop acceptance and authenticated
+publication still gate that release. It is not a Flathub submission. See
+[DISTRIBUTION.md](DISTRIBUTION.md) for the exact scope and current policy review.
 
 ## What is included
 
@@ -43,6 +45,16 @@ commands.
 cannot expose those nodes with a filesystem permission and does not provide a
 portal for virtual-camera output. This broad device permission must remain a
 visible security tradeoff during review.
+
+## Desktop integration
+
+The tray requires a desktop StatusNotifierWatcher; GNOME users generally need
+an extension providing one. Global shortcuts require the host's
+GlobalShortcuts portal. When the desktop lacks that portal, the sandbox reports
+shortcuts unavailable rather than editing host desktop settings. These are
+conditional desktop capabilities; a missing portal does not prevent camera,
+audio, or recording use. Test tray recovery after a watcher restart and the
+shortcut grant/activation flow on desktops that provide those features.
 
 ## Host prerequisite
 
@@ -88,9 +100,9 @@ With Flatpak and flatpak-builder installed locally:
 
 ```bash
 flatpak-builder --user --install-deps-from=flathub --force-clean \
-  flatpak-build packaging/flatpak/com.doczeus.NVBroadcast.yml
+  flatpak-build packaging/flatpak/com.nvbroadcast.NVBroadcast.yml
 flatpak-builder --run flatpak-build \
-  packaging/flatpak/com.doczeus.NVBroadcast.yml \
+  packaging/flatpak/com.nvbroadcast.NVBroadcast.yml \
   python3 -c 'import cv2, mediapipe, onnxruntime, pyrnnoise, nvbroadcast'
 ```
 
@@ -125,56 +137,64 @@ Before review, validate the manifest and finished artifacts with the current
 Flathub linter:
 
 ```bash
-flatpak-builder-lint manifest packaging/flatpak/com.doczeus.NVBroadcast.yml
+flatpak-builder-lint manifest packaging/flatpak/com.nvbroadcast.NVBroadcast.yml
 flatpak-builder-lint appstream \
-  flatpak-build/files/share/metainfo/com.doczeus.NVBroadcast.metainfo.xml
-flatpak-builder-lint builddir flatpak-build
+  flatpak-build/files/share/metainfo/com.nvbroadcast.NVBroadcast.metainfo.xml
+flatpak-builder-lint --exceptions \
+  --user-exceptions packaging/flatpak/upstream-lint-exceptions.json \
+  builddir flatpak-build
 ```
 
-The development package currently reports `metainfo-missing-screenshots` for
-the build directory. Add real, current application screenshots at stable HTTPS
-URLs only after desktop and effect-path testing; do not use promotional artwork
-as an application screenshot.
+The package includes Flatpak-specific desktop metadata and real application
+controls screenshots under `docs/screenshots/`. They show an isolated idle
+application, with no personal camera or microphone input. Metadata pins
+the exact screenshot source commit on GitHub over HTTPS; confirm those URLs
+resolve to the reviewed PNG bytes before publishing a bundle. The full build-directory linter must pass without suppressing
+`metainfo-missing-screenshots`. The local upstream lint profile exempts only
+`appstream-external-screenshot-url`: independently hosted screenshots cannot be
+mirrored by Flathub's publishing service. AppStream still fetches and validates
+the real HTTPS images, and missing screenshots remain an error. This local
+hosting exception is not a Flathub-approved exception.
 
-## Public-distribution blockers
+## Public-distribution gates
 
-Before an x86_64 CPU Flatpak release, these applicable gates must be closed:
+The first CPU/x86_64 bundle requires final physical camera, virtual-camera,
+Wayland desktop, physical/processed/virtual microphone, effects, recording,
+shortcuts/tray, reconnect, and hardware-soak acceptance. Repeat applicable
+model-trust checks against the exact candidate. The previous installed
+tiny-model first-use download, corrupt-cache rejection, and CPU inference
+checks are evidence for their original artifact, not every later build.
 
-1. Test physical camera capture, v4l2loopback output, background effects, mode
-   switching, recording, microphone processing, virtual microphone output,
-   model downloads, and global shortcuts on a real Wayland desktop.
-2. Decide the permanent application ID. `com.doczeus.NVBroadcast` requires
-   control of the corresponding domain for store verification; a GitHub-derived
-   ID would require a coordinated metadata, D-Bus, and migration change.
-3. Resolve the canonical attribution and license metadata work before claiming
-   that the AppStream `GPL-3.0-or-later` declaration matches the distributed
-   license text.
-4. Capture representative application screenshots after hardware testing and
-   close the current `metainfo-missing-screenshots` linter error.
-5. Review the name, icon, screenshots, and description for NVIDIA trademark and
-   affiliation clarity.
-6. Repeat applicable model-trust checks on the final artifact. The installed
-   tiny-model first-use, corruption-rejection, and CPU-inference checks passed
-   on 2 October; they do not qualify every model or a later artifact.
-7. Review the roughly 1.2 GB application payload measured for this baseline and
-   decide whether meeting transcription should become an optional extension.
-8. Resolve Flathub's source-build requirement for the current prebuilt Python
-   dependencies, or obtain an applicable exception before a submission. Its
-   [current policy](https://docs.flathub.org/docs/for-app-authors/requirements)
-   also requires human-authored submission work. This upstream development
-   manifest is not a Flathub submission.
+The permanent Flatpak application ID is `com.nvbroadcast.NVBroadcast`, grounded
+in the project's controlled `nvbroadcast.com` domain. Native packages retain
+`com.doczeus.NVBroadcast`; no native preferences move. See the explicit,
+non-destructive development-ID migration instructions in DISTRIBUTION.md.
+Flatpak metadata uses the NV Broadcast project name, CPU-specific features,
+an independent camera icon without the NVIDIA eye motif, and a clear statement
+that this community project is not affiliated with NVIDIA. This is a technical
+identity/trademark presentation review, not a new legal opinion. The accepted
+license metadata work from #100/#136 remains complete.
 
-CUDA and TensorRT, plus aarch64, are separate future variants. A GPU variant requires
-real driver/model execution and NVIDIA wheel redistribution review; aarch64
-requires its own dependency graph and hardware tests. Neither is advertised
-by the initial x86_64 CPU package.
+The roughly 1.2 GB application payload has been measured by component. Meeting
+support remains included in the first CPU package: its principal engine is
+about 140.5 MB, while OpenCV, MediaPipe, audio processing, and numerical libraries
+account for most of the remaining payload. The separate GNOME runtime is shared
+with other apps. DISTRIBUTION.md records exact bytes and the distinction between
+installed and compressed size.
+
+Flathub's current source-build and AI-assisted-manifest restrictions mean this
+upstream wheel-based manifest is ineligible for a Flathub submission as written.
+A direct upstream Flatpak bundle is a separate distribution route and does not
+claim Flathub approval. A future Flathub attempt requires human-maintained,
+policy-compliant packaging and an honest disclosure of AI-assisted application
+material; an agent must not submit or write Flathub review replies.
+
+CUDA and TensorRT, plus aarch64, are separate future variants. A GPU variant
+requires real driver/model execution and NVIDIA wheel redistribution review;
+aarch64 requires its own dependency graph and hardware tests. Neither is
+advertised by the initial x86_64 CPU package.
 
 Installed development-package physical-camera recording and initial
-virtual-camera output passed on 5 October on X11. Native Wayland behavior,
-physical/processed/virtual microphone acceptance, client reconnects, and final
-package qualification remain open. See issue #95 and the
-[v1.5.3 readiness record](../../docs/RELEASE_READINESS_1.5.3.md).
-
-Passing a container build proves dependency closure and sandbox startup only.
-It does not prove camera, microphone, GPU, desktop-portal, or host-driver
-behavior.
+virtual-camera output passed on 5 October on X11. Final desktop/device gates
+remain tracked in issue #95. A container build verifies package closure and
+sandbox execution; it does not establish the missing physical desktop checks.

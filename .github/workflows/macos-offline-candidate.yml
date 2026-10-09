@@ -1,0 +1,122 @@
+name: macOS offline runtime candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packaging/macos-runtime-prototype/**'
+      - 'tests/test_macos_offline_candidate.py'
+      - '.github/workflows/macos-offline-candidate.yml'
+      - 'packaging/runtime-prototype/prepare.py'
+      - 'scripts/validate_macos_runtime.py'
+      - 'src/nvbroadcast/runtime/**'
+      - 'pyproject.toml'
+      - 'build-packages.sh'
+
+concurrency:
+  group: macos-offline-candidate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  PYTHONNOUSERSITE: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  GST_PLUGIN_PATH: /opt/homebrew/lib/gstreamer-1.0
+  GI_TYPELIB_PATH: /opt/homebrew/lib/girepository-1.0
+
+jobs:
+  candidate:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Provision external native prerequisites (online build stage)
+        run: |
+          test "$(uname -m)" = arm64
+          /opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
+          /opt/homebrew/bin/brew list --versions
+
+      - name: Build unsigned isolated candidate and exact wheel manifest
+        run: |
+          /opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/build.py \
+            --directory "$PWD/dist/macos-offline-candidate"
+
+      - name: Test inventory and target selection with pinned builder tools
+        run: dist/macos-offline-candidate/builder/bin/python -m unittest -v tests.test_macos_offline_candidate
+
+      - name: Install candidate package on the disposable runner
+        run: |
+          set -euo pipefail
+          # GitHub's disposable runner owns /usr/local/bin. Match production's
+          # admin-owned destination policy without weakening the installer.
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+          for path in /usr/local /usr/local/bin; do test ! -L "$path"; done
+          sudo /usr/sbin/chown root:wheel /usr/local /usr/local/bin
+          sudo /bin/chmod 755 /usr/local /usr/local/bin
+          sudo /usr/sbin/installer -pkg dist/macos-offline-candidate/NVBroadcast-offline-candidate-arm64.pkg -target / \
+            2>&1 | tee dist/macos-offline-candidate/installer.log
+          test ! -e /opt/nvbroadcast
+          test ! -e /usr/local/bin/nvbroadcast
+
+      - name: Fresh per-user install with outbound networking denied
+        run: |
+          set -euo pipefail
+          /usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network*)' /bin/bash <<'OFFLINE' \
+            2>&1 | tee dist/macos-offline-candidate/offline-install.log
+          set -euo pipefail
+          /opt/homebrew/opt/python@3.13/bin/python3.13 - <<'PY'
+          import errno, socket
+          for address in [('127.0.0.1', 9), ('1.1.1.1', 443)]:
+              with socket.socket() as client:
+                  client.settimeout(2)
+                  try:
+                      client.connect(address)
+                  except OSError as error:
+                      if error.errno not in (errno.EPERM, errno.EACCES):
+                          raise RuntimeError(f'Networking not denied by policy: {error}') from error
+                  else:
+                      raise RuntimeError('Network isolation did not apply')
+          print('Network policy enforced for local and external TCP connections')
+          PY
+          /opt/nvbroadcast-offline-candidate/setup.sh
+          # Exercise the existing-ready path under the same network denial.
+          /opt/nvbroadcast-offline-candidate/setup.sh
+          /usr/local/bin/nvbroadcast-offline-candidate --help
+          OFFLINE
+
+      - name: Retain installed qualification and package identity
+        if: always()
+        run: |
+          mkdir -p dist/macos-offline-evidence
+          if [[ -f /opt/nvbroadcast-offline-candidate/macos-runtime-id ]]; then
+            identity="$(cat /opt/nvbroadcast-offline-candidate/macos-runtime-id)"
+            runtime="$HOME/Library/Application Support/NVBroadcast Offline Candidate/$identity"
+            for name in qualification.json generated-media.json runtime-ready; do
+              if [[ -f "$runtime/$name" ]]; then cp "$runtime/$name" dist/macos-offline-evidence/; fi
+            done
+          fi
+          for name in package.json native-build-inventory.json pylock.macos-arm64-cp313-cpu.toml offline-install.log installer.log; do
+            if [[ -f "dist/macos-offline-candidate/$name" ]]; then
+              cp "dist/macos-offline-candidate/$name" dist/macos-offline-evidence/
+            fi
+          done
+          if [[ -f dist/macos-offline-candidate/root/opt/nvbroadcast-offline-candidate/manifest.json ]]; then
+            cp dist/macos-offline-candidate/root/opt/nvbroadcast-offline-candidate/manifest.json dist/macos-offline-evidence/
+          fi
+
+      - name: Upload candidate and evidence (no signing or release)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-offline-candidate
+          path: |
+            dist/macos-offline-candidate/*.pkg
+            dist/macos-offline-evidence/
+          if-no-files-found: warn
