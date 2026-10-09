@@ -153,8 +153,12 @@ This is the provenance foundation tracked by issue #60, not completion of that
 issue. The current native installers still resolve parts of their Python
 environment online during installation, so the complete installed environment
 is not yet hermetic or independently reproducible. Target-specific dependency
-locks, offline wheelhouses, complete SBOMs, independent rebuild comparison, RPM
-signing, and macOS signing/notarization remain separate acceptance work.
+locks, offline wheelhouses, complete SBOMs, independent runtime rebuild
+comparison and RPM signing remain separate acceptance work. The v1.5.3 tag PKG
+has passed actual Developer ID Installer signing, notarization, ticket stapling
+and Gatekeeper acceptance; that package qualification does not make its
+network-provisioned Python runtime hermetic. See
+[macOS signing and acceptance](MACOS_SIGNING.md).
 
 Official references:
 
