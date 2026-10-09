@@ -26,7 +26,9 @@ class MacOfflineCandidateTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        # macOS tempfile uses /var, whose system symlink points at /private/var.
+        # Resolve the fixture itself; runtime symlink rejection stays exercised.
+        self.root = Path(temporary.name).resolve()
         self.bundle = self.root / "payload"
         self.wheels = self.bundle / "wheels"
         self.wheels.mkdir(parents=True)
@@ -135,6 +137,16 @@ class MacOfflineCandidateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "identity"):
                 runtime.install(self.bundle, self.runtime)
         self.assertFalse(self.runtime.exists())
+
+    def test_redirected_user_runtime_is_rejected_without_touching_target(self):
+        target = self.root / "separate-target"
+        target.mkdir()
+        self.runtime.symlink_to(target, target_is_directory=True)
+        with mock.patch.object(runtime.os, "geteuid", return_value=501), \
+                mock.patch.object(runtime, "native_probe", return_value={}):
+            with self.assertRaisesRegex(RuntimeError, "redirected user runtime"):
+                runtime.install(self.bundle, self.runtime)
+        self.assertEqual(list(target.iterdir()), [])
 
     def test_pip_is_offline_hash_checked_and_does_not_resolve(self):
         with mock.patch.object(runtime, "run") as run:
