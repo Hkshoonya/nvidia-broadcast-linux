@@ -4,6 +4,7 @@
   autoPatchelfHook,
   fetchFromGitHub,
   fetchurl,
+  findutils,
   python313Packages,
   runCommand,
   wrapGAppsHook4,
@@ -12,6 +13,7 @@
   coreutils,
   gawk,
   gdk-pixbuf,
+  gitMinimal,
   glib,
   graphene,
   gst_all_1,
@@ -317,6 +319,7 @@ python313Packages.buildPythonApplication (finalAttrs: {
   ];
 
   nativeCheckInputs = [
+    gitMinimal
     pipewire
     psmisc
     pulseaudio
@@ -349,6 +352,19 @@ python313Packages.buildPythonApplication (finalAttrs: {
     substituteInPlace tests/test_release_checksums.py \
       --replace-fail '"#!/usr/bin/env python3\n"' \
         '"#!${python313Packages.python.interpreter}\n"'
+
+    # New installer fixtures also need declared tools in the hermetic sandbox.
+    substituteInPlace tests/test_macos_package_install.py \
+      --replace-fail '/bin/bash' '${stdenv.shell}' \
+      --replace-fail '/bin/cat' '${coreutils}/bin/cat' \
+      --replace-fail 'script = script.replace("/bin/ls", str(self.tools / "ls"))' \
+        'script = script.replace("/usr/bin/find", "${findutils}/bin/find").replace("/bin/ls", str(self.tools / "ls"))' \
+      --replace-fail '{self.tools}:/usr/bin:/bin' \
+        '{self.tools}:${builtins.dirOf stdenv.shell}:${lib.makeBinPath [ coreutils ]}:/usr/bin:/bin'
+    substituteInPlace tests/test_macos_signing_workflow.py \
+      --replace-fail '/bin/bash' '${stdenv.shell}' \
+      --replace-fail '"PATH": "/usr/bin:/bin"' \
+        '"PATH": "${builtins.dirOf stdenv.shell}:${lib.makeBinPath [ coreutils ]}:/usr/bin:/bin"'
 
     # Upstream's fixed system PATH is empty in the Nix build sandbox.
     substituteInPlace scripts/native_package_upgrade.sh.in \
