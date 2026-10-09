@@ -708,7 +708,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("build_upgrade_helper()", build_script)
         self.assertIn("render_native_upgrade_helper.py", build_script)
         self.assertGreaterEqual(
-            workflow.count("artifacts/linux-packages/nvbroadcast-native-upgrade"),
+            workflow.count("artifacts/linux-signed-packages/nvbroadcast-native-upgrade"),
             3,
         )
         self.assertIn("dist/nvbroadcast-native-upgrade", workflow)
@@ -817,11 +817,11 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn(attest_action, builder)
 
         self.assertIn(
-            "needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-macos]",
+            "needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-linux, sign-macos]",
             attestation_job,
         )
-        self.assertIn("artifacts/linux-packages/deb/*.deb", attestation_job)
-        self.assertIn("artifacts/linux-packages/rpm/*.rpm", attestation_job)
+        self.assertIn("artifacts/linux-signed-packages/deb/*.deb", attestation_job)
+        self.assertIn("artifacts/linux-signed-packages/rpm/*.rpm", attestation_job)
         self.assertIn("artifacts/macos-signed-packages/*.pkg", attestation_job)
         self.assertIn("artifacts/SHA256SUMS.packages", attestation_job)
         self.assertIn("steps.snapcraft.outputs.snap", snap_builder)
@@ -1052,8 +1052,8 @@ class PackagingMetadataTests(unittest.TestCase):
         workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
         release_job = workflow.split("  release:", 1)[1]
 
-        self.assertIn("artifacts/linux-packages/deb/*.deb", release_job)
-        self.assertIn("artifacts/linux-packages/rpm/*.rpm", release_job)
+        self.assertIn("artifacts/linux-signed-packages/deb/*.deb", release_job)
+        self.assertIn("artifacts/linux-signed-packages/rpm/*.rpm", release_job)
         self.assertIn("artifacts/macos-signed-packages/*.pkg", release_job)
         self.assertNotIn("artifacts/macos-signed-packages/pkg/*.pkg", release_job)
         self.assertIn("fail_on_unmatched_files: true", release_job)

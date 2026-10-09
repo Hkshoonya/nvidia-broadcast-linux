@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      sign_rpm:
+        description: 'Sign and verify the RPM with the configured project key (rpm-signing environment)'
+        type: boolean
+        default: false
       sign_macos:
         description: 'Sign, notarize and staple the macOS installer (requires macos-signing environment secrets)'
         type: boolean
@@ -99,6 +103,77 @@ jobs:
             dist/deb/*.deb
             dist/rpm/*.rpm
             dist/nvbroadcast-native-upgrade
+
+  # Only this job receives RPM signing credentials. Release checksums and the
+  # native upgrader must bind the signed RPM, whose bytes differ from the build.
+  sign-linux:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.sign_rpm && inputs.macos_recovery_operation == 'none')
+    needs: [build-linux, test-linux, test-python]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: rpm-signing
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install RPM signing tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm gnupg2 python3
+
+      - name: Download this run's unsigned Linux packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: linux-packages
+          path: dist/linux-unsigned
+
+      - name: Sign RPM and verify publisher and unchanged payload
+        env:
+          NVB_RPM_PRIVATE_KEY: ${{ secrets.RPM_SIGNING_PRIVATE_KEY }}
+          NVB_RPM_KEY_PASSPHRASE: ${{ secrets.RPM_SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(dist/linux-unsigned/rpm/*.rpm)
+          (( ${#packages[@]} == 1 ))
+          test -f packaging/keys/RPM-GPG-KEY-nvbroadcast.asc
+          test -f packaging/keys/RPM-GPG-KEY-nvbroadcast.fingerprint
+          python3 scripts/sign_rpm_package.py \
+            --rpm "${packages[0]}" \
+            --public-key packaging/keys/RPM-GPG-KEY-nvbroadcast.asc \
+            --fingerprint "$(cat packaging/keys/RPM-GPG-KEY-nvbroadcast.fingerprint)" \
+            --output dist/linux-signed/rpm
+          mv dist/linux-signed/rpm/RPM-GPG-KEY-nvbroadcast.asc dist/linux-signed/
+          mv dist/linux-signed/rpm/rpm-signing.json dist/linux-signed/
+
+      - name: Bind native upgrader to the signed package
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debs=(dist/linux-unsigned/deb/*.deb)
+          rpms=(dist/linux-signed/rpm/*.rpm)
+          (( ${#debs[@]} == 1 && ${#rpms[@]} == 1 ))
+          mkdir -p dist/linux-signed/deb
+          cp "${debs[0]}" dist/linux-signed/deb/
+          package_version="$(dpkg-deb -f "${debs[0]}" Version)"
+          python3 scripts/render_native_upgrade_helper.py \
+            --template scripts/native_package_upgrade.sh.in \
+            --deb "${debs[0]}" --rpm "${rpms[0]}" \
+            --version "${package_version%-*}" --revision "${package_version##*-}" \
+            --output dist/linux-signed/nvbroadcast-native-upgrade
+
+      - name: Upload verified signed Linux packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-signed-packages
+          if-no-files-found: error
+          path: |
+            dist/linux-signed/deb/*.deb
+            dist/linux-signed/rpm/*.rpm
+            dist/linux-signed/nvbroadcast-native-upgrade
+            dist/linux-signed/RPM-GPG-KEY-nvbroadcast.asc
+            dist/linux-signed/rpm-signing.json
 
   # ─── macOS: .pkg ───────────────────────────────────────────────────────────
   build-macos:
@@ -610,7 +685,7 @@ jobs:
   # ─── Attest: sign exact artifacts after every release gate passes ──────────
   attest-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-macos]
+    needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-linux, sign-macos]
     runs-on: ubuntu-latest
     permissions:
       attestations: write
@@ -630,18 +705,20 @@ jobs:
         run: |
           python3 scripts/generate_release_checksums.py \
             --output artifacts/SHA256SUMS.packages \
-            artifacts/linux-packages/deb/*.deb \
-            artifacts/linux-packages/rpm/*.rpm \
-            artifacts/linux-packages/nvbroadcast-native-upgrade \
+            artifacts/linux-signed-packages/deb/*.deb \
+            artifacts/linux-signed-packages/rpm/*.rpm \
+            artifacts/linux-signed-packages/nvbroadcast-native-upgrade \
+            artifacts/linux-signed-packages/RPM-GPG-KEY-nvbroadcast.asc \
             artifacts/macos-signed-packages/*.pkg
 
       - name: Attest release package provenance
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-path: |
-            artifacts/linux-packages/deb/*.deb
-            artifacts/linux-packages/rpm/*.rpm
-            artifacts/linux-packages/nvbroadcast-native-upgrade
+            artifacts/linux-signed-packages/deb/*.deb
+            artifacts/linux-signed-packages/rpm/*.rpm
+            artifacts/linux-signed-packages/nvbroadcast-native-upgrade
+            artifacts/linux-signed-packages/RPM-GPG-KEY-nvbroadcast.asc
             artifacts/macos-signed-packages/*.pkg
             artifacts/SHA256SUMS.packages
 
@@ -682,9 +759,10 @@ jobs:
           draft: true
           generate_release_notes: true
           files: |
-            artifacts/linux-packages/deb/*.deb
-            artifacts/linux-packages/rpm/*.rpm
-            artifacts/linux-packages/nvbroadcast-native-upgrade
+            artifacts/linux-signed-packages/deb/*.deb
+            artifacts/linux-signed-packages/rpm/*.rpm
+            artifacts/linux-signed-packages/nvbroadcast-native-upgrade
+            artifacts/linux-signed-packages/RPM-GPG-KEY-nvbroadcast.asc
             artifacts/macos-signed-packages/*.pkg
             artifacts/release-metadata/SHA256SUMS.packages
           fail_on_unmatched_files: true

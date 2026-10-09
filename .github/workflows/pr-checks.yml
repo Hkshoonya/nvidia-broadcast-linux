@@ -56,6 +56,8 @@ jobs:
             python3-venv \
             python3-gi \
             python3-gi-cairo \
+            rpm \
+            gnupg2 \
             fonts-dejavu-core \
             xvfb \
             xauth \
