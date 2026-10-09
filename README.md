@@ -668,7 +668,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.5.2)
+│   ├── __init__.py              # Package version
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── __main__.py              # CLI entry point
@@ -740,7 +740,7 @@ nvidia-broadcast-linux/
 ├── install_macos.sh             # macOS installer
 ├── uninstall.sh                 # Clean removal
 ├── build-packages.sh            # Debian/RPM/macOS package builder
-├── pyproject.toml               # Package config (v1.5.2)
+├── pyproject.toml               # Package config
 └── README.md
 ```
 

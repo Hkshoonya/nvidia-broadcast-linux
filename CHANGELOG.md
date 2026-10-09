@@ -2,9 +2,22 @@
 
 ## Unreleased
 
+- **Report Failed RPM Runtime Fallback** - Report an installation failure when
+  both CUDA runtime setup and its clean CPU fallback fail
+  ([PR #142](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/142)).
+- **Stop on Native Runtime Prerequisite Failures** - DEB and RPM runtime setup
+  now stops if environment cleanup, creation, or bootstrap dependency setup
+  fails, instead of allowing later commands to hide the failure
+  ([PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143)).
+
+These fixes are merged on main but are not included in the immutable v1.5.3
+release packages.
+
 ## v1.5.3 - Recording, Small Windows, and Runtime Recovery
 
-Release candidate; publication and final package acceptance are pending.
+[Published 9 October 2026](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.3).
+See the [verified release notes](docs/RELEASE_NOTES_1.5.3.md) for downloads,
+completed checks, and remaining limitations.
 
 - **Usable Small Windows** - Camera and Audio controls remain readable in
   narrow windows. Show Preview restores the camera picture at the minimum
@@ -41,8 +54,8 @@ Release candidate; publication and final package acceptance are pending.
   encoding when available, and falls back through tested software encoders
   without blocking the window during codec preparation or MP4 finalization.
   Package CI creates, discovers, and fully decodes a synthetic MP4 with one
-  video and one audio stream; Debian installs the x264 plugin, while the Snap
-  candidate carries a narrowly validated OpenH264 and VisualOn codec payload
+  video and one audio stream; Debian installs the x264 plugin, while the released
+  Snap carries a narrowly validated OpenH264 and VisualOn codec payload
   for strict confinement ([Issue #112](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/112)).
 - **Visible TensorRT Downloads** - Source and in-app installs resolve the pinned
   TensorRT 10 library wheel directly from NVIDIA's package index and refuse the
