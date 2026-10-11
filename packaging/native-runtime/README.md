@@ -40,6 +40,8 @@ pins after repeating wheel reproduction, input audit and lifecycle acceptance.
 `builder-delivery.json` pins one exported OCI archive containing the three exact
 approved image indexes. Its 620,776,960 bytes have SHA-256
 `7b9579055f63c7f63516060c545c7d8207d07fb04ea8c038bc1c8185f790e3d4`.
+The infrastructure asset ID is `631786999`; its uploaded name, size and GitHub
+digest have been checked against the lock.
 The `candidate` status and absent attestation deliberately prevent a release
 consumer from calling it authenticated. A local hash or the unsigned BuildKit
 metadata inside the archive proves no publisher identity or original build.
@@ -74,7 +76,7 @@ The bounded delivery sequence is:
    `--clobber`, reuse a `v*` tag, or modify a frozen v1.5.3 asset. This archive is
    infrastructure and is not an application release or installation candidate.
 2. Read back the exact asset ID, name, size and GitHub SHA-256. Commit that asset
-   ID into the reviewed lock. The currently null ID rejects a guessed or
+   ID into the reviewed lock. A null or different ID rejects a guessed or
    unreviewed asset. A changed asset requires another explicit lock review.
 3. Run **Qualify historical native builders** from main using that same asset
    ID. It has only `contents: read`, checks the release's tag/name/ID/size/hash,

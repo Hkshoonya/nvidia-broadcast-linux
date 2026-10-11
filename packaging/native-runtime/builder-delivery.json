@@ -9,7 +9,7 @@
     "repository": "Hkshoonya/nvidia-broadcast-linux",
     "tag": "infra-native-builders-20261011",
     "asset": "nvbroadcast-native-builders-linux-amd64-20261011.oci.tar",
-    "asset_id": null
+    "asset_id": 631786999
   },
   "attestation": null,
   "original_build_provenance_authenticated": false
