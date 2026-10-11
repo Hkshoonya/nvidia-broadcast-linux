@@ -36,8 +36,9 @@ check_paths() {
         done
 }
 check_paths
+@RPM_BOOTSTRAP_FUNCTION@
 case "$1" in
-    prepare)
+    prepare|prepare-remove)
         mkdir -p "$state_dir"
         if [ ! -e "$runtime_lock" ]; then
             (set -C; : > "$runtime_lock")
@@ -66,6 +67,7 @@ case "$1" in
                 esac
             done
         done
+        @RPM_BOOTSTRAP_PREPARE@
         mkdir -p "$base"
         marker=$(mktemp "$base/.transaction.XXXXXX")
         printf '%s\n' '@VERSION@' > "$marker"
@@ -75,6 +77,7 @@ case "$1" in
     finish)
         "$base/check-packages" --configure
         "$base/runtime/bin/python" -I -B "$base/validate-install.py" --variant '@VARIANT@'
+        @RPM_BOOTSTRAP_FINISH@
         # Legacy generated environments were outside the native file database.
         # Only delete the conventional, unredirected private environment.
         if [ -f "$base/.legacy-runtime" ]; then

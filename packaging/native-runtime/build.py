@@ -67,7 +67,7 @@ def verified_images(path: Path, provided: dict[str, str]) -> dict:
 
 
 def recipe_identity() -> dict:
-    paths = [HERE / name for name in ("build.py", "builders.json", "package-hooks.sh", "validate_install.py",
+    paths = [HERE / name for name in ("build.py", "builders.json", "package-hooks.sh", "validate_install.py", "recovery_bootstrap.py",
         "pylock.linux-x86_64-cp313-cpu.toml", "pylock.linux-x86_64-cp313-cuda.toml")]
     paths += [PROTOTYPE / name for name in ("prepare.py", "assemble.py", "inputs.json", "pylock.build.toml", "build-bindings.sh")]
     paths.append(HERE.parent / "native-prototype/build.py")
@@ -167,6 +167,16 @@ def assemble(args, output: Path, source: dict) -> Path:
 
 def hook(action: str, version: str, variant: str, family: str) -> str:
     script = (HERE / "package-hooks.sh").read_text().replace("@VERSION@", version).replace("@VARIANT@", variant)
+    bootstrap = ""
+    if family == "rpm" and action in {"prepare", "finish"}:
+        payload = recovery_source()
+        bootstrap = ("recovery_bootstrap() {\n/usr/bin/python3 -IB - \"$1\" <<'NVB_BOOTSTRAP_PY'\n"
+                     + (HERE / "recovery_bootstrap.py").read_text()
+                     + "\nprint('NV Broadcast recovery copy:', bootstrap(sys.argv[1], " + repr(payload) + "))\n"
+                     "NVB_BOOTSTRAP_PY\n}\n")
+    script = script.replace("@RPM_BOOTSTRAP_FUNCTION@", bootstrap)
+    script = script.replace("@RPM_BOOTSTRAP_PREPARE@", "recovery_bootstrap prepare" if bootstrap else ":")
+    script = script.replace("@RPM_BOOTSTRAP_FINISH@", "recovery_bootstrap finish" if bootstrap else ":")
     # Detect a real legacy package before unpacking, not an arbitrary /opt tree.
     legacy = ""
     if action == "prepare":
@@ -178,14 +188,17 @@ def hook(action: str, version: str, variant: str, family: str) -> str:
     return "#!/bin/sh\nset -eu\nset -- " + action + "\n" + script + "\n" + legacy
 
 
-def recovery_interface(stage: Path) -> None:
-    """Ship one signed recovery executable before the large private runtime."""
+def recovery_source() -> bytes:
+    """Render one self-contained recovery executable and its pinned public key."""
     source = (REPO / "scripts/recover_native_rpm.py").read_text()
     key = (REPO / "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc").read_bytes()
     if source.count('PUBLIC_ARMOR = b""') != 1 or hashlib.sha256(key).hexdigest() not in source:
         raise ValueError("recovery source and pinned project public key differ")
-    native.write(stage / "usr/bin/nvbroadcast-recover-rpm",
-                 source.replace('PUBLIC_ARMOR = b""', 'PUBLIC_ARMOR = ' + repr(key)), 0o755)
+    return source.replace('PUBLIC_ARMOR = b""', 'PUBLIC_ARMOR = ' + repr(key)).encode()
+
+
+def recovery_interface(stage: Path) -> None:
+    native.write(stage / "usr/bin/nvbroadcast-recover-rpm", recovery_source().decode(), 0o755)
 
 
 def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
@@ -254,12 +267,13 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
         spec_text = (f"Name: nvbroadcast\nVersion: {source['version']}\nRelease: {release}\n"
             "Summary: NVBroadcast complete offline application runtime\nLicense: GPL-3.0-or-later AND LicenseRef-Bundled-Dependencies\n"
             f"BuildArch: x86_64\nAutoReqProv: no\nRequires: {dependency}\n"
+            "Requires(pre): python3 >= 3.11, util-linux, coreutils\n"
             "Recommends: libayatana-appindicator-gtk3, gstreamer1-plugin-openh264, openh264\n"
             "%global __os_install_post %{nil}\n%global _build_id_links none\n%global debug_package %{nil}\n"
             "%global _binary_payload w8.zstdio\n%description\nPrivate Python and hash-locked application dependencies.\n"
             "%install\nmkdir -p %{buildroot}\ncp -a /stage/. %{buildroot}/\n"
-            "%pretrans\n" + hook("prepare", version, args.variant, family).replace("%", "%%") + "\n%posttrans\n" + hook("finish", version, args.variant, family).replace("%", "%%") +
-            '\n%preun\nif [ "$1" -eq 0 ]; then\n' + hook("prepare", version, args.variant, family).replace("%", "%%") +
+            "%pre\n" + hook("prepare", version, args.variant, family).replace("%", "%%") + "\n%posttrans\n" + hook("finish", version, args.variant, family).replace("%", "%%") +
+            '\n%preun\nif [ "$1" -eq 0 ]; then\n' + hook("prepare-remove", version, args.variant, family).replace("%", "%%") +
             '\nfi\n%postun\nif [ "$1" -eq 0 ]; then\n' + hook("remove", version, args.variant, family).replace("%", "%%") + "\nfi\n%files -f /work/files.txt\n%defattr(-,root,root,-)\n")
         native.write(work / "package.spec", spec_text)
         native.write(work / "files.txt", "\n".join(("%dir " if p.is_dir() and not p.is_symlink() else "") + json.dumps("/" + str(p.relative_to(stage))).replace("%", "%%")

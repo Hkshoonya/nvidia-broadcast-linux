@@ -14,7 +14,13 @@ private Python.
 The native RPM includes one standalone `/usr/bin/nvbroadcast-recover-rpm`.
 It runs system Python 3.11 or newer with isolated imports and bytecode disabled.
 The executable and its embedded public key are delivered inside the project-signed
-RPM, and `/usr/bin` precedes the large private runtime in the package payload.
+RPM. RPM may stage even `/usr/bin` files under temporary names until unpacking
+finishes, so the signed package also prepares a recovery copy before unpacking.
+Its ordinary `%pre` scriptlet runs only after system Python's explicit package
+dependency, and writes the exact recovery bytes atomically to a root-only,
+content-addressed file in `/var/lib/nvbroadcast/recovery-tools/`. It prints that
+path before writing the transaction marker. Neither copy imports the private
+runtime. An unavailable Python or unsafe recovery state fails before unpacking.
 The public key's SHA-256 is fixed in the recovery source; a downloaded adjacent
 key or checksum cannot authorize a different publisher.
 
@@ -24,10 +30,21 @@ Publisher primary fingerprint:
 A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1
 ```
 
-If interruption occurred before the recovery executable was installed, or its
-integrity is in doubt, stop and request maintainer-assisted recovery using the
-authenticated package. Do not bootstrap by executing a script taken from an
-unverified archive. The current interface deliberately has no unsigned bypass.
+If `/usr/bin/nvbroadcast-recover-rpm` is absent after a first-install interruption,
+use the exact path printed as `NV Broadcast recovery copy:` by the authenticated
+package transaction. Run it with system Python, passing the signed target RPM:
+
+```bash
+sudo /usr/bin/python3 -IB /var/lib/nvbroadcast/recovery-tools/recover-PRINTED_SHA256.py /path/to/target.rpm
+```
+
+The printed hash is part of the filename, not a separate downloaded checksum.
+Do not execute a staged `;1234abcd` file, choose an arbitrary file from that
+directory, or download an unverified replacement script. If the trusted path is
+unknown or either copy's integrity is in doubt, request maintainer-assisted
+recovery using the authenticated package. There is no unsigned bypass. First
+installations may have no launcher at all; interrupted upgrades retain the old
+launcher's refusal while the transaction marker is present.
 
 ## Inspect and preserve
 
@@ -99,6 +116,14 @@ native dependencies already installed by the operating system; recovery does
 not download or resolve them. A replay or configuration failure keeps launch
 blocked and must not be described as a successful repair. Inspect the error
 without deleting the audit or evidence.
+
+Successful configuration first validates the complete private runtime and the
+installed recovery executable. Only then does it remove the exact current
+bootstrap copy and clear the transaction marker. A normal uninstall does not
+create a bootstrap copy. Copies from older failed transactions and unrelated
+recovery state are preserved for manual review; successful transactions do not
+accumulate copies. Do not remove failed-transaction evidence until it has been
+reviewed.
 
 If preservation itself is interrupted, retain the recovery directory and its
 `recovery.json`. It records both the full plan and completed moves; an incomplete
