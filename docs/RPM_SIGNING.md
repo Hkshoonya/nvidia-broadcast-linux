@@ -6,9 +6,10 @@ reviewed public key, and compares the immutable header and unpacked payload to
 the unsigned input. An unsigned RPM with valid checksums is rejected.
 
 This does not retroactively sign v1.5.3. Its qualified release files and tag stay
-unchanged. The production identity and encrypted local backups are provisioned;
-GitHub configuration and an actual production-signed candidate remain pending.
-Both are required before claiming that the RPM acceptance item in #60 is complete.
+unchanged. The production identity and encrypted local backups are provisioned,
+and the protected GitHub signing environment is configured. Each candidate must
+pass actual workflow signing and artifact verification before distribution;
+configuration alone does not establish a verified release.
 
 ## Key provisioning
 
@@ -30,7 +31,8 @@ the maintainer's persistent desktop secret service. Backup restoration, signing
 subkey-only export, wrong-passphrase rejection and independent challenge
 verification passed; revocation was checked only in an isolated public keyring.
 Temporary keyrings were removed. This establishes a recoverable local backup;
-no off-device backup, production RPM signature or CI signing result is claimed.
+no off-device backup is claimed. Local key qualification and hosted workflow
+qualification are recorded separately from release publication.
 
 The public key and full primary fingerprint are recorded at:
 
@@ -43,14 +45,15 @@ The fingerprint file must contain the full primary fingerprint. The ASCII key
 must contain only public material. Review those public files before use; never
 commit a private key, keyring, passphrase, or encrypted private backup.
 
-The GitHub `rpm-signing` environment has not yet been configured. It must contain:
+The GitHub `rpm-signing` environment was configured on 11 October 2026 with:
 
 - `RPM_SIGNING_PRIVATE_KEY`: the protected armored signing-subkey export, with
   only a dummy primary-secret record; the full certification key stays outside CI.
 - `RPM_SIGNING_PASSPHRASE`: that key's passphrase.
 
-Restrict this environment to the `main` branch and `v*` tags, using explicit
-branch/tag policy types. Verify those restrictions before uploading secrets.
+This environment permits only the `main` branch and `v*` tags, using explicit
+branch/tag policy types. Those restrictions were verified before either secret
+was uploaded. Preserve and recheck them whenever changing the configuration.
 Store the private backup and revocation material securely outside this repo.
 Record the public fingerprint in the release documentation and website through
 the normal reviewed change. A key rotation needs an explicit published transition;
