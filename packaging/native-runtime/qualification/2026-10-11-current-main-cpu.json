@@ -1,0 +1,190 @@
+{
+  "adapter_input_sha256": {
+    "packaging/native-prototype/build.py": "ed731871ee8a3bc400d629b983f335fde9fb36e1ffcebb3dc7f0a8a5771d626b",
+    "packaging/native-runtime/build.py": "8fc450c38a99231ec694da7eece2a98aac5b2c9785cf4d9a7f83c7ddc4b422f5",
+    "packaging/native-runtime/builders.json": "ab0df4d7ae6cc6d4a85091f3d92a4fcf8912175e31564fc5ee3bf8ec198216a5",
+    "packaging/native-runtime/package-hooks.sh": "41a97ab33e33463c95556cc224ec7f8d3632b1b723e6c4ec03f5d9f69ccba379",
+    "packaging/native-runtime/pylock.linux-x86_64-cp313-cpu.toml": "4b46de7218ade2ae66735a3e08dc1caf1378e1a73ccebd8eca40c606beaa99ca",
+    "packaging/native-runtime/pylock.linux-x86_64-cp313-cuda.toml": "4a87cfd44591717018dd6037a782334092dea13ac39569d88430aa11e356774d",
+    "packaging/native-runtime/validate_install.py": "27d7b9bfcfc4bcee38b7654b3155c75f3ee9b80bbdabc3a305ce5b15e96fa368",
+    "packaging/runtime-prototype/assemble.py": "3f8e1b1c1dac75579c804f3f34ccdbfb486f6ebc4e9addbba523701acdaa54bc",
+    "packaging/runtime-prototype/build-bindings.sh": "1f6711b113481375cc4ce38b6fab21d4d84dff79c69fc9119aaccf8d9390ffa1",
+    "packaging/runtime-prototype/inputs.json": "4b78c88ef667c94237a774a1349a630f1e5fb0d1f76229eb5bec165ab55590b7",
+    "packaging/runtime-prototype/prepare.py": "83947e129b8b259e0e565b005a427e53081dc20f7617a2ee13b4c64556d8d651",
+    "packaging/runtime-prototype/pylock.build.toml": "7a5bf5ed999ab8d77c48fd4244a2623df86c6686df1de716508a18bc21420990"
+  },
+  "adapter_revision": "0295b190b3eebf62a29cd0a92b013714a72b1184",
+  "adapter_tree": "0a39d25bbdceffce17abc9c1b3afa6ea5cda140f",
+  "application_revision": "0295b190b3eebf62a29cd0a92b013714a72b1184",
+  "application_wheel_sha256": "f63fe992d4049bf81ebb9f600c88f1c7ce3b15429ca176754fd76549bdde27ae",
+  "assembly": "One new offline runtime assembled from the pinned source; both native package revisions consume that verified runtime.",
+  "builder_images": {
+    "bindings": "sha256:7295102d8391699de28d86df555bddae343c5540c32bb21cbd5af10f92fc07ad",
+    "deb": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+    "rpm": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c"
+  },
+  "date": "2026-10-11",
+  "evidence": {
+    "offline_cache_files": 78,
+    "offline_cache_unchanged": true,
+    "qualification_report": "qualification-current-main.json",
+    "qualification_report_sha256": "280a1aa5d8644e3a7a8110a6d48b202cc5e8236aceb939996f7beb2d66b6fd62",
+    "retained_local_directory": "dist/issue60-current-main",
+    "source_verification_sha256": "3244a3b4c5524f065ad7c36fd38ee5a34983df86b870be970858207eeac4d02d",
+    "tracked_source_unchanged_during_qualification": true
+  },
+  "lifecycle": {
+    "deb": {
+      "coverage": [
+        "Install, upgrade, rollback and reinstall",
+        "Running launcher and private-runtime refusal",
+        "Deliberate corruption rejection and exact package repair",
+        "Observed mid-unpack interruption, blocked launch and repair",
+        "Removal and preservation of user configuration, recordings and system Python"
+      ],
+      "fixture_image": "sha256:b4215156c71cac4ca6a318baa523f166540768ef3594314adbb1450b7c9b5366",
+      "generated_recording": {
+        "audio_encoder": "voaacenc",
+        "audio_peak": 0.8085297346115112,
+        "audio_samples": 49152,
+        "file_bytes": 211661,
+        "status": "pass",
+        "video_encoder": "x264enc",
+        "video_frames": 24
+      },
+      "harness": {
+        "file_sha256": "63e309b31750dae8dc35b5c2bd1a8ecfcf8cd32d7285eb70acd4e549debab3eb",
+        "revision": "0295b190b3eebf62a29cd0a92b013714a72b1184"
+      },
+      "installed_probes": {
+        "count": 5,
+        "cpu_inference": true,
+        "current_source_python_files_each": 62,
+        "gstreamer": "GStreamer 1.24.2",
+        "gtk": "4.14.5",
+        "gtk_window_mapped": true,
+        "python": "3.13.16",
+        "synthetic_video_audio_eos": true
+      },
+      "interruption": {
+        "boundary": "mid-unpack",
+        "manager_exit": 9,
+        "minimum_observed_bytes": 1048576,
+        "observed_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13.dpkg-new",
+        "tid_max": 1791750866,
+        "tid_min": 1791750866
+      },
+      "os": "ubuntu",
+      "os_version": "24.04",
+      "status": "pass",
+      "steps_completed": 39,
+      "trace_sha256": "4cecdb6890b914bf4a46ce87580711f3484a14063452d7637015c49e771f2ffa"
+    },
+    "rpm": {
+      "coverage": [
+        "Install, upgrade, rollback and reinstall",
+        "Running launcher and private-runtime refusal",
+        "Deliberate corruption rejection and exact package repair",
+        "Observed mid-unpack interruption, blocked launch and repair",
+        "Removal and preservation of user configuration, recordings and system Python"
+      ],
+      "fixture_image": "sha256:c5cb226d51d0bc9e3c13861649a7ba73b06d0b09d9f866501a1569b48c562ab5",
+      "fragment_preservation": {
+        "recognized_fragments": 44,
+        "report_sha256": "ee2cd9b1455101a4d6e16040b91853b41a55689b00868eeaab45fccca622ae2a",
+        "scope": "Bounded qualification recovery using authenticated retained staging; not shipped end-user repair."
+      },
+      "generated_recording": {
+        "audio_encoder": "fdkaacenc",
+        "audio_peak": 0.8150238394737244,
+        "audio_samples": 51200,
+        "file_bytes": 143537,
+        "status": "pass",
+        "video_encoder": "openh264enc",
+        "video_frames": 24
+      },
+      "harness": {
+        "file_sha256": "63e309b31750dae8dc35b5c2bd1a8ecfcf8cd32d7285eb70acd4e549debab3eb",
+        "revision": "0295b190b3eebf62a29cd0a92b013714a72b1184"
+      },
+      "installed_probes": {
+        "count": 5,
+        "cpu_inference": true,
+        "current_source_python_files_each": 62,
+        "gstreamer": "GStreamer 1.28.7",
+        "gtk": "4.22.5",
+        "gtk_window_mapped": true,
+        "python": "3.13.16",
+        "synthetic_video_audio_eos": true
+      },
+      "interruption": {
+        "boundary": "mid-unpack",
+        "manager_exit": 9,
+        "minimum_observed_bytes": 1048576,
+        "observed_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13;6acbf338",
+        "tid_max": 1791750972,
+        "tid_min": 1791750968
+      },
+      "os": "fedora",
+      "os_version": "44",
+      "status": "pass",
+      "steps_completed": 40,
+      "trace_sha256": "04a6fdd50405612788a2d7ae25e598d7174a645dcdaf8e7aa5e138e0d3183688"
+    }
+  },
+  "limitations": [
+    "No physical camera, microphone, GPU, host desktop/audio or home access; synthetic isolated desktop/media probes only.",
+    "No RPM signing or publication; these new candidate bytes require separately approved final signing and helper/checksum binding.",
+    "Two package revisions use one newly assembled current-source runtime; not a second independent runtime rebuild.",
+    "Legacy public-package migration is a separate root-led qualification, outside this receipt.",
+    "RPM interruption recovery here uses authenticated retained build staging; shipped end-user recovery is separate.",
+    "Authenticated CI builder delivery, fresh CUDA/variant switching, clean-VM/device acceptance and power-loss/fsync behavior remain outside this run."
+  ],
+  "packages": [
+    {
+      "artifact": "packages-revision2/deb/nvbroadcast_1.5.3-2.cpu_amd64.deb",
+      "bytes": 390255572,
+      "content_sha256": "cecee56292e6a491aefd4012c24bff5c870747210076cf72a10a5dbfad8eba9e",
+      "family": "deb",
+      "sha256": "cefea85e01c066055bda283bdc84b6e557822dd5a2f2047b279f3348d7332cfe",
+      "variant": "cpu",
+      "version": "1.5.3-2.cpu"
+    },
+    {
+      "artifact": "packages-revision2/rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-2.cpu.x86_64.rpm",
+      "bytes": 389848037,
+      "content_sha256": "30ec6df67d569c4a7abd350515c37a71369da1f8bb5b624a6b80cfa4387a28d2",
+      "family": "rpm",
+      "sha256": "53976b3d0039689132db260ed3c2473b5cfdd207849f0b1c3dede7af3430b762",
+      "variant": "cpu",
+      "version": "1.5.3-2.cpu"
+    },
+    {
+      "artifact": "packages-revision3/deb/nvbroadcast_1.5.3-3.cpu_amd64.deb",
+      "bytes": 390255572,
+      "content_sha256": "81bca34e70b0b8c8230d9171a1457f2a3d11a4ff2fba49541f8dc9266f8a3125",
+      "family": "deb",
+      "sha256": "649220ff091570438fba89285830cdcce47908b0b02bc83dcad92d20f914fab6",
+      "variant": "cpu",
+      "version": "1.5.3-3.cpu"
+    },
+    {
+      "artifact": "packages-revision3/rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-3.cpu.x86_64.rpm",
+      "bytes": 389848037,
+      "content_sha256": "b9d9de52810d6b8d467fd526ea1b42f182e9d3e8bc5586d73114e5a6760bbe13",
+      "family": "rpm",
+      "sha256": "f6308e63fec00a4b54d06b51f9d4917d72585f4f3ae1775a49afeb50704cc914",
+      "variant": "cpu",
+      "version": "1.5.3-3.cpu"
+    }
+  ],
+  "runtime_manifest_sha256": "5642f88b02d53706cbf71ad2f474bd245b2642bd0d1f140dbf7912b510fe3ce0",
+  "schema_version": 1,
+  "scope": "Disconnected x86_64 CPU native package qualification from current main; unsigned local candidates, no public release activation",
+  "status": "pass",
+  "targeted_tests": {
+    "command": "PYTHONPATH=src:tests PYTHONNOUSERSITE=1 ../Broadcast/.venv/bin/python -B -m unittest -v test_native_runtime_production test_native_package_upgrade",
+    "log_sha256": "378bda5b515cc62dd8ea252d99e83109e478f64ac9476acbb6c13b5ad7c2750f",
+    "passed": 26
+  }
+}

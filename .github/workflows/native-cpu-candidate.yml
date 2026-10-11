@@ -1,0 +1,176 @@
+name: Build authenticated native CPU candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_revision:
+        description: 'Positive integer candidate revision; does not publish or replace application releases'
+        type: string
+        required: true
+        default: '3'
+
+permissions:
+  contents: read
+  attestations: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONNOUSERSITE: '1'
+
+jobs:
+  build-cpu:
+    if: github.repository == 'Hkshoonya/nvidia-broadcast-linux' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Require authenticated delivery and sufficient actual free disk
+        run: |
+          /usr/bin/python3 -I -S - <<'PY'
+          import json, os, re, shutil
+          from pathlib import Path
+          lock = json.loads(Path('packaging/native-runtime/builder-delivery.json').read_text())
+          policy = lock.get('attestation')
+          if lock.get('status') != 'promoted' or not isinstance(policy, dict) or not re.fullmatch(r'[a-f0-9]{40}', policy.get('source_commit', '')):
+              raise SystemExit('Builder delivery is not promoted; complete import authentication and reviewed lock update first.')
+          # Measured CPU output: 5.91 GB; separate cache <=0.56 GB; builder
+          # images <=2.49 GB; archive+private verification copy <=1.25 GB.
+          # Require 12 GiB free for this CPU workload and record actual capacity.
+          # Do not prune unrelated images, SDKs, packages or runner tool caches.
+          required = 12 * 1024**3
+          free = {name: shutil.disk_usage(os.environ[name]).free for name in ('GITHUB_WORKSPACE', 'RUNNER_TEMP')}
+          if any(size < required for size in free.values()):
+              raise SystemExit(f'Native CPU candidate requires {required} free bytes on workspace/temp filesystems; observed {free}')
+          output = Path('dist/builder-delivery')
+          output.mkdir(parents=True)
+          (output / 'capacity.json').write_text(json.dumps({'required_free_bytes': required, 'observed_free_bytes': free,
+              'scope': 'CPU only; CUDA capacity is not qualified'}, indent=2) + '\n')
+          PY
+
+      - name: Check native boundaries with hash-pinned isolated host tools
+        run: |
+          /usr/bin/python3 -I -S - <<'PY'
+          import importlib.util, json, sys, tomllib, unittest
+          from pathlib import Path
+          root = Path.cwd()
+          prototype = root / 'packaging/runtime-prototype'
+          spec = importlib.util.spec_from_file_location('pinned_input_fetch', prototype / 'prepare.py')
+          prepare = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(prepare)
+          lock = tomllib.loads((prototype / 'pylock.build.toml').read_text())
+          selected = [item for item in lock['packages'] if item['name'] == 'packaging']
+          if len(selected) != 1 or selected[0]['version'] != '26.0' or len(selected[0]['wheels']) != 1:
+              raise SystemExit('Expected the reviewed packaging 26.0 universal wheel')
+          wheel = selected[0]['wheels'][0]
+          item = {'url': wheel['url'], 'sha256': wheel['hashes']['sha256']}
+          if not item['url'].endswith('/packaging-26.0-py3-none-any.whl'):
+              raise SystemExit('Host test dependency must remain a universal pure-Python wheel')
+          cache = root / 'dist/native-host-tools'
+          cache.mkdir(parents=True)
+          verified = prepare.fetch(cache, item)
+          if verified.stat().st_size != wheel['size']:
+              raise SystemExit('Host dependency size differs from the reviewed lock')
+          # The wheel is zip-imported directly: no pip, resolution, installation,
+          # user site-packages, ambient site initialization or global mutation.
+          sys.path[:0] = [str(verified), str(root / 'src')]
+          import packaging
+          if packaging.__version__ != '26.0' or not packaging.__file__.startswith(str(verified) + '/'):
+              raise SystemExit('Host dependency did not import from the verified wheel')
+          suite = unittest.TestSuite()
+          for pattern in ('test_native_builder_delivery.py', 'test_native_runtime_production.py'):
+              suite.addTests(unittest.defaultTestLoader.discover('tests', pattern=pattern))
+          if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
+              raise SystemExit(1)
+          (root / 'dist/builder-delivery/host-tools.json').write_text(json.dumps({
+              'interpreter': sys.executable, 'python_version': sys.version.split()[0],
+              'isolated': bool(sys.flags.isolated), 'site_disabled': bool(sys.flags.no_site),
+              'packaging_version': packaging.__version__, 'wheel_sha256': item['sha256']}, indent=2) + '\n')
+          PY
+
+      - name: Enable an isolated containerd image store
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5.5.0
+        with:
+          version: v29.8.2
+          daemon-config: |
+            {"features":{"containerd-snapshotter":true},"data-root":"${{ runner.temp }}/native-cpu-docker"}
+
+      - name: Authenticate historical import before loading any builder
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset_id="$(/usr/bin/python3 -I -S -c 'import json; print(json.load(open("packaging/native-runtime/builder-delivery.json"))["source"]["asset_id"])')"
+          /usr/bin/python3 -I -S packaging/native-runtime/builder_delivery.py fetch \
+            --asset-id "$asset_id" --archive dist/builder-delivery/builders.tar
+          /usr/bin/python3 -I -S packaging/native-runtime/builder_delivery.py verify --load \
+            --archive dist/builder-delivery/builders.tar \
+            --report dist/builder-delivery/authenticated-builders.json
+
+      - name: Assemble and package the current reviewed source with exact builder pins
+        env:
+          CANDIDATE_REVISION: ${{ inputs.package_revision }}
+        run: |
+          /usr/bin/python3 -I -S - <<'PY'
+          import json, os, subprocess, sys
+          from pathlib import Path
+          source = os.environ['GITHUB_SHA']
+          if subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() != source:
+              raise SystemExit('Application and adapter checkout must equal GITHUB_SHA')
+          pins = json.loads(Path('packaging/native-runtime/builders.json').read_text())
+          command = [sys.executable, '-I', '-S', 'packaging/native-runtime/build.py', '--variant', 'cpu', '--source', source,
+              '--package-revision', os.environ['CANDIDATE_REVISION'], '--cache', 'dist/native-cpu-cache', '--output', 'dist/native-cpu']
+          for role in ('bindings', 'deb', 'rpm'):
+              command += ['--' + role + '-image', pins[role]['image']]
+          # Only pinned input fetching uses network. Existing assembly and
+          # wrapping run --network=none --pull=never with verified local images.
+          subprocess.run(command, check=True)
+          PY
+
+      - name: Verify complete artifact identities and bound retained provenance
+        run: |
+          /usr/bin/python3 -I -S - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path('dist/native-cpu').resolve()
+          packages = json.loads((root / 'packages.json').read_text())
+          if len(packages) != 2 or {item['family'] for item in packages} != {'deb', 'rpm'}:
+              raise SystemExit('Expected one complete DEB and RPM')
+          for item in packages:
+              artifact = root / item['artifact']
+              if artifact.is_symlink() or not artifact.resolve().is_relative_to(root) or not artifact.is_file():
+                  raise SystemExit('Invalid candidate artifact path')
+              with artifact.open('rb') as stream:
+                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+              if artifact.stat().st_size != item['bytes'] or digest != item['sha256']:
+                  raise SystemExit('Candidate bytes differ from package provenance')
+              if item['variant'] != 'cpu' or item['source']['revision'] != os.environ['GITHUB_SHA'] or item['adapter']['revision'] != os.environ['GITHUB_SHA']:
+                  raise SystemExit('Candidate source/adapter/variant differs')
+          evidence = [root / name for name in ('packages.json', 'build-provenance.json', 'payload/manifest.json',
+              'deb/content.json', 'rpm/content.json', 'assembly/pylock.toml')]
+          if sum(path.stat().st_size for path in evidence) > 32 * 1024**2:
+              raise SystemExit('Candidate provenance exceeds the reviewed 32 MiB evidence bound')
+          PY
+
+      - name: Retain complete unsigned candidates and their bounded provenance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-cpu-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            dist/native-cpu/deb/*.deb
+            dist/native-cpu/rpm/build/RPMS/x86_64/*.rpm
+            dist/native-cpu/packages.json
+            dist/native-cpu/build-provenance.json
+            dist/native-cpu/payload/manifest.json
+            dist/native-cpu/deb/content.json
+            dist/native-cpu/rpm/content.json
+            dist/native-cpu/assembly/pylock.toml
+            dist/builder-delivery/authenticated-builders.json
+            dist/builder-delivery/capacity.json
+            dist/builder-delivery/host-tools.json
+            packaging/native-runtime/builder-delivery.json
+            packaging/native-runtime/builders.json

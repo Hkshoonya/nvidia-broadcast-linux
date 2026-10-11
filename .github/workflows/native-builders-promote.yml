@@ -1,0 +1,85 @@
+name: Authenticate historical native builder import
+
+on:
+  workflow_dispatch:
+    inputs:
+      qualification_run:
+        description: 'Successful main qualification run at this exact workflow source commit'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONNOUSERSITE: '1'
+
+concurrency:
+  group: native-builder-import
+  cancel-in-progress: false
+
+jobs:
+  attest-import:
+    if: github.repository == 'Hkshoonya/nvidia-broadcast-linux' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # A separate job from qualification: no image load/run, no private signing
+    # key, no package/registry/release write and no unreviewed source checkout.
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Fetch and inspect the exact reviewed historical archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/builder-delivery
+          asset_id="$(python3 -c 'import json; print(json.load(open("packaging/native-runtime/builder-delivery.json"))["source"]["asset_id"])')"
+          python3 packaging/native-runtime/builder_delivery.py fetch \
+            --asset-id "$asset_id" --archive dist/builder-delivery/builders.tar
+
+      - name: Verify exact successful qualification and prepare limited import claim
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_RUN: ${{ inputs.qualification_run }}
+        run: |
+          python3 packaging/native-runtime/builder_delivery.py predicate \
+            --archive dist/builder-delivery/builders.tar \
+            --qualification-run "$QUALIFICATION_RUN" --source-commit "$GITHUB_SHA" \
+            --report dist/builder-delivery/import-predicate.json
+
+      - name: Authenticate historical import with GitHub OIDC
+        id: attest
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: dist/builder-delivery/builders.tar
+          predicate-type: https://github.com/Hkshoonya/nvidia-broadcast-linux/attestations/native-builder-import/v1
+          predicate-path: dist/builder-delivery/import-predicate.json
+          push-to-registry: false
+
+      - name: Verify the minted identity and exact signing/source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify dist/builder-delivery/builders.tar \
+            --hostname github.com --repo Hkshoonya/nvidia-broadcast-linux \
+            --signer-workflow Hkshoonya/nvidia-broadcast-linux/.github/workflows/native-builders-promote.yml \
+            --signer-digest "$GITHUB_SHA" --source-digest "$GITHUB_SHA" --source-ref refs/heads/main \
+            --predicate-type https://github.com/Hkshoonya/nvidia-broadcast-linux/attestations/native-builder-import/v1 \
+            --deny-self-hosted-runners
+
+      - name: Retain import claim and signed attestation bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: historical-native-builder-import-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/builder-delivery/import-predicate.json
+            ${{ steps.attest.outputs.bundle-path }}
+          if-no-files-found: error

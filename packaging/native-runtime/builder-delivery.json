@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "status": "candidate",
+  "archive": {
+    "sha256": "7b9579055f63c7f63516060c545c7d8207d07fb04ea8c038bc1c8185f790e3d4",
+    "bytes": 620776960
+  },
+  "source": {
+    "repository": "Hkshoonya/nvidia-broadcast-linux",
+    "tag": "infra-native-builders-20261011",
+    "asset": "nvbroadcast-native-builders-linux-amd64-20261011.oci.tar",
+    "asset_id": 631786999
+  },
+  "attestation": null,
+  "original_build_provenance_authenticated": false
+}

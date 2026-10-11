@@ -1,0 +1,62 @@
+name: Qualify historical native builders
+
+on:
+  workflow_dispatch:
+    inputs:
+      asset_id:
+        description: 'Exact infrastructure prerelease asset ID; tag, name, size and digest must match the committed lock'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONNOUSERSITE: '1'
+
+jobs:
+  qualify:
+    if: github.repository == 'Hkshoonya/nvidia-broadcast-linux' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Verify failure fixtures before reading the candidate
+        run: python3 -m unittest discover -s tests -p test_native_builder_delivery.py -v
+
+      - name: Enable an isolated containerd image store
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5.5.0
+        with:
+          version: v29.8.2
+          daemon-config: |
+            {"features":{"containerd-snapshotter":true}}
+
+      - name: Fetch only the reviewed infrastructure asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_ASSET_ID: ${{ inputs.asset_id }}
+        run: |
+          mkdir -p dist/builder-delivery
+          python3 packaging/native-runtime/builder_delivery.py fetch \
+            --asset-id "$CANDIDATE_ASSET_ID" \
+            --archive dist/builder-delivery/builders.tar \
+            --report dist/builder-delivery/archive-integrity.json
+
+      # This job has no signing credentials or OIDC permission. It executes only
+      # the historical images already pinned in the reviewed main-branch lock.
+      - name: Load exact OCI indexes and compare all native package inventories offline
+        run: |
+          python3 packaging/native-runtime/builder_delivery.py qualify --load \
+            --archive dist/builder-delivery/builders.tar \
+            --report dist/builder-delivery/qualification.json
+
+      - name: Retain qualification evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: historical-native-builder-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/builder-delivery/*.json
+          if-no-files-found: error
