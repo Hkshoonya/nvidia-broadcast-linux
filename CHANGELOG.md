@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Keep Eye Contact Tracking Fresh** - Prevent the shared face tracker from
+  freezing on an earlier frame when Python reuses a released camera frame's
+  object ID. Eye Contact can keep following changing eye positions while
+  preserving its existing blink and occlusion limits
+  ([PR #151](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/151)).
 - **Report Failed RPM Runtime Fallback** - Report an installation failure when
   both CUDA runtime setup and its clean CPU fallback fail
   ([PR #142](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/142)).
