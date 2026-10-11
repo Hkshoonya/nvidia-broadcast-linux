@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Optional
 
@@ -98,20 +99,20 @@ class SharedFaceLandmarker:
     """Single FaceLandmarker shared across eye contact, relighting, and beautify.
 
     Call detect(bgra_frame) to get landmarks. Results are cached per frame
-    (same frame pointer = cached result). Thread-safe via the GIL.
+    (same live frame object = cached result).
     """
 
     def __init__(self):
         self._landmarker = None
         self._initialized = False
-        self._last_frame_id = None
+        self._last_frame_ref = None
         self._last_result = None
         self._frames_since_infer = 0
         self._lock = threading.Lock()
         self._detect_lock = threading.Lock()
         self._async_busy = False
         self._pending_job = None
-        self._pending_frame_id = None
+        self._pending_frame_ref = None
         self._worker_event = threading.Event()
         self._worker_stop = False
         self._worker_thread = None
@@ -174,10 +175,12 @@ class SharedFaceLandmarker:
         if not self.ready:
             return None
 
-        frame_id = id(bgra_frame)
+        frame_ref = weakref.ref(bgra_frame)
         with self._lock:
             cached = self._last_result
-            if frame_id == self._last_frame_id and cached is not None:
+            if (self._last_frame_ref is not None
+                    and self._last_frame_ref() is bgra_frame
+                    and cached is not None):
                 return cached
 
             reuse_frames = max(1, int(reuse_frames))
@@ -187,16 +190,17 @@ class SharedFaceLandmarker:
                 and self._frames_since_infer < (reuse_frames - 1)
             ):
                 self._frames_since_infer += 1
-                self._last_frame_id = frame_id
+                self._last_frame_ref = frame_ref
                 return cached
 
-            if frame_id == self._pending_frame_id:
+            if (self._pending_frame_ref is not None
+                    and self._pending_frame_ref() is bgra_frame):
                 return cached
 
         frame_copy = bgra_frame.copy()
         with self._lock:
             self._pending_job = frame_copy
-            self._pending_frame_id = frame_id
+            self._pending_frame_ref = frame_ref
             self._async_busy = True
             self._worker_event.set()
         return cached
@@ -204,15 +208,19 @@ class SharedFaceLandmarker:
     def detect(self, bgra_frame: np.ndarray, reuse_frames: int = 1):
         """Detect face landmarks. Returns list of landmarks or None.
 
-        Results are cached per frame (by id) so multiple effects calling
+        Results are cached by live frame identity so multiple effects calling
         detect() on the same frame only run inference once.
         """
         if not self.ready:
             return None
 
-        # Cache check — same frame object means same detection
-        frame_id = id(bgra_frame)
-        if frame_id == self._last_frame_id and self._last_result is not None:
+        # Keep only a weak reference: frame arrays are short-lived and CPython
+        # can reuse their numeric IDs on the very next camera frame. An ID-only
+        # cache can therefore freeze landmark inference after the first frame.
+        frame_ref = weakref.ref(bgra_frame)
+        if (self._last_frame_ref is not None
+                and self._last_frame_ref() is bgra_frame
+                and self._last_result is not None):
             return self._last_result
 
         reuse_frames = max(1, int(reuse_frames))
@@ -222,13 +230,13 @@ class SharedFaceLandmarker:
             and self._frames_since_infer < (reuse_frames - 1)
         ):
             self._frames_since_infer += 1
-            self._last_frame_id = frame_id
+            self._last_frame_ref = frame_ref
             return self._last_result
 
         with self._detect_lock:
             landmarks = self._run_detection(bgra_frame)
         with self._lock:
-            self._last_frame_id = frame_id
+            self._last_frame_ref = frame_ref
             self._last_result = landmarks
             self._frames_since_infer = 0
         return landmarks
@@ -244,16 +252,16 @@ class SharedFaceLandmarker:
             while True:
                 with self._lock:
                     frame = self._pending_job
-                    frame_id = self._pending_frame_id
+                    frame_ref = self._pending_frame_ref
                     self._pending_job = None
-                    self._pending_frame_id = None
+                    self._pending_frame_ref = None
                 if frame is None:
                     break
 
                 with self._detect_lock:
                     landmarks = self._run_detection(frame)
                 with self._lock:
-                    self._last_frame_id = frame_id
+                    self._last_frame_ref = frame_ref
                     self._last_result = landmarks
                     self._frames_since_infer = 0
 

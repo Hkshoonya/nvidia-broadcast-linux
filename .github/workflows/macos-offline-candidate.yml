@@ -10,6 +10,10 @@ on:
       - 'packaging/runtime-prototype/prepare.py'
       - 'scripts/validate_macos_runtime.py'
       - 'src/nvbroadcast/runtime/**'
+      - 'src/nvbroadcast/video/face_landmarks.py'
+      - 'src/nvbroadcast/video/eye_contact.py'
+      - 'tests/test_face_landmarks.py'
+      - 'tests/test_eye_contact.py'
       - 'pyproject.toml'
       - 'build-packages.sh'
 
@@ -91,6 +95,29 @@ jobs:
           /usr/local/bin/nvbroadcast-offline-candidate --help
           OFFLINE
 
+      - name: Verify face tracking and eye correction in the installed Mac candidate
+        run: |
+          set -euo pipefail
+          identity="$(cat /opt/nvbroadcast-offline-candidate/macos-runtime-id)"
+          runtime="$HOME/Library/Application Support/NVBroadcast Offline Candidate/$identity"
+          "$runtime/.venv/bin/python" -I - <<'PY' 2>&1 | tee dist/macos-offline-candidate/face-effects-tests.log
+          import pathlib, sys, unittest
+          import nvbroadcast.video.face_landmarks as landmarks
+          import nvbroadcast.video.eye_contact as eyes
+          # Test the installed wheel, not a source checkout that could hide a
+          # stale packaged copy. Only the tests are loaded from the checkout.
+          for module in (landmarks, eyes):
+              path = pathlib.Path(module.__file__).resolve()
+              assert path.is_relative_to(pathlib.Path(sys.prefix).resolve()), path
+              print(f'Installed module: {path}')
+          sys.path.insert(0, str(pathlib.Path.cwd()))
+          suite = unittest.defaultTestLoader.loadTestsFromNames([
+              'tests.test_face_landmarks', 'tests.test_eye_contact',
+          ])
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(not result.wasSuccessful())
+          PY
+
       - name: Retain installed qualification and package identity
         if: always()
         run: |
@@ -102,7 +129,7 @@ jobs:
               if [[ -f "$runtime/$name" ]]; then cp "$runtime/$name" dist/macos-offline-evidence/; fi
             done
           fi
-          for name in package.json native-build-inventory.json pylock.macos-arm64-cp313-cpu.toml offline-install.log installer.log; do
+          for name in package.json native-build-inventory.json pylock.macos-arm64-cp313-cpu.toml offline-install.log installer.log face-effects-tests.log; do
             if [[ -f "dist/macos-offline-candidate/$name" ]]; then
               cp "dist/macos-offline-candidate/$name" dist/macos-offline-evidence/
             fi
