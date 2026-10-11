@@ -18,8 +18,8 @@ platform gates. These candidates must not replace frozen v1.5.3 downloads.
 `builders.json` pins the inspected local Docker image IDs of the three qualified
 local OCI images and records their installed native package inventories.
 The builder refuses a different image, including a rebuilt image with the
-same friendly tag. These images are not yet published in an authenticated
-registry. Their reproducibility scope is fixed input consumption and repeated
+same friendly tag. These images are not yet authenticated for CI consumption.
+Their reproducibility scope is fixed input consumption and repeated
 assembly using these recorded tools; their apt/dnf origins are not independent
 source rebuilds or snapshotted repository rebuild recipes.
 
@@ -34,6 +34,83 @@ CI must first obtain these exact images through one of these reviewed paths:
 Do not regenerate floating apt/dnf images in a release workflow and remove the
 identity check to accommodate them. An intentional builder update changes the
 pins after repeating wheel reproduction, input audit and lifecycle acceptance.
+
+### Delivering the historical builders
+
+`builder-delivery.json` pins one exported OCI archive containing the three exact
+approved image indexes. Its 620,776,960 bytes have SHA-256
+`7b9579055f63c7f63516060c545c7d8207d07fb04ea8c038bc1c8185f790e3d4`.
+The `candidate` status and absent attestation deliberately prevent a release
+consumer from calling it authenticated. A local hash or the unsigned BuildKit
+metadata inside the archive proves no publisher identity or original build.
+
+`builder_delivery.py inspect` validates the archive hash/size, every OCI blob,
+descriptor size, index/platform graph, and the Docker compatibility manifest.
+It rejects additional blobs, external content, tags, links, duplicate JSON/tar
+entries and unexpected paths. BuildKit's embedded two-byte empty config must
+match its separately hashed blob exactly. Verification and loading use the same
+private copy, so replacing the supplied path cannot change the loaded bytes.
+
+The historical `.Id` values are OCI **index** digests because their original
+Docker daemon uses the containerd image store. A classic store can assign a
+different config digest to equivalent layers; that is rejected. Qualification
+requires containerd, all three original image IDs, Linux amd64, and exact native
+package inventories (512 bindings, 355 DEB, 210 RPM entries). Inventory queries
+run offline with a read-only root filesystem, dropped capabilities and no new
+privileges. No apt/dnf command rebuilds or updates these images.
+
+```bash
+python3 packaging/native-runtime/builder_delivery.py qualify \
+  --archive dist/builder-delivery/approved-images.tar \
+  --report dist/builder-delivery/local-qualification.json
+```
+
+The bounded delivery sequence is:
+
+1. Review the verifier, lock, qualification workflow and local qualification
+   evidence. Create a separate infrastructure **draft prerelease** with tag
+   `infra-native-builders-20261011`, targeting the reviewed source commit, and
+   upload `nvbroadcast-native-builders-linux-amd64-20261011.oci.tar`. Never use
+   `--clobber`, reuse a `v*` tag, or modify a frozen v1.5.3 asset. This archive is
+   infrastructure and is not an application release or installation candidate.
+2. Read back the exact asset ID, name, size and GitHub SHA-256. Commit that asset
+   ID into the reviewed lock. The currently null ID rejects a guessed or
+   unreviewed asset. A changed asset requires another explicit lock review.
+3. Run **Qualify historical native builders** from main using that same asset
+   ID. It has only `contents: read`, checks the release's tag/name/ID/size/hash,
+   then loads and qualifies the images on a disposable GitHub-hosted runner.
+   No signing key, OIDC token or package publication permission is available.
+   If GitHub's read token cannot download the draft, publish only this separate
+   prerelease with `make_latest: false` after reviewing its inputs, then retry.
+   Preserve the qualification JSON and source commit/run/attempt as evidence.
+4. Run **Authenticate historical native builder import** from main, passing
+   the successful qualification run ID. Both runs must use the same exact main
+   source commit. The promotion validates that run's success, repository, event,
+   workflow path and attempt; checks its evidence artifact ID/digest; and compares
+   both JSON records with the freshly inspected archive and reviewed inventories.
+   Its separate signing job never loads or executes the images. It uses
+   `contents: read`, `actions: read`, `id-token: write` and `attestations: write`;
+   no RPM key, registry credential or new long-lived secret is needed. The pinned
+   official attestation action signs the **historical builder import** claim,
+   and a subsequent step verifies the minted identity and exact source/signing
+   commit. This step remains pending until the actual workflow succeeds.
+5. After successful promotion, review the lock change to `promoted` with the
+   exact promotion workflow source commit. Release consumers must use
+   `builder_delivery.py verify --load`, which verifies the archive against
+   GitHub's cryptographic attestation before Docker load. Policy binds repository,
+   `native-builders-promote.yml`, its exact source/signing commit, main ref,
+   custom historical-import predicate type and a GitHub-hosted runner.
+
+The import authenticates this project's deliberate adoption of these exact
+historical bytes and subsequent delivery. It does **not** recover authenticated
+provenance for their original network dependency installation. Independently
+rebuilding them requires snapshotted package repositories and a new reviewed
+builder generation. Until steps 4–5 pass, CI release promotion remains blocked.
+
+The containerd requirement follows Docker's
+[image-store documentation](https://docs.docker.com/engine/storage/containerd/).
+Attestation verification follows the GitHub CLI's
+[identity and source policy](https://cli.github.com/manual/gh_attestation_verify).
 
 The following invocation runs on Linux x86_64 as an ordinary user. The cache
 may contain verified input archives and previously downloaded dependency
