@@ -164,6 +164,18 @@ native dependencies fail clearly; they are not silently downloaded in this mode.
 
 ## Qualification
 
+The [2026-10-11 authenticated RPM recovery record](qualification/2026-10-11-rpm-recovery.json)
+binds the signed CPU revision 3 candidate (application `0295b190`, adapter
+`16d49c5`) and signed revision 2 baseline. All six recovery/preflight scenarios
+passed 80 steps, including real fresh-install and upgrade interruptions with no
+build staging mounted. The signed `%pre` bootstrap remained available while
+RPM held `/usr/bin` files under temporary names; explicit preservation and exact
+saved-package replay completed full runtime validation. Independent review adds
+38 lifecycle stages covering launch/process refusals, upgrade, reinstall,
+rollback and erase, plus actual scriptlet/dependency checks. The record retains
+the original failure evidence and exact limits; it does not promote public
+packages or qualify CUDA, physical devices or power-loss recovery.
+
 The [2026-10-09 CPU record](qualification/2026-10-09-cpu.json) binds the tested
 artifacts, application/adapter revisions, fixtures and trace hashes. Ubuntu
 24.04 passed 39 lifecycle stages and Fedora 44 passed 40, including actual
