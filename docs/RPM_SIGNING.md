@@ -6,18 +6,33 @@ reviewed public key, and compares the immutable header and unpacked payload to
 the unsigned input. An unsigned RPM with valid checksums is rejected.
 
 This does not retroactively sign v1.5.3. Its qualified release files and tag stay
-unchanged. Production key provisioning and an actual signed candidate are
-required before claiming that the RPM acceptance item in #60 is complete.
+unchanged. The production identity and encrypted local backups are provisioned;
+GitHub configuration and an actual production-signed candidate remain pending.
+Both are required before claiming that the RPM acceptance item in #60 is complete.
 
 ## Key provisioning
 
 Keep a project key separate from personal email-signing keys. Before creating a
 new key, check for an existing project key and preserve its identity if present.
-No RPM signing key was found in the checked repository, configured GitHub
-environments or local secret-key inventory on 9 October 2026; the maintainer has
-not yet confirmed whether a separate historical key exists.
+No existing RPM project key was found in the checked repository, configured
+GitHub environments or local secret-key inventory. The maintainer authorized a
+dedicated project identity on 9 October 2026; it was created on 11 October:
 
-The reviewed public key belongs at:
+| Key | Full fingerprint | Expires (UTC) |
+| --- | --- | --- |
+| RSA 4096 certification primary | `A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1` | 2028-10-10 19:39:04 |
+| RSA 4096 signing subkey | `C2EF93F80C95F85BF878A8475E1E5602DBACBCB5` | 2028-10-10 19:39:07 |
+
+The identity is `NV Broadcast RPM Release Signing (nvbroadcast.com)`. Both keys
+use GnuPG's two-year expiration setting. The full private backup and revocation
+certificate are encrypted outside the repository, with separate passphrases in
+the maintainer's persistent desktop secret service. Backup restoration, signing
+subkey-only export, wrong-passphrase rejection and independent challenge
+verification passed; revocation was checked only in an isolated public keyring.
+Temporary keyrings were removed. This establishes a recoverable local backup;
+no off-device backup, production RPM signature or CI signing result is claimed.
+
+The public key and full primary fingerprint are recorded at:
 
 ```
 packaging/keys/RPM-GPG-KEY-nvbroadcast.asc
@@ -28,13 +43,14 @@ The fingerprint file must contain the full primary fingerprint. The ASCII key
 must contain only public material. Review those public files before use; never
 commit a private key, keyring, passphrase, or encrypted private backup.
 
-Configure the GitHub `rpm-signing` environment with:
+The GitHub `rpm-signing` environment has not yet been configured. It must contain:
 
-- `RPM_SIGNING_PRIVATE_KEY`: the armored secret signing key, preferably an
-  exported signing subkey with the primary certification key kept offline.
+- `RPM_SIGNING_PRIVATE_KEY`: the protected armored signing-subkey export, with
+  only a dummy primary-secret record; the full certification key stays outside CI.
 - `RPM_SIGNING_PASSPHRASE`: that key's passphrase.
 
-Restrict this environment to the trusted main branch and intended release tags.
+Restrict this environment to the `main` branch and `v*` tags, using explicit
+branch/tag policy types. Verify those restrictions before uploading secrets.
 Store the private backup and revocation material securely outside this repo.
 Record the public fingerprint in the release documentation and website through
 the normal reviewed change. A key rotation needs an explicit published transition;
