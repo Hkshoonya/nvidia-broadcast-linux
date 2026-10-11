@@ -15,6 +15,7 @@ import subprocess
 import tarfile
 import tempfile
 import zipfile
+import uuid
 
 
 HERE = Path(__file__).resolve().parent
@@ -48,7 +49,7 @@ def parse_json(data):
 
 
 def regular_stream(path):
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     stream = os.fdopen(descriptor, "rb")
     if not stat.S_ISREG(os.fstat(descriptor).st_mode):
         stream.close()
@@ -214,9 +215,19 @@ def qualify_local_images(pins):
                 "loaded builder image identity/platform differs")
         query = (["rpm", "-qa", "--qf", "%{NAME} %{VERSION}-%{RELEASE}.%{ARCH}\n"] if role == "rpm"
                  else ["dpkg-query", "-W", "-f=${Package} ${Version} ${Architecture}\n"])
-        output = subprocess.check_output(["docker", "run", "--rm", "--pull=never", "--network=none",
-            "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--entrypoint", query[0],
-            image, *query[1:]], text=True, timeout=120)
+        container = "nvbroadcast-builder-inventory-" + uuid.uuid4().hex
+        try:
+            output = subprocess.check_output(["docker", "run", "--rm", "--name", container,
+                "--pull=never", "--network=none", "--read-only", "--cap-drop=ALL",
+                "--security-opt=no-new-privileges", "--entrypoint", query[0], image, *query[1:]], text=True, timeout=120)
+        finally:
+            # A timed-out Docker client does not stop its daemon-side container.
+            # Remove only this uniquely named inventory query, then prove absence.
+            subprocess.run(["docker", "rm", "--force", container], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, check=False, timeout=30)
+            remaining = subprocess.check_output(["docker", "ps", "-aq", "--filter", "name=^/" + container + "$"],
+                                                text=True, timeout=30)
+            require(not remaining.strip(), "inventory container cleanup could not be verified")
         require(sorted(output.splitlines()) == sorted(entry["packages"]), "native builder inventory differs")
         result[role] = {"image": image, "package_count": len(entry["packages"])}
     return result

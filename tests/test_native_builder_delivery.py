@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import tarfile
@@ -128,6 +129,10 @@ class BuilderDeliveryTests(unittest.TestCase):
         link.symlink_to(path)
         with self.assertRaises(OSError):
             delivery.process_archive("inspect", link, lock, pins)
+        fifo = self.directory / "fifo"
+        os.mkfifo(fifo)
+        with self.assertRaisesRegex(ValueError, "regular input"):
+            delivery.process_archive("inspect", fifo, lock, pins)
 
     def test_candidate_cannot_be_loaded_as_authenticated(self):
         path, pins, lock = self.fixture()
@@ -192,13 +197,29 @@ class BuilderDeliveryTests(unittest.TestCase):
         _, pins, _ = self.fixture()
         role = pins["bindings"]
         responses = [json.dumps([["driver-type", "io.containerd.snapshotter.v1"]]),
-                     json.dumps([{"Id": role["image"], "Os": "linux", "Architecture": "amd64"}]), "unreviewed 2 amd64\n"]
-        with mock.patch.object(delivery.subprocess, "check_output", side_effect=responses) as query:
+                     json.dumps([{"Id": role["image"], "Os": "linux", "Architecture": "amd64"}]), "unreviewed 2 amd64\n", ""]
+        with mock.patch.object(delivery.subprocess, "check_output", side_effect=responses) as query, mock.patch.object(delivery.subprocess, "run"):
             with self.assertRaisesRegex(ValueError, "inventory differs"):
                 delivery.qualify_local_images(pins)
-            command = query.call_args.args[0]
+            command = query.call_args_list[2].args[0]
             for boundary in ("--network=none", "--pull=never", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges"):
                 self.assertIn(boundary, command)
+
+    def test_timed_out_inventory_removes_only_its_named_container(self):
+        _, pins, _ = self.fixture()
+        role = pins["bindings"]
+        responses = [json.dumps([["driver-type", "io.containerd.snapshotter.v1"]]),
+                     json.dumps([{"Id": role["image"], "Os": "linux", "Architecture": "amd64"}]),
+                     subprocess.TimeoutExpired("docker", 120), ""]
+        with mock.patch.object(delivery.subprocess, "check_output", side_effect=responses) as query, \
+                mock.patch.object(delivery.subprocess, "run") as cleanup:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                delivery.qualify_local_images(pins)
+        command = query.call_args_list[2].args[0]
+        name = command[command.index("--name") + 1]
+        self.assertTrue(name.startswith("nvbroadcast-builder-inventory-"))
+        self.assertEqual(cleanup.call_args.args[0], ["docker", "rm", "--force", name])
+        self.assertEqual(query.call_args.args[0][-1], "name=^/" + name + "$")
 
     def test_wrong_release_asset_is_rejected_before_download(self):
         lock = json.loads((ROOT / "packaging/native-runtime/builder-delivery.json").read_text())
