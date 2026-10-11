@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "status": "authenticated_historical_import",
+  "claim": "historical-builder-import",
+  "original_build_provenance_authenticated": false,
+  "source_commit": "3e1378faa9e2fb4ca4fee669288ecc8376d37b09",
+  "source_tree": "15b1794629d4dd65641049f05ee5a52080421a7b",
+  "archive": {
+    "sha256": "7b9579055f63c7f63516060c545c7d8207d07fb04ea8c038bc1c8185f790e3d4",
+    "bytes": 620776960,
+    "asset_id": 631786999,
+    "release_tag": "infra-native-builders-20261011",
+    "asset_name": "nvbroadcast-native-builders-linux-amd64-20261011.oci.tar"
+  },
+  "builder_images": {
+    "bindings": "sha256:7295102d8391699de28d86df555bddae343c5540c32bb21cbd5af10f92fc07ad",
+    "deb": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+    "rpm": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c"
+  },
+  "inventory_counts": {
+    "bindings": 512,
+    "deb": 355,
+    "rpm": 210
+  },
+  "qualification": {
+    "run_id": 38175085983,
+    "run_attempt": 1,
+    "artifact_id": 11714903672,
+    "artifact_bytes": 1094,
+    "artifact_digest": "sha256:5b6fcca0c1b47abc53dd332e76a3c47f830530d4ccf909e7c1d8c0ecfb07d17a"
+  },
+  "promotion": {
+    "run_id": 38175299710,
+    "run_attempt": 1,
+    "artifact_id": 11715601976,
+    "artifact_bytes": 9139,
+    "artifact_digest": "sha256:145cb3631a869bbbe81a9eeb2b8f523465223f4555bc6c82db2f6c61b31b6966"
+  },
+  "attestation": {
+    "workflow": "Hkshoonya/nvidia-broadcast-linux/.github/workflows/native-builders-promote.yml",
+    "predicate_type": "https://github.com/Hkshoonya/nvidia-broadcast-linux/attestations/native-builder-import/v1",
+    "source_commit": "3e1378faa9e2fb4ca4fee669288ecc8376d37b09",
+    "bundle_sha256": "31fdef140d5c010a527feb9d10ccecb13815945c2847efd9ad40fed8096aa75d",
+    "predicate_sha256": "6a7ae7f732e776e9fec1443a9cfab71da94c0b64341e6bd42538b8ef74090157"
+  },
+  "verification": {
+    "consumer_codepath": "pass",
+    "archive_graph": "23 blobs verified",
+    "native_inventories": "exact match",
+    "cryptographic_attestation": "pass",
+    "repository": "Hkshoonya/nvidia-broadcast-linux",
+    "source_ref": "refs/heads/main",
+    "signer_digest": "3e1378faa9e2fb4ca4fee669288ecc8376d37b09",
+    "source_digest": "3e1378faa9e2fb4ca4fee669288ecc8376d37b09",
+    "deny_self_hosted_runners": true,
+    "qualification_predicate_match": "pass",
+    "local_readback_report_sha256": "0a3c64d5ae37c71fddad4c1f9d4861198668aa448880d38dd8fd8d265cff7f49",
+    "independent_cryptographic_readback": "pass",
+    "verifier_version": "gh version 2.102.0 (2026-09-30)",
+    "verifier_binary_sha256": "7469124f706944133d6a169691dd1c6c3511b12e85878d255e044e2948df4c9b",
+    "independent_result_sha256": "a64417ff3c7b75475e42a53a7626329bba7a74a369c4fd59b23c48767c76135f"
+  },
+  "limits": [
+    "Authenticates deliberate import and delivery of exact historical bytes; original apt/dnf build provenance is not authenticated.",
+    "Builder delivery qualification is complete; first authenticated hosted CPU candidate assembly remains pending.",
+    "This does not establish CUDA runner capacity, package signing, or remaining device/platform acceptance."
+  ],
+  "certificate": {
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subjectAlternativeName": "https://github.com/Hkshoonya/nvidia-broadcast-linux/.github/workflows/native-builders-promote.yml@refs/heads/main",
+    "sourceRepositoryIdentifier": "1184001936",
+    "sourceRepositoryOwnerIdentifier": "154622641",
+    "runnerEnvironment": "github-hosted",
+    "runInvocationURI": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/38175299710/attempts/1"
+  },
+  "transparency_timestamps": [
+    {
+      "type": "Tlog",
+      "uri": "https://rekor.sigstore.dev",
+      "timestamp": "2026-10-11T17:11:16-04:00"
+    }
+  ]
+}
