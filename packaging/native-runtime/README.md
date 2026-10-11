@@ -166,9 +166,29 @@ runtime probes, all 62 application Python files matched that commit.
 
 These unsigned local candidates use one newly assembled offline CPU runtime.
 Signing the final candidate bytes, authenticated CI builder delivery, shipped
-recovery, legacy migration, CUDA switching and desktop/device acceptance remain
+recovery, CUDA switching and desktop/device acceptance remain
 separate gates. The [2026-10-09 record](qualification/2026-10-09-cpu.json)
 retains the earlier qualification of application commit `c2dd082`.
+
+The [published-package migration record](qualification/2026-10-11-legacy-migration.json)
+adds 18 checks per family from the exact public `v1.5.3` DEB/RPM to those
+`2.cpu` candidates. `qualify_legacy.py` installs the pinned legacy artifact with
+its normal online hook, then disconnects the disposable container before
+attempting migration. It checks refusal while an existing legacy interpreter
+is running, unchanged files after refusal, offline upgrade, full runtime
+integrity, removal of the package-owned legacy environment, preserved settings,
+recordings and administrator files, and ordinary-user inference/media/GTK.
+Both installed application trees match all 62 Python files from `0295b190`.
+This closes the tested CPU migration path; it does not qualify a concurrent
+legacy launcher race, CUDA migration, physical devices or clean virtual machines.
+
+```bash
+python3 packaging/native-runtime/qualify_legacy.py \
+  --family deb --image sha256:YOUR_PREPROVISIONED_FIXTURE_DIGEST \
+  --baseline /verified-release/nvbroadcast_1.5.3-1_all.deb \
+  --baseline-sha256 VERIFIED_PUBLIC_RELEASE_SHA256 --baseline-version 1.5.3-1 \
+  --packages dist/native-cpu --output dist/native-cpu-legacy-migration-deb
+```
 
 `qualify.py` consumes two versioned package sets and verifies their hashes before
 launching disconnected disposable fixtures. It performs install, upgrade,
