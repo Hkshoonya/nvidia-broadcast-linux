@@ -71,6 +71,7 @@ def recipe_identity() -> dict:
         "pylock.linux-x86_64-cp313-cpu.toml", "pylock.linux-x86_64-cp313-cuda.toml")]
     paths += [PROTOTYPE / name for name in ("prepare.py", "assemble.py", "inputs.json", "pylock.build.toml", "build-bindings.sh")]
     paths.append(HERE.parent / "native-prototype/build.py")
+    paths += [REPO / "scripts/recover_native_rpm.py", REPO / "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc"]
     relative = [str(path.relative_to(REPO)) for path in paths]
     dirty = subprocess.check_output(["git", "status", "--porcelain", "--", *relative], cwd=REPO, text=True)
     if dirty:
@@ -177,6 +178,16 @@ def hook(action: str, version: str, variant: str, family: str) -> str:
     return "#!/bin/sh\nset -eu\nset -- " + action + "\n" + script + "\n" + legacy
 
 
+def recovery_interface(stage: Path) -> None:
+    """Ship one signed recovery executable before the large private runtime."""
+    source = (REPO / "scripts/recover_native_rpm.py").read_text()
+    key = (REPO / "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc").read_bytes()
+    if source.count('PUBLIC_ARMOR = b""') != 1 or hashlib.sha256(key).hexdigest() not in source:
+        raise ValueError("recovery source and pinned project public key differ")
+    native.write(stage / "usr/bin/nvbroadcast-recover-rpm",
+                 source.replace('PUBLIC_ARMOR = b""', 'PUBLIC_ARMOR = ' + repr(key)), 0o755)
+
+
 def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
     manifest = json.loads((runtime.parent / "manifest.json").read_text())
     if inventory(runtime) != manifest:
@@ -237,7 +248,8 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
         command = ["dpkg-deb", "--root-owner-group", "-Zzstd", "-z8", "--threads-max=2", "--build", "/stage", f"/work/{artifact.name}"]
         image = args.deb_image
     else:
-        dependency += ", gstreamer1-plugins-bad-free, v4l-utils, pulseaudio-utils, pipewire-utils, util-linux"
+        recovery_interface(stage)
+        dependency += ", gstreamer1-plugins-bad-free, v4l-utils, pulseaudio-utils, pipewire-utils, util-linux, python3 >= 3.11, rpm"
         release = f"{args.package_revision}.{args.variant}"
         spec_text = (f"Name: nvbroadcast\nVersion: {source['version']}\nRelease: {release}\n"
             "Summary: NVBroadcast complete offline application runtime\nLicense: GPL-3.0-or-later AND LicenseRef-Bundled-Dependencies\n"

@@ -107,6 +107,18 @@ class NativeProductionTests(unittest.TestCase):
                     self.assertNotIn("wget ", script)
                     self.assertIn('"$base/check-packages" --configure', script)
 
+    def test_rpm_recovery_is_standalone_and_binds_the_reviewed_public_key(self):
+        stage = self.root / "stage"
+        build.recovery_interface(stage)
+        helper = stage / "usr/bin/nvbroadcast-recover-rpm"
+        self.assertEqual(helper.stat().st_mode & 0o777, 0o755)
+        self.assertTrue(helper.read_text().startswith("#!/usr/bin/python3 -IB\n"))
+        namespace = {"__name__": "packaged_recovery"}
+        exec(compile(helper.read_bytes(), str(helper), "exec"), namespace)
+        self.assertEqual(hashlib.sha256(namespace["PUBLIC_ARMOR"]).hexdigest(), namespace["PUBLIC_SHA256"])
+        self.assertEqual(namespace["PUBLIC_ARMOR"], (ROOT / "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc").read_bytes())
+        self.assertFalse((stage / "usr/lib/nvbroadcast/runtime").exists())
+
     def test_production_locks_have_exactly_one_variant_owner(self):
         import tomllib
         for variant, owner in (("cpu", "onnxruntime"), ("cuda", "onnxruntime-gpu")):
