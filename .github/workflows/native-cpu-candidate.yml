@@ -29,7 +29,7 @@ jobs:
 
       - name: Require authenticated delivery and sufficient actual free disk
         run: |
-          python3 - <<'PY'
+          /usr/bin/python3 -I -S - <<'PY'
           import json, os, re, shutil
           from pathlib import Path
           lock = json.loads(Path('packaging/native-runtime/builder-delivery.json').read_text())
@@ -50,12 +50,45 @@ jobs:
               'scope': 'CPU only; CUDA capacity is not qualified'}, indent=2) + '\n')
           PY
 
-      - name: Check native build and delivery failure boundaries
-        env:
-          PYTHONPATH: src
+      - name: Check native boundaries with hash-pinned isolated host tools
         run: |
-          python3 -m unittest discover -s tests -p test_native_builder_delivery.py -v
-          python3 -m unittest discover -s tests -p test_native_runtime_production.py -v
+          /usr/bin/python3 -I -S - <<'PY'
+          import importlib.util, json, sys, tomllib, unittest
+          from pathlib import Path
+          root = Path.cwd()
+          prototype = root / 'packaging/runtime-prototype'
+          spec = importlib.util.spec_from_file_location('pinned_input_fetch', prototype / 'prepare.py')
+          prepare = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(prepare)
+          lock = tomllib.loads((prototype / 'pylock.build.toml').read_text())
+          selected = [item for item in lock['packages'] if item['name'] == 'packaging']
+          if len(selected) != 1 or selected[0]['version'] != '26.0' or len(selected[0]['wheels']) != 1:
+              raise SystemExit('Expected the reviewed packaging 26.0 universal wheel')
+          wheel = selected[0]['wheels'][0]
+          item = {'url': wheel['url'], 'sha256': wheel['hashes']['sha256']}
+          if not item['url'].endswith('/packaging-26.0-py3-none-any.whl'):
+              raise SystemExit('Host test dependency must remain a universal pure-Python wheel')
+          cache = root / 'dist/native-host-tools'
+          cache.mkdir(parents=True)
+          verified = prepare.fetch(cache, item)
+          if verified.stat().st_size != wheel['size']:
+              raise SystemExit('Host dependency size differs from the reviewed lock')
+          # The wheel is zip-imported directly: no pip, resolution, installation,
+          # user site-packages, ambient site initialization or global mutation.
+          sys.path[:0] = [str(verified), str(root / 'src')]
+          import packaging
+          if packaging.__version__ != '26.0' or not packaging.__file__.startswith(str(verified) + '/'):
+              raise SystemExit('Host dependency did not import from the verified wheel')
+          suite = unittest.TestSuite()
+          for pattern in ('test_native_builder_delivery.py', 'test_native_runtime_production.py'):
+              suite.addTests(unittest.defaultTestLoader.discover('tests', pattern=pattern))
+          if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
+              raise SystemExit(1)
+          (root / 'dist/builder-delivery/host-tools.json').write_text(json.dumps({
+              'interpreter': sys.executable, 'python_version': sys.version.split()[0],
+              'isolated': bool(sys.flags.isolated), 'site_disabled': bool(sys.flags.no_site),
+              'packaging_version': packaging.__version__, 'wheel_sha256': item['sha256']}, indent=2) + '\n')
+          PY
 
       - name: Enable an isolated containerd image store
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5.5.0
@@ -68,10 +101,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          asset_id="$(python3 -c 'import json; print(json.load(open("packaging/native-runtime/builder-delivery.json"))["source"]["asset_id"])')"
-          python3 packaging/native-runtime/builder_delivery.py fetch \
+          asset_id="$(/usr/bin/python3 -I -S -c 'import json; print(json.load(open("packaging/native-runtime/builder-delivery.json"))["source"]["asset_id"])')"
+          /usr/bin/python3 -I -S packaging/native-runtime/builder_delivery.py fetch \
             --asset-id "$asset_id" --archive dist/builder-delivery/builders.tar
-          python3 packaging/native-runtime/builder_delivery.py verify --load \
+          /usr/bin/python3 -I -S packaging/native-runtime/builder_delivery.py verify --load \
             --archive dist/builder-delivery/builders.tar \
             --report dist/builder-delivery/authenticated-builders.json
 
@@ -79,14 +112,14 @@ jobs:
         env:
           CANDIDATE_REVISION: ${{ inputs.package_revision }}
         run: |
-          python3 - <<'PY'
+          /usr/bin/python3 -I -S - <<'PY'
           import json, os, subprocess, sys
           from pathlib import Path
           source = os.environ['GITHUB_SHA']
           if subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() != source:
               raise SystemExit('Application and adapter checkout must equal GITHUB_SHA')
           pins = json.loads(Path('packaging/native-runtime/builders.json').read_text())
-          command = [sys.executable, 'packaging/native-runtime/build.py', '--variant', 'cpu', '--source', source,
+          command = [sys.executable, '-I', '-S', 'packaging/native-runtime/build.py', '--variant', 'cpu', '--source', source,
               '--package-revision', os.environ['CANDIDATE_REVISION'], '--cache', 'dist/native-cpu-cache', '--output', 'dist/native-cpu']
           for role in ('bindings', 'deb', 'rpm'):
               command += ['--' + role + '-image', pins[role]['image']]
@@ -97,7 +130,7 @@ jobs:
 
       - name: Verify complete artifact identities and bound retained provenance
         run: |
-          python3 - <<'PY'
+          /usr/bin/python3 -I -S - <<'PY'
           import hashlib, json, os
           from pathlib import Path
           root = Path('dist/native-cpu').resolve()
@@ -138,5 +171,6 @@ jobs:
             dist/native-cpu/assembly/pylock.toml
             dist/builder-delivery/authenticated-builders.json
             dist/builder-delivery/capacity.json
+            dist/builder-delivery/host-tools.json
             packaging/native-runtime/builder-delivery.json
             packaging/native-runtime/builders.json

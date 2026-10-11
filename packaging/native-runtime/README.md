@@ -121,6 +121,13 @@ artifacts plus bounded source, runtime and builder provenance. It does not publi
 a release, access host devices, install native packages or receive signing keys.
 Signing and device/lifecycle acceptance remain separate gates.
 
+Host-side CPU workflow scripts use `/usr/bin/python3 -I -S`. The production
+boundary tests need `packaging`; they zip-import only the packaging 26.0 universal
+wheel already pinned in `runtime-prototype/pylock.build.toml`, after checking its
+SHA-256 and size. No pip resolver, global install or ambient Python package is
+used. The artifact includes the isolated interpreter/dependency verification
+record in `host-tools.json`.
+
 The CPU job requires **12 GiB actually free** on its workspace and temporary
 filesystems before fetching builders. The October 11 complete local CPU build
 used 5,905,301,504 disk bytes, with a separately measured 559,071,232-byte cache
