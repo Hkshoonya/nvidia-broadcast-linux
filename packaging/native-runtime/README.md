@@ -112,6 +112,25 @@ The containerd requirement follows Docker's
 Attestation verification follows the GitHub CLI's
 [identity and source policy](https://cli.github.com/manual/gh_attestation_verify).
 
+After the authenticated lock lands, **Build authenticated native CPU candidate**
+is the manual main-only consumer. It fetches the pinned archive, cryptographically
+verifies the historical import before loading it, and builds both native formats
+with application and adapter fixed to that run's `GITHUB_SHA`. It receives only
+contents/attestations read permissions and retains complete unsigned DEB/RPM
+artifacts plus bounded source, runtime and builder provenance. It does not publish
+a release, access host devices, install native packages or receive signing keys.
+Signing and device/lifecycle acceptance remain separate gates.
+
+The CPU job requires **12 GiB actually free** on its workspace and temporary
+filesystems before fetching builders. The October 11 complete local CPU build
+used 5,905,301,504 disk bytes, with a separately measured 559,071,232-byte cache
+(some hardlinks overlap), up to 2.49 GB of builder images, and up to 1.25 GB for
+transport plus a private verification copy. The preflight includes headroom and
+records actual free space; it fails without pruning unrelated runner tools or
+images. GitHub documents 14 GB storage for its standard public Ubuntu runners,
+so actual hosted capacity still needs confirmation in the first run. CUDA is
+not offered by this workflow and its larger footprint is not qualified here.
+
 The following invocation runs on Linux x86_64 as an ordinary user. The cache
 may contain verified input archives and previously downloaded dependency
 wheels. Missing inputs are downloaded unless `--offline` is specified. Network
