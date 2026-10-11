@@ -12,11 +12,21 @@ import tempfile
 import tomllib
 
 
-APP_ID = "com.doczeus.NVBroadcast"
+APP_ID = "com.nvbroadcast.NVBroadcast"
 APP_REF = f"app/{APP_ID}/x86_64/master"
 BUNDLE_NAME = "nvbroadcast-development-cpu-x86_64.flatpak"
+FLATPAK_METADATA = {
+    "share/applications/com.nvbroadcast.NVBroadcast.desktop":
+        "packaging/flatpak/com.nvbroadcast.NVBroadcast.desktop",
+    "share/metainfo/com.nvbroadcast.NVBroadcast.metainfo.xml":
+        "packaging/flatpak/com.nvbroadcast.NVBroadcast.metainfo.xml",
+    "share/icons/hicolor/scalable/apps/com.nvbroadcast.NVBroadcast.svg":
+        "packaging/flatpak/com.nvbroadcast.NVBroadcast.svg",
+    "share/icons/hicolor/128x128/apps/com.nvbroadcast.NVBroadcast.png":
+        "packaging/flatpak/com.nvbroadcast.NVBroadcast.png",
+}
 BUILD_INPUTS = (
-    "pyproject.toml", "packaging/flatpak/com.doczeus.NVBroadcast.yml",
+    "pyproject.toml", "packaging/flatpak/com.nvbroadcast.NVBroadcast.yml",
     "packaging/flatpak/python3-flatpak-requirements.yaml",
     "packaging/flatpak/requirements.txt",
 )
@@ -60,7 +70,11 @@ def source_payloads(source, build):
     for directory, paths in project["tool"]["setuptools"]["data-files"].items():
         for name in paths:
             path = source / name
+            if path.name.startswith("com.doczeus.NVBroadcast."):
+                continue  # Native identity is replaced by Flatpak-specific metadata.
             pairs[(Path(directory) / path.name).as_posix()] = path
+    for target, name in FLATPAK_METADATA.items():
+        pairs[target] = source / name
     licenses = list(packages[0].glob("nvbroadcast-*.dist-info/**/LICENSE"))
     if len(licenses) != 1:
         raise ValueError("Expected the complete project LICENSE in the package")

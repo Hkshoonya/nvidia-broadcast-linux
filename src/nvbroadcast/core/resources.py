@@ -6,9 +6,10 @@ import sys
 from importlib import resources
 from pathlib import Path
 
+from nvbroadcast.core.constants import APP_ID
 
-APP_ICON = "com.doczeus.NVBroadcast.svg"
-APP_ICON_PNG = "com.doczeus.NVBroadcast.png"
+APP_ICON = f"{APP_ID}.svg"
+APP_ICON_PNG = f"{APP_ID}.png"
 DEFAULT_BACKGROUND = "studio_bg.png"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 FLATPAK_SHARE = Path("/app/share")

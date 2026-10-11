@@ -53,7 +53,7 @@ jobs:
             -w /workspace \
             "$BUILDER_IMAGE" \
             flatpak-builder-lint manifest \
-            packaging/flatpak/com.doczeus.NVBroadcast.yml
+            packaging/flatpak/com.nvbroadcast.NVBroadcast.yml
 
       - name: Build Flatpak from pinned sources
         run: |
@@ -63,7 +63,7 @@ jobs:
             "$BUILDER_IMAGE" \
             flatpak-builder --force-clean --disable-rofiles-fuse \
             --repo=flatpak-repo flatpak-build \
-            packaging/flatpak/com.doczeus.NVBroadcast.yml
+            packaging/flatpak/com.nvbroadcast.NVBroadcast.yml
 
       - name: Validate dependency closure
         run: |
@@ -101,7 +101,17 @@ jobs:
             -w /workspace \
             "$BUILDER_IMAGE" \
             flatpak-builder-lint appstream \
-            flatpak-build/files/share/metainfo/com.doczeus.NVBroadcast.metainfo.xml
+            flatpak-build/files/share/metainfo/com.nvbroadcast.NVBroadcast.metainfo.xml
+
+      - name: Validate finished Flatpak directory
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace:ro" \
+            -w /workspace \
+            "$BUILDER_IMAGE" \
+            flatpak-builder-lint --exceptions \
+            --user-exceptions packaging/flatpak/upstream-lint-exceptions.json \
+            builddir flatpak-build
 
       - name: Export and verify development bundle
         env:

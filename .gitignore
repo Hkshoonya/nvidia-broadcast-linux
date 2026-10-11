@@ -26,3 +26,8 @@ artifacts_vcam_sample.png
 parts/
 snapcraft.login
 .nvbroadcast-runtimes/
+
+# Local Flatpak build/cache/export outputs
+.flatpak-builder/
+flatpak-build/
+flatpak-repo/

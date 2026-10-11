@@ -8,6 +8,7 @@
 #   ./build-packages.sh deb      # Build .deb only
 #   ./build-packages.sh rpm      # Build .rpm only
 #   ./build-packages.sh upgrade-helper  # Bind upgrader to built .deb and .rpm
+#   ./build-packages.sh native-runtime --help  # Complete locked Linux payloads
 #
 # Output:
 #   dist/deb/nvbroadcast_<version>-<rev>_all.deb
@@ -561,6 +562,10 @@ DIST
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 case "$BUILD_TARGET" in
+    native-runtime)
+        shift
+        exec python3 packaging/native-runtime/build.py "$@"
+        ;;
     deb) build_deb ;;
     rpm) build_rpm ;;
     pkg) build_pkg ;;
@@ -571,7 +576,7 @@ case "$BUILD_TARGET" in
         build_upgrade_helper; echo ""
         build_pkg
         ;;
-    *)   echo "Usage: $0 [deb|rpm|pkg|upgrade-helper|all]"; exit 1 ;;
+    *)   echo "Usage: $0 [deb|rpm|pkg|upgrade-helper|native-runtime|all]"; exit 1 ;;
 esac
 
 echo ""

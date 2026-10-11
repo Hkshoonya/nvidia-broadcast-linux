@@ -14,7 +14,7 @@ import tempfile
 
 _READ_SIZE = 1024 * 1024
 _VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-_REVISION_PATTERN = re.compile(r"^[1-9][0-9]*$")
+_REVISION_PATTERN = re.compile(r"^[1-9][0-9]*(?:\.(?:cpu|cuda))?$")
 
 
 class RenderError(ValueError):
@@ -57,16 +57,19 @@ def render_helper(
     if not _REVISION_PATTERN.fullmatch(revision):
         raise RenderError(f"unsafe package revision: {revision!r}")
 
-    expected_deb_name = f"nvbroadcast_{version}-{revision}_all.deb"
+    private_runtime = revision.endswith((".cpu", ".cuda"))
+    deb_arch, rpm_arch = ("amd64", "x86_64") if private_runtime else ("all", "noarch")
+    expected_deb_name = f"nvbroadcast_{version}-{revision}_{deb_arch}.deb"
     if deb.name != expected_deb_name:
         raise RenderError(
             f"unexpected release artifact name {deb.name!r}; "
             f"expected {expected_deb_name!r}"
         )
+    dist_suffix = "" if private_runtime else r"(?:\.[A-Za-z0-9_]+)*"
     rpm_name = re.fullmatch(
         rf"nvbroadcast-{re.escape(version)}-"
-        rf"(?P<release>{re.escape(revision)}(?:\.[A-Za-z0-9_]+)*)"
-        r"\.noarch\.rpm",
+        rf"(?P<release>{re.escape(revision)}{dist_suffix})"
+        rf"\.{rpm_arch}\.rpm",
         rpm.name,
     )
     if rpm_name is None:
@@ -85,6 +88,8 @@ def render_helper(
         "@TARGET_VERSION@": version,
         "@TARGET_REVISION@": revision,
         "@TARGET_RPM_RELEASE@": rpm_name.group("release"),
+        "@TARGET_DEB_ARCH@": deb_arch,
+        "@TARGET_RPM_ARCH@": rpm_arch,
         "@DEB_SHA256@": _sha256_regular_file(deb),
         "@RPM_SHA256@": _sha256_regular_file(rpm),
     }

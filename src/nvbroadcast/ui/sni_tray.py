@@ -200,7 +200,7 @@ class SniTray:
         self._watch_id = Gio.bus_watch_name_on_connection(
             self._conn, "org.kde.StatusNotifierWatcher",
             Gio.BusNameWatcherFlags.NONE,
-            self._on_watcher_appeared, None)
+            self._on_watcher_appeared, self._on_watcher_vanished)
 
     def _on_watcher_appeared(self, conn, name, owner):
         # Always (re-)register — tray hosts restart with the shell — but
@@ -215,9 +215,15 @@ class SniTray:
                 print("[NV Broadcast] SNI tray icon registered", flush=True)
             self._active = True
         except Exception as e:
+            self._active = False
             if owner:  # A watcher exists but rejected us — worth logging
                 print(f"[NV Broadcast] SNI watcher registration failed: {e}",
                       flush=True)
+
+    def _on_watcher_vanished(self, conn, name):
+        # Exporting an item does not mean a tray host can display it. Closing
+        # the window must not hide the app behind a watcher that went away.
+        self._active = False
 
     @property
     def bus_ready(self) -> bool:

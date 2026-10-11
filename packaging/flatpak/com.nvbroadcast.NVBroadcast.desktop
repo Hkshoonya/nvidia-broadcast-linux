@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=NV Broadcast
+Comment=Camera effects, microphone cleanup, and local meeting transcription
+Exec=nvbroadcast
+Icon=com.nvbroadcast.NVBroadcast
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;
+Keywords=broadcast;camera;virtual;nvidia;background;noise;ai;
+StartupNotify=true
+StartupWMClass=com.nvbroadcast.NVBroadcast

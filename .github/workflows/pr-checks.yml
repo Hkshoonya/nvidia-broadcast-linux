@@ -59,6 +59,8 @@ jobs:
             rpm \
             gnupg2 \
             fonts-dejavu-core \
+            pulseaudio \
+            pulseaudio-utils \
             xvfb \
             xauth \
             gir1.2-gtk-4.0 \
@@ -135,6 +137,7 @@ jobs:
             tests/test_config_persistence.py \
             tests/test_deepfilter_model.py \
             tests/test_eye_contact.py \
+            tests/test_face_landmarks.py \
             tests/test_model_download.py \
             tests/test_packaging_metadata.py \
             tests/test_runtime_probe.py \

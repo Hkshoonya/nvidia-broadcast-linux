@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FLATPAK_DIR = ROOT / "packaging" / "flatpak"
-MANIFEST = FLATPAK_DIR / "com.doczeus.NVBroadcast.yml"
+MANIFEST = FLATPAK_DIR / "com.nvbroadcast.NVBroadcast.yml"
 GENERATED = FLATPAK_DIR / "python3-flatpak-requirements.yaml"
 REQUIREMENTS = FLATPAK_DIR / "requirements.txt"
 README = FLATPAK_DIR / "README.md"
@@ -16,7 +16,7 @@ class FlatpakPackagingTests(unittest.TestCase):
     def test_manifest_uses_pinned_gnome_runtime_and_expected_identity(self):
         manifest = MANIFEST.read_text(encoding="utf-8")
 
-        self.assertIn("id: com.doczeus.NVBroadcast", manifest)
+        self.assertIn("id: com.nvbroadcast.NVBroadcast", manifest)
         self.assertIn("runtime: org.gnome.Platform", manifest)
         self.assertIn('runtime-version: "50"', manifest)
         self.assertIn("sdk: org.gnome.Sdk", manifest)
@@ -82,6 +82,8 @@ class FlatpakPackagingTests(unittest.TestCase):
         ):
             self.assertIn(packaged_input, workflow)
         self.assertIn("flatpak-builder-lint manifest", workflow)
+        self.assertIn("builddir flatpak-build", workflow)
+        self.assertIn("--user-exceptions packaging/flatpak/upstream-lint-exceptions.json", workflow)
         self.assertIn("python3 -m pip check", workflow)
         self.assertIn('_model_entry("base", faster_whisper.__version__)', workflow)
         self.assertIn("/app/share/doc/nvbroadcast/NOTICE", workflow)
@@ -106,6 +108,38 @@ class FlatpakPackagingTests(unittest.TestCase):
         self.assertNotIn("onnxruntime-gpu", requirements)
         self.assertNotIn("tensorrt", requirements)
         self.assertNotIn("cupy", requirements)
+
+    def test_upstream_lint_profile_only_exempts_flathub_image_mirroring(self):
+        import json
+
+        profile = json.loads((FLATPAK_DIR / "upstream-lint-exceptions.json").read_text())
+        self.assertEqual(profile, {
+            "com.nvbroadcast.NVBroadcast": ["appstream-external-screenshot-url"]
+        })
+
+    def test_flatpak_metadata_has_its_own_identity_and_cpu_scope(self):
+        import configparser
+        import xml.etree.ElementTree as ET
+
+        metadata = ET.parse(FLATPAK_DIR / "com.nvbroadcast.NVBroadcast.metainfo.xml").getroot()
+        desktop = configparser.ConfigParser(interpolation=None)
+        desktop.read(FLATPAK_DIR / "com.nvbroadcast.NVBroadcast.desktop")
+        self.assertEqual(metadata.findtext("id"), "com.nvbroadcast.NVBroadcast")
+        self.assertEqual(metadata.findtext("name"), desktop["Desktop Entry"]["Name"])
+        self.assertEqual(metadata.findtext("launchable"), "com.nvbroadcast.NVBroadcast.desktop")
+        description = " ".join(" ".join(metadata.find("description").itertext()).split())
+        self.assertIn("CPU processing on x86_64", description)
+        self.assertIn("not affiliated with", description)
+        self.assertNotIn("NVENC", description)
+        self.assertNotIn("NVIDIA eye", (FLATPAK_DIR / "com.nvbroadcast.NVBroadcast.svg").read_text())
+        # Screenshot dimensions in metadata must match actual PNG headers.
+        import struct
+        for picture in metadata.findall("screenshots/screenshot/image"):
+            name = picture.text.rsplit("/", 1)[-1]
+            image = (ROOT / "docs/screenshots" / name).read_bytes()
+            self.assertEqual(image[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(struct.unpack(">II", image[16:24]),
+                             (int(picture.attrib["width"]), int(picture.attrib["height"])))
 
     def test_public_distribution_blockers_remain_explicit(self):
         readme = README.read_text(encoding="utf-8")

@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 import cv2
 import numpy as np
@@ -10,6 +11,7 @@ from nvbroadcast.video.eye_contact import (
     _RIGHT_EYE,
     _RIGHT_IRIS,
 )
+from nvbroadcast.video.face_landmarks import SharedFaceLandmarker
 
 
 class _Point:
@@ -115,6 +117,43 @@ class EyeContactTests(unittest.TestCase):
         self.assertEqual(corrector.mode, "gaze_lock")
         corrector.mode = "broken"
         self.assertEqual(corrector.mode, "natural")
+
+    def test_downward_gaze_tracks_new_frames_after_numeric_id_reuse(self):
+        for mode in ("natural", "gaze_lock"):
+            with self.subTest(mode=mode):
+                with mock.patch.object(SharedFaceLandmarker, "_init"):
+                    tracker = SharedFaceLandmarker()
+                tracker._initialized = True
+                tracker._landmarker = object()
+                detected = []
+
+                def detect(frame):
+                    offset = int(frame[0, 0, 0])
+                    detected.append(offset)
+                    return self._scene((0, offset), (0, offset))[1]
+
+                tracker._run_detection = detect
+                corrector = EyeContactCorrector()
+                corrector.enabled = True
+                corrector.intensity = 1.0
+                corrector.mode = mode
+                with (
+                    mock.patch("nvbroadcast.video.eye_contact.get_shared_landmarker",
+                               return_value=tracker),
+                    mock.patch("nvbroadcast.video.face_landmarks.id",
+                               return_value=42, create=True),
+                ):
+                    for offset in range(5):
+                        frame, _ = self._scene((0, offset), (0, offset))
+                        frame[0, 0, 0] = offset
+                        output = corrector.process_frame(frame)
+                        del frame
+
+                self.assertEqual(detected, list(range(5)))
+                # Evaluate the visible output, not just the commanded warp:
+                # both pupils should stay close to their starting camera target.
+                for iris, center in zip(self._iris_centers(output), self._EYE_CENTERS):
+                    self.assertLess(abs(float(iris[1]) - center[1]), 1.0)
 
     def test_default_intensity_moves_shared_gaze_without_inward_convergence(self):
         frame, landmarks = self._scene()

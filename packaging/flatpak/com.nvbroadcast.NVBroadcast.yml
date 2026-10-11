@@ -1,5 +1,5 @@
 # Development manifest. See README.md before distributing this build.
-id: com.doczeus.NVBroadcast
+id: com.nvbroadcast.NVBroadcast
 runtime: org.gnome.Platform
 runtime-version: "50"
 sdk: org.gnome.Sdk
@@ -58,6 +58,16 @@ modules:
       - >-
         pip3 install --verbose --exists-action=i --no-index --no-deps
         --no-build-isolation --prefix=${FLATPAK_DEST} .
+      # The Flatpak identity belongs to the project's nvbroadcast.com domain.
+      # Native packages retain their existing desktop and application identity.
+      - rm ${FLATPAK_DEST}/share/applications/com.doczeus.NVBroadcast.desktop
+      - rm ${FLATPAK_DEST}/share/metainfo/com.doczeus.NVBroadcast.metainfo.xml
+      - rm ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/com.doczeus.NVBroadcast.svg
+      - rm ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/com.doczeus.NVBroadcast.png
+      - install -Dm644 packaging/flatpak/com.nvbroadcast.NVBroadcast.desktop ${FLATPAK_DEST}/share/applications/com.nvbroadcast.NVBroadcast.desktop
+      - install -Dm644 packaging/flatpak/com.nvbroadcast.NVBroadcast.metainfo.xml ${FLATPAK_DEST}/share/metainfo/com.nvbroadcast.NVBroadcast.metainfo.xml
+      - install -Dm644 packaging/flatpak/com.nvbroadcast.NVBroadcast.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/com.nvbroadcast.NVBroadcast.svg
+      - install -Dm644 packaging/flatpak/com.nvbroadcast.NVBroadcast.png ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/com.nvbroadcast.NVBroadcast.png
       - python3 -m compileall -q ${FLATPAK_DEST}/lib/python3.13/site-packages/nvbroadcast
     sources:
       - type: dir
