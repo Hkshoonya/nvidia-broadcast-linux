@@ -357,6 +357,30 @@ class RuntimeVariantTests(unittest.TestCase):
         ):
             self.assertEqual(detect_runtime_variant(), RuntimeVariant.CUDA)
 
+    def test_detect_live_probe_without_cuda_stays_cpu(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = ["CPUExecutionProvider"]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(detect_runtime_variant(), RuntimeVariant.CPU)
+
+    def test_detect_live_probe_failure_falls_back_to_cpu(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.side_effect = RuntimeError("broken lib")
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(detect_runtime_variant(), RuntimeVariant.CPU)
+
     def test_validate_cuda_accepts_arch_layout(self):
         runtime = mock.Mock()
         runtime.get_available_providers.return_value = [
