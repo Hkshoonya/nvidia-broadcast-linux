@@ -335,6 +335,21 @@ class RuntimeVariantTests(unittest.TestCase):
         )
         self.assertTrue(any("missing execution provider" in item for item in problems))
 
+    def test_detect_live_probe_returns_cuda_for_cpu_named_cuda_build(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = [
+            "CPUExecutionProvider",
+            "CUDAExecutionProvider",
+        ]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.29.0",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(detect_runtime_variant(), RuntimeVariant.CUDA)
+
     def test_validate_cuda_accepts_arch_layout(self):
         runtime = mock.Mock()
         runtime.get_available_providers.return_value = [
