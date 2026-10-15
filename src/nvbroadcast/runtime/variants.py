@@ -183,9 +183,11 @@ def runtime_ownership_problems(
 def validate_current_runtime(variant: RuntimeVariant) -> list[str]:
     """Validate current interpreter against selected runtime contract."""
     inventory = current_distribution_inventory()
+    inventory_names = {_canonicalize_name(name) for name in inventory}
     possible_cpu_named_cuda = (
         variant is RuntimeVariant.CUDA
-        and {_canonicalize_name(name) for name in inventory} == {"onnxruntime"}
+        and inventory_names == {"onnxruntime"}
+        and sum(len(versions) for versions in inventory.values()) == 1
     )
     if not possible_cpu_named_cuda:
         ownership_problems = _runtime_distribution_problems(variant, inventory)
