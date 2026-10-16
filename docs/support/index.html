@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Help and private email support for the native NV Broadcast Mac app.">
+<title>Support — NV Broadcast for Mac</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fafafa; --surface: white; --text: #111;
+    --muted: #555; --border: #e8e8e8; --accent: #4a7400; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0e0e0e; --surface: #181818;
+    --text: #eee; --muted: #b0b0b0; --border: #2a2a2a; --accent: #8ad400; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 system-ui, -apple-system, sans-serif; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--border); }
+  header a { color: var(--text); font-weight: 700; text-decoration: none; }
+  main { max-width: 800px; padding: 40px 20px 80px; margin: auto; }
+  h1 { font-size: clamp(2rem, 6vw, 3rem); line-height: 1.15; margin: 0 0 14px; }
+  h2 { font-size: 1.3rem; margin: 30px 0 8px; }
+  p { margin: 8px 0 16px; }
+  a { color: var(--accent); overflow-wrap: anywhere; }
+  a:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+  .muted { color: var(--muted); }
+  .card { padding: 20px; margin: 24px 0; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+  .action { display: inline-block; padding: 10px 18px; border-radius: 10px; background: #76b900; color: #111; font-weight: 650; text-decoration: none; }
+  footer { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 40px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header><a href="https://nvbroadcast.com">NV Broadcast</a></header>
+<main>
+  <h1>A little help.<br>A better broadcast.</h1>
+  <p class="muted">Support for the native NV Broadcast app prepared for the Mac App Store.</p>
+  <section class="card" aria-labelledby="contact">
+    <h2 id="contact" style="margin-top:0">Tell us what happened</h2>
+    <p>Describe what you expected, what happened and the steps to repeat the problem. Include the app version if you know it. Please leave out passwords, payment details and private meeting content.</p>
+    <a class="action" href="mailto:support@nvbroadcast.com">Email private support</a>
+    <p class="muted">support@nvbroadcast.com · Email is sent through your mail app. This page doesn't upload files or submit a report automatically.</p>
+  </section>
+  <h2>Start with the guided setup</h2>
+  <p>Open NV Broadcast and choose <strong>Help → Getting Started</strong> to replay the guided walkthrough. It explains camera setup, backgrounds, saved setups, meeting tools and power controls.</p>
+  <h2>Use your processed video in another app</h2>
+  <p>Complete the virtual-camera setup and follow the macOS approval prompts. In a compatible meeting, browser or streaming app, select <strong>NV Broadcast Camera</strong> as the video source. Camera permission and supported sources depend on that app.</p>
+  <h2>Restore Pro access</h2>
+  <p>In NV Broadcast settings, choose <strong>Restore Purchases</strong> using the Apple Account that purchased the subscription. Manage or cancel the plan in Apple's subscription settings. Trial eligibility and the price applicable to your account appear before purchase.</p>
+  <h2>iPhone and iPad</h2>
+  <p>NV Broadcast mobile apps are planned for later and are not included as available features of the first Mac release. Apple's Continuity Camera can be used as an input on supported devices.</p>
+  <h2>Problem reporting</h2>
+  <p>Automatic in-app public reports are being prepared. Until enabled, use private email support. Your emails are not automatically published to a public tracker.</p>
+  <h2>Privacy and general questions</h2>
+  <p>Email <a href="mailto:hello@nvbroadcast.com">hello@nvbroadcast.com</a>. Read the <a href="https://nvbroadcast.com/privacy">privacy policy</a> for details about local processing and voluntary support correspondence.</p>
+  <footer>NV Broadcast is an independent product and is not affiliated with or endorsed by NVIDIA.</footer>
+</main>
+</body>
+</html>
