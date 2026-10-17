@@ -69,6 +69,15 @@ diminish authorship of any contribution.
   actual GTK4/Libadwaita/GStreamer binding availability
   ([#103](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/103)).
 
+### Mauricio Zaffari ([@mauriciozaffari](https://github.com/mauriciozaffari))
+
+- Fixed CUDA runtime detection for distributions that ship
+  `CUDAExecutionProvider` under the plain `onnxruntime` name (e.g. Arch's
+  `python-onnxruntime-opt-cuda`), which the variant check previously
+  misclassified as CPU, blocking CUDA modes with source-installer guidance
+  that does not apply to system packages
+  ([#156](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/156)).
+
 ## Other Community Contributions
 
 Bug reports, reproduction details, hardware testing, review comments,

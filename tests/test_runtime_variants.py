@@ -288,6 +288,107 @@ class RuntimeVariantTests(unittest.TestCase):
             "onnxruntime_gpu": ("1.24.4",),
         }))
 
+    def test_detect_cpu_named_cuda_build_with_providers_returns_cuda(self):
+        self.assertEqual(
+            detect_runtime_variant(
+                {"onnxruntime": ("1.29.0",)},
+                ["CPUExecutionProvider", "CUDAExecutionProvider"],
+            ),
+            RuntimeVariant.CUDA,
+        )
+
+    def test_detect_explicit_cpu_dict_without_providers_stays_cpu(self):
+        self.assertEqual(
+            detect_runtime_variant({"onnxruntime": ("1.24.4",)}),
+            RuntimeVariant.CPU,
+        )
+
+    def test_detect_rejects_duplicates_even_with_cuda_providers(self):
+        self.assertIsNone(
+            detect_runtime_variant(
+                {"onnxruntime": ("1.24.4", "1.30.0")},
+                ["CPUExecutionProvider", "CUDAExecutionProvider"],
+            )
+        )
+        self.assertIsNone(
+            detect_runtime_variant(
+                {"onnxruntime": ("1.24.4",), "onnxruntime-gpu": ("1.24.4",)},
+                ["CPUExecutionProvider", "CUDAExecutionProvider"],
+            )
+        )
+
+    def test_cuda_ownership_accepts_cpu_named_cuda_build(self):
+        self.assertEqual(
+            runtime_ownership_problems(
+                RuntimeVariant.CUDA,
+                {"onnxruntime": ("1.29.0",)},
+                ["CPUExecutionProvider", "CUDAExecutionProvider"],
+            ),
+            [],
+        )
+
+    def test_cuda_ownership_reports_missing_cpu_provider_for_arch_layout(self):
+        problems = runtime_ownership_problems(
+            RuntimeVariant.CUDA,
+            {"onnxruntime": ("1.29.0",)},
+            ["CUDAExecutionProvider"],
+        )
+        self.assertTrue(any("missing execution provider" in item for item in problems))
+
+    def test_detect_live_probe_returns_cuda_for_cpu_named_cuda_build(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = [
+            "CPUExecutionProvider",
+            "CUDAExecutionProvider",
+        ]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.29.0",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(detect_runtime_variant(), RuntimeVariant.CUDA)
+
+    def test_detect_live_probe_without_cuda_stays_cpu(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = ["CPUExecutionProvider"]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(detect_runtime_variant(), RuntimeVariant.CPU)
+
+    def test_detect_live_probe_failure_falls_back_to_cpu(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.side_effect = RuntimeError("broken lib")
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(detect_runtime_variant(), RuntimeVariant.CPU)
+
+    def test_validate_cuda_accepts_arch_layout(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = [
+            "CPUExecutionProvider",
+            "CUDAExecutionProvider",
+        ]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.29.0",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(validate_current_runtime(RuntimeVariant.CUDA), [])
+
     def test_duplicate_metadata_on_distinct_import_paths_is_not_a_valid_variant(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
