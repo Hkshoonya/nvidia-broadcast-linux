@@ -37,11 +37,12 @@ class SourceRuntimeError(RuntimeError):
     pass
 
 
-def owned_directory(path: Path, *, private: bool = False) -> None:
+def owned_directory(path: Path, *, protected: bool = False) -> None:
     info = path.lstat()
     # A source checkout or legacy venv commonly uses the user's shared-group
-    # umask. New selection metadata and generations themselves stay private.
-    unsafe_mode = 0o077 if private else 0o002
+    # umask. Runtime-store paths only need protection against writes by others;
+    # FUSE mounts may report 0755 even when creation requested 0700.
+    unsafe_mode = 0o022 if protected else 0o002
     if (
         not stat.S_ISDIR(info.st_mode)
         or info.st_uid != os.getuid()
@@ -187,7 +188,10 @@ class SourceRuntimeStore:
 
     def initialize(self) -> None:
         self.root.mkdir(mode=0o700, exist_ok=True)
-        owned_directory(self.root, private=True)
+        # The store needs to be owned by the installer user and protected
+        # from group/other writes. Requiring 0700 breaks checkouts on some
+        # FUSE mounts, where chmod may silently leave the directory at 0755.
+        owned_directory(self.root, protected=True)
 
     @contextmanager
     def locked(self):
@@ -198,7 +202,7 @@ class SourceRuntimeStore:
             if (
                 not stat.S_ISREG(info.st_mode)
                 or info.st_uid != os.getuid()
-                or info.st_mode & 0o077
+                or info.st_mode & 0o022
             ):
                 raise SourceRuntimeError("Unsafe runtime lock")
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -218,13 +222,15 @@ class SourceRuntimeStore:
             raise SourceRuntimeError("Invalid runtime variant")
         if entry.get("meeting", "none") not in {"none", "faster", "all"}:
             raise SourceRuntimeError("Invalid meeting runtime selection")
-        owned_directory(path)
+        owned_directory(path, protected=name != "legacy")
         return path
 
     def state(self) -> dict | None:
         if not self.root.exists() and not self.root.is_symlink():
             return None
-        owned_directory(self.root, private=True)
+        # `guard` reads state before it takes the store lock, so initialize
+        # and validate the existing store on this read path too.
+        self.initialize()
         try:
             state = read_json(self.state_file)
         except FileNotFoundError:
@@ -351,7 +357,7 @@ print(json.dumps({"meeting": meeting, "tensorrt": "tensorrt-cu12-libs" in names}
                 path for path in self.root.iterdir() if GENERATION.fullmatch(path.name)
             ]
             for path in generations:
-                owned_directory(path)
+                owned_directory(path, protected=True)
                 if find_source_processes(path):
                     raise SourceRuntimeError(f"Source runtime is still in use: {path}")
             for path in generations:

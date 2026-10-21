@@ -198,6 +198,54 @@ class SourceRuntimeTests(unittest.TestCase):
         ):
             self.store.prepare()
 
+    def test_readable_store_lock_and_generation_are_supported(self):
+        candidate = self.store.prepare()
+        self.store.root.chmod(0o755)
+        (self.store.root / ".lock").chmod(0o644)
+        candidate.chmod(0o755)
+        self.store.activate(candidate, "cpu", "none")
+        self.assertEqual(self.store.active(), candidate)
+        with self.store.locked():
+            self.assertEqual(self.store.state()["active"]["path"], candidate.name)
+
+    def test_group_writable_store_is_rejected_on_read(self):
+        self.activate()
+        self.store.root.chmod(0o775)
+        with self.assertRaisesRegex(runtime.SourceRuntimeError, "Unsafe runtime directory"):
+            self.store.state()
+
+    def test_writable_locks_are_rejected(self):
+        self.store.prepare()
+        for mode in (0o620, 0o602):
+            with self.subTest(mode=oct(mode)):
+                (self.store.root / ".lock").chmod(mode)
+                with self.assertRaisesRegex(runtime.SourceRuntimeError, "Unsafe runtime lock"):
+                    with self.store.locked():
+                        self.fail("Writable lock was accepted")
+
+    def test_group_writable_generation_cannot_be_activated_or_removed(self):
+        candidate = self.store.prepare()
+        candidate.chmod(0o775)
+        with self.assertRaisesRegex(runtime.SourceRuntimeError, "Unsafe runtime directory"):
+            self.store.activate(candidate, "cpu", "none")
+        self.probe.assert_not_called()
+        with self.assertRaisesRegex(runtime.SourceRuntimeError, "Unsafe runtime directory"):
+            self.store.remove()
+        self.assertTrue(candidate.is_dir())
+
+    def test_selected_generation_permissions_are_checked_on_read(self):
+        candidate = self.activate()
+        candidate.chmod(0o775)
+        with self.assertRaisesRegex(runtime.SourceRuntimeError, "Unsafe runtime directory"):
+            self.store.active()
+
+    def test_group_writable_legacy_environment_remains_supported(self):
+        previous = self.legacy()
+        previous.chmod(0o775)
+        self.activate()
+        self.store.rollback()
+        self.assertEqual(self.store.active(), previous)
+
     def test_metadata_symlink_is_rejected(self):
         current = self.activate()
         candidate = self.store.prepare()
