@@ -3226,8 +3226,8 @@ class NVBroadcastApp(Adw.Application):
         save_config(self.config)
 
     def set_noise_engine(self, engine: str):
-        """Switch the denoiser engine ("auto" = DeepFilterNet, "rnnoise")."""
-        engine = engine if engine in ("auto", "rnnoise") else "auto"
+        """Switch between automatic, RNNoise, and optional HUSH denoising."""
+        engine = engine if engine in ("auto", "rnnoise", "hush") else "auto"
         self.config.audio.noise_engine = engine
         pipeline = self._ensure_audio_pipeline()
         pipeline.effects.engine = engine

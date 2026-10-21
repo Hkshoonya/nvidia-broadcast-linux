@@ -71,6 +71,7 @@ class AudioConfig:
     noise_removal: bool = False
     noise_intensity: float = 1.0
     # "auto" = DeepFilterNet3 neural denoiser when available, else RNNoise
+    # "hush" = optional external HUSH/Maxine worker (Linux NVIDIA only)
     noise_engine: str = "auto"
     speaker_denoise: bool = False
     voice_fx_enabled: bool = False

@@ -37,6 +37,7 @@ class AudioEffects:
         # never touches the network; the app passes the configured engine.
         self._engine_pref = "rnnoise"
         self._dfn = None
+        self._hush = None
         self._dfn_demoted = False
 
     @property
@@ -67,17 +68,20 @@ class AudioEffects:
 
     @engine.setter
     def engine(self, value: str):
-        value = value if value in ("auto", "deepfilter", "rnnoise") else "auto"
+        value = value if value in ("auto", "deepfilter", "rnnoise", "hush") else "auto"
         if value == self._engine_pref:
             return
+        self.cleanup()
         self._engine_pref = value
         self._dfn_demoted = False
-        if self._initialized and value != "rnnoise" and self._dfn is None:
-            self._init_deepfilter()
+        if self._enabled:
+            self.initialize()
 
     @property
     def active_engine(self) -> str:
         """The engine that will actually process the next chunk."""
+        if self._engine_pref == "hush" and self._hush is not None and self._hush.available:
+            return "hush"
         if (self._engine_pref != "rnnoise" and not self._dfn_demoted
                 and self._dfn is not None and self._dfn.available):
             return "deepfilter"
@@ -101,7 +105,12 @@ class AudioEffects:
         if self._initialized:
             return True
 
-        if self._engine_pref != "rnnoise" and self._dfn is None:
+        if self._engine_pref == "hush" and self._hush is None:
+            from nvbroadcast.audio.hush import HushDenoiser
+            hush = HushDenoiser()
+            if hush.initialize():
+                self._hush = hush
+        if self._engine_pref != "rnnoise" and self._hush is None and self._dfn is None:
             self._init_deepfilter()
 
         try:
@@ -116,7 +125,7 @@ class AudioEffects:
         except Exception as e:
             print(f"[NV Broadcast] Failed to initialize audio denoiser: {e}")
             # DeepFilterNet alone still counts as an initialized denoiser.
-            if self._dfn is not None and self._dfn.available:
+            if self._hush is not None or (self._dfn is not None and self._dfn.available):
                 self._initialized = True
                 return True
             return False
@@ -133,6 +142,16 @@ class AudioEffects:
         """
         if not self._enabled or not self._initialized:
             return audio_data
+
+        if self.active_engine == "hush":
+            try:
+                return self._hush.process_chunk(audio_data, sample_rate, self._intensity)
+            except Exception as e:
+                print(f"[NV Broadcast] HUSH demoted to fallback: {e}", flush=True)
+                self._hush.cleanup()
+                self._hush = None
+                # Avoid network/model loading in the audio callback. RNNoise was
+                # prepared during initialization; otherwise pass through safely.
 
         # DeepFilterNet engine — demote to RNNoise once on any failure so
         # a broken model can never mute or stutter the mic.
@@ -186,6 +205,9 @@ class AudioEffects:
 
     def cleanup(self):
         """Release resources."""
+        if self._hush is not None:
+            self._hush.cleanup()
+            self._hush = None
         if self._state is not None:
             try:
                 self._rnnoise.destroy(self._state)

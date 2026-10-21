@@ -1374,12 +1374,13 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._noise_slider.set_sensitive(False)
         self._noise_slider.connect("value-changed", self._on_noise_intensity_changed)
         mic_card.append(self._noise_slider)
-        self._noise_ai_toggle = EffectToggle(
-            "AI Denoiser", "DeepFilterNet neural noise removal (better quality)")
-        self._noise_ai_toggle.active = True
-        self._noise_ai_toggle.set_sensitive(False)
-        self._noise_ai_toggle.connect("toggled", self._on_noise_engine_toggled)
-        mic_card.append(self._noise_ai_toggle)
+        self._noise_engine_selector = DeviceSelector("Noise engine", devices=[
+            {"name": "Automatic (DeepFilterNet)", "device": "auto"},
+            {"name": "RNNoise", "device": "rnnoise"},
+            {"name": "HUSH / NVIDIA Maxine (optional)", "device": "hush"},
+        ])
+        self._noise_engine_selector.connect("device-changed", self._on_noise_engine_selected)
+        mic_card.append(self._noise_engine_selector)
         box.append(self._build_collapsible_card("microphone", "Microphone", mic_card, expanded=True))
 
         # Voice Effects card
@@ -3007,10 +3008,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._noise_toggle.active = a.noise_removal
         self._noise_slider.set_sensitive(a.noise_removal)
         self._noise_slider._scale.set_value(a.noise_intensity)
-        # Toggle on = "auto" (prefer DeepFilterNet, fall back to RNNoise);
-        # toggle off = pin the classic RNNoise engine.
-        self._noise_ai_toggle.active = a.noise_engine in ("auto", "deepfilter")
-        self._noise_ai_toggle.set_sensitive(a.noise_removal)
+        self._noise_engine_selector.set_selected_device(
+            "auto" if a.noise_engine == "deepfilter" else a.noise_engine)
         self._speaker_toggle.active = a.speaker_denoise and not IS_MACOS
         self._vfx_toggle.active = a.voice_fx_enabled
         self._vfx_preset.set_sensitive(a.voice_fx_enabled)
@@ -3038,12 +3037,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             return
         self._app.set_noise_removal(active)
         self._noise_slider.set_sensitive(active)
-        self._noise_ai_toggle.set_sensitive(active)
 
-    def _on_noise_engine_toggled(self, t, active):
+    def _on_noise_engine_selected(self, selector, engine):
         if getattr(self._app, "_restoring", False):
             return
-        self._app.set_noise_engine("auto" if active else "rnnoise")
+        self._app.set_noise_engine(engine)
 
     def _on_noise_intensity_changed(self, s, v):
         if getattr(self._app, "_restoring", False):
@@ -3346,6 +3344,8 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._autoframe_mode_selector.set_sensitive(True)
             self._zoom_slider.set_sensitive(True)
 
+        self._noise_engine_selector.set_selected_device(
+            "auto" if a.noise_engine == "deepfilter" else a.noise_engine)
         if a.noise_removal:
             self._noise_toggle.active = True
             self._noise_slider.set_sensitive(True)

@@ -1,3 +1,5 @@
+> **Downstream fork:** fixtse’s HUSH integration for NV Broadcast, originally created by DocZeus. [Canonical upstream](https://github.com/Hkshoonya/nvidia-broadcast-linux). See [HUSH setup](docs/HUSH.md).
+
 <p align="center">
   <img src="data/icons/com.doczeus.NVBroadcast.svg" width="120" alt="NV Broadcast">
 </p>
