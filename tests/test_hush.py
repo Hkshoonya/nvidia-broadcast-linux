@@ -113,3 +113,9 @@ def test_hush_preference_and_fallback_initialization():
     fallback.assert_called_once()
     assert effects.engine == "hush"
     effects.cleanup()
+
+
+def test_self_configured_worker_does_not_require_parent_model_env(worker, monkeypatch):
+    worker.cleanup()
+    monkeypatch.delenv("NVAFX_MODEL")
+    assert worker.initialize()

@@ -47,8 +47,8 @@ class HushDenoiser:
             if platform.system() != "Linux" or platform.machine() != "x86_64":
                 raise RuntimeError("HUSH requires Linux x86_64")
             executable = shutil.which(os.getenv("NVBROADCAST_HUSH_WORKER", "hush-worker"))
-            if not executable or not os.path.isfile(os.getenv("NVAFX_MODEL", "")):
-                raise RuntimeError("install hush-worker and set NVAFX_MODEL; see docs/HUSH.md")
+            if not executable:
+                raise RuntimeError("install hush-worker; see docs/HUSH.md")
             self._process = subprocess.Popen(
                 [executable], stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0,
             )

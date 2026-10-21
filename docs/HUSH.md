@@ -12,6 +12,63 @@ or RNNoise. HUSH and NVIDIA's runtime are optional and are not bundled in our
 packages. NVIDIA's runtime/model terms still apply; use HUSH's setup UI to
 review those terms and provision them, or provide your own SDK/model.
 
+## Reusable installer (recommended)
+
+Clone the NV Broadcast fork and run the installer as your normal desktop user:
+
+```sh
+git clone --branch feature/hush-denoiser https://github.com/fixtse/nvidia-broadcast-linux.git
+cd nvidia-broadcast-linux
+python3 scripts/install_hush_fork.py --stop-hush --runtime auto
+```
+
+First install Rust with edition 2024 support, Git, a C compiler, pkg-config,
+PipeWire development headers, and a desktop-capable Python 3.11+ with GTK4,
+Libadwaita and GStreamer bindings. On Arch/CachyOS, the worker build requires
+`base-devel rust git pkgconf pipewire`. The existing `install.sh` handles the
+app's distro dependencies and may request sudo and optional runtime choices.
+Run HUSH setup first to accept NVIDIA's terms and install the SDK and matching
+model. This installer reuses those files and verifies the automatically
+selected cached model against the pinned HUSH checksum; it does not download
+NVIDIA files or accept terms on your behalf. Explicit `--model` files are
+trusted user inputs. Use `--sdk`, `--model`, or `--gpu-index` for other locations
+or a different GPU. The default is GPU index 0.
+
+For an existing source installation in the **same checkout**, avoid reinstalling
+its dependencies with:
+
+```sh
+python3 scripts/install_hush_fork.py --reuse-runtime --stop-hush
+```
+
+`--reuse-runtime` verifies the selected generation and upgrades the app package
+in place with `pip --no-deps`; this opt-in mode does not provide an app-package
+rollback. The default runs the normal generation-based source installer.
+Stop NV Broadcast and its audio/camera helpers before either command.
+An existing native/Flatpak/Snap installation is not treated as a reusable source
+runtime; install the fork from this checkout instead.
+
+The script builds the pinned HUSH fork, smoke-tests the real GPU worker, installs
+`~/.local/bin/hush-worker` and `~/.local/bin/nvbroadcast-hush`, adds an app-menu
+entry **NV Broadcast (HUSH fork)**, backs up the NV Broadcast config, and enables
+HUSH microphone noise removal. It refuses malformed existing TOML rather than
+silently resetting settings. The dedicated app launcher sets the worker path
+explicitly, so it also works when a desktop session omits `~/.local/bin` from PATH.
+The source checkout and the HUSH SDK/model paths must remain in place.
+
+`--stop-hush` stops your existing `hush`/`hushd` processes and disables known
+HUSH user services after the worker has passed its smoke test. It leaves the
+installed HUSH package and its downloaded files intact. Do not run the old HUSH
+GUI/daemon concurrently when using this integration. Removing the old package
+is unnecessary; retaining it lets you use its setup UI for future models.
+The worker itself is the forked HUSH component; its GUI is not rebuilt.
+
+Launch `~/.local/bin/nvbroadcast-hush`, then select the **NVbroadcast** microphone
+in calls. To return to the standalone HUSH package, close NV Broadcast, launch
+`hush`, and restore any previously enabled HUSH service as appropriate. To undo
+the app setting change, restore the timestamped `config.toml.pre-hush-*` backup
+under `~/.config/nvbroadcast` (or your XDG config directory).
+
 ## Build the pinned worker
 
 Install Rust (edition 2024 support), a C compiler, pkg-config and PipeWire
