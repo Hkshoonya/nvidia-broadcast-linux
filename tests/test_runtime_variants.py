@@ -330,6 +330,7 @@ class RuntimeVariantTests(unittest.TestCase):
                 RuntimeVariant.CUDA,
                 {"onnxruntime": ("1.29.0",)},
                 ["CPUExecutionProvider", "CUDAExecutionProvider"],
+                allow_cpu_named_cuda=True,
             ),
             [],
         )
@@ -342,7 +343,10 @@ class RuntimeVariantTests(unittest.TestCase):
         providers = ["CPUExecutionProvider", "CUDAExecutionProvider"]
         self.assertIsNone(detect_runtime_variant(inventory, providers))
         self.assertTrue(
-            runtime_ownership_problems(RuntimeVariant.CUDA, inventory, providers)
+            runtime_ownership_problems(
+                RuntimeVariant.CUDA, inventory, providers,
+                allow_cpu_named_cuda=True,
+            )
         )
         runtime = mock.Mock()
         with (
@@ -362,7 +366,10 @@ class RuntimeVariantTests(unittest.TestCase):
             detect_runtime_variant(inventory, providers), RuntimeVariant.CUDA
         )
         self.assertEqual(
-            runtime_ownership_problems(RuntimeVariant.CUDA, inventory, providers),
+            runtime_ownership_problems(
+                RuntimeVariant.CUDA, inventory, providers,
+                allow_cpu_named_cuda=True,
+            ),
             [],
         )
         runtime = mock.Mock()
@@ -386,7 +393,8 @@ class RuntimeVariantTests(unittest.TestCase):
             with self.subTest(variant=variant, owner=owner):
                 self.assertEqual(
                     runtime_ownership_problems(
-                        variant, {owner: ("1.29.0",)}, iter(providers)
+                        variant, {owner: ("1.29.0",)}, iter(providers),
+                        allow_cpu_named_cuda=True,
                     ),
                     [],
                 )
@@ -396,6 +404,7 @@ class RuntimeVariantTests(unittest.TestCase):
             RuntimeVariant.CUDA,
             {"onnxruntime": ("1.29.0",)},
             ["CUDAExecutionProvider"],
+            allow_cpu_named_cuda=True,
         )
         self.assertTrue(any("missing execution provider" in item for item in problems))
 
