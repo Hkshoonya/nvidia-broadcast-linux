@@ -154,12 +154,20 @@ def runtime_ownership_problems(
     variant: RuntimeVariant,
     installed: Mapping[str, tuple[str, ...]],
     providers: Iterable[str],
+    *,
+    allow_cpu_named_cuda: bool = False,
 ) -> list[str]:
-    """Return violations of selected runtime's ownership/provider contract."""
+    """Check ownership strictly unless a live distro CUDA build is allowed.
+
+    Artifact validators require the selected distribution name; only live
+    runtime validation opts into distro builds such as Arch's plain-name CUDA.
+    """
     contract = RUNTIME_CONTRACTS[variant]
     available_providers = frozenset(providers)
-    if variant is RuntimeVariant.CUDA and _is_cuda_build_with_cpu_dist_name(
-        installed, available_providers
+    if (
+        allow_cpu_named_cuda
+        and variant is RuntimeVariant.CUDA
+        and _is_cuda_build_with_cpu_dist_name(installed, available_providers)
     ):
         problems = []
     else:
@@ -203,4 +211,5 @@ def validate_current_runtime(variant: RuntimeVariant) -> list[str]:
         variant,
         inventory,
         providers,
+        allow_cpu_named_cuda=True,
     )
