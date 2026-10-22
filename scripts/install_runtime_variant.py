@@ -4,10 +4,46 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
+import sysconfig
+import tempfile
 from typing import Mapping
+
+
+def prepare_virtualenv_namespaces() -> None:
+    """Keep wheel namespaces visible before legacy distro .pth files run.
+
+    Fedora's protobuf 3.x namespace hook initializes ``google`` using only
+    its system directory, hiding a newer protobuf wheel in the virtualenv.
+    Importing the namespace while the virtualenv sites are first preserves
+    Python's normal namespace lookup, including other system google modules.
+    Do not change the system Python or remove its GTK/GStreamer packages.
+    """
+    if sys.prefix == sys.base_prefix:
+        return
+    site = Path(sysconfig.get_path("purelib"))
+    site.resolve().relative_to(Path(sys.prefix).resolve())
+    content = (
+        "# Keep virtualenv google modules visible with legacy distro namespace hooks.\n"
+        'import importlib.util; importlib.util.find_spec("google") is not None '
+        'and __import__("google")\n'
+    )
+    descriptor, name = tempfile.mkstemp(
+        dir=site, prefix=".nvbroadcast-google-namespace-", suffix=".tmp"
+    )
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o644)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, site / "00-nvbroadcast-google-namespace.pth")
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def run_pip(*arguments: str) -> None:
@@ -179,6 +215,7 @@ def install(
     source_venv: Path | None = None,
 ) -> None:
     preflight_runtime_install(project, variant, source_venv)
+    prepare_virtualenv_namespaces()
 
     extras = ["dev"] if development else []
     extras.append(variant)

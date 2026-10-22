@@ -21,6 +21,13 @@ from nvbroadcast.runtime.variants import (
 
 
 class RuntimeVariantTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(
+            install_runtime_variant, "prepare_virtualenv_namespaces"
+        )
+        self.prepare_namespaces = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_supported_meeting_backend_version_is_pinned(self):
         self.assertEqual(
             FASTER_WHISPER_REQUIREMENT,
@@ -610,9 +617,11 @@ class RuntimeVariantTests(unittest.TestCase):
         run_pip.assert_not_called()
         guard.assert_not_called()
         run.assert_not_called()
+        self.prepare_namespaces.assert_not_called()
 
     def test_source_guard_runs_before_runtime_installation(self):
         events = []
+        self.prepare_namespaces.side_effect = lambda: events.append("namespaces")
 
         def guard(*_args):
             events.append("guard")
@@ -648,7 +657,7 @@ class RuntimeVariantTests(unittest.TestCase):
                 source_venv=Path("/project/.venv"),
             )
 
-        self.assertEqual(events, ["guard", "pip"])
+        self.assertEqual(events, ["guard", "namespaces", "pip"])
 
     def test_preflight_only_guards_source_environment(self):
         project = Path("/project")
@@ -683,6 +692,7 @@ class RuntimeVariantTests(unittest.TestCase):
             project, "cpu", source_venv
         )
         guard_source_environment.assert_called_once_with(project, source_venv)
+        self.prepare_namespaces.assert_not_called()
 
     def test_installer_rejects_mixed_owners_after_installation(self):
         mixed_inventory = {
@@ -842,6 +852,7 @@ class RuntimeDependencyClosureTests(unittest.TestCase):
         self.distribution("nvbroadcast", "1.0", ('required-cpu-leaf; extra == "cpu"',))
         self.distribution("onnxruntime", "1.24.4")
         with (
+            mock.patch.object(install_runtime_variant, "prepare_virtualenv_namespaces"),
             mock.patch.object(install_runtime_variant, "runtime_owner_inventory",
                               side_effect=[{}, {"onnxruntime": ("1.24.4",)}]),
             mock.patch.object(install_runtime_variant, "run_pip") as pip,
