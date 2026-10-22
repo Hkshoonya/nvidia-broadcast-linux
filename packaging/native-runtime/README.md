@@ -18,8 +18,8 @@ platform gates. These candidates must not replace frozen v1.5.3 downloads.
 `builders.json` pins the inspected local Docker image IDs of the three qualified
 local OCI images and records their installed native package inventories.
 The builder refuses a different image, including a rebuilt image with the
-same friendly tag. These images are not yet authenticated for CI consumption.
-Their reproducibility scope is fixed input consumption and repeated
+same friendly tag. Their historical snapshot import is authenticated for CI
+consumption. Their reproducibility scope is fixed input consumption and repeated
 assembly using these recorded tools; their apt/dnf origins are not independent
 source rebuilds or snapshotted repository rebuild recipes.
 
@@ -42,9 +42,13 @@ approved image indexes. Its 620,776,960 bytes have SHA-256
 `7b9579055f63c7f63516060c545c7d8207d07fb04ea8c038bc1c8185f790e3d4`.
 The infrastructure asset ID is `631786999`; its uploaded name, size and GitHub
 digest have been checked against the lock.
-The `candidate` status and absent attestation deliberately prevent a release
-consumer from calling it authenticated. A local hash or the unsigned BuildKit
-metadata inside the archive proves no publisher identity or original build.
+Qualification run `38175085983` and promotion run `38175299710` completed at
+main source `3e1378faa9e2fb4ca4fee669288ecc8376d37b09`; the promoted lock pins
+that signing/source authority.
+The [import qualification record](qualification/2026-10-11-builder-import.json)
+retains the evidence identities and cryptographic readback policy. A local hash
+or the unsigned BuildKit metadata alone proves no publisher identity or original
+build.
 
 `builder_delivery.py inspect` validates the archive hash/size, every OCI blob,
 descriptor size, index/platform graph, and the Docker compatibility manifest.
@@ -95,7 +99,8 @@ The bounded delivery sequence is:
    no RPM key, registry credential or new long-lived secret is needed. The pinned
    official attestation action signs the **historical builder import** claim,
    and a subsequent step verifies the minted identity and exact source/signing
-   commit. This step remains pending until the actual workflow succeeds.
+   commit. The initial qualification and promotion both completed successfully
+   on October 11, 2026, with independent cryptographic readback.
 5. After successful promotion, review the lock change to `promoted` with the
    exact promotion workflow source commit. Release consumers must use
    `builder_delivery.py verify --load`, which verifies the archive against
@@ -107,15 +112,16 @@ The import authenticates this project's deliberate adoption of these exact
 historical bytes and subsequent delivery. It does **not** recover authenticated
 provenance for their original network dependency installation. Independently
 rebuilding them requires snapshotted package repositories and a new reviewed
-builder generation. Until steps 4–5 pass, CI release promotion remains blocked.
+builder generation. The delivery gate is complete for this pinned historical
+snapshot; hosted CPU assembly and remaining package acceptance are separate.
 
 The containerd requirement follows Docker's
 [image-store documentation](https://docs.docker.com/engine/storage/containerd/).
 Attestation verification follows the GitHub CLI's
 [identity and source policy](https://cli.github.com/manual/gh_attestation_verify).
 
-After the authenticated lock lands, **Build authenticated native CPU candidate**
-is the manual main-only consumer. It fetches the pinned archive, cryptographically
+With the authenticated lock, **Build authenticated native CPU candidate** is
+the manual main-only consumer. It fetches the pinned archive, cryptographically
 verifies the historical import before loading it, and builds both native formats
 with application and adapter fixed to that run's `GITHUB_SHA`. It receives only
 contents/attestations read permissions and retains complete unsigned DEB/RPM
@@ -294,7 +300,7 @@ runtime probes, all 62 application Python files matched that commit.
 
 These unsigned local candidates use one newly assembled offline CPU runtime.
 The signed recovery candidate above reuses that verified application runtime
-with its separately qualified adapter. Hosted builder delivery, CUDA switching
+with its separately qualified adapter. Hosted CPU assembly, CUDA switching
 and desktop/device acceptance remain separate gates. The [2026-10-09 record](qualification/2026-10-09-cpu.json)
 retains the earlier qualification of application commit `c2dd082`.
 
