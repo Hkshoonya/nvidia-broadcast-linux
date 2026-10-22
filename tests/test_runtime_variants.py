@@ -327,6 +327,63 @@ class RuntimeVariantTests(unittest.TestCase):
             [],
         )
 
+    def test_cpu_named_cuda_rejects_duplicate_case_aliases(self):
+        inventory = {
+            "onnxruntime": ("1.29.0",),
+            "ONNXRuntime": ("1.30.0",),
+        }
+        providers = ["CPUExecutionProvider", "CUDAExecutionProvider"]
+        self.assertIsNone(detect_runtime_variant(inventory, providers))
+        self.assertTrue(
+            runtime_ownership_problems(RuntimeVariant.CUDA, inventory, providers)
+        )
+        runtime = mock.Mock()
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value=inventory,
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertTrue(validate_current_runtime(RuntimeVariant.CUDA))
+        runtime.get_available_providers.assert_not_called()
+
+    def test_cpu_named_cuda_ignores_non_runtime_distributions(self):
+        inventory = {"ONNXRuntime": ("1.29.0",), "numpy": ("2.4.4",)}
+        providers = ["CPUExecutionProvider", "CUDAExecutionProvider"]
+        self.assertEqual(
+            detect_runtime_variant(inventory, providers), RuntimeVariant.CUDA
+        )
+        self.assertEqual(
+            runtime_ownership_problems(RuntimeVariant.CUDA, inventory, providers),
+            [],
+        )
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = providers
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value=inventory,
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(validate_current_runtime(RuntimeVariant.CUDA), [])
+
+    def test_runtime_ownership_accepts_one_shot_provider_iterables(self):
+        cases = (
+            (RuntimeVariant.CPU, "onnxruntime", ["CPUExecutionProvider"]),
+            (RuntimeVariant.CUDA, "onnxruntime-gpu", ["CPUExecutionProvider", "CUDAExecutionProvider"]),
+            (RuntimeVariant.CUDA, "onnxruntime", ["CPUExecutionProvider", "CUDAExecutionProvider"]),
+        )
+        for variant, owner, providers in cases:
+            with self.subTest(variant=variant, owner=owner):
+                self.assertEqual(
+                    runtime_ownership_problems(
+                        variant, {owner: ("1.29.0",)}, iter(providers)
+                    ),
+                    [],
+                )
+
     def test_cuda_ownership_reports_missing_cpu_provider_for_arch_layout(self):
         problems = runtime_ownership_problems(
             RuntimeVariant.CUDA,

@@ -88,12 +88,9 @@ def _is_cuda_build_with_cpu_dist_name(
     providers: Iterable[str] | None,
 ) -> bool:
     """CUDA build sold under the plain onnxruntime name (e.g. Arch opt-cuda)."""
-    canonical = {
-        _canonicalize_name(name): versions
-        for name, versions in installed.items()
-    }
-    versions = canonical.get("onnxruntime", ())
-    if set(canonical) != {"onnxruntime"} or len(versions) != 1:
+    # Reuse the owner count so aliases cannot hide duplicate distributions;
+    # unrelated packages in a complete inventory do not own the runtime.
+    if _runtime_distribution_problems(RuntimeVariant.CPU, installed):
         return False
     return "CUDAExecutionProvider" in set(providers or ())
 
@@ -160,17 +157,14 @@ def runtime_ownership_problems(
 ) -> list[str]:
     """Return violations of selected runtime's ownership/provider contract."""
     contract = RUNTIME_CONTRACTS[variant]
+    available_providers = frozenset(providers)
     if variant is RuntimeVariant.CUDA and _is_cuda_build_with_cpu_dist_name(
-        installed, providers
+        installed, available_providers
     ):
-        available_providers = set(providers)
-        missing = sorted(contract.required_providers - available_providers)
-        if missing:
-            return ["missing execution provider(s): " + ", ".join(missing)]
-        return []
-    problems = _runtime_distribution_problems(variant, installed)
+        problems = []
+    else:
+        problems = _runtime_distribution_problems(variant, installed)
 
-    available_providers = set(providers)
     missing = sorted(contract.required_providers - available_providers)
     if missing:
         problems.append("missing execution provider(s): " + ", ".join(missing))
@@ -183,11 +177,9 @@ def runtime_ownership_problems(
 def validate_current_runtime(variant: RuntimeVariant) -> list[str]:
     """Validate current interpreter against selected runtime contract."""
     inventory = current_distribution_inventory()
-    inventory_names = {_canonicalize_name(name) for name in inventory}
     possible_cpu_named_cuda = (
         variant is RuntimeVariant.CUDA
-        and inventory_names == {"onnxruntime"}
-        and sum(len(versions) for versions in inventory.values()) == 1
+        and not _runtime_distribution_problems(RuntimeVariant.CPU, inventory)
     )
     if not possible_cpu_named_cuda:
         ownership_problems = _runtime_distribution_problems(variant, inventory)
