@@ -50,9 +50,21 @@ jobs:
           persist-credentials: false
 
       - name: Install desktop test dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          # Slow Azure transfers can keep progressing without hitting an idle timeout.
+          # Prefer the runner's existing official archive, retaining mirror failover.
+          if [[ -f /etc/apt/apt-mirrors.txt ]] &&
+             grep -Eq '^https://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:[0-9]+$' /etc/apt/apt-mirrors.txt; then
+            sudo sed -i -E \
+              's|^(https://archive\.ubuntu\.com/ubuntu/)[[:space:]]+priority:[0-9]+$|\1\tpriority:0|' \
+              /etc/apt/apt-mirrors.txt
+          else
+            echo "::notice::Runner mirror list not recognized; keeping existing apt sources."
+          fi
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y \
             python3-venv \
             python3-gi \
             python3-gi-cairo \
