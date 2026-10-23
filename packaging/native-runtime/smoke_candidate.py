@@ -153,6 +153,9 @@ def main(argv=None) -> None:
     snapshot(artifact, package, args.artifact_sha256)
     probes = output / "probes"
     probes.mkdir(mode=0o755)
+    # mkdir's mode is filtered by the private umask; the mounted probe root
+    # must also be traversable when the container UID differs from the host.
+    probes.chmod(0o755)
     # Execute qualification probes from the trusted finalizer checkout, while
     # comparing the installed application/adapter against the producer commit.
     tool_source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=30).strip()
