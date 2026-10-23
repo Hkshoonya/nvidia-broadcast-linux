@@ -1,0 +1,887 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-23",
+  "status": "pass",
+  "version": "1.5.3-4.cpu",
+  "producer": {
+    "repository": "Hkshoonya/nvidia-broadcast-linux",
+    "run_id": 39874767495,
+    "run_attempt": 1,
+    "source": "71903d7ca59f119249a1d8342ddc73b7dc8cfb5a",
+    "artifact_id": 12467991495,
+    "artifact_digest": "sha256:bcf25080d15906d332832028bef7e581dca570399eee176e914a6ec53cfa8e9c"
+  },
+  "protected_finalization": {
+    "run_id": 39882974361,
+    "run_attempt": 1,
+    "source": "a007338e62529fd8137ba61a06727d9119e35b9a",
+    "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/39882974361",
+    "status": "success",
+    "jobs": [
+      {
+        "name": "validate",
+        "conclusion": "success"
+      },
+      {
+        "name": "sign",
+        "conclusion": "success"
+      },
+      {
+        "name": "qualify-rpm / qualify",
+        "conclusion": "success"
+      },
+      {
+        "name": "qualify-deb / qualify",
+        "conclusion": "success"
+      },
+      {
+        "name": "retain",
+        "conclusion": "success"
+      }
+    ],
+    "artifact": {
+      "id": 12470908897,
+      "bytes": 780521144,
+      "digest": "sha256:ab0b5477b36504a948fa97262a9f71d3ec5e56ccd2a34b7e4af309ebba6ca54e",
+      "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/39882974361/artifacts/12470908897",
+      "expires_at": "2026-11-22T01:21:25Z"
+    },
+    "qualification": {
+      "candidate_manifest_sha256": "825513d643cb8b3884b11cdfdf32cc1acd21db05ef58b984ef047539e2ad0e62",
+      "fixtures": {
+        "deb": {
+          "base": "ubuntu@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc",
+          "distribution": "Ubuntu 24.04",
+          "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.deb",
+          "dockerfile_sha256": "55f692ffffb82e9867fd487015fcffa5869bffbf5f9dc2179fc07b3491cd2672",
+          "driver_sha256": "05735cfb5faa146b40044e8d0563cc1f98b8efac107736856c43c3e8b15f0b39",
+          "family": "deb",
+          "files": {
+            "build.log": "04bfadb207dd48896558f6236ca4ad3c6cc0a2bb809de20a0f9bf7898127c36e",
+            "fixture-packages.txt": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78",
+            "image.id": "dac8c31a7f337e43ccb8a409033e8da5f51f0eafdb68bdcd62e337fcde8ceef5",
+            "os-release": "87458b3b1f1ca0e5c693ade771de7007c3783bdc692fa6b39eb6414bf2af2763"
+          },
+          "image": "sha256:0bb57c430aeea298c3d1c48ff71136a32723123ab63f330faffb16e310d4bf17",
+          "inventory_container_removed": true,
+          "inventory_sha256": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78",
+          "manifest_sha256": "92d80df6531ca985525b9aec8d625c1b3b289453ff51b957a0a231a9f19ea356",
+          "os_release": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+          "platform": "linux/amd64",
+          "scope": "Disposable qualification fixtures; OS dependencies use current distribution repositories, not a reproduced OS snapshot. Record each built image ID and its packages.tsv inventory. Candidate installation and tests run with network disabled.",
+          "status": "pass"
+        },
+        "rpm": {
+          "base": "fedora@sha256:be9d65e2344d805cc11114319c685ecaa96b6d9b4350a0a6460cdb931babbd19",
+          "distribution": "Fedora 44",
+          "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.rpm",
+          "dockerfile_sha256": "f1176d5aa13f0e1462ef03b92966bb621f7c65a3075e0f75f23a1ea91c0c302a",
+          "driver_sha256": "05735cfb5faa146b40044e8d0563cc1f98b8efac107736856c43c3e8b15f0b39",
+          "family": "rpm",
+          "files": {
+            "build.log": "a4e2eda70c15926eedfb932af26f4d516612afdc72321ed2e5044ebc64005ee5",
+            "fixture-packages.txt": "f7da01cd7b0cbcfa0ea379da717f15a4f6c55c41da7bbe3284bd1ef368f354bf",
+            "image.id": "f8ba55150c0a6105a1786ceb3c0fe0da91b77a0725ff6fde8e4416cc3ed5134d",
+            "os-release": "2f6bf1f4e47d29ad351269e1fe4f56a9667f2f0c87dd0365c752948ee9dc1d8b"
+          },
+          "image": "sha256:29ef800963d54051ac6b9633b0c658f478e8158d3404b6ae71be9a9088b3b65a",
+          "inventory_container_removed": true,
+          "inventory_sha256": "f7da01cd7b0cbcfa0ea379da717f15a4f6c55c41da7bbe3284bd1ef368f354bf",
+          "manifest_sha256": "92d80df6531ca985525b9aec8d625c1b3b289453ff51b957a0a231a9f19ea356",
+          "os_release": "NAME=\"Fedora Linux\"\nVERSION=\"44 (Container Image)\"\nRELEASE_TYPE=stable\nID=fedora\nVERSION_ID=44\nVERSION_CODENAME=\"\"\nPRETTY_NAME=\"Fedora Linux 44 (Container Image)\"\nANSI_COLOR=\"0;38;2;60;110;180\"\nLOGO=fedora-logo-icon\nCPE_NAME=\"cpe:/o:fedoraproject:fedora:44\"\nDEFAULT_HOSTNAME=\"fedora\"\nHOME_URL=\"https://fedoraproject.org/\"\nDOCUMENTATION_URL=\"https://docs.fedoraproject.org/en-US/fedora/f44/\"\nSUPPORT_URL=\"https://ask.fedoraproject.org/\"\nBUG_REPORT_URL=\"https://bugzilla.redhat.com/\"\nREDHAT_BUGZILLA_PRODUCT=\"Fedora\"\nREDHAT_BUGZILLA_PRODUCT_VERSION=44\nREDHAT_SUPPORT_PRODUCT=\"Fedora\"\nREDHAT_SUPPORT_PRODUCT_VERSION=44\nSUPPORT_END=2027-05-19\nVARIANT=\"Container Image\"\nVARIANT_ID=container\n",
+          "platform": "linux/amd64",
+          "scope": "Disposable qualification fixtures; OS dependencies use current distribution repositories, not a reproduced OS snapshot. Record each built image ID and its packages.tsv inventory. Candidate installation and tests run with network disabled.",
+          "status": "pass"
+        }
+      },
+      "packages": {
+        "deb": {
+          "bytes": 390316076,
+          "path": "deb/nvbroadcast_1.5.3-4.cpu_amd64.deb",
+          "sha256": "359b3c9cd3cb697727ce345685c597c1b44551e729c2e64f890f9713f9c6b4b9"
+        },
+        "rpm": {
+          "bytes": 389969054,
+          "path": "rpm/nvbroadcast-1.5.3-4.cpu.x86_64.rpm",
+          "sha256": "44024fab7d2acb71f9950d3db7b0d8401a23ead458b1587a35a9bac900f8f735"
+        }
+      },
+      "producer": {
+        "artifact_digest": "sha256:bcf25080d15906d332832028bef7e581dca570399eee176e914a6ec53cfa8e9c",
+        "artifact_id": 12467991495,
+        "run_attempt": 1,
+        "run_id": 39874767495,
+        "source": "71903d7ca59f119249a1d8342ddc73b7dc8cfb5a"
+      },
+      "qualification": {
+        "deb": {
+          "image": "sha256:0bb57c430aeea298c3d1c48ff71136a32723123ab63f330faffb16e310d4bf17",
+          "sha256": "8ee3de4bcfaf44f3fe2a04ab23bf3a837aa3442c2d6a5f866b8b6d9de1cb64f9",
+          "status": "pass",
+          "steps": 14
+        },
+        "recovery": {
+          "image": "sha256:29ef800963d54051ac6b9633b0c658f478e8158d3404b6ae71be9a9088b3b65a",
+          "sha256": "b1f741144ab0ae20c7efec606257f7329815085861f22e3f259c8f36e7b4457e",
+          "status": "pass",
+          "steps": 23
+        },
+        "rpm": {
+          "image": "sha256:29ef800963d54051ac6b9633b0c658f478e8158d3404b6ae71be9a9088b3b65a",
+          "sha256": "99d22361686799dea656dda1e7c2aab668b667ec8fbafcecf011e6b7ff22f40c",
+          "status": "pass",
+          "steps": 19
+        }
+      },
+      "schema_version": 1,
+      "scope": "Disconnected Ubuntu/Fedora x86_64 CPU containers; no physical-device, CUDA, clean-VM or release promotion claim",
+      "status": "qualified-development-candidate"
+    },
+    "interruption": {
+      "manager_pid": 77,
+      "observed_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13;6adab664",
+      "observed_bytes": 33849344,
+      "signal": "SIGKILL",
+      "fresh_install": true,
+      "manager_exit": 9,
+      "manager_log_sha256": "ebec47c0da18cfe365f5df81533711dd05250ae118e1da240d089947dcc956a8"
+    },
+    "independent_readback": {
+      "attempt": 1,
+      "driver_sha256": "50c232a5dc93bc3ce341be3adeb89ab8b15dcb244cf646d41bd38a67df759791",
+      "evidence": {
+        "additional_manager_logs": 1,
+        "execution_logs": 56,
+        "qualification_sha256": "95be99f241313086396b09d139aeb8af876ff90987aad0c1c699535866b8c965",
+        "results": {
+          "deb": {
+            "image": "sha256:0bb57c430aeea298c3d1c48ff71136a32723123ab63f330faffb16e310d4bf17",
+            "sha256": "8ee3de4bcfaf44f3fe2a04ab23bf3a837aa3442c2d6a5f866b8b6d9de1cb64f9",
+            "status": "pass",
+            "steps": 14
+          },
+          "recovery": {
+            "image": "sha256:29ef800963d54051ac6b9633b0c658f478e8158d3404b6ae71be9a9088b3b65a",
+            "sha256": "b1f741144ab0ae20c7efec606257f7329815085861f22e3f259c8f36e7b4457e",
+            "status": "pass",
+            "steps": 23
+          },
+          "rpm": {
+            "image": "sha256:29ef800963d54051ac6b9633b0c658f478e8158d3404b6ae71be9a9088b3b65a",
+            "sha256": "99d22361686799dea656dda1e7c2aab668b667ec8fbafcecf011e6b7ff22f40c",
+            "status": "pass",
+            "steps": 19
+          }
+        }
+      },
+      "finished_at": "2026-10-23T01:27:51.496268+00:00",
+      "run_id": 39882974361,
+      "scope": "Qualified CPU development candidate in hosted Ubuntu/Fedora containers; no physical-device, CUDA, clean-VM, OS-builder reproduction, or release-promotion claim.",
+      "signature": {
+        "container_removed": true,
+        "fixture_image": "sha256:a224af7e3729d6ddca17e81bb3df4acc5cd5e85a3d792eccfd1aee9089497fcb",
+        "keyring": "fresh-project-only",
+        "log_sha256": "d1e671772b4f49e8575054297ad2a041aa6d07b0248ccd76dcf1a4c039570846",
+        "network": "none",
+        "package_sha256": "44024fab7d2acb71f9950d3db7b0d8401a23ead458b1587a35a9bac900f8f735",
+        "public_key_sha256": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+        "publisher_fingerprint": "A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1",
+        "status": "verified"
+      },
+      "source": "a007338e62529fd8137ba61a06727d9119e35b9a",
+      "status": "pass",
+      "receipt_sha256": "1b0ed77e5430249478846cc0a92c45e556af7497f50a75a964c5e5f4367ef64f",
+      "artifact_files": 74,
+      "files": {
+        "evidence/deb/fixture-packages.txt": {
+          "bytes": 18201,
+          "sha256": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78"
+        },
+        "evidence/deb/fixture.json": {
+          "bytes": 1817,
+          "sha256": "e10d1eb2f0fc3bebfc53548c076de8e84794de2e4fbb5e0405f1b8363e31271b"
+        },
+        "evidence/deb/smoke/00-confirm-no-existing-package.log": {
+          "bytes": 51,
+          "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7"
+        },
+        "evidence/deb/smoke/01-sentinels.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/deb/smoke/02-record-system-python-state.log": {
+          "bytes": 21,
+          "sha256": "9592687fa235a018a8927968dd916f248fc1d49bb8992f931448c597b49c5629"
+        },
+        "evidence/deb/smoke/03-install-exact-hosted-package.log": {
+          "bytes": 735,
+          "sha256": "81f810ee931e0858b8a11adffe1ccbe264456e9a8ccbfa407828fe827fbcaa56"
+        },
+        "evidence/deb/smoke/04-installed-source-adapter-manifest-identity.log": {
+          "bytes": 2197,
+          "sha256": "7a21071f1c3b65c0e9954056b23f0b5157c3388ca26f3fe321581e80990aa691"
+        },
+        "evidence/deb/smoke/05-complete-installed-integrity.log": {
+          "bytes": 429,
+          "sha256": "262421f5f26581e17e681900c27c7fe55db53177b546f4cbb7613d8260349fb9"
+        },
+        "evidence/deb/smoke/06-native-package-state.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/deb/smoke/07-ordinary-user-launcher.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/deb/smoke/08-ordinary-user-runtime-media-gtk.log": {
+          "bytes": 13350,
+          "sha256": "7e8e5803970863209e85fe6d43c393b07c928e1742a285258c22a69cccd82f66"
+        },
+        "evidence/deb/smoke/09-ordinary-user-generated-recording.log": {
+          "bytes": 1463,
+          "sha256": "bb3c0d8124d4a41346f3c9632cffcc59e61d35a7381d97a22e94d067d3437865"
+        },
+        "evidence/deb/smoke/10-remove-native-package.log": {
+          "bytes": 229,
+          "sha256": "74d5bbd26c60cf3e12617891b35093c9955538677c7a6e7f052e4b3a50c9d6b3"
+        },
+        "evidence/deb/smoke/11-package-uninstalled.log": {
+          "bytes": 51,
+          "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7"
+        },
+        "evidence/deb/smoke/12-preserve-user-system-and-stable-lock.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/deb/smoke/13-preserve-system-python-state.log": {
+          "bytes": 29,
+          "sha256": "958afdb4a5264cfe39ead4d69856bbe2464c3ca88317d6eed9ed7b2e43c5ae20"
+        },
+        "evidence/deb/smoke/result.json": {
+          "bytes": 16830,
+          "sha256": "8ee3de4bcfaf44f3fe2a04ab23bf3a837aa3442c2d6a5f866b8b6d9de1cb64f9"
+        },
+        "evidence/rpm/fixture-packages.txt": {
+          "bytes": 14098,
+          "sha256": "f7da01cd7b0cbcfa0ea379da717f15a4f6c55c41da7bbe3284bd1ef368f354bf"
+        },
+        "evidence/rpm/fixture.json": {
+          "bytes": 2121,
+          "sha256": "b22aabac7155cde0081712cf586150d5390cbc39542344d938220a8191017b5e"
+        },
+        "evidence/rpm/recovery/00-confirm-clean-fixture.log": {
+          "bytes": 37,
+          "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432"
+        },
+        "evidence/rpm/recovery/01-clean-private-paths.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/02-system-python.log": {
+          "bytes": 78,
+          "sha256": "3390f487e76eafa5f84322a4c36f33c56fb32893840e8937940e9724f00f8e84"
+        },
+        "evidence/rpm/recovery/03-private-verification-keyring.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/04-import-only-project-public-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/05-authenticate-signed-target.log": {
+          "bytes": 185,
+          "sha256": "b977f4146a3b7d394ed0765ad7e3a569b9ed82fc571fcf34b20b9cb8541daff4"
+        },
+        "evidence/rpm/recovery/06-signed-rpm-metadata.log": {
+          "bytes": 131,
+          "sha256": "a872e6d9d10e41d718b77df01a82c1f7399b6fa6cc3661f59e6dbfd45945e51d"
+        },
+        "evidence/rpm/recovery/07-authenticated-payload-bindings.log": {
+          "bytes": 2320,
+          "sha256": "719b55da846989b6653d53d9853c30c0c1ee5f7788a9894f837f5b0f30fb23c1"
+        },
+        "evidence/rpm/recovery/08-import-install-public-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/09-sigkill-observed-first-install.log": {
+          "bytes": 165,
+          "sha256": "b93cba75b2f3df7ba5cdb1742047974c7c9fa13f968cfcf21a69e6cfa6de0572"
+        },
+        "evidence/rpm/recovery/10-fresh-launcher-not-committed.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/11-bootstrap-identity.log": {
+          "bytes": 178,
+          "sha256": "5347eaf9bca9d7d373b02c82a9b9988178dee71e61d45c47ccb5b0282865ff7f"
+        },
+        "evidence/rpm/recovery/12-bootstrap-uses-system-python.log": {
+          "bytes": 1009,
+          "sha256": "15afed029ad259166eac8a193c1f68b5b17a20424ca7224ea06684124c129fc2"
+        },
+        "evidence/rpm/recovery/13-inspect-authenticated-fragments.log": {
+          "bytes": 20522,
+          "sha256": "219422ea2c20d0e33225910516117977fbcfc7f1748d0f3355ac987b32a0d58c"
+        },
+        "evidence/rpm/recovery/14-preserve-authenticated-fragments.log": {
+          "bytes": 23825,
+          "sha256": "6c8b3f0cc81543d2de64e394b9b51dde2547c889617c5cac88fd2f6624ad336d"
+        },
+        "evidence/rpm/recovery/15-audit-preserved-bytes-and-marker.log": {
+          "bytes": 29,
+          "sha256": "abeb5b49bcbd2cbe32794ea1ee817044685b73edde89a66543a079bc3f293781"
+        },
+        "evidence/rpm/recovery/16-import-preserved-public-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/17-replay-exact-preserved-package.log": {
+          "bytes": 709,
+          "sha256": "27d05628df7cddeaf7c47ec4f977db13df7bc8d3169b406e3c80950aaa46b784"
+        },
+        "evidence/rpm/recovery/18-configured-marker-and-bootstrap-cleared.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/19-installed-payload-bindings.log": {
+          "bytes": 2320,
+          "sha256": "719b55da846989b6653d53d9853c30c0c1ee5f7788a9894f837f5b0f30fb23c1"
+        },
+        "evidence/rpm/recovery/20-native-package-state.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/21-complete-installed-integrity.log": {
+          "bytes": 429,
+          "sha256": "c89fe30bc1e8f2df5afef596f4dc4db4e653a0eb78c5087088382a6378e186a7"
+        },
+        "evidence/rpm/recovery/22-launcher-after-repair.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/interrupted-manager.log": {
+          "bytes": 188,
+          "sha256": "ebec47c0da18cfe365f5df81533711dd05250ae118e1da240d089947dcc956a8"
+        },
+        "evidence/rpm/recovery/preservation.json": {
+          "bytes": 23825,
+          "sha256": "6c8b3f0cc81543d2de64e394b9b51dde2547c889617c5cac88fd2f6624ad336d"
+        },
+        "evidence/rpm/recovery/result.json": {
+          "bytes": 7721,
+          "sha256": "b1f741144ab0ae20c7efec606257f7329815085861f22e3f259c8f36e7b4457e"
+        },
+        "evidence/rpm/smoke/00-confirm-no-existing-package.log": {
+          "bytes": 37,
+          "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432"
+        },
+        "evidence/rpm/smoke/01-fresh-project-verification-keyring.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/02-import-project-verification-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/03-verify-finalized-project-signature.log": {
+          "bytes": 186,
+          "sha256": "d1e671772b4f49e8575054297ad2a041aa6d07b0248ccd76dcf1a4c039570846"
+        },
+        "evidence/rpm/smoke/04-import-project-installation-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/05-sentinels.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/06-record-system-python-state.log": {
+          "bytes": 83,
+          "sha256": "f66edb4339f8ffb9b881bf7782ee1d9240d508007cfc10dc6244da9f5c198694"
+        },
+        "evidence/rpm/smoke/07-install-exact-hosted-package.log": {
+          "bytes": 709,
+          "sha256": "9585795be6f3da1c86ab36be739c21495ad2c29dad38d966f5ef30ad824aa700"
+        },
+        "evidence/rpm/smoke/08-installed-source-adapter-manifest-identity.log": {
+          "bytes": 2197,
+          "sha256": "682854a8821da495f9b7bb1dc2f95c7b604093cace746a25cdb87ab821870ae5"
+        },
+        "evidence/rpm/smoke/09-complete-installed-integrity.log": {
+          "bytes": 429,
+          "sha256": "553de23764fce780ef575a350e8af381eb2d85cb6488813f078a85083c176688"
+        },
+        "evidence/rpm/smoke/10-native-package-state.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/11-ordinary-user-launcher.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/12-system-python-recovery-interface.log": {
+          "bytes": 998,
+          "sha256": "a3d9d692338f4fc0b7bf06f7a2aeca40199b441a6d536752c2314b7debb0f0ea"
+        },
+        "evidence/rpm/smoke/13-ordinary-user-runtime-media-gtk.log": {
+          "bytes": 13107,
+          "sha256": "9c7d6205573a533574e7410921a01908107819ea2eaa7385175986a93317a4e6"
+        },
+        "evidence/rpm/smoke/14-ordinary-user-generated-recording.log": {
+          "bytes": 766,
+          "sha256": "f8a1127a1908b1625e8002eb25716ba3317257caff540cb44311a39eb8c0daec"
+        },
+        "evidence/rpm/smoke/15-remove-native-package.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/16-package-uninstalled.log": {
+          "bytes": 37,
+          "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432"
+        },
+        "evidence/rpm/smoke/17-preserve-user-system-and-stable-lock.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/18-preserve-system-python-state.log": {
+          "bytes": 21,
+          "sha256": "3a409f2d6007ac08025114543781cbb6ec0cb1c96fb860e4434cc463ea2cbae9"
+        },
+        "evidence/rpm/smoke/result.json": {
+          "bytes": 18693,
+          "sha256": "99d22361686799dea656dda1e7c2aab668b667ec8fbafcecf011e6b7ff22f40c"
+        },
+        "packages/RPM-GPG-KEY-nvbroadcast.asc": {
+          "bytes": 3943,
+          "sha256": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a"
+        },
+        "packages/SHA256SUMS": {
+          "bytes": 642,
+          "sha256": "e54f28a404d2ddde9758fa072cc26a8b6a51a3823dbdc6b45401f82c2464f82f"
+        },
+        "packages/candidate.json": {
+          "bytes": 2179,
+          "sha256": "825513d643cb8b3884b11cdfdf32cc1acd21db05ef58b984ef047539e2ad0e62"
+        },
+        "packages/deb/nvbroadcast_1.5.3-4.cpu_amd64.deb": {
+          "bytes": 390316076,
+          "sha256": "359b3c9cd3cb697727ce345685c597c1b44551e729c2e64f890f9713f9c6b4b9"
+        },
+        "packages/nvbroadcast-native-upgrade": {
+          "bytes": 13546,
+          "sha256": "8efdd0a4944497761fcd6ab9a0b096190177879fa2d32685e9255fec10a7cad2"
+        },
+        "packages/rpm-signing.json": {
+          "bytes": 710,
+          "sha256": "f4d9b2703ad13b4edab33af72c82e94624370b3fe5021e2bc2321dce6c6e7353"
+        },
+        "packages/rpm/nvbroadcast-1.5.3-4.cpu.x86_64.rpm": {
+          "bytes": 389969054,
+          "sha256": "44024fab7d2acb71f9950d3db7b0d8401a23ead458b1587a35a9bac900f8f735"
+        },
+        "packages/validation.json": {
+          "bytes": 2588,
+          "sha256": "a167e8c4ca3df884ac2ab2dd22e416570f7b64acf474f0b7a78e89362381f05e"
+        },
+        "qualification.json": {
+          "bytes": 5832,
+          "sha256": "95be99f241313086396b09d139aeb8af876ff90987aad0c1c699535866b8c965"
+        }
+      },
+      "verifier_review_sha256": "72e381e005c756d01b212399c0684d687a0bb3d7a24dd6d428e9a1d85661c2f4"
+    },
+    "recording_scope": "Each fixture generated and decoded 24 video frames with nonzero synthetic audio; no physical camera, microphone or listening test."
+  },
+  "local_preflight": {
+    "qualification_tools_source": "ad8541a35e823db9cdbdb5394e7b0a7cbad15020",
+    "completion_tools_source": "cc92be39041ef1f9fa26e19d540e66e77604cb9f",
+    "qualification": {
+      "candidate_manifest_sha256": "be9575a2681c478e622af133cad13dd5c84db704498d4139027156bd1a589660",
+      "fixtures": {
+        "deb": {
+          "base": "ubuntu@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc",
+          "distribution": "Ubuntu 24.04",
+          "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.deb",
+          "dockerfile_sha256": "55f692ffffb82e9867fd487015fcffa5869bffbf5f9dc2179fc07b3491cd2672",
+          "driver_sha256": "05735cfb5faa146b40044e8d0563cc1f98b8efac107736856c43c3e8b15f0b39",
+          "family": "deb",
+          "files": {
+            "build.log": "340cc2740d7357e81370a82cc3d023f58bd183e60979ddaa9452f5966cce6f86",
+            "fixture-packages.txt": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78",
+            "image.id": "80d5fc99b430893be23d4242888b2b5492627a7c61d601a02b13d8bde835d02b",
+            "os-release": "87458b3b1f1ca0e5c693ade771de7007c3783bdc692fa6b39eb6414bf2af2763"
+          },
+          "image": "sha256:c4c2ab9cc88a82f96600618674503999965116a4ada871f8a7c3d90f3c34bf00",
+          "inventory_container_removed": true,
+          "inventory_sha256": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78",
+          "manifest_sha256": "92d80df6531ca985525b9aec8d625c1b3b289453ff51b957a0a231a9f19ea356",
+          "os_release": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+          "platform": "linux/amd64",
+          "scope": "Disposable qualification fixtures; OS dependencies use current distribution repositories, not a reproduced OS snapshot. Record each built image ID and its packages.tsv inventory. Candidate installation and tests run with network disabled.",
+          "status": "pass"
+        },
+        "rpm": {
+          "base": "fedora@sha256:be9d65e2344d805cc11114319c685ecaa96b6d9b4350a0a6460cdb931babbd19",
+          "distribution": "Fedora 44",
+          "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.rpm",
+          "dockerfile_sha256": "f1176d5aa13f0e1462ef03b92966bb621f7c65a3075e0f75f23a1ea91c0c302a",
+          "driver_sha256": "05735cfb5faa146b40044e8d0563cc1f98b8efac107736856c43c3e8b15f0b39",
+          "family": "rpm",
+          "files": {
+            "build.log": "d4635dd079b4ddfd0d11c502094ff0f4cee7650e1960acf1b956c7db32be0d77",
+            "fixture-packages.txt": "f7da01cd7b0cbcfa0ea379da717f15a4f6c55c41da7bbe3284bd1ef368f354bf",
+            "image.id": "4a5e66f4a522820b47149d525623d2432174fb70923b9411d7160afd6322727e",
+            "os-release": "2f6bf1f4e47d29ad351269e1fe4f56a9667f2f0c87dd0365c752948ee9dc1d8b"
+          },
+          "image": "sha256:a224af7e3729d6ddca17e81bb3df4acc5cd5e85a3d792eccfd1aee9089497fcb",
+          "inventory_container_removed": true,
+          "inventory_sha256": "f7da01cd7b0cbcfa0ea379da717f15a4f6c55c41da7bbe3284bd1ef368f354bf",
+          "manifest_sha256": "92d80df6531ca985525b9aec8d625c1b3b289453ff51b957a0a231a9f19ea356",
+          "os_release": "NAME=\"Fedora Linux\"\nVERSION=\"44 (Container Image)\"\nRELEASE_TYPE=stable\nID=fedora\nVERSION_ID=44\nVERSION_CODENAME=\"\"\nPRETTY_NAME=\"Fedora Linux 44 (Container Image)\"\nANSI_COLOR=\"0;38;2;60;110;180\"\nLOGO=fedora-logo-icon\nCPE_NAME=\"cpe:/o:fedoraproject:fedora:44\"\nDEFAULT_HOSTNAME=\"fedora\"\nHOME_URL=\"https://fedoraproject.org/\"\nDOCUMENTATION_URL=\"https://docs.fedoraproject.org/en-US/fedora/f44/\"\nSUPPORT_URL=\"https://ask.fedoraproject.org/\"\nBUG_REPORT_URL=\"https://bugzilla.redhat.com/\"\nREDHAT_BUGZILLA_PRODUCT=\"Fedora\"\nREDHAT_BUGZILLA_PRODUCT_VERSION=44\nREDHAT_SUPPORT_PRODUCT=\"Fedora\"\nREDHAT_SUPPORT_PRODUCT_VERSION=44\nSUPPORT_END=2027-05-19\nVARIANT=\"Container Image\"\nVARIANT_ID=container\n",
+          "platform": "linux/amd64",
+          "scope": "Disposable qualification fixtures; OS dependencies use current distribution repositories, not a reproduced OS snapshot. Record each built image ID and its packages.tsv inventory. Candidate installation and tests run with network disabled.",
+          "status": "pass"
+        }
+      },
+      "packages": {
+        "deb": {
+          "bytes": 390316076,
+          "path": "deb/nvbroadcast_1.5.3-4.cpu_amd64.deb",
+          "sha256": "359b3c9cd3cb697727ce345685c597c1b44551e729c2e64f890f9713f9c6b4b9"
+        },
+        "rpm": {
+          "bytes": 389969054,
+          "path": "rpm/nvbroadcast-1.5.3-4.cpu.x86_64.rpm",
+          "sha256": "91d2052394b864e567103dbf0802422e5b1459305512e3ff0e2b218a6c9c5893"
+        }
+      },
+      "producer": {
+        "artifact_digest": "sha256:bcf25080d15906d332832028bef7e581dca570399eee176e914a6ec53cfa8e9c",
+        "artifact_id": 12467991495,
+        "run_attempt": 1,
+        "run_id": 39874767495,
+        "source": "71903d7ca59f119249a1d8342ddc73b7dc8cfb5a"
+      },
+      "qualification": {
+        "deb": {
+          "image": "sha256:c4c2ab9cc88a82f96600618674503999965116a4ada871f8a7c3d90f3c34bf00",
+          "sha256": "c75bb5a372bca1bc36543bd929386ac04a9a54cceefadd7991b07ed76a45e970",
+          "status": "pass",
+          "steps": 14
+        },
+        "recovery": {
+          "image": "sha256:a224af7e3729d6ddca17e81bb3df4acc5cd5e85a3d792eccfd1aee9089497fcb",
+          "sha256": "7416285d7747fe3568b2016bd9f84133c2fb14a397a8529b670a6e0dabd902ba",
+          "status": "pass",
+          "steps": 23
+        },
+        "rpm": {
+          "image": "sha256:a224af7e3729d6ddca17e81bb3df4acc5cd5e85a3d792eccfd1aee9089497fcb",
+          "sha256": "560de64c230496bebc9a7ef1b450bc3de6084c42314cf2f0054c9836eb459c71",
+          "status": "pass",
+          "steps": 19
+        }
+      },
+      "schema_version": 1,
+      "scope": "Disconnected Ubuntu/Fedora x86_64 CPU containers; no physical-device, CUDA, clean-VM or release promotion claim",
+      "status": "qualified-development-candidate"
+    },
+    "validation_receipt_sha256": "6335455b15890103b9426123943bea1b97ce8f28fdbea48bd199dacaeccfcb3e",
+    "completion_receipt_sha256": "0f7a13611f82fc637a60ebb015cf9c0a7fdfaea43822db0e0aa206a2a00c7cbf",
+    "scope": "Public-only integration reused an existing project-signed RPM; no new local signing or private-key access",
+    "independent_review_sha256": "a238c724a23554935232bfb16f0d35a1fa43a4d65425bc645d2ba863aef6169b"
+  },
+  "reproducibility": {
+    "schema_version": 1,
+    "date": "2026-10-23",
+    "status": "pass",
+    "scope": "Full hosted/local unsigned x86_64 CPU rebuild from the same application and adapter source using the same authenticated historical builder images.",
+    "application_revision": "71903d7ca59f119249a1d8342ddc73b7dc8cfb5a",
+    "adapter_revision": "71903d7ca59f119249a1d8342ddc73b7dc8cfb5a",
+    "source_tree": "e8dca54461586b364a33f632170ccf509e727d0f",
+    "package_version": "1.5.3-4.cpu",
+    "hosted_build": {
+      "artifact_digest": "sha256:bcf25080d15906d332832028bef7e581dca570399eee176e914a6ec53cfa8e9c",
+      "artifact_id": 12467991495,
+      "run_attempt": 1,
+      "run_id": 39874767495,
+      "workflow": ".github/workflows/native-cpu-candidate.yml",
+      "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/39874767495",
+      "prior_record": "2026-10-23-hosted-cpu.json"
+    },
+    "local_build": {
+      "started_at": "2026-10-23T00:46:49.083969+00:00",
+      "finished_at": "2026-10-23T00:48:48.233318+00:00",
+      "exit_code": 0,
+      "full_fresh_assembly": true,
+      "offline": true,
+      "reused_runtime": false,
+      "fresh_output": true,
+      "tracked_source_unchanged": true,
+      "command_receipt": {
+        "path": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/execution.json",
+        "sha256": "bb967688f1d7eb52e158d8dd1f24dc9b2e699d3eb60b2d56ae84695713325562",
+        "bytes": 997
+      }
+    },
+    "builder_delivery": {
+      "prior_record": "2026-10-11-builder-import.json",
+      "archive_sha256": "7b9579055f63c7f63516060c545c7d8207d07fb04ea8c038bc1c8185f790e3d4",
+      "archive_bytes": 620776960,
+      "origin": "maintainer-qualified-historical-snapshot",
+      "original_build_provenance_authenticated": false,
+      "images": {
+        "bindings": "sha256:7295102d8391699de28d86df555bddae343c5540c32bb21cbd5af10f92fc07ad",
+        "deb": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+        "rpm": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c"
+      },
+      "local_ids_match_hosted": true,
+      "platform": "linux/amd64",
+      "authenticated_hosted_receipt": {
+        "path": "Broadcast-native-cpu-20261022/dist/hosted-cpu-39874767495/validation-v2/dist/builder-delivery/authenticated-builders.json",
+        "sha256": "0a3c64d5ae37c71fddad4c1f9d4861198668aa448880d38dd8fd8d265cff7f49",
+        "bytes": 1030
+      }
+    },
+    "inputs": {
+      "source_archive": {
+        "bytes": 1863680,
+        "sha256": "869c6bf71857803d6b130122ad78dc7dcda972256328c098958c0ee7cdbd31cc"
+      },
+      "archives": {
+        "cpython-3.13.16+20261003-x86_64-unknown-linux-gnu-pgo+lto-full.tar.zst": {
+          "bytes": 109447278,
+          "sha256": "1785cc77a638c5e1e0c86baffd395a49b784535136c00e2aac203116057f13b7"
+        },
+        "pycairo-1.29.0.tar.gz": {
+          "bytes": 665871,
+          "sha256": "f3f7fde97325cae80224c09f12564ef58d0d0f655da0e3b040f5807bd5bd3142"
+        },
+        "pygobject-3.48.2.tar.gz": {
+          "bytes": 715243,
+          "sha256": "c3c0a7afbe5b2c1c64dc0530109b4dd571085153dbedfbccb8ec7c5ad233f977"
+        },
+        "uv-x86_64-unknown-linux-gnu.tar.gz": {
+          "bytes": 24249861,
+          "sha256": "6681d691eb7f9c00ac6a3af54252f7ab29ae72f0c8f95bdc7f9d1401c23ea868"
+        }
+      },
+      "fresh_wheels": {
+        "nvbroadcast-1.5.3-py3-none-any.whl": {
+          "bytes": 477221,
+          "sha256": "93ff0d19befb1a0776d1371be3709e3fb9634c21179a3ec116e2c11e4d8bbbf2"
+        },
+        "pycairo-1.29.0-cp313-cp313-linux_x86_64.whl": {
+          "bytes": 128852,
+          "sha256": "bb12333fbd4c047ee8f88b5ae091a4d495bf8730e7526fa35f6605326176fea1"
+        },
+        "pygobject-3.48.2-cp313-cp313-linux_x86_64.whl": {
+          "bytes": 255558,
+          "sha256": "ebfbcb4a688e59766018f1431c533d68e060b4a4128ee1f74cd18c3185d0e588"
+        }
+      },
+      "cache": {
+        "independent_copy": true,
+        "original_files": 78,
+        "original_bytes": 558865351,
+        "original_unchanged": true,
+        "preparation_receipt": {
+          "path": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/preparation.json",
+          "sha256": "829fecf6a507b0d4668952df541d0bddd5a944b2eca8cc1dedbd7d2ee36da713",
+          "bytes": 16691
+        }
+      }
+    },
+    "comparison": {
+      "method": "Compare both byte streams directly; also compute SHA256 and sizes. No differences normalized or excluded.",
+      "files_compared": 8,
+      "all_identical": true,
+      "files": [
+        {
+          "path": "assembly/pylock.toml",
+          "bytes": 24534,
+          "sha256": "1b4eefda7da8ca2b7c7691281ca13ab844b7acf7636ec3c9b228bbb6e7ad3c9e",
+          "identical_bytes": true
+        },
+        {
+          "path": "build-provenance.json",
+          "bytes": 2106,
+          "sha256": "43d64c145f04cdcf5c294df97d1dd5b401c2a6bda33a239df78d44815ebf3f58",
+          "identical_bytes": true
+        },
+        {
+          "path": "deb/content.json",
+          "bytes": 3034415,
+          "sha256": "6ed0aa1f32a972c1e47e1a9458bdfb39614a80546a0e398c4e7079451d858ff5",
+          "identical_bytes": true
+        },
+        {
+          "path": "deb/nvbroadcast_1.5.3-4.cpu_amd64.deb",
+          "bytes": 390316076,
+          "sha256": "359b3c9cd3cb697727ce345685c597c1b44551e729c2e64f890f9713f9c6b4b9",
+          "identical_bytes": true
+        },
+        {
+          "path": "packages.json",
+          "bytes": 5450,
+          "sha256": "912a2dbbe157e30c2844f595d8c96819c1bc20f6a209ed54b0215af0f657aefe",
+          "identical_bytes": true
+        },
+        {
+          "path": "payload/manifest.json",
+          "bytes": 2795637,
+          "sha256": "854613987856c2309829d1711868f1f8cbce9ac9341460ad3baad9bbef6d47ae",
+          "identical_bytes": true
+        },
+        {
+          "path": "rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-4.cpu.x86_64.rpm",
+          "bytes": 389969054,
+          "sha256": "fc7280e9ca20b891333dc01792d17503e8f1b52676f1807c718bd2b3f0992c1e",
+          "identical_bytes": true
+        },
+        {
+          "path": "rpm/content.json",
+          "bytes": 3034560,
+          "sha256": "603f10c972fc7dee01395994745dd6951654b398ceac8985929767c841abad6e",
+          "identical_bytes": true
+        }
+      ],
+      "runtime_entries": 16557,
+      "native_payload_entries": {
+        "deb": 16585,
+        "rpm": 16586
+      },
+      "receipt": {
+        "path": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/comparison.json",
+        "sha256": "8cb3156be72293842b391303bb8d270611d6ed353657dbe282322c80af387701",
+        "bytes": 8210
+      },
+      "driver": {
+        "path": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/compare.py",
+        "sha256": "1fa40c1d5cb8bb996e2d62c47f413c24b1898c3f09a1287b79b49247ec412609",
+        "bytes": 5821
+      }
+    },
+    "evidence": {
+      "paths_relative_to": "the original workspace parent containing the named worktrees",
+      "local_build_root": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/build",
+      "hosted_build_root": "Broadcast-native-cpu-20261022/dist/hosted-cpu-39874767495/validation-v2/dist/native-cpu",
+      "hosted_validation": {
+        "path": "Broadcast-native-cpu-20261022/dist/hosted-cpu-39874767495/validation-v2/result.json",
+        "sha256": "ebf30e95c5a56afc36964a8635fa981878904f6e5a20053f8a7c75c28a754171",
+        "bytes": 2039
+      },
+      "logs": [
+        {
+          "path": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/build-driver.log",
+          "sha256": "dad0bf46ef3e3907ec499e322383dfddc5a1fdeb1fa00c9ab73bd2f33dddc115",
+          "bytes": 4985
+        },
+        {
+          "path": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/build/assembly/assemble.log",
+          "sha256": "f005157d45795218680b418738de6b41e59b32f966678767ff56a20d3995c0a3",
+          "bytes": 8736
+        },
+        {
+          "path": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/build/assembly/wheel-build.log",
+          "sha256": "6ad037a9df01ef9a0f45326963457dc6865c88cbc52b0a6552f3c6cd8ac1f197",
+          "bytes": 3307
+        },
+        {
+          "path": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/build/deb/build.log",
+          "sha256": "6a1ebd9cea79c4e6988902219cf3caec8e75a00567d3c86339a80feb9e429f68",
+          "bytes": 87
+        },
+        {
+          "path": "Broadcast-issue60-repro-71903d7-20261023/dist/reproducibility/build/rpm/build.log",
+          "sha256": "c073b00305d3e311e9f2c62f7550924654b59b5ff0c65829b241ceedd6f896d1",
+          "bytes": 5890
+        }
+      ]
+    },
+    "limits": [
+      "Historical builder images were reused; their original OS-image build provenance and independent reconstruction are not established.",
+      "This comparison covers unsigned CPU packages only, not deterministic RPM signature bytes or CUDA.",
+      "No additional installed lifecycle, physical-device, clean-VM, power-loss, release-publication or default-switch claim.",
+      "Reproducibility is a separate unsigned-build comparison; protected finalization is recorded in protected_finalization above."
+    ]
+  },
+  "preserved_failures": [
+    {
+      "run_id": 39880398718,
+      "source": "cdb9e33a391a1f70dcf756c2811a06e98698695b",
+      "failure": "Fresh checkout lacked dist/builder-delivery before authenticated archive fetch",
+      "scope": "Failed before builder download, candidate download, signing or execution",
+      "fix_pr": 163,
+      "fix_commit": "46d09412296a6439ab4af016d6348e23297b8590",
+      "regression": "Execute actual workflow preparation in an empty directory; enough capacity permits exclusive archive creation, insufficient capacity fails before creating a directory",
+      "log_sha256": "eaf4baa91cc45004cf261da2c1ad9c537934d6d83a6f7d2628e9bfa12002d7a2"
+    },
+    {
+      "run_id": 39881095826,
+      "source": "46d09412296a6439ab4af016d6348e23297b8590",
+      "failure": "Both ordinary-user GTK probes could not read the public probe directory: restrictive umask left it 0700 and the hosted owner UID differs from the container UID",
+      "scope": "Full candidate validation and protected signing passed; no qualified candidate was retained",
+      "diagnostics": {
+        "deb": {
+          "artifact_id": 12469779853,
+          "artifact_digest": "sha256:94220ea61b99c09f3e4b1a1293fea4af3353653e15eb950bcacc567b61b45319",
+          "artifact_bytes": 36546,
+          "probe_log_sha256": "e1f81701cb16c25c89842505a89f4103adb276cc18448d62676d3c2b4653e4fc",
+          "error": "bash: /probes/desktop_probe.sh: Permission denied"
+        },
+        "rpm": {
+          "artifact_id": 12470417523,
+          "artifact_digest": "sha256:5716699cd07697eb3fd1ca431d933b33a17a9bcbac0a65b62f48aac54afcac0b",
+          "artifact_bytes": 29651,
+          "probe_log_sha256": "e1f81701cb16c25c89842505a89f4103adb276cc18448d62676d3c2b4653e4fc",
+          "error": "bash: /probes/desktop_probe.sh: Permission denied"
+        }
+      },
+      "local_reproduction": {
+        "status": "reproduced-and-permission-change-verified",
+        "host_uid": 1000,
+        "container_uid": 65534,
+        "before_mode": "0o700",
+        "before_exit": 1,
+        "before_error": "cat: /probes/probe.txt: Permission denied",
+        "after_mode": "0o755",
+        "after_exit": 0,
+        "after_output": "public probe readable",
+        "private_parent_mode": "0o700",
+        "image": "sha256:c4c2ab9cc88a82f96600618674503999965116a4ada871f8a7c3d90f3c34bf00"
+      },
+      "fix_pr": 164,
+      "fix_commit": "a007338e62529fd8137ba61a06727d9119e35b9a",
+      "regression": "Actual smoke preparation under umask 077 verifies public probes 0755/files 0644 and private output 0700/package 0600; a read-only container running with a different UID proves traversal failure before and success after chmod"
+    }
+  ],
+  "limits": [
+    "Linux x86_64 CPU development candidates only; no CUDA or physical-device acceptance",
+    "Fresh fixture OS dependencies resolved from current distribution repositories; only base manifests are pinned",
+    "Same recorded builder images reproduced unsigned packages; not independent source reconstruction of every native dependency",
+    "No clean-VM, legacy-launcher-concurrency or power-loss acceptance added",
+    "No release, tag, frozen v1.5.3 asset or installed Snap changed; production promotion remains separate"
+  ],
+  "implementation": {
+    "pull_requests": [
+      162,
+      163,
+      164
+    ],
+    "final_source": "a007338e62529fd8137ba61a06727d9119e35b9a",
+    "ci_run": 39882503690,
+    "ci_results": [
+      "Linux validation\tAudit dependencies and source\t2026-10-23T01:12:36.3628591Z No known vulnerabilities found",
+      "Linux validation\tRun unit and packaging checks\t2026-10-23T01:13:38.6950661Z 1388 passed, 38 skipped, 1 warning, 1404 subtests passed in 58.40s",
+      "Linux validation\tCheck responsive GTK layout under Xvfb\t2026-10-23T01:14:41.5133113Z 20 passed, 11 warnings, 25 subtests passed in 33.89s",
+      "Python 3.14\tRun supported-runtime tests\t2026-10-23T01:11:36.4730102Z 290 passed, 68 subtests passed in 13.04s",
+      "Python 3.11\tRun supported-runtime tests\t2026-10-23T01:11:44.5287670Z 290 passed, 68 subtests passed in 15.35s"
+    ],
+    "candidate_regression_tests": 109,
+    "independent_probe_fix_review_sha256": "1828d23748c501736880e886b36d6c82c16a206ce3227e06639c6be5ed54ee43",
+    "independent_reproducibility_review_sha256": "e797971f16224868d113fb11a87dc93418b0613a8485dc240b9b082b76e4e2c6"
+  }
+}

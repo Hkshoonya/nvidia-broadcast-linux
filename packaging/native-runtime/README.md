@@ -339,6 +339,19 @@ the checked-out tools provide all executed probes. `--evidence-output` exports
 only public receipts and referenced logs, excluding private working snapshots
 and probe inputs.
 
+The [2026-10-23 finalization and reproducibility record](qualification/2026-10-23-cpu-finalization.json)
+records the successful protected workflow from `a007338`, qualifying the
+`71903d7` CPU candidate with the existing project RPM identity. All 14 DEB,
+19 RPM and 23 interrupted-install recovery checks passed. Independent download
+verification checked the final archive, all 74 files, 56 execution logs and the
+interruption transcript; a fresh public-key-only RPM database verified the
+signature. The record also binds a separate full offline rebuild to the same
+builder images: both unsigned packages and all six compared metadata files were
+byte-identical to the hosted build. It retains the two corrected finalization
+failures and their regression evidence. The qualified artifact expires on
+2026-11-22; physical devices, CUDA, clean-VM acceptance and production promotion
+remain separate.
+
 The [2026-10-23 hosted CPU record](qualification/2026-10-23-hosted-cpu.json)
 binds the `1.5.3-4.cpu` DEB/RPM candidates to application and adapter commit
 `71903d7`. Authenticated hosted assembly, independent source/payload verification
