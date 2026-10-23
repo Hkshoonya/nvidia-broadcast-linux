@@ -61,9 +61,11 @@ jobs:
         run: |
           /usr/bin/python3 -I -S - <<'PY'
           import os, shutil
+          from pathlib import Path
           free = {name: shutil.disk_usage(os.environ[name]).free for name in ('GITHUB_WORKSPACE', 'RUNNER_TEMP', 'HOME')}
           if any(value < 12 * 1024**3 for value in free.values()):
               raise SystemExit(f'Candidate validation requires 12 GiB free; observed {free}')
+          Path('dist/builder-delivery').mkdir(parents=True, exist_ok=True)
           PY
       - name: Enable an isolated containerd image store
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5.5.0

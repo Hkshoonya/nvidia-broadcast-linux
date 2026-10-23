@@ -5,7 +5,11 @@ files, rather than introducing a YAML runtime dependency into packaging tests.
 Full YAML parsing and shell validation accompany workflow review separately.
 """
 from pathlib import Path
+import os
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +45,26 @@ class NativeCandidateWorkflowTests(unittest.TestCase):
         self.called = jobs(CALLED)
         self.assertEqual(set(self.main), {"validate", "sign", "qualify-deb", "qualify-rpm", "retain"})
         self.assertEqual(set(self.called), {"qualify"})
+
+    def test_fresh_runner_preparation_creates_fetch_destination_after_capacity_check(self):
+        step = next(step for step in steps(self.main["validate"]) if "shutil.disk_usage" in runs(step))
+        code = runs(step).split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        for free, success in ((13 * 1024**3, True), (1024, False)):
+            with self.subTest(free=free), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                # Exercise the actual workflow program in a clean directory;
+                # only capacity is simulated so the test is host-independent.
+                prelude = f"import shutil, types\nshutil.disk_usage = lambda path: types.SimpleNamespace(free={free})\n"
+                environment = {**os.environ, "GITHUB_WORKSPACE": temporary, "RUNNER_TEMP": temporary}
+                result = subprocess.run([sys.executable, "-I", "-S", "-c", prelude + code],
+                                        cwd=root, env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode == 0, success, result.stderr)
+                destination = root / "dist/builder-delivery/builders.tar"
+                if success:
+                    with destination.open("xb") as stream:
+                        stream.write(b"fetch destination ready")
+                else:
+                    self.assertFalse(destination.parent.exists())
 
     def test_manual_entry_and_reusable_entry_are_separate(self):
         self.assertEqual(set(blocks(MAIN.split("\non:\n", 1)[1].split("\npermissions:", 1)[0], 2)),
