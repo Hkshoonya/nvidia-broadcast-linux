@@ -1,0 +1,105 @@
+name: Qualify one finalized native CPU package
+
+on:
+  workflow_call:
+    inputs:
+      family:
+        description: 'Native package family: deb or rpm'
+        type: string
+        required: true
+      signed_artifact_id:
+        description: 'Immutable signed-awaiting-qualification artifact ID from this run'
+        type: string
+        required: true
+      candidate_manifest:
+        description: 'Approved SHA256 of the signed bundle manifest'
+        type: string
+        required: true
+    outputs:
+      artifact_id:
+        description: 'Immutable evidence artifact ID for this package family'
+        value: ${{ jobs.qualify.outputs.artifact_id }}
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONNOUSERSITE: '1'
+
+jobs:
+  qualify:
+    if: github.repository == 'Hkshoonya/nvidia-broadcast-linux' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.transfer.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ inputs.signed_artifact_id }}
+          merge-multiple: true
+          path: dist/signed
+      - name: Verify immutable signing output before provisioning or installation
+        env:
+          CANDIDATE_MANIFEST: ${{ inputs.candidate_manifest }}
+        run: |
+          /usr/bin/python3 -I -S packaging/native-runtime/finalize_candidate.py verify \
+            --bundle dist/signed --expected-manifest "$CANDIDATE_MANIFEST"
+      - name: Prepare a fresh fixture from its pinned distribution base
+        env:
+          PACKAGE_FAMILY: ${{ inputs.family }}
+        run: |
+          /usr/bin/python3 -I -S packaging/native-runtime/fixtures/build_fixture.py \
+            --family "$PACKAGE_FAMILY" --output dist/fixture --execute
+      - name: Test exact signed candidate disconnected from network and credentials
+        env:
+          PACKAGE_FAMILY: ${{ inputs.family }}
+        run: |
+          /usr/bin/python3 -I -S - <<'PY'
+          import json, os, shutil, subprocess, sys
+          from pathlib import Path
+          bundle = Path('dist/signed').resolve()
+          candidate = json.loads((bundle / 'candidate.json').read_text())
+          family = os.environ['PACKAGE_FAMILY']
+          package = candidate['packages'][family]
+          version, revision = candidate['version'].rsplit('-', 1)
+          subprocess.run([sys.executable, '-I', '-S', 'packaging/native-runtime/qualify_candidate.py',
+              '--family', family, '--artifact', str(bundle / package['path']), '--artifact-sha256', package['sha256'],
+              '--source', candidate['producer']['source'], '--package-version', version,
+              '--package-revision', revision.removesuffix('.cpu'),
+              '--runtime-manifest-sha256', candidate['runtime_manifest_sha256'],
+              '--recovery-helper-sha256', candidate['recovery_helper_sha256'],
+              '--image', Path('dist/fixture/image.id').read_text().strip(),
+              '--output', 'dist/execution', '--evidence-output', 'dist/evidence', '--execute'], check=True)
+          for name in ('fixture.json', 'fixture-packages.txt'):
+              shutil.copyfile(Path('dist/fixture') / name, Path('dist/evidence') / name)
+          PY
+      - name: Transfer bounded qualification receipts and public logs
+        id: transfer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-cpu-evidence-${{ inputs.family }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 1
+          if-no-files-found: error
+          path: dist/evidence/
+      - name: Retain failure diagnostics without package or probe snapshots
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-cpu-unqualified-diagnostics-${{ inputs.family }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 1
+          if-no-files-found: warn
+          path: |
+            dist/fixture/build.log
+            dist/fixture/result.json
+            dist/execution/result.json
+            dist/execution/smoke/*.json
+            dist/execution/smoke/*.log
+            dist/execution/recovery/*.json
+            dist/execution/recovery/*.log

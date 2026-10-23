@@ -1,0 +1,17 @@
+# Disposable desktop qualification fixture, not a release/runtime image.
+FROM ubuntu@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gstreamer-1.0 \
+    gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly libgomp1 libsndfile1 libportaudio2 \
+    libgirepository-1.0-1 libgl1 libgles2 xvfb xauth dbus-x11 pulseaudio \
+    v4l-utils pulseaudio-utils pipewire-bin util-linux \
+    && rm -rf /var/lib/apt/lists/*
+RUN getent passwd 1000 >/dev/null || useradd -M -u 1000 -d /tmp/nvb-home nvb-probe
+RUN mkdir -p /usr/share/nvbroadcast-qualification \
+    && dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n' \
+    > /tmp/fixture-packages.tsv \
+    && LC_ALL=C sort /tmp/fixture-packages.tsv > /usr/share/nvbroadcast-qualification/packages.tsv \
+    && rm /tmp/fixture-packages.tsv
