@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Promote reviewed revisions to candidate, or promote the tested candidate build set to stable.
+        description: Promote reviewed revisions to candidate, or promote the tested candidate build set to edge or stable.
         required: true
         type: choice
         options:
           - candidate
+          - edge
           - stable
       amd64_revision:
         description: Unpublished amd64 revision to release when operation is candidate.
@@ -147,13 +148,14 @@ jobs:
           printf 'Candidate now uses amd64 revision %s and arm64 revision %s.\n' \
             "$AMD64_REVISION" "$ARM64_REVISION"
 
-      - name: Promote tested candidate build set to stable
-        if: inputs.operation == 'stable'
+      - name: Promote tested candidate build set to edge or stable
+        if: inputs.operation == 'edge' || inputs.operation == 'stable'
         env:
+          TARGET_CHANNEL: ${{ inputs.operation }}
           AMD64_REVISION: ${{ inputs.amd64_revision }}
           ARM64_REVISION: ${{ inputs.arm64_revision }}
           GH_TOKEN: ${{ github.token }}
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ (inputs.operation == 'edge' && secrets.SNAP_EDGE_TOKEN) || (inputs.operation == 'stable' && secrets.SNAP_TOKEN) }}
         run: |
           set -euo pipefail
 
@@ -163,8 +165,16 @@ jobs:
             echo "::error::Could not read the Snap name and version."
             exit 1
           fi
+          if [ "$TARGET_CHANNEL" != "edge" ] && [ "$TARGET_CHANNEL" != "stable" ]; then
+            echo "::error::Candidate build-set promotion requires edge or stable."
+            exit 1
+          fi
+          if [ -z "${SNAPCRAFT_STORE_CREDENTIALS:-}" ]; then
+            echo "::error::A channel-scoped Snap Store credential is required for $TARGET_CHANNEL promotion."
+            exit 1
+          fi
           if [ -n "$AMD64_REVISION" ] || [ -n "$ARM64_REVISION" ]; then
-            echo "::error::Stable promotion uses the complete candidate build set; leave revision inputs empty."
+            echo "::error::$TARGET_CHANNEL promotion uses the complete candidate build set; leave revision inputs empty."
             exit 1
           fi
 
@@ -242,18 +252,20 @@ jobs:
 
           snapcraft promote "$SNAP_NAME" \
             --from-channel=candidate \
-            --to-channel=stable \
+            --to-channel="$TARGET_CHANNEL" \
             --yes
 
           AMD64_TABLE="$(snapcraft revisions "$SNAP_NAME" --arch amd64)"
           ARM64_TABLE="$(snapcraft revisions "$SNAP_NAME" --arch arm64)"
-          if [ "$(current_revision "$AMD64_TABLE" stable)" != "$CANDIDATE_AMD64" ] || \
-             [ "$(current_revision "$ARM64_TABLE" stable)" != "$CANDIDATE_ARM64" ]; then
-            echo "::error::Stable channel verification does not match the tested candidate build set."
+          if [ "$(current_revision "$AMD64_TABLE" "$TARGET_CHANNEL")" != "$CANDIDATE_AMD64" ] || \
+             [ "$(current_revision "$ARM64_TABLE" "$TARGET_CHANNEL")" != "$CANDIDATE_ARM64" ]; then
+            echo "::error::$TARGET_CHANNEL channel verification does not match the tested candidate build set."
             exit 1
           fi
 
-          snapcraft upload-metadata "$CANDIDATE_ARM64_SNAP" --force
+          if [ "$TARGET_CHANNEL" = "stable" ]; then
+            snapcraft upload-metadata "$CANDIDATE_ARM64_SNAP" --force
+          fi
 
-          printf 'Stable now matches candidate: amd64 revision %s, arm64 revision %s.\n' \
-            "$CANDIDATE_AMD64" "$CANDIDATE_ARM64"
+          printf '%s now matches candidate: amd64 revision %s, arm64 revision %s.\n' \
+            "$TARGET_CHANNEL" "$CANDIDATE_AMD64" "$CANDIDATE_ARM64"
