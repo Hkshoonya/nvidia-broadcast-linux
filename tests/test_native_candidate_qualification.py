@@ -174,6 +174,36 @@ class QualificationTests(unittest.TestCase):
         inspect.assert_called_once_with("sha256:" + "4" * 64)
         self.assertFalse((self.root / "qualification").exists())
 
+    def test_probe_directory_is_traversable_under_private_umask(self):
+        def source_bytes(source, path):
+            if path == "pyproject.toml":
+                return b'[project]\nversion = "2.7.11"\n'
+            if path in smoke.PROBES.values():
+                return b"public qualification probe\n"
+            # Stop after creating the actual mounted probes, before any
+            # package/container execution or further source preparation.
+            raise RuntimeError("probe preparation complete")
+
+        previous = os.umask(0o077)
+        try:
+            with mock.patch.object(smoke.recovery, "inspect_image"), \
+                 mock.patch.object(smoke, "git_bytes", side_effect=source_bytes), \
+                 mock.patch.object(subprocess, "check_output", return_value="1" * 40), \
+                 mock.patch.object(subprocess, "Popen", side_effect=AssertionError("external execution")):
+                with self.assertRaisesRegex(RuntimeError, "probe preparation complete"):
+                    smoke.main(self.arguments)
+        finally:
+            os.umask(previous)
+        output = self.root / "qualification"
+        probes = output / "probes"
+        self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((output / "package.rpm").stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(probes.stat().st_mode), 0o755)
+        self.assertEqual({path.name for path in probes.iterdir()}, set(smoke.PROBES))
+        for path in probes.iterdir():
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
+            self.assertEqual(path.read_bytes(), b"public qualification probe\n")
+
     def export_fixture(self):
         raw = self.root / "raw"
         smoke_dir = raw / "smoke"
