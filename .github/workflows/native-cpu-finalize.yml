@@ -1,0 +1,225 @@
+name: Sign and qualify approved native CPU candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      producer_run:
+        description: 'Successful main CPU candidate run ID'
+        type: string
+        required: true
+      producer_attempt:
+        description: 'Exact producer run attempt'
+        type: string
+        required: true
+      source_commit:
+        description: 'Full application/adapter commit; must be an ancestor of this main checkout'
+        type: string
+        required: true
+      artifact_id:
+        description: 'Exact unexpired native CPU candidate artifact ID'
+        type: string
+        required: true
+      artifact_digest:
+        description: 'Approved artifact digest, including sha256: prefix'
+        type: string
+        required: true
+      package_revision:
+        description: 'Exact positive integer CPU package revision'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-cpu-finalization-${{ inputs.artifact_id }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONNOUSERSITE: '1'
+
+jobs:
+  validate:
+    if: github.repository == 'Hkshoonya/nvidia-broadcast-linux' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    outputs:
+      receipt: ${{ steps.identity.outputs.receipt }}
+      artifact_id: ${{ steps.transfer.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require sufficient workspace, temporary and Docker storage
+        run: |
+          /usr/bin/python3 -I -S - <<'PY'
+          import os, shutil
+          free = {name: shutil.disk_usage(os.environ[name]).free for name in ('GITHUB_WORKSPACE', 'RUNNER_TEMP', 'HOME')}
+          if any(value < 12 * 1024**3 for value in free.values()):
+              raise SystemExit(f'Candidate validation requires 12 GiB free; observed {free}')
+          PY
+      - name: Enable an isolated containerd image store
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5.5.0
+        with:
+          version: v29.8.2
+          daemon-config: |
+            {"features":{"containerd-snapshotter":true}}
+      - name: Authenticate historical builders before loading native decoders
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset_id="$(/usr/bin/python3 -I -S -c 'import json; print(json.load(open("packaging/native-runtime/builder-delivery.json"))["source"]["asset_id"])')"
+          /usr/bin/python3 -I -S packaging/native-runtime/builder_delivery.py fetch \
+            --asset-id "$asset_id" --archive dist/builder-delivery/builders.tar
+          /usr/bin/python3 -I -S packaging/native-runtime/builder_delivery.py verify --load \
+            --archive dist/builder-delivery/builders.tar --report dist/builder-delivery/authenticated-builders.json
+      - name: Validate exact producer metadata, complete payload and source-matched scripts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_RUN: ${{ inputs.producer_run }}
+          PRODUCER_ATTEMPT: ${{ inputs.producer_attempt }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ inputs.artifact_digest }}
+          PACKAGE_REVISION: ${{ inputs.package_revision }}
+        run: |
+          /usr/bin/python3 -I -S packaging/native-runtime/validate_candidate.py \
+            --run-id "$PRODUCER_RUN" --attempt "$PRODUCER_ATTEMPT" --source "$SOURCE_COMMIT" \
+            --artifact-id "$ARTIFACT_ID" --expected-digest "$ARTIFACT_DIGEST" \
+            --package-revision "$PACKAGE_REVISION" --repo "$GITHUB_WORKSPACE" --output dist/validated
+      - name: Bind validated transfer to this job
+        id: identity
+        run: |
+          /usr/bin/python3 -I -S - <<'PY'
+          import hashlib, os
+          with open('dist/validated/result.json', 'rb') as source:
+              digest = hashlib.file_digest(source, 'sha256').hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'receipt={digest}\n')
+          PY
+      - name: Transfer validated unsigned input; not a qualified candidate
+        id: transfer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-cpu-validated-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            dist/validated/
+            !dist/validated/candidate.zip
+
+  sign:
+    needs: validate
+    if: github.repository == 'Hkshoonya/nvidia-broadcast-linux' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: rpm-signing
+    outputs:
+      manifest: ${{ steps.identity.outputs.manifest }}
+      artifact_id: ${{ steps.transfer.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare native signing tools before exposing signing credentials
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y rpm gnupg2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.validate.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/validated
+      - name: Sign reviewed RPM bytes and regenerate checksum-bound upgrade helper
+        env:
+          VALIDATION_RECEIPT: ${{ needs.validate.outputs.receipt }}
+          NVB_RPM_PRIVATE_KEY: ${{ secrets.RPM_SIGNING_PRIVATE_KEY }}
+          NVB_RPM_KEY_PASSPHRASE: ${{ secrets.RPM_SIGNING_PASSPHRASE }}
+        run: |
+          /usr/bin/python3 -I -S packaging/native-runtime/finalize_candidate.py sign \
+            --validated dist/validated --expected-receipt "$VALIDATION_RECEIPT" --output dist/signed
+      - name: Bind signed transfer to this job
+        id: identity
+        run: |
+          /usr/bin/python3 -I -S - <<'PY'
+          import hashlib, os
+          with open('dist/signed/candidate.json', 'rb') as source:
+              digest = hashlib.file_digest(source, 'sha256').hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'manifest={digest}\n')
+          PY
+      - name: Transfer signed bytes awaiting independent qualification
+        id: transfer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-cpu-signed-awaiting-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+          path: dist/signed/
+
+  qualify-deb:
+    needs: sign
+    uses: ./.github/workflows/native-cpu-qualify.yml
+    with:
+      family: deb
+      signed_artifact_id: ${{ needs.sign.outputs.artifact_id }}
+      candidate_manifest: ${{ needs.sign.outputs.manifest }}
+
+  qualify-rpm:
+    needs: sign
+    uses: ./.github/workflows/native-cpu-qualify.yml
+    with:
+      family: rpm
+      signed_artifact_id: ${{ needs.sign.outputs.artifact_id }}
+      candidate_manifest: ${{ needs.sign.outputs.manifest }}
+
+  retain:
+    needs: [sign, qualify-deb, qualify-rpm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.sign.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/signed
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.qualify-deb.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/evidence/deb
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.qualify-rpm.outputs.artifact_id }}
+          merge-multiple: true
+          path: dist/evidence/rpm
+      - name: Require every acceptance gate on the exact final package bytes
+        env:
+          CANDIDATE_MANIFEST: ${{ needs.sign.outputs.manifest }}
+        run: |
+          /usr/bin/python3 -I -S packaging/native-runtime/finalize_candidate.py complete \
+            --bundle dist/signed --expected-manifest "$CANDIDATE_MANIFEST" \
+            --deb-evidence dist/evidence/deb --rpm-evidence dist/evidence/rpm --output dist/qualified
+      - name: Retain complete qualified development candidate without publishing a release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-cpu-qualified-${{ inputs.source_commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+          path: dist/qualified/

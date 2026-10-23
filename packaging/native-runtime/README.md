@@ -277,6 +277,68 @@ native dependencies fail clearly; they are not silently downloaded in this mode.
 
 ## Qualification
 
+### Protected CPU finalization
+
+**Sign and qualify approved native CPU candidate** (`native-cpu-finalize.yml`)
+continues an existing successful main-only CPU build. It is a manual development
+candidate workflow, with no release, tag, registry or application-asset writes.
+Before dispatch, review the producer run and select its exact attempt, source
+commit, unexpired artifact ID, GitHub artifact SHA-256 and package revision:
+
+```bash
+gh workflow run native-cpu-finalize.yml --ref main \
+  -f producer_run=RUN_ID -f producer_attempt=ATTEMPT \
+  -f source_commit=FULL_APPLICATION_AND_ADAPTER_COMMIT \
+  -f artifact_id=ARTIFACT_ID -f artifact_digest=sha256:APPROVED_ARTIFACT_SHA256 \
+  -f package_revision=POSITIVE_INTEGER
+```
+
+The workflow has four trust boundaries:
+
+1. Validation authenticates the historical builder import before loading its
+   decoders, checks the live producer repository/run/attempt/workflow identity,
+   and requires the source to be a real ancestor of the trusted tool checkout.
+   It enforces the explicit archive digest, a closed ZIP inventory and bounded
+   decoding, then compares the full runtime, application and package scripts
+   with the approved source. No candidate interpreter or scriptlet runs here.
+2. A separate `rpm-signing` job rechecks the validation receipt and package
+   bytes, uses the existing pinned project publisher key, and regenerates the
+   upgrade helper from the final signed RPM and unchanged DEB. Only its signing
+   step receives private-key/passphrase secrets. This job never installs or
+   executes the candidate.
+3. Separate Ubuntu/Fedora jobs verify the signed bundle before installation.
+   They build disposable fixtures from pinned official amd64 base manifests
+   and record actual image IDs and native package inventories. Distribution
+   dependency resolution happens during fixture preparation; this is not an
+   independently reproduced OS repository snapshot. Candidate execution is
+   network-disconnected, with no signing environment, host devices, home,
+   display or audio sockets. Tests cover complete installed integrity,
+   ordinary-user CPU/media/GTK behavior, decoded generated recording, removal
+   and preservation. Fedora also authenticates the RPM, interrupts an actual
+   fresh installation, preserves its fragments and exact package, replays it
+   and verifies the repaired installation.
+4. Completion requires successful receipts for those exact package bytes and
+   fixture images. It checks required step outcomes, bounded log hashes, the
+   actual SIGKILL observation, preservation identity and complete repair.
+   Only then is the complete `native-cpu-qualified-*` development bundle kept
+   for 30 days. Its packages, public key, upgrade helper, checksums, validation,
+   signing and qualification evidence remain together.
+
+Transfers between jobs use immutable artifact IDs plus receipt/manifest hashes,
+including across a failed-job rerun. Intermediate artifacts have one-day
+retention and explicit `validated` or `signed-awaiting-qualification` names;
+neither is an accepted installation candidate. The final bundle still does not
+qualify CUDA, physical devices, clean virtual machines or production promotion.
+Frozen v1.5.3 release assets remain separate.
+
+Local equivalents are `validate_candidate.py`, `finalize_candidate.py`,
+`fixtures/build_fixture.py` and `qualify_candidate.py`. Fixture and qualification
+commands are plan-only unless passed `--execute`. Run these from a reviewed
+checkout; producer files provide expected identities through `git show`, while
+the checked-out tools provide all executed probes. `--evidence-output` exports
+only public receipts and referenced logs, excluding private working snapshots
+and probe inputs.
+
 The [2026-10-23 hosted CPU record](qualification/2026-10-23-hosted-cpu.json)
 binds the `1.5.3-4.cpu` DEB/RPM candidates to application and adapter commit
 `71903d7`. Authenticated hosted assembly, independent source/payload verification
