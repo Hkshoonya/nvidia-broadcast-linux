@@ -136,15 +136,17 @@ SHA-256 and size. No pip resolver, global install or ambient Python package is
 used. The artifact includes the isolated interpreter/dependency verification
 record in `host-tools.json`.
 
-The CPU job requires **12 GiB actually free** on its workspace and temporary
-filesystems before fetching builders. The October 11 complete local CPU build
+The CPU job requires **12 GiB actually free** on its workspace, temporary and
+home filesystems before fetching builders. The Docker setup action keeps its
+isolated image store under home. The October 11 complete local CPU build
 used 5,905,301,504 disk bytes, with a separately measured 559,071,232-byte cache
 (some hardlinks overlap), up to 2.49 GB of builder images, and up to 1.25 GB for
 transport plus a private verification copy. The preflight includes headroom and
 records actual free space; it fails without pruning unrelated runner tools or
-images. GitHub documents 14 GB storage for its standard public Ubuntu runners,
-so actual hosted capacity still needs confirmation in the first run. CUDA is
-not offered by this workflow and its larger footprint is not qualified here.
+images. The [first successful hosted CPU run](qualification/2026-10-23-hosted-cpu.json)
+completed with 92,098,985,984 free bytes observed for each checked location.
+That capacity observation applies to this run; CUDA is not offered by this
+workflow and its larger footprint is not qualified here.
 
 The following invocation runs on Linux x86_64 as an ordinary user. The cache
 may contain verified input archives and previously downloaded dependency
@@ -275,6 +277,16 @@ native dependencies fail clearly; they are not silently downloaded in this mode.
 
 ## Qualification
 
+The [2026-10-23 hosted CPU record](qualification/2026-10-23-hosted-cpu.json)
+binds the `1.5.3-4.cpu` DEB/RPM candidates to application and adapter commit
+`71903d7`. Authenticated hosted assembly, independent source/payload verification
+and RPM signing passed. Installed smoke passed 14 Ubuntu DEB and 19 Fedora RPM
+steps, including ordinary-user CPU execution, GTK and decoded video/audio
+recording. Signed RPM first-install interruption, bootstrap recovery, exact
+replay and full validation passed 23 steps. These are isolated-container results;
+CUDA, physical devices, clean-VM acceptance and native release promotion remain
+separate. The record retains all three corrected workflow/harness failures.
+
 The [2026-10-11 authenticated RPM recovery record](qualification/2026-10-11-rpm-recovery.json)
 binds the signed CPU revision 3 candidate (application `0295b190`, adapter
 `16d49c5`) and signed revision 2 baseline. All six recovery/preflight scenarios
@@ -300,8 +312,9 @@ runtime probes, all 62 application Python files matched that commit.
 
 These unsigned local candidates use one newly assembled offline CPU runtime.
 The signed recovery candidate above reuses that verified application runtime
-with its separately qualified adapter. Hosted CPU assembly, CUDA switching
-and desktop/device acceptance remain separate gates. The [2026-10-09 record](qualification/2026-10-09-cpu.json)
+with its separately qualified adapter. The hosted CPU record above adds the
+newer exact-source assembly; CUDA switching and desktop/device acceptance
+remain separate gates. The [2026-10-09 record](qualification/2026-10-09-cpu.json)
 retains the earlier qualification of application commit `c2dd082`.
 
 The [published-package migration record](qualification/2026-10-11-legacy-migration.json)
