@@ -143,7 +143,8 @@ class CandidateFixture(unittest.TestCase):
             report["preservation_sha256"] = finalize.sha(preservation)
         else:
             report.update(source=SOURCE, artifact_sha256=self.manifest["packages"][family]["sha256"],
-                          input_unchanged=True, snapshot_unchanged=True, family=family, version="1.5.3-4.cpu",
+                          input_unchanged=True, snapshot_unchanged=True, probes_unchanged=True,
+                          family=family, version="1.5.3-4.cpu",
                           runtime_probe={"status": "pass"}, recording={"status": "pass"})
             if family == "rpm":
                 report["rpm_authentication"] = {"status": "verified", "publisher_fingerprint": finalize.FINGERPRINT}
@@ -160,6 +161,7 @@ class CandidateFixture(unittest.TestCase):
         inventory.write_text("fixture-dependency\t1.0\tx86_64\n")
         (output.parent / "fixture.json").write_bytes(finalize.json_bytes({
             "family": family, "image": report["image"], "inventory_sha256": finalize.sha(inventory),
+            "status": "pass", "inventory_container_removed": True,
         }))
         return path, report
 
@@ -360,6 +362,53 @@ class QualificationEvidenceTests(CandidateFixture):
                 path.write_bytes(finalize.json_bytes(report))
                 with self.assertRaises(ValueError):
                     finalize.check_execution(path, self.manifest, "rpm")
+
+    def test_changed_or_missing_probe_preservation_never_completes(self):
+        deb, _ = self.execution("deb")
+        rpm, _ = self.execution("rpm")
+        self.execution("rpm", True)
+        target = self.root / "qualified"
+        for path in (deb, rpm):
+            original = finalize.read_json(path)
+            for value in (False, None, 1, "true"):
+                with self.subTest(family=original["family"], probes_unchanged=value):
+                    changed = copy.deepcopy(original)
+                    if value is None:
+                        del changed["probes_unchanged"]
+                    else:
+                        changed["probes_unchanged"] = value
+                    path.write_bytes(finalize.json_bytes(changed))
+                    with self.assertRaises(ValueError):
+                        finalize.complete(self.output, self.manifest_hash, deb.parent.parent,
+                                          rpm.parent.parent, target)
+                    self.assertFalse(target.exists())
+                    path.write_bytes(finalize.json_bytes(original))
+
+    def test_failed_or_unremoved_fixture_never_completes(self):
+        deb, _ = self.execution("deb")
+        rpm, _ = self.execution("rpm")
+        self.execution("rpm", True)
+        target = self.root / "qualified"
+        for directory in (deb.parent.parent, rpm.parent.parent):
+            path = directory / "fixture.json"
+            original = finalize.read_json(path)
+            for field, value in (("status", "fail"), ("status", None),
+                                 ("inventory_container_removed", False),
+                                 ("inventory_container_removed", None),
+                                 ("inventory_container_removed", 1),
+                                 ("inventory_container_removed", "true")):
+                with self.subTest(family=original["family"], field=field, value=value):
+                    changed = copy.deepcopy(original)
+                    if value is None:
+                        del changed[field]
+                    else:
+                        changed[field] = value
+                    path.write_bytes(finalize.json_bytes(changed))
+                    with self.assertRaises(ValueError):
+                        finalize.complete(self.output, self.manifest_hash, deb.parent.parent,
+                                          rpm.parent.parent, target)
+                    self.assertFalse(target.exists())
+                    path.write_bytes(finalize.json_bytes(original))
 
     def test_finalized_rpm_requires_authentication(self):
         path, report = self.execution("rpm")

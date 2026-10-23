@@ -275,6 +275,7 @@ def check_execution(path, manifest, family, recovery=False):
                 preservation.get("version") == manifest["version"] and
                 preservation.get("fingerprint") == FINGERPRINT, "preserved package identity differs")
     else:
+        require(report.get("probes_unchanged") is True, "qualification probes changed")
         require(report.get("family") == family and report.get("version") == manifest["version"], "qualified package identity differs")
         require(report.get("runtime_probe", {}).get("status") == "pass" and report.get("recording", {}).get("status") == "pass",
                 "runtime or recording failed")
@@ -304,6 +305,8 @@ def evidence_files(directory, family):
         total += size
     require(total <= 128 * 1024**2, "oversize evidence bundle")
     fixture = read_json(directory / "fixture.json")
+    require(fixture.get("status") == "pass" and fixture.get("inventory_container_removed") is True,
+            "fixture preparation or cleanup did not pass")
     require(fixture.get("family") == family and re.fullmatch(r"sha256:[0-9a-f]{64}", fixture.get("image", "")),
             "invalid fixture identity")
     require(sha(directory / "fixture-packages.txt") == digest(fixture["inventory_sha256"]), "fixture inventory differs")
