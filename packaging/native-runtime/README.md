@@ -311,6 +311,20 @@ and the Fedora fixture for the RPM adapter. These local development checks do
 not establish RPM publisher trust, hosted provenance, physical camera/microphone
 acceptance, interrupted-switch recovery or release readiness.
 
+The [2026-10-25 CUDA switching record](qualification/2026-10-25-cuda-switching.json)
+binds fresh `1.5.3-5.cpu` and `1.5.3-5.cuda` packages to application/adapter
+source `42fd9e6`. All six Ubuntu/Fedora runs passed 46 checks each: no GPU,
+RTX 3080 and RTX 5070, with NVIDIA driver 595.91.07. Independent readback verified
+276 execution logs, 30 runtime reports and 18 decoded synthetic recordings.
+Hardware runs proved CUDA provider execution and fresh CuPy output; CPU rollback
+restored the CPU owner. A separate full CUDA rebuild produced byte-identical
+unsigned DEB/RPM packages and all six compared metadata files using the same
+recorded builders. The CUDA DEB exceeds GitHub's release-asset limit at the
+current compression setting. A separate level-10 experiment reduced it to
+2,070,585,298 bytes with identical decoded control/data streams; that experimental
+package was not substituted into the matrix. A committed compression/size policy,
+fresh artifacts and public distribution remain separate gates.
+
 ### Protected CPU finalization
 
 **Sign and qualify approved native CPU candidate** (`native-cpu-finalize.yml`)
