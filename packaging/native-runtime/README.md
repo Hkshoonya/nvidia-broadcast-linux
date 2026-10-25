@@ -277,6 +277,54 @@ native dependencies fail clearly; they are not silently downloaded in this mode.
 
 ## Qualification
 
+### CPU/CUDA switching and explicit GPU execution
+
+`qualify_switching.py` checks a reviewed pair of local native development builds
+with the same application/adapter source and package revision. Supply the
+independently checked SHA-256 of each build's `packages.json` and an exact
+provisioned fixture image ID:
+
+```bash
+python3 packaging/native-runtime/qualify_switching.py \
+  --cpu-packages dist/native-cpu --cpu-manifest-sha256 CPU_PACKAGES_JSON_SHA256 \
+  --cuda-packages dist/native-cuda --cuda-manifest-sha256 CUDA_PACKAGES_JSON_SHA256 \
+  --source FULL_APPLICATION_AND_ADAPTER_COMMIT --family deb \
+  --image sha256:QUALIFIED_FIXTURE_IMAGE_ID --output dist/switching-deb
+```
+
+The default prints a validated plan. Add `--execute` to run it in a disposable,
+network-disabled container; use a fresh output directory for every run. The
+sequence installs CPU, switches to CUDA, rolls back to CPU and removes the
+package. It verifies running-launcher refusals in both directions and checks that
+each refusal preserves the installed variant. Each installed state checks
+its own version, runtime manifest, source files and single ONNX Runtime owner.
+Synthetic GTK/media and decoded recording checks use an ordinary container user.
+The test also checks preservation of settings, recordings, system Python and the
+native launch-lock inode.
+
+Without a GPU selector, CUDA must report unavailable while CPU execution works.
+For a separate hardware run, add `--gpu-device GPU-UUID` with the exact NVIDIA
+device UUID. That run requires actual CUDA execution with CPU fallback disabled
+and a fresh CuPy kernel. It exposes the selected GPU to the fixture but no host
+camera, microphone, display, home or audio socket. Repeat with `--family rpm`
+and the Fedora fixture for the RPM adapter. These local development checks do
+not establish RPM publisher trust, hosted provenance, physical camera/microphone
+acceptance, interrupted-switch recovery or release readiness.
+
+The [2026-10-25 CUDA switching record](qualification/2026-10-25-cuda-switching.json)
+binds fresh `1.5.3-5.cpu` and `1.5.3-5.cuda` packages to application/adapter
+source `42fd9e6`. All six Ubuntu/Fedora runs passed 46 checks each: no GPU,
+RTX 3080 and RTX 5070, with NVIDIA driver 595.91.07. Independent readback verified
+276 execution logs, 30 runtime reports and 18 decoded synthetic recordings.
+Hardware runs proved CUDA provider execution and fresh CuPy output; CPU rollback
+restored the CPU owner. A separate full CUDA rebuild produced byte-identical
+unsigned DEB/RPM packages and all six compared metadata files using the same
+recorded builders. The CUDA DEB exceeds GitHub's release-asset limit at the
+current compression setting. A separate level-10 experiment reduced it to
+2,070,585,298 bytes with identical decoded control/data streams; that experimental
+package was not substituted into the matrix. A committed compression/size policy,
+fresh artifacts and public distribution remain separate gates.
+
 ### Protected CPU finalization
 
 **Sign and qualify approved native CPU candidate** (`native-cpu-finalize.yml`)
