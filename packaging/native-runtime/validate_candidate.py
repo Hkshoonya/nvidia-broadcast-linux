@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch and inspect one explicitly approved hosted CPU artifact, without install.
+"""Fetch and inspect one explicitly approved hosted native artifact, without install.
 
 The Actions API is the transport/source trust anchor, not an application release
 signature. Package bytes are decoded in pinned, offline, read-only containers.
@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -28,6 +29,10 @@ import threading
 import tomllib
 import uuid
 import zipfile
+
+_policy_spec = importlib.util.spec_from_file_location("candidate_policy", Path(__file__).with_name("candidate_policy.py"))
+policy = importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(policy)
 
 REPO = "Hkshoonya/nvidia-broadcast-linux"
 REPOSITORY_ID = 1184001936
@@ -92,7 +97,8 @@ def bounded(command, *, cwd=None, limit=4*MIB, timeout=60):
 
 class BoundedTarStream:
     """Check raw 512-byte headers before tarfile allocates extension payloads."""
-    def __init__(self, stream):
+    def __init__(self, stream, variant="cpu"):
+        self.policy = policy.policy_for(variant)
         self.stream = stream
         self.buffer = bytearray()
         self.data_blocks = self.headers = self.total = 0
@@ -108,7 +114,7 @@ class BoundedTarStream:
                 break
             require(len(block) == 512, "truncated raw tar block")
             self.total += 512
-            require(self.total <= 5*GIB, "decoded tar exceeds total byte bound")
+            require(self.total <= self.policy.tar_max_bytes, "decoded tar exceeds total byte bound")
             if self.data_blocks:
                 self.data_blocks -= 1
             elif any(block):
@@ -152,6 +158,7 @@ def path_name(name, *, absolute=False):
 
 
 def live_metadata(args):
+    selected = policy.policy_for(getattr(args, "variant", "cpu"))
     def api(path):
         return parse_json(bounded([args.gh, "api", "--hostname", "github.com", f"repos/{REPO}/{path}"]))
     run = api(f"actions/runs/{args.run_id}/attempts/{args.attempt}")
@@ -167,12 +174,12 @@ def live_metadata(args):
     require(all(type(value) is int for value in (artifact["id"], artifact["workflow_run"]["id"],
                 artifact["workflow_run"]["repository_id"], artifact["workflow_run"]["head_repository_id"]))
             and artifact["id"] == args.artifact_id and artifact["expired"] is False
-            and artifact["name"] == f"native-cpu-candidate-{args.source}-{args.run_id}-{args.attempt}"
+            and artifact["name"] == f"native-{selected.variant}-candidate-{args.source}-{args.run_id}-{args.attempt}"
             and artifact["workflow_run"]["id"] == args.run_id
             and artifact["workflow_run"]["head_sha"] == args.source
             and artifact["workflow_run"]["head_branch"] == "main"
             and artifact["workflow_run"]["repository_id"] == artifact["workflow_run"]["head_repository_id"] == REPOSITORY_ID
-            and type(artifact["size_in_bytes"]) is int and 0 < artifact["size_in_bytes"] <= 2*GIB
+            and type(artifact["size_in_bytes"]) is int and 0 < artifact["size_in_bytes"] <= selected.transport_max_bytes
             and re.fullmatch(r"sha256:[0-9a-f]{64}", artifact["digest"]), "artifact identity differs")
     require(artifact["digest"] == args.expected_digest, "artifact digest differs from explicit approval")
     return run, artifact
@@ -180,8 +187,9 @@ def live_metadata(args):
 
 def download_artifact(args, metadata, destination, *, timeout=600):
     """Stream to one new private file, enforcing size/hash before use or retention."""
+    selected = policy.policy_for(getattr(args, "variant", "cpu"))
     expected_bytes = metadata["size_in_bytes"]
-    require(type(expected_bytes) is int and 0 < expected_bytes <= 2*GIB, "invalid download size")
+    require(type(expected_bytes) is int and 0 < expected_bytes <= selected.transport_max_bytes, "invalid download size")
     require(re.fullmatch(r"sha256:[0-9a-f]{64}", args.expected_digest)
             and metadata["digest"] == args.expected_digest, "download digest is not approved")
     command = [args.gh, "api", "--hostname", "github.com",
@@ -250,11 +258,15 @@ def create_member(output, relative):
         os.close(directory)
 
 
-def unpack_zip(path, metadata, output, version):
+def unpack_zip(path, metadata, output, version, variant="cpu"):
+    selected = policy.policy_for(variant)
+    require(version.endswith("." + variant), "ZIP version differs from explicit variant")
+    require(type(metadata["size_in_bytes"]) is int and 0 < metadata["size_in_bytes"] <= selected.transport_max_bytes,
+            "ZIP transport exceeds bound")
     names = {
-        f"dist/native-cpu/deb/nvbroadcast_{version}_amd64.deb",
-        f"dist/native-cpu/rpm/build/RPMS/x86_64/nvbroadcast-{version}.x86_64.rpm",
-        *["dist/native-cpu/" + n for n in ("packages.json", "build-provenance.json", "payload/manifest.json",
+        f"dist/native-{variant}/deb/nvbroadcast_{version}_amd64.deb",
+        f"dist/native-{variant}/rpm/build/RPMS/x86_64/nvbroadcast-{version}.x86_64.rpm",
+        *[f"dist/native-{variant}/" + n for n in ("packages.json", "build-provenance.json", "payload/manifest.json",
                                          "deb/content.json", "rpm/content.json", "assembly/pylock.toml")],
         *["dist/builder-delivery/" + n for n in ("authenticated-builders.json", "capacity.json", "host-tools.json")],
         "packaging/native-runtime/builder-delivery.json", "packaging/native-runtime/builders.json",
@@ -277,7 +289,7 @@ def unpack_zip(path, metadata, output, version):
                 require(member.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED),
                         "unsupported ZIP compression")
                 package = name.endswith((".deb", ".rpm"))
-                require(0 < member.file_size <= (GIB if package else 16*MIB), "ZIP entry exceeds bound")
+                require(0 < member.file_size <= (selected.package_max_bytes if package else 16*MIB), "ZIP entry exceeds bound")
                 if not package:
                     evidence += member.file_size
             require(evidence <= 32*MIB, "aggregate provenance exceeds bound")
@@ -313,14 +325,15 @@ def docker_query(package, family, command):
         require(not bounded(["docker", "ps", "-aq", "--filter", "name=^/" + name + "$" ]).strip(), "decoder query cleanup failed")
 
 
-def decoded_inventory(package, family, *, control=False):
+def decoded_inventory(package, family, *, control=False, variant="cpu"):
+    selected = policy.policy_for(variant)
     name = "nvb-artifact-decode-" + uuid.uuid4().hex[:12]
     command = (["dpkg-deb", "--ctrl-tarfile" if control else "--fsys-tarfile", "/package.deb"] if family == "deb"
                else ["rpm2archive", "--nocompression", "/package.rpm"])
     inventory, modes, kept = {}, {}, {}
     with tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(docker_command(package, family, name, command), stdout=subprocess.PIPE, stderr=errors)
-        stream = BoundedTarStream(process.stdout)
+        stream = BoundedTarStream(process.stdout, variant)
         def stop():
             subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
             if process.poll() is None:
@@ -351,7 +364,7 @@ def decoded_inventory(package, family, *, control=False):
                     elif entry.isfile():
                         require(0 <= entry.size <= GIB, "oversize payload member")
                         total += entry.size
-                        require(total <= 4*GIB, "payload expands beyond bound")
+                        require(total <= selected.payload_max_bytes, "payload expands beyond bound")
                         member_stream = archive.extractfile(entry)
                         h, size, chunks = hashlib.sha256(), 0, []
                         retain = control or path in {
@@ -394,8 +407,8 @@ def decoded_inventory(package, family, *, control=False):
             require(not bounded(["docker", "ps", "-aq", "--filter", "name=^/" + name + "$" ]).strip(), "decoder cleanup failed")
 
 
-def expected_hook(git, action, version, family, helper):
-    script = git("packaging/native-runtime/package-hooks.sh").decode().replace("@VERSION@", version).replace("@VARIANT@", "cpu")
+def expected_hook(git, action, version, family, helper, variant="cpu"):
+    script = git("packaging/native-runtime/package-hooks.sh").decode().replace("@VERSION@", version).replace("@VARIANT@", policy.policy_for(variant).variant)
     bootstrap = ""
     if family == "rpm" and action in {"prepare", "finish"}:
         bootstrap = ("recovery_bootstrap() {\n/usr/bin/python3 -IB - \"$1\" <<'NVB_BOOTSTRAP_PY'\n"
@@ -420,6 +433,7 @@ def parse_arguments(argv=None):
         parser.add_argument("--" + option, required=True, type=int)
     for option in ("source", "expected-digest", "package-revision"):
         parser.add_argument("--" + option, required=True)
+    parser.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--gh", default="gh")
     parser.add_argument("--zip", type=Path, help="Inspect this already-downloaded ZIP instead of fetching it")
     for option in ("repo", "output"):
@@ -434,13 +448,15 @@ def parse_arguments(argv=None):
 
 
 def validate(args):
+    selected = policy.policy_for(getattr(args, "variant", "cpu"))
+    variant = selected.variant
     # The trusted workflow checks out its own main revision, never producer
     # tools. Only an ancestor can supply the source blobs used for comparison.
     identity = source_identity(args.repo, args.source)
     git = lambda path: git_bytes(args.repo, args.source, path)
     project_version = tomllib.loads(git("pyproject.toml").decode())["project"]["version"]
     require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", project_version), "invalid project version")
-    version = project_version + "-" + args.package_revision + ".cpu"
+    version = project_version + "-" + args.package_revision + "." + variant
     run, artifact = live_metadata(args)
     require(not args.output.exists() and not args.output.is_symlink(), "output must be a new directory")
     output = args.output.resolve()
@@ -451,7 +467,7 @@ def validate(args):
               **identity,
               "run_id": args.run_id, "run_attempt": args.attempt, "artifact_id": args.artifact_id,
               "artifact_name": artifact["name"], "artifact_bytes": artifact["size_in_bytes"], "artifact_digest": artifact["digest"],
-              "version": version, "packages": {}, "scope": "Read-only artifact/source validation; unsigned CPU candidates, no install or physical-device claim"}
+              "version": version, "variant": variant, "packages": {}, "scope": "Read-only artifact/source validation; unsigned native candidates, no install or physical-device claim"}
     def save():
         (output / "result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     save()
@@ -462,8 +478,8 @@ def validate(args):
         if archive is None:
             archive = output / "candidate.zip"
             download_artifact(args, artifact, archive)
-        result["zip"] = unpack_zip(archive, artifact, output, version)
-        base = output / "dist/native-cpu"
+        result["zip"] = unpack_zip(archive, artifact, output, version, variant)
+        base = output / f"dist/native-{variant}"
         read = lambda path: (base / path).read_bytes()
         packages = parse_json(read("packages.json"))
         require(len(packages) == 2 and {p["family"] for p in packages} == {"deb", "rpm"}, "invalid package set")
@@ -492,12 +508,13 @@ def validate(args):
                 and host_tools["site_disabled"] is True and host_tools["packaging_version"] == packaging["version"]
                 and host_tools["wheel_sha256"] == packaging["wheels"][0]["hashes"]["sha256"], "isolated host tools differ")
         capacity = parse_json((output / "dist/builder-delivery/capacity.json").read_bytes())
-        require(capacity["required_free_bytes"] == 12*GIB
+        policy.check_variant(capacity, variant)
+        require(type(capacity["required_free_bytes"]) is int and capacity["required_free_bytes"] == selected.capacity_bytes
                 and set(capacity["observed_free_bytes"]) == {"GITHUB_WORKSPACE", "RUNNER_TEMP", "HOME"}
-                and all(n >= 12*GIB for n in capacity["observed_free_bytes"].values()), "runner capacity gate differs")
+                and all(type(n) is int and n >= selected.capacity_bytes for n in capacity["observed_free_bytes"].values()), "runner capacity gate differs")
         manifest_bytes, lock_bytes = read("payload/manifest.json"), read("assembly/pylock.toml")
         manifest, lock = parse_json(manifest_bytes), tomllib.loads(lock_bytes.decode())
-        base_lock_bytes = git("packaging/native-runtime/pylock.linux-x86_64-cp313-cpu.toml")
+        base_lock_bytes = git(f"packaging/native-runtime/pylock.linux-x86_64-cp313-{variant}.toml")
         require(lock_bytes.startswith(base_lock_bytes), "assembled dependency lock prefix differs")
         base_lock = tomllib.loads(base_lock_bytes.decode())
         require({k: v for k, v in lock.items() if k != "packages"} == {k: v for k, v in base_lock.items() if k != "packages"}
@@ -518,20 +535,21 @@ def validate(args):
             expected_relative = (f"deb/nvbroadcast_{version}_amd64.deb" if family == "deb" else
                                  f"rpm/build/RPMS/x86_64/nvbroadcast-{version}.x86_64.rpm")
             require(package["artifact"] == expected_relative and package["content"] == f"{family}/content.json"
-                    and package["version"] == version and package["variant"] == "cpu"
+                    and package["version"] == version and package["variant"] == variant
                     and package["source"] == source and package["adapter"] == adapter
                     and package["builder_image"] == pins[family]["image"] == IMAGES[family]
                     and package["runtime_manifest_sha256"] == digest(manifest_bytes)
                     and package["content_sha256"] == digest(read(package["content"])), "package provenance differs")
             path = base / expected_relative
-            require(path.stat().st_size == package["bytes"] and file_digest(path) == package["sha256"], "package bytes differ")
+            require(type(package["bytes"]) is int and 0 < package["bytes"] <= selected.package_max_bytes
+                    and path.stat().st_size == package["bytes"] and file_digest(path) == package["sha256"], "package bytes differ")
             # Decoder container runs unprivileged and can read this exact file only.
             path.chmod(0o444)
             require(bounded(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGES[family]]).decode().strip() == IMAGES[family], "decoder pin differs")
             content = parse_json(read(package["content"]))
             expected_content = {p: entry for p, entry in content.items()
                                 if family != "rpm" or not (entry.get("directory") and len(PurePosixPath(p).parts) < 4)}
-            actual, modes, kept, total = decoded_inventory(path, family)
+            actual, modes, kept, total = decoded_inventory(path, family, variant=variant)
             require(actual == expected_content, "full package payload differs from content inventory")
             actual_runtime = {p.removeprefix(PREFIX): dict({"mode": modes[p]}, **{k: v for k, v in item.items() if k != "directory"})
                               for p, item in actual.items() if p.startswith(PREFIX)}
@@ -544,14 +562,14 @@ def validate(args):
             expected_inputs["application"] = source
             require(parse_json(kept[PREFIX + "share/nvbroadcast-runtime-provenance/inputs.json"]) == expected_inputs
                     and parse_json(kept[PREFIX + "share/nvbroadcast-runtime-provenance/selection.json"]) ==
-                    {"target": "linux-x86_64-cp313-cpu", "lock_sha256": digest(lock_bytes), "source": source}, "installed input selection differs")
+                    {"target": f"linux-x86_64-cp313-{variant}", "lock_sha256": digest(lock_bytes), "source": source}, "installed input selection differs")
             require(parse_json(kept["/usr/lib/nvbroadcast/package.json"]) == {
-                "schema_version": 1, "variant": "cpu", "version": version, "source": source, "adapter": adapter,
+                "schema_version": 1, "variant": variant, "version": version, "source": source, "adapter": adapter,
                 "runtime_manifest_sha256": digest(manifest_bytes)}, "installed package identity differs")
             app_actual = {p.split("/site-packages/nvbroadcast/", 1)[1]: item["sha256"]
                           for p, item in actual.items() if "/site-packages/nvbroadcast/" in p and p.endswith(".py")}
             require(app_actual == app_expected, "installed application source differs")
-            hook = lambda action: expected_hook(git, action, version, family, helper)
+            hook = lambda action: expected_hook(git, action, version, family, helper, variant)
             if family == "rpm":
                 require(kept["/usr/bin/nvbroadcast-recover-rpm"] == helper and modes["/usr/bin/nvbroadcast-recover-rpm"] == 0o755, "recovery helper differs")
                 expected_scripts = {"PREIN": hook("prepare"), "POSTTRANS": hook("finish"),
@@ -582,7 +600,7 @@ def validate(args):
                         and pre_requires.get("util-linux") == (512, "")
                         and pre_requires.get("coreutils") == (512, ""), "RPM bootstrap dependencies differ")
             else:
-                control_inventory, _, controls, _ = decoded_inventory(path, family, control=True)
+                control_inventory, _, controls, _ = decoded_inventory(path, family, control=True, variant=variant)
                 require(set(control_inventory) == {"/control", "/preinst", "/prerm", "/postinst", "/postrm"}
                         and set(controls) == set(control_inventory), "unexpected DEB control member")
                 expected_scripts = {"preinst": hook("prepare"),

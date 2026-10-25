@@ -56,12 +56,54 @@ class QualificationTests(unittest.TestCase):
             self.assertEqual(candidate.main(self.arguments), 0)
         plan = json.loads(output.getvalue())
         self.assertEqual(plan["status"], "planned-not-executed")
+        self.assertEqual(plan["variant"], "cpu")
         self.assertEqual(plan["version"], "2.7.11-12.cpu")
         self.assertEqual(plan["scenarios"], ["smoke", "recovery"])
         self.assertEqual(set(self.root.iterdir()), before)
         args = candidate.parse_arguments(self.arguments)
         args.family = "deb"
         self.assertEqual(candidate.make_plan(args)["scenarios"], ["smoke"])
+
+    def test_cuda_plan_binds_variant_and_passes_it_to_both_drivers(self):
+        args = candidate.parse_arguments([*self.arguments, "--variant", "cuda"])
+        plan = candidate.make_plan(args)
+        self.assertEqual((plan["variant"], plan["version"]), ("cuda", "2.7.11-12.cuda"))
+
+        def finish(arguments):
+            self.assertEqual(arguments[arguments.index("--variant") + 1], "cuda")
+            destination = Path(arguments[arguments.index("--output") + 1])
+            destination.mkdir()
+            (destination / "result.json").write_text('{"status":"pass","variant":"cuda"}\n')
+
+        smoke_driver = SimpleNamespace(main=mock.Mock(side_effect=finish))
+        with mock.patch.object(candidate, "load", return_value=smoke_driver), \
+             mock.patch.object(recovery, "main", side_effect=finish) as recover:
+            result = candidate.execute(args, plan)
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(set(result["receipts"]), {"smoke/result.json", "recovery/result.json"})
+        smoke_driver.main.assert_called_once()
+        recover.assert_called_once()
+
+    def test_cuda_recovery_plan_and_signed_binding_cannot_accept_cpu_payload(self):
+        arguments = ["--rpm", str(self.artifact), "--sha256", self.hash,
+            "--source-revision", "1" * 40, "--runtime-manifest-sha256", "2" * 64,
+            "--helper-sha256", "3" * 64, "--package-version", "2.7.11",
+            "--package-revision", "12", "--image", "sha256:" + "4" * 64,
+            "--output", str(self.root / "recovery"), "--variant", "cuda"]
+        with mock.patch.object(subprocess, "Popen", side_effect=AssertionError("external command")):
+            plan = recovery.make_plan(recovery.parse_arguments(arguments))
+        self.assertEqual((plan["variant"], plan["package_version_release"]), ("cuda", "2.7.11-12.cuda"))
+        record = {"package": {"schema_version": 1, "variant": "cuda", "version": "2.7.11-12.cuda",
+                  "source": {"revision": "1" * 40, "version": "2.7.11"},
+                  "adapter": {"revision": "1" * 40}, "runtime_manifest_sha256": "2" * 64},
+                  "runtime_manifest_sha256": "2" * 64, "helper_sha256": "3" * 64}
+        recovery.check_bindings(record, plan)
+        for field, value in (("variant", "cpu"), ("version", "2.7.11-12.cpu")):
+            swapped = copy.deepcopy(record)
+            swapped["package"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                recovery.check_bindings(swapped, plan)
+        self.assertFalse((self.root / "recovery").exists())
 
     def test_unbound_or_shell_shaped_inputs_cannot_reach_execution(self):
         for name, value in (("source", "main"), ("artifact_sha256", "0" * 64),
@@ -106,6 +148,89 @@ class QualificationTests(unittest.TestCase):
         link.symlink_to(self.artifact)
         with self.assertRaises(OSError):
             recovery.snapshot(link, self.root / "linked-copy", self.hash)
+
+    def test_package_bounds_are_selected_before_hashing_or_container_execution(self):
+        for variant, size in (("cpu", 1024**3 + 1), ("cuda", 2 * 1024**3)):
+            with self.subTest(variant=variant):
+                with self.artifact.open("wb") as stream:
+                    stream.truncate(size)
+                args = candidate.parse_arguments([*self.arguments, "--variant", variant])
+                with mock.patch.object(subprocess, "Popen", side_effect=AssertionError("external command")), \
+                     self.assertRaisesRegex(ValueError, "bounded regular"):
+                    candidate.make_plan(args)
+                self.assertFalse(args.output.exists())
+        self.artifact.write_bytes(b"")
+        with self.assertRaises(ValueError):
+            recovery.package_digest(self.artifact, "cuda")
+
+    def test_streaming_digest_and_snapshot_enforce_exact_bounds_and_stability(self):
+        size = self.artifact.stat().st_size
+        self.assertEqual(recovery.digest(self.artifact, limit=size), self.hash)
+        with self.assertRaisesRegex(ValueError, "bounded regular"):
+            recovery.digest(self.artifact, limit=size - 1)
+        with self.assertRaisesRegex(ValueError, "snapshot input"):
+            recovery.snapshot(self.artifact, self.root / "too-small", self.hash, limit=size - 1)
+        original = os.fstat
+        calls = 0
+
+        def changed(descriptor):
+            nonlocal calls
+            calls += 1
+            info = original(descriptor)
+            if calls == 2:
+                return SimpleNamespace(**{key: getattr(info, key) for key in
+                    ("st_dev", "st_size", "st_mtime_ns", "st_ctime_ns")}, st_ino=info.st_ino + 1)
+            return info
+
+        with mock.patch.object(recovery.os, "fstat", side_effect=changed), \
+             self.assertRaisesRegex(ValueError, "changed while hashing"):
+            recovery.digest(self.artifact)
+
+    def test_cuda_smoke_requires_no_device_probe_and_exact_cpu_execution(self):
+        self.assertNotIn("--cuda-unavailable", smoke.probe_command("cpu", "3.13.16"))
+        command = smoke.probe_command("cuda", "3.13.16")
+        self.assertEqual(command[command.index("--variant") + 1], "cuda")
+        self.assertIn("--cuda-unavailable", command)
+        self.assertEqual(recovery.no_device_arguments(),
+                         ["--runtime=runc", "--env", "NVIDIA_VISIBLE_DEVICES=void"])
+        app = {"app.py": "5" * 64}
+        report = {"status": "pass", "variant": "cuda", "app_python_hashes": app,
+                  "cpu_execution": {"provider": "cpu", "success": True,
+                                    "executed_providers": ["CPUExecutionProvider"]},
+                  "cuda_execution": {"provider": "cuda", "success": False,
+                                     "executed_providers": [], "error": "no CUDA device"},
+                  "cuda_unavailable_expected": True, "cupy_execution": None}
+        encode = lambda value: "RESULT=" + json.dumps(value) + "\n"
+        self.assertEqual(smoke.runtime_report(encode(report), "cuda", app), report)
+        for fields in ({"variant": "cpu"}, {"app_python_hashes": {}},
+                       {"cpu_execution": {"provider": "cpu", "success": True, "executed_providers": []}},
+                       {"cuda_execution": {"provider": "cuda", "success": True,
+                                           "executed_providers": ["CUDAExecutionProvider"]}},
+                       {"cuda_unavailable_expected": False}, {"cupy_execution": {"device": "unexpected"}}):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                smoke.runtime_report(encode({**report, **fields}), "cuda", app)
+        with self.assertRaises(ValueError):
+            smoke.runtime_report(encode(report) * 2, "cuda", app)
+
+    def test_recovered_probe_calls_both_providers_without_cached_results(self):
+        providers = SimpleNamespace(CPU="cpu", CUDA="cuda")
+        def compute(provider, *, use_cache):
+            self.assertIs(use_cache, False)
+            return SimpleNamespace(to_payload=lambda: {"provider": provider, "success": provider == "cpu",
+                "executed_providers": ["CPUExecutionProvider"] if provider == "cpu" else [],
+                "error": "" if provider == "cpu" else "no device"})
+        invoke = mock.Mock(side_effect=compute)
+        module = SimpleNamespace(ProbeProvider=providers, probe_execution_provider=invoke)
+        output = io.StringIO()
+        with mock.patch.dict(sys.modules, {"nvbroadcast.runtime.probe": module}), contextlib.redirect_stdout(output):
+            exec(recovery.RECOVERED_RUNTIME, {})
+        invoke.assert_has_calls([mock.call("cpu", use_cache=False), mock.call("cuda", use_cache=False)])
+        self.assertEqual(invoke.call_count, 2)
+        report = json.loads(output.getvalue())
+        recovery.policy.validate_runtime_probe(report, "cuda")
+        report["cpu_execution"]["success"] = False
+        with self.assertRaises(ValueError):
+            recovery.policy.validate_runtime_probe(report, "cuda")
 
     def test_digest_only_or_mixed_failed_signature_is_rejected(self):
         valid = "Header V4 RSA/SHA256 Signature, key ID dbacbcb5: OK\n"
@@ -340,7 +465,7 @@ class QualificationTests(unittest.TestCase):
             self.assertFalse((self.root / "fixture").exists())
 
     def test_all_embedded_container_programs_compile(self):
-        for name in ("PAYLOAD_BINDINGS", "INSTALLED_BINDINGS", "KILL_MANAGER", "PRESERVED_BYTES"):
+        for name in ("PAYLOAD_BINDINGS", "INSTALLED_BINDINGS", "KILL_MANAGER", "PRESERVED_BYTES", "RECOVERED_RUNTIME"):
             compile(getattr(recovery, name), name, "exec")
         compile(smoke.INSTALLED_IDENTITY, "INSTALLED_IDENTITY", "exec")
 

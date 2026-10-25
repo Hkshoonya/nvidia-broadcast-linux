@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded fresh-install acceptance for independently qualified hosted CPU bytes.
+"""Bounded fresh-install acceptance for independently qualified hosted native bytes.
 
 This driver does not establish CI provenance itself. The caller supplies the
 exact source/artifact/manifest identities after the independent artifact review.
@@ -57,7 +57,7 @@ expected=json.loads(Path('/probes/expected.json').read_text())
 base=Path('/usr/lib/nvbroadcast')
 actual=json.loads((base/'package.json').read_text())
 assert actual['source']['revision']==expected['source']==actual['adapter']['revision']
-assert actual['version']==expected['version'] and actual['variant']=='cpu'
+assert actual['version']==expected['version'] and actual['variant']==expected['variant']
 assert actual['runtime_manifest_sha256']==expected['runtime_manifest_sha256']
 assert hashlib.sha256((base/'runtime-manifest.json').read_bytes()).hexdigest()==expected['runtime_manifest_sha256']
 for relative,digest in actual['adapter']['files'].items():
@@ -86,6 +86,27 @@ def git_bytes(source: str, path: str) -> bytes:
 
 
 snapshot = recovery.snapshot
+
+
+def probe_command(variant, python_version):
+    recovery.policy.policy_for(variant)
+    command = ["bash", "/probes/desktop_probe.sh", "/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B",
+               "/probes/probe.py", "--runtime", "/usr/lib/nvbroadcast/runtime", "--python-version", python_version,
+               "--window", "--variant", variant, "--lock",
+               "/usr/lib/nvbroadcast/runtime/share/nvbroadcast-runtime-provenance/pylock.toml"]
+    if variant == "cuda":
+        command.append("--cuda-unavailable")
+    return command
+
+
+def runtime_report(text, variant, expected_app):
+    reports = [json.loads(line.removeprefix("RESULT=")) for line in text.splitlines() if line.startswith("RESULT=")]
+    if len(reports) != 1 or reports[0].get("app_python_hashes") != expected_app:
+        raise ValueError("live runtime probe does not match exact CI application source")
+    recovery.policy.check_variant(reports[0], variant)
+    recovery.policy.validate_runtime_probe(reports[0], variant)
+    return reports[0]
+
 
 def check_public_identity(key: bytes, fingerprint: str) -> None:
     if hashlib.sha256(key).hexdigest() != PUBLIC_SHA or fingerprint.strip() != PRIMARY_FINGERPRINT:
@@ -120,12 +141,14 @@ def main(argv=None) -> None:
     parser.add_argument("--source", required=True)
     parser.add_argument("--runtime-manifest-sha256", required=True)
     parser.add_argument("--family", choices=("deb", "rpm"), required=True)
+    parser.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--package-version", required=True)
     parser.add_argument("--package-revision", required=True)
     parser.add_argument("--image", required=True)
     parser.add_argument("--recovery-helper-sha256", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    package_policy = recovery.policy.policy_for(args.variant)
     recovery.identity(args.source, 40)
     recovery.identity(args.artifact_sha256, 64)
     recovery.identity(args.runtime_manifest_sha256, 64)
@@ -144,13 +167,15 @@ def main(argv=None) -> None:
     project = tomllib.loads(git_bytes(args.source, "pyproject.toml").decode())
     if project["project"]["version"] != args.package_version:
         raise ValueError("package version differs from approved source")
-    version = args.package_version + "-" + args.package_revision + ".cpu"
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*\.cpu", version):
+    version = args.package_version + "-" + args.package_revision + "." + args.variant
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*\." + args.variant, version):
         raise ValueError("unexpected native version")
     os.umask(0o077)
     output.mkdir(parents=True, exist_ok=False)
     package = output / ("package." + args.family)
-    snapshot(artifact, package, args.artifact_sha256)
+    snapshot(artifact, package, args.artifact_sha256, limit=package_policy.package_max_bytes)
+    if recovery.package_digest(package, args.variant) != args.artifact_sha256:
+        raise ValueError("artifact differs from approved native package identity")
     probes = output / "probes"
     probes.mkdir(mode=0o755)
     # mkdir's mode is filtered by the private umask; the mounted probe root
@@ -188,7 +213,7 @@ def main(argv=None) -> None:
     adapter_paths += ["packaging/native-prototype/build.py", "scripts/recover_native_rpm.py", "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc"]
     if hashlib.sha256(rendered_helper).hexdigest() != args.recovery_helper_sha256:
         raise ValueError("rendered recovery helper differs from approved input")
-    expected = {"source": args.source, "version": version, "family": args.family,
+    expected = {"source": args.source, "version": version, "family": args.family, "variant": args.variant,
                 "runtime_manifest_sha256": args.runtime_manifest_sha256,
                 "recovery_helper_sha256": hashlib.sha256(rendered_helper).hexdigest(),
                 "adapter_files": {path: hashlib.sha256(git_bytes(args.source, path)).hexdigest() for path in adapter_paths}}
@@ -202,6 +227,7 @@ def main(argv=None) -> None:
     python_version = inputs["python"]["version"]
     name = "nvb-hosted-smoke-" + args.family + "-" + uuid.uuid4().hex[:12]
     result = {"status": "running", "source": args.source, "family": args.family, "version": version,
+              "variant": args.variant,
               "qualification_tool_source": tool_source,
               "artifact_sha256": args.artifact_sha256, "runtime_manifest_sha256": args.runtime_manifest_sha256,
               "image": image, "driver_sha256": sha(Path(__file__)), "probe_sources": source_probes,
@@ -210,6 +236,7 @@ def main(argv=None) -> None:
               "based_on_driver_sha256": "206c5c17fc327cef5fadf092a48435f64c73dc8251c999ad90699c6b89f651b7",
               "probe_snapshot_sha256": probe_snapshots,
               "steps": [], "network": "none", "host_devices_or_application_source_mounted": False}
+    result.update(container_runtime="runc", gpu_device=None, nvidia_visible_devices="void")
     created = False
 
     def save():
@@ -231,6 +258,7 @@ def main(argv=None) -> None:
     try:
         save()
         subprocess.run(["docker", "run", "-d", "--init", "--pull=never", "--network=none", "--name", name,
+            *recovery.no_device_arguments(),
             "--memory", "4g", "--memory-swap", "4g", "--cpus", "2", "--pids-limit", "256",
             "--mount", f"type=bind,source={package},target=/inputs/package.{args.family},readonly",
             "--mount", f"type=bind,source={probes},target=/probes,readonly",
@@ -248,16 +276,13 @@ def main(argv=None) -> None:
         execute("install-exact-hosted-package", ["dpkg", "-i", "/inputs/package.deb"] if args.family == "deb" else ["rpm", "--upgrade", "/inputs/package.rpm"])
         identity_python = "/usr/lib/nvbroadcast/runtime/bin/python" if args.family == "deb" else "/usr/bin/python3"
         execute("installed-source-adapter-manifest-identity", [identity_python, "-IB", "-c", INSTALLED_IDENTITY])
-        execute("complete-installed-integrity", ["/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "/usr/lib/nvbroadcast/validate-install.py", "--variant", "cpu"])
+        execute("complete-installed-integrity", ["/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "/usr/lib/nvbroadcast/validate-install.py", "--variant", args.variant])
         execute("native-package-state", ["/usr/lib/nvbroadcast/check-packages"])
         execute("ordinary-user-launcher", ["/usr/bin/nvbroadcast", "--help"], user=True)
         if args.family == "rpm":
             execute("system-python-recovery-interface", ["/usr/bin/nvbroadcast-recover-rpm", "--help"])
-        text = execute("ordinary-user-runtime-media-gtk", ["bash", "/probes/desktop_probe.sh", "/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "/probes/probe.py", "--runtime", "/usr/lib/nvbroadcast/runtime", "--python-version", python_version, "--window", "--variant", "cpu", "--lock", "/usr/lib/nvbroadcast/runtime/share/nvbroadcast-runtime-provenance/pylock.toml"], user=True)
-        reports = [json.loads(line.removeprefix("RESULT=")) for line in text.splitlines() if line.startswith("RESULT=")]
-        if len(reports) != 1 or reports[0]["status"] != "pass" or reports[0]["app_python_hashes"] != expected_app:
-            raise ValueError("live runtime probe does not match exact CI application source")
-        result["runtime_probe"] = reports[0]
+        text = execute("ordinary-user-runtime-media-gtk", probe_command(args.variant, python_version), user=True)
+        result["runtime_probe"] = runtime_report(text, args.variant, expected_app)
         text = execute("ordinary-user-generated-recording", ["bash", "/probes/desktop_probe.sh", "/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "/probes/recording_probe.py"], user=True)
         reports = [json.loads(line.removeprefix("RESULT=")) for line in text.splitlines() if line.startswith("RESULT=")]
         if len(reports) != 1 or reports[0]["status"] != "pass":
@@ -280,8 +305,8 @@ def main(argv=None) -> None:
             removed = subprocess.run(["docker", "rm", "--force", name], capture_output=True, timeout=60)
             remaining = subprocess.check_output(["docker", "container", "ls", "--all", "--quiet", "--filter", f"name=^/{name}$"], text=True, timeout=30)
             result["container_removed"] = not remaining.strip() and (not created or removed.returncode == 0)
-            result["input_unchanged"] = sha(artifact) == args.artifact_sha256
-            result["snapshot_unchanged"] = sha(package) == args.artifact_sha256
+            result["input_unchanged"] = recovery.package_digest(artifact, args.variant) == args.artifact_sha256
+            result["snapshot_unchanged"] = recovery.package_digest(package, args.variant) == args.artifact_sha256
             result["probes_unchanged"] = {path.name: sha(path) for path in probes.iterdir()} == probe_snapshots
             if not all(result[key] for key in ("container_removed", "input_unchanged", "snapshot_unchanged", "probes_unchanged")):
                 raise RuntimeError("cleanup or package identity recheck failed")

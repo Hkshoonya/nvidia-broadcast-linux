@@ -120,7 +120,7 @@ The containerd requirement follows Docker's
 Attestation verification follows the GitHub CLI's
 [identity and source policy](https://cli.github.com/manual/gh_attestation_verify).
 
-With the authenticated lock, **Build authenticated native CPU candidate** is
+With the authenticated lock, **Build authenticated native candidate** is
 the manual main-only consumer. It fetches the pinned archive, cryptographically
 verifies the historical import before loading it, and builds both native formats
 with application and adapter fixed to that run's `GITHUB_SHA`. It receives only
@@ -129,7 +129,7 @@ artifacts plus bounded source, runtime and builder provenance. It does not publi
 a release, access host devices, install native packages or receive signing keys.
 Signing and device/lifecycle acceptance remain separate gates.
 
-Host-side CPU workflow scripts use `/usr/bin/python3 -I -S`. The production
+Host-side candidate workflow scripts use `/usr/bin/python3 -I -S`. The production
 boundary tests need `packaging`; they zip-import only the packaging 26.0 universal
 wheel already pinned in `runtime-prototype/pylock.build.toml`, after checking its
 SHA-256 and size. No pip resolver, global install or ambient Python package is
@@ -145,8 +145,29 @@ transport plus a private verification copy. The preflight includes headroom and
 records actual free space; it fails without pruning unrelated runner tools or
 images. The [first successful hosted CPU run](qualification/2026-10-23-hosted-cpu.json)
 completed with 92,098,985,984 free bytes observed for each checked location.
-That capacity observation applies to this run; CUDA is not offered by this
-workflow and its larger footprint is not qualified here.
+That capacity observation applies to the recorded CPU run. The workflows now
+accept an explicit `variant=cpu|cuda`, defaulting to CPU. CUDA requires 40 GiB
+free before each hosted stage. This is a conservative allocation budget for
+builder images, input cache, runtime/staging trees and private package copies,
+not a measured hosted peak. The producer records free bytes before and after
+assembly; insufficient capacity fails without pruning.
+
+Trusted `candidate_policy.py` selects all bounds from the explicit workflow
+input. Artifact metadata cannot change the selected variant or limits:
+
+| Bound | CPU | CUDA |
+| --- | --- | --- |
+| Individual package | at most 1 GiB | strictly below 2 GiB |
+| Aggregate Actions ZIP | at most 2 GiB | at most 4 GiB + 64 MiB |
+| Decoded regular payload | at most 4 GiB | at most 6 GiB |
+| Complete decoded tar stream | at most 5 GiB | at most 7 GiB |
+| Free disk allocation gate | at least 12 GiB | at least 40 GiB |
+
+The CUDA transport limit holds both packages and bounded provenance. Both
+variants retain the 1 GiB individual decoded member, 1 MiB tar extension,
+50,000 payload entries, 16 MiB metadata member and 32 MiB aggregate provenance
+limits. Source lock, version suffix, archive layout and installed input selection
+must all match the same explicit variant.
 
 The following invocation runs on Linux x86_64 as an ordinary user. The cache
 may contain verified input archives and previously downloaded dependency
@@ -171,8 +192,8 @@ An oversized archive fails the build before that package is added to
 `packages.json`; the failed output and build log remain available for diagnosis.
 The RPM signing helper checks the actual signed file against the same limit
 before publishing its output directory. These size checks do not replace
-signature, provenance or installed-package qualification, and do not enable
-hosted CUDA finalization in the CPU-only workflows.
+signature, provenance or installed-package qualification. Hosted CUDA finalization
+uses the explicit variant policy described below.
 The payload contains interpreter supplier metadata/licenses, exact wheels'
 installation records, a complete PEP 751 dependency lock and builder inventory.
 The dependency lock has no moving application pin: the application's wheel is
@@ -351,10 +372,10 @@ the same pinned builders. These are local unsigned packages; protected hosted
 CUDA finalization, signed distribution and broader platform/device acceptance
 remain separate. The installed Snap and public v1.5.3 artifacts are unchanged.
 
-### Protected CPU finalization
+### Protected native finalization
 
-**Sign and qualify approved native CPU candidate** (`native-cpu-finalize.yml`)
-continues an existing successful main-only CPU build. It is a manual development
+**Sign and qualify approved native candidate** (`native-cpu-finalize.yml`)
+continues an existing successful main-only build of the explicitly selected variant. It is a manual development
 candidate workflow, with no release, tag, registry or application-asset writes.
 Before dispatch, review the producer run and select its exact attempt, source
 commit, unexpired artifact ID, GitHub artifact SHA-256 and package revision:
@@ -364,7 +385,7 @@ gh workflow run native-cpu-finalize.yml --ref main \
   -f producer_run=RUN_ID -f producer_attempt=ATTEMPT \
   -f source_commit=FULL_APPLICATION_AND_ADAPTER_COMMIT \
   -f artifact_id=ARTIFACT_ID -f artifact_digest=sha256:APPROVED_ARTIFACT_SHA256 \
-  -f package_revision=POSITIVE_INTEGER
+  -f package_revision=POSITIVE_INTEGER -f variant=cuda
 ```
 
 The workflow has four trust boundaries:
@@ -394,16 +415,25 @@ The workflow has four trust boundaries:
 4. Completion requires successful receipts for those exact package bytes and
    fixture images. It checks required step outcomes, bounded log hashes, the
    actual SIGKILL observation, preservation identity and complete repair.
-   Only then is the complete `native-cpu-qualified-*` development bundle kept
+   Only then is the complete `native-{variant}-qualified-*` development bundle kept
    for 30 days. Its packages, public key, upgrade helper, checksums, validation,
    signing and qualification evidence remain together.
 
 Transfers between jobs use immutable artifact IDs plus receipt/manifest hashes,
 including across a failed-job rerun. Intermediate artifacts have one-day
 retention and explicit `validated` or `signed-awaiting-qualification` names;
-neither is an accepted installation candidate. The final bundle still does not
-qualify CUDA, physical devices, clean virtual machines or production promotion.
-Frozen v1.5.3 release assets remain separate.
+neither is an accepted installation candidate. Every stage receives the explicit
+variant, checks it before signing or execution, and applies the same package
+bounds again to the final signed bytes. Historical receipts without a variant
+are accepted only with the CPU default.
+
+Hosted containers use `runc` with NVIDIA visibility set to `void`, without GPU
+devices. CUDA qualification requires actual CPU provider execution and a failed
+CUDA provider probe, including after interrupted RPM installation and repair.
+It does not establish GPU execution; the local hardware matrix remains separate
+evidence. Physical devices, clean virtual machines and production promotion are
+also separate. Frozen v1.5.3 release assets remain unchanged. Adding workflow
+support alone is not a successful hosted CUDA qualification record.
 
 Local equivalents are `validate_candidate.py`, `finalize_candidate.py`,
 `fixtures/build_fixture.py` and `qualify_candidate.py`. Fixture and qualification

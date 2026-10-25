@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One signed CPU RPM first-install interruption/recovery proof.
+"""One signed native RPM first-install interruption/recovery proof.
 
 Default operation validates local inputs and prints a plan. --execute is a
 separate, explicit action after the exact signed inputs and driver are reviewed.
@@ -8,6 +8,7 @@ All package operations run inside one disposable, network-disabled container.
 from pathlib import Path
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -24,7 +25,10 @@ PRIMARY = "A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1"
 BASE_DRIVER_SHA = "7d65e0d1f0a066f9ecbbf7bb5023262f4046d9ef420e63113b37c56f996a0e53"
 ROOT = Path(__file__).resolve().parents[2]
 KEY = ROOT / "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc"
-MAX_RPM_BYTES = 2 * 1024**3
+POLICY_SPEC = importlib.util.spec_from_file_location("native_candidate_policy", Path(__file__).with_name("candidate_policy.py"))
+policy = importlib.util.module_from_spec(POLICY_SPEC)
+POLICY_SPEC.loader.exec_module(policy)
+MAX_RPM_BYTES = policy.policy_for("cuda").package_max_bytes
 MAX_LOG_BYTES = 8 * 1024**2
 
 # Decode, but never extract or execute, the three binding records. The decoder
@@ -112,14 +116,42 @@ assert Path("/usr/lib/nvbroadcast/.transaction").read_text()==sys.argv[3]+"\n"
 print("preserved bytes verified:",len(report["preserved"]))
 '''
 
+RECOVERED_RUNTIME = r'''
+import json
+from nvbroadcast.runtime.probe import ProbeProvider,probe_execution_provider
+cpu=probe_execution_provider(ProbeProvider.CPU,use_cache=False)
+cuda=probe_execution_provider(ProbeProvider.CUDA,use_cache=False)
+print(json.dumps({"status":"pass","variant":"cuda","cpu_execution":cpu.to_payload(),
+ "cuda_execution":cuda.to_payload(),"cuda_unavailable_expected":True,"cupy_execution":None}))
+'''
 
-def digest(path):
+
+def digest(path, *, limit=MAX_RPM_BYTES, minimum=0):
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(descriptor, "rb") as stream:
-        info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_RPM_BYTES:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or not minimum <= before.st_size <= limit:
             raise ValueError("expected bounded regular input")
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        result = hashlib.sha256()
+        count = 0
+        for block in iter(lambda: stream.read(1024**2), b""):
+            count += len(block)
+            if count > limit:
+                raise ValueError("input grew beyond bound")
+            result.update(block)
+        after = os.fstat(stream.fileno())
+    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+        raise ValueError("input changed while hashing")
+    return result.hexdigest()
+
+
+def package_digest(path, variant):
+    return digest(path, limit=policy.policy_for(variant).package_max_bytes, minimum=1)
+
+
+def no_device_arguments():
+    return ["--runtime=runc", "--env", "NVIDIA_VISIBLE_DEVICES=void"]
 
 
 def identity(value, length):
@@ -137,7 +169,8 @@ def require_project_signature(text):
 
 def check_bindings(record, plan):
     package = record["package"]
-    if (package["schema_version"] != 1 or package["variant"] != "cpu"
+    policy.check_variant(package, plan.get("variant", "cpu"))
+    if (package["schema_version"] != 1 or package["variant"] != plan.get("variant", "cpu")
             or package["version"] != plan["package_version_release"]
             or package["source"]["revision"] != plan["source_revision"]
             or package["adapter"]["revision"] != plan["source_revision"]
@@ -151,6 +184,7 @@ def check_bindings(record, plan):
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rpm", type=Path, required=True)
+    parser.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--sha256", required=True, help="root-reviewed signed RPM SHA-256")
     parser.add_argument("--source-revision", required=True, help="exact hosted application AND adapter commit")
     parser.add_argument("--runtime-manifest-sha256", required=True)
@@ -164,6 +198,7 @@ def parse_arguments(argv=None):
 
 
 def make_plan(args):
+    policy.policy_for(args.variant)
     package = args.rpm.absolute()
     output = args.output.absolute()
     identity(args.sha256, 64)
@@ -181,32 +216,33 @@ def make_plan(args):
         raise ValueError("use a fresh proof output directory")
     if any(c in str(path) for path in (package, KEY, output) for c in ",\n\r"):
         raise ValueError("unsupported bind-mount path")
-    if digest(package) != args.sha256 or digest(KEY) != PUBLIC_SHA:
+    if package_digest(package, args.variant) != args.sha256 or digest(KEY) != PUBLIC_SHA:
         raise ValueError("local signed input or project public key identity mismatch")
-    return {"status": "planned-not-executed", "scenario": "fresh-install-only",
+    return {"status": "planned-not-executed", "scenario": "fresh-install-only", "variant": args.variant,
             "image": args.image, "package": str(package), "package_sha256": args.sha256,
             "package_version": args.package_version,
-            "package_version_release": args.package_version + "-" + args.package_revision + ".cpu",
+            "package_version_release": args.package_version + "-" + args.package_revision + "." + args.variant,
             "source_revision": args.source_revision,
             "runtime_manifest_sha256": args.runtime_manifest_sha256,
             "helper_sha256": args.helper_sha256, "public_key_sha256": PUBLIC_SHA,
             "publisher_fingerprint": PRIMARY, "output": str(output),
             "driver_sha256": digest(Path(__file__)), "based_on_driver_sha256": BASE_DRIVER_SHA,
             "no_host_package_changes": True, "no_build_staging_or_source_mounted": True,
+            "container_runtime": "runc", "gpu_device": None, "nvidia_visible_devices": "void",
             "network": "none", "container_limits": {"memory": "4g", "memory_swap": "4g", "cpus": 2, "pids": 256},
             "maximum_step_log_bytes": MAX_LOG_BYTES, "authenticated": False, "steps": []}
 
 
-def snapshot(source, destination, expected):
+def snapshot(source, destination, expected, *, limit=MAX_RPM_BYTES):
     descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(descriptor, "rb") as original, destination.open("xb") as copy:
         before = os.fstat(original.fileno())
-        if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_RPM_BYTES:
+        if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
             raise ValueError("invalid snapshot input")
         copied = 0
         for block in iter(lambda: original.read(1024**2), b""):
             copied += len(block)
-            if copied > MAX_RPM_BYTES:
+            if copied > limit:
                 raise ValueError("snapshot input grew beyond bound")
             copy.write(block)
         copy.flush()
@@ -216,7 +252,7 @@ def snapshot(source, destination, expected):
     if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
             after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
         raise ValueError("snapshot input changed")
-    if digest(destination) != expected:
+    if digest(destination, limit=limit) != expected:
         raise ValueError("snapshot differs from reviewed input")
 
 
@@ -284,9 +320,11 @@ def execute(plan):
     output.mkdir(parents=True, mode=0o700, exist_ok=False)
     inputs = output / "inputs"
     inputs.mkdir(mode=0o700)
-    snapshot(package, inputs / "target.rpm", plan["package_sha256"])
+    variant = plan.get("variant", "cpu")
+    snapshot(package, inputs / "target.rpm", plan["package_sha256"],
+             limit=policy.policy_for(variant).package_max_bytes)
     snapshot(KEY, inputs / "public.asc", PUBLIC_SHA)
-    name = "nvb-hosted-cpu-fresh-" + uuid.uuid4().hex[:12]
+    name = "nvb-hosted-" + variant + "-fresh-" + uuid.uuid4().hex[:12]
     plan.update(status="running", container=name)
     bootstrap = "/var/lib/nvbroadcast/recovery-tools/recover-" + plan["helper_sha256"] + ".py"
     manager = None
@@ -296,10 +334,11 @@ def execute(plan):
     def save():
         (output / "result.json").write_text(json.dumps(plan, indent=2) + "\n")
 
-    def step(label, command, *, failure=False, required=None, timeout=600):
+    def step(label, command, *, failure=False, required=None, timeout=600, user=False):
         log = output / (str(len(plan["steps"])).zfill(2) + "-" + label + ".log")
+        prefix = ["docker", "exec"] + (["--user", "1000:1000"] if user else [])
         try:
-            completed = run_capped(["docker", "exec", name, *command], timeout=timeout, log=log)
+            completed = run_capped([*prefix, name, *command], timeout=timeout, log=log)
         except BaseException as error:
             plan["steps"].append({"name": label, "error": str(error), "log": log.name})
             save()
@@ -317,6 +356,7 @@ def execute(plan):
     try:
         save()
         subprocess.run(["docker", "run", "-d", "--init", "--pull=never", "--network=none", "--name", name,
+            *no_device_arguments(),
             "--memory", "4g", "--memory-swap", "4g", "--cpus", "2", "--pids-limit", "256",
             "--mount", f"type=bind,source={inputs / 'target.rpm'},target=/inputs/target.rpm,readonly",
             "--mount", f"type=bind,source={inputs / 'public.asc'},target=/inputs/public.asc,readonly",
@@ -332,7 +372,7 @@ def execute(plan):
         require_project_signature(signature)
         metadata = step("signed-rpm-metadata", ["rpm", "-qp", "--qf", "%{NAME}\n%{VERSION}-%{RELEASE}\n%{ARCH}\n", "/inputs/target.rpm"])
         if metadata.splitlines() != ["nvbroadcast", plan["package_version_release"], "x86_64"]:
-            raise ValueError("expected exact reviewed CPU package version")
+            raise ValueError("expected exact reviewed native package version")
         binding = json.loads(step("authenticated-payload-bindings", ["/usr/bin/python3", "-IB", "-c", PAYLOAD_BINDINGS]))
         check_bindings(binding, plan)
         plan["authenticated"] = True
@@ -414,8 +454,13 @@ def execute(plan):
             raise ValueError("installed metadata differs from authenticated pre-install payload")
         step("native-package-state", ["/usr/lib/nvbroadcast/check-packages"])
         step("complete-installed-integrity", ["/usr/lib/nvbroadcast/runtime/bin/python", "-IB",
-             "/usr/lib/nvbroadcast/validate-install.py", "--variant", "cpu"])
+             "/usr/lib/nvbroadcast/validate-install.py", "--variant", variant])
         step("launcher-after-repair", ["/usr/bin/nvbroadcast", "--help"])
+        if variant == "cuda":
+            probe = json.loads(step("recovered-runtime-cpu-fallback", [
+                "/usr/lib/nvbroadcast/runtime/bin/python", "-IB", "-c", RECOVERED_RUNTIME], user=True))
+            policy.validate_runtime_probe(probe, variant)
+            plan["runtime_probe"] = probe
         plan["status"] = "pass"
     except BaseException as error:
         plan.update(status="fail", error=str(error))
@@ -448,8 +493,8 @@ def execute(plan):
                     raise RuntimeError("manager log reader did not stop")
             if manager is not None and manager.stdout is not None:
                 manager.stdout.close()
-            plan["original_package_unchanged"] = digest(package) == plan["package_sha256"]
-            plan["snapshots_unchanged"] = digest(inputs / "target.rpm") == plan["package_sha256"] and digest(inputs / "public.asc") == PUBLIC_SHA
+            plan["original_package_unchanged"] = package_digest(package, variant) == plan["package_sha256"]
+            plan["snapshots_unchanged"] = package_digest(inputs / "target.rpm", variant) == plan["package_sha256"] and digest(inputs / "public.asc") == PUBLIC_SHA
             if not plan["original_package_unchanged"] or not plan["snapshots_unchanged"]:
                 raise RuntimeError("exact input identity verification failed")
         except BaseException as error:
