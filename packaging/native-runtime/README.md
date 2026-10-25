@@ -331,9 +331,25 @@ unsigned DEB/RPM packages and all six compared metadata files using the same
 recorded builders. That level-8 CUDA DEB exceeds GitHub's release-asset limit.
 A separate level-10 experiment reduced it to
 2,070,585,298 bytes with identical decoded control/data streams; that experimental
-package was not substituted into the matrix. The builder now uses level 10 for
-CUDA and rejects oversized archives. Fresh artifacts from that committed recipe,
-their qualification and public distribution remain separate gates.
+package was not substituted into that matrix. The level-10 packages from the
+committed recipe and their qualification are recorded separately below.
+
+The [CUDA compression qualification record](qualification/2026-10-25-cuda-compression.json)
+binds fresh `1.5.3-6.cpu` and `1.5.3-6.cuda` packages to application/adapter
+source `1b9f3342`. The CUDA DEB is 2,070,585,394 bytes and the RPM is
+2,058,427,518 bytes: respectively 76,898,254 and 89,056,130 bytes below the
+strict 2 GiB limit. Complete runtime/native manifests and source identities
+were verified; compression did not require dependency pruning.
+
+All six new-package Ubuntu/Fedora runs passed 46 checks each, covering no GPU,
+RTX 3080 and RTX 5070 with driver 595.91.07. Independent readback verified
+276 execution logs, 30 runtime reports and 18 synthetic recordings, including
+actual CUDA/CuPy execution, both running-launcher refusal directions, CPU
+rollback, preservation and cleanup. A second full fresh CUDA build reproduced
+both unsigned archives and all six compared metadata files byte for byte using
+the same pinned builders. These are local unsigned packages; protected hosted
+CUDA finalization, signed distribution and broader platform/device acceptance
+remain separate. The installed Snap and public v1.5.3 artifacts are unchanged.
 
 ### Protected CPU finalization
 
