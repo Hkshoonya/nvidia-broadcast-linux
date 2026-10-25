@@ -164,6 +164,15 @@ python3 packaging/native-runtime/build.py \
 
 The output must be a new directory. `packages.json` binds application source identity,
 variant, version, artifact sizes/hashes, builder IDs and runtime manifest hash.
+Both native formats use zstd: level 8 for CPU and level 10 for CUDA. After
+packaging, the builder requires each archive to be a nonempty regular file
+strictly below 2 GiB, matching [GitHub's release-asset limit](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases).
+An oversized archive fails the build before that package is added to
+`packages.json`; the failed output and build log remain available for diagnosis.
+The RPM signing helper checks the actual signed file against the same limit
+before publishing its output directory. These size checks do not replace
+signature, provenance or installed-package qualification, and do not enable
+hosted CUDA finalization in the CPU-only workflows.
 The payload contains interpreter supplier metadata/licenses, exact wheels'
 installation records, a complete PEP 751 dependency lock and builder inventory.
 The dependency lock has no moving application pin: the application's wheel is
@@ -319,11 +328,28 @@ RTX 3080 and RTX 5070, with NVIDIA driver 595.91.07. Independent readback verifi
 Hardware runs proved CUDA provider execution and fresh CuPy output; CPU rollback
 restored the CPU owner. A separate full CUDA rebuild produced byte-identical
 unsigned DEB/RPM packages and all six compared metadata files using the same
-recorded builders. The CUDA DEB exceeds GitHub's release-asset limit at the
-current compression setting. A separate level-10 experiment reduced it to
+recorded builders. That level-8 CUDA DEB exceeds GitHub's release-asset limit.
+A separate level-10 experiment reduced it to
 2,070,585,298 bytes with identical decoded control/data streams; that experimental
-package was not substituted into the matrix. A committed compression/size policy,
-fresh artifacts and public distribution remain separate gates.
+package was not substituted into that matrix. The level-10 packages from the
+committed recipe and their qualification are recorded separately below.
+
+The [CUDA compression qualification record](qualification/2026-10-25-cuda-compression.json)
+binds fresh `1.5.3-6.cpu` and `1.5.3-6.cuda` packages to application/adapter
+source `1b9f3342`. The CUDA DEB is 2,070,585,394 bytes and the RPM is
+2,058,427,518 bytes: respectively 76,898,254 and 89,056,130 bytes below the
+strict 2 GiB limit. Complete runtime/native manifests and source identities
+were verified; compression did not require dependency pruning.
+
+All six new-package Ubuntu/Fedora runs passed 46 checks each, covering no GPU,
+RTX 3080 and RTX 5070 with driver 595.91.07. Independent readback verified
+276 execution logs, 30 runtime reports and 18 synthetic recordings, including
+actual CUDA/CuPy execution, both running-launcher refusal directions, CPU
+rollback, preservation and cleanup. A second full fresh CUDA build reproduced
+both unsigned archives and all six compared metadata files byte for byte using
+the same pinned builders. These are local unsigned packages; protected hosted
+CUDA finalization, signed distribution and broader platform/device acceptance
+remain separate. The installed Snap and public v1.5.3 artifacts are unchanged.
 
 ### Protected CPU finalization
 

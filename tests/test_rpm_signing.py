@@ -62,6 +62,89 @@ class SigningBoundaryTests(unittest.TestCase):
         self.assertNotIn("PRIVATE-SECRET", str(error.exception))
 
 
+class SignedAssetSizeTests(unittest.TestCase):
+    def test_sparse_size_boundary_and_nonregular_files(self):
+        self.assertEqual(signing.RELEASE_ASSET_LIMIT, 2 * 1024**3)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "candidate.rpm"
+            for size in (1, signing.RELEASE_ASSET_LIMIT - 1):
+                with package.open("wb") as stream:
+                    stream.truncate(size)
+                self.assertEqual(signing.signed_asset_bytes(package), size)
+            for size in (0, signing.RELEASE_ASSET_LIMIT, signing.RELEASE_ASSET_LIMIT + 1):
+                with package.open("wb") as stream:
+                    stream.truncate(size)
+                with self.subTest(size=size), self.assertRaises(signing.SigningError):
+                    signing.signed_asset_bytes(package)
+            package.write_bytes(b"small")
+            link = root / "linked.rpm"
+            link.symlink_to(package)
+            for path in (link, root):
+                with self.subTest(path=path), self.assertRaises(signing.SigningError):
+                    signing.signed_asset_bytes(path)
+
+    def test_signed_growth_rejected_before_publishing_and_small_signed_copy_passes(self):
+        # Only the size/publication path is under test. Every external tool,
+        # signature verification and payload decoder is replaced; no key access.
+        cases = ((signing.RELEASE_ASSET_LIMIT, "sign"),
+                 (signing.RELEASE_ASSET_LIMIT + 1, "sign"),
+                 (16, "sign"), (signing.RELEASE_ASSET_LIMIT, "verification"))
+        for signed_size, growth_stage in cases:
+            with self.subTest(signed_size=signed_size, stage=growth_stage), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                package = root / "fixture.rpm"
+                package.write_bytes(b"unsigned")
+                key = root / "public.asc"
+                key.write_bytes(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\nunit-test-placeholder\n")
+                output = root / "signed"
+                observed = {}
+
+                def tool(arguments, environment, *, data=None):
+                    if arguments[0] == "gpg" and "--list-secret-keys" in arguments:
+                        return "sec:u:4096:1:KEY:0:0:::::sc:\nfpr:::::::::" + FINGERPRINT + ":\n"
+                    if arguments[0] == "rpmsign":
+                        candidate = Path(arguments[-1])
+                        observed["scratch"] = candidate.parents[1]
+                        self.assertEqual(candidate.read_bytes(), b"unsigned")
+                        with candidate.open("r+b") as stream:
+                            stream.truncate(16 if growth_stage == "verification" else signed_size)
+                    return "unchanged-header"
+
+                def verify_candidate(candidate, public_key, fingerprint, environment):
+                    if growth_stage == "verification":
+                        with candidate.open("r+b") as stream:
+                            stream.truncate(signed_size)
+                    return "Signature: OK"
+
+                with mock.patch.dict(os.environ, {"NVB_RPM_PRIVATE_KEY": "test-placeholder", "NVB_RPM_KEY_PASSPHRASE": "test"}), \
+                     mock.patch.object(signing, "run", side_effect=tool), \
+                     mock.patch.object(signing, "verify_rpm", side_effect=verify_candidate) as verify, \
+                     mock.patch.object(signing, "payload_digest", return_value="b" * 64) as payload, \
+                     mock.patch.object(signing.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as cleanup:
+                    if signed_size >= signing.RELEASE_ASSET_LIMIT:
+                        with self.assertRaisesRegex(signing.SigningError, "Signed RPM.*smaller"):
+                            signing.sign(package, key, FINGERPRINT, output)
+                        self.assertFalse(output.exists())
+                        if growth_stage == "verification":
+                            verify.assert_called_once()
+                            self.assertEqual(payload.call_count, 2)
+                        else:
+                            verify.assert_not_called()
+                            payload.assert_not_called()
+                    else:
+                        report = signing.sign(package, key, FINGERPRINT, output)
+                        self.assertEqual(report["status"], "verified")
+                        self.assertEqual(report["signed_bytes"], signed_size)
+                        self.assertEqual((output / package.name).stat().st_size, signed_size)
+                        verify.assert_called_once()
+                        self.assertEqual(payload.call_count, 2)
+                    cleanup.assert_called_once()
+                    self.assertIn("--kill", cleanup.call_args.args[0])
+                self.assertEqual(package.read_bytes(), b"unsigned")
+                self.assertFalse(observed["scratch"].exists())
+
+
 TOOLS = ("gpg", "gpgconf", "rpm", "rpmkeys", "rpmsign", "rpm2cpio", "rpmbuild")
 
 

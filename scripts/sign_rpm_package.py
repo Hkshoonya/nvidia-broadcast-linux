@@ -23,6 +23,20 @@ class SigningError(RuntimeError):
     """A signing or verification requirement was not met."""
 
 
+# Measure the signed artifact itself: signature-header changes need not preserve
+# the unsigned file size. GitHub release assets must be strictly below 2 GiB.
+RELEASE_ASSET_LIMIT = 2 * 1024**3
+
+
+def signed_asset_bytes(path: Path) -> int:
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size < RELEASE_ASSET_LIMIT:
+        raise SigningError(
+            "Signed RPM must be a nonempty regular file smaller than "
+            f"{RELEASE_ASSET_LIMIT} bytes; got {info.st_size} bytes")
+    return info.st_size
+
+
 def regular_bytes(path: Path) -> bytes:
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(descriptor, "rb") as stream:
@@ -182,6 +196,7 @@ def sign(package: Path, public_key: Path, fingerprint: str, output: Path) -> dic
                       "--define", "_gpg_digest_algo sha256",
                       "--define", f"_gpg_sign_cmd_extra_args --batch --pinentry-mode loopback --passphrase-file {password}"]
             run(["rpmsign", *macros, "--addsign", str(candidate)], env)
+            signed_asset_bytes(candidate)
             verification = verify_rpm(candidate, key, fingerprint, environment)
             # The native signature changes the signature header only. Compare
             # the complete immutable main header and unpacked payload through
@@ -192,12 +207,13 @@ def sign(package: Path, public_key: Path, fingerprint: str, output: Path) -> dic
             payload_sha = payload_digest(unsigned, environment)
             if payload_digest(candidate, environment) != payload_sha:
                 raise SigningError("Signing changed the package payload")
+            signed_bytes = signed_asset_bytes(candidate)
             output.mkdir(mode=0o755)
             signed_sha = snapshot(candidate, output / package.name)
             report = {"status": "verified", "fingerprint": fingerprint,
                       "input_sha256": original_sha,
                       "signed_sha256": signed_sha,
-                      "signed_bytes": candidate.stat().st_size, "payload_sha256": payload_sha,
+                      "signed_bytes": signed_bytes, "payload_sha256": payload_sha,
                       "public_key_sha256": hashlib.sha256(public).hexdigest(),
                       "signature_verification": verification}
             (output / "RPM-GPG-KEY-nvbroadcast.asc").write_bytes(public)
