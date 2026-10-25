@@ -126,7 +126,7 @@
       "bytes": 7017,
       "sha256": "a2c39e929959af6f39ef34a9807fe3d7f9784cea57c862970d7f75613f045fe9"
     },
-    "scope": "Successful unsigned producer, live metadata/log verification and downloaded artifact transport verification. Protected signing and runtime qualification remain separate pending stages.",
+    "scope": "Successful unsigned producer, live metadata/log verification and downloaded artifact transport verification. Protected signing and runtime qualification are recorded separately below.",
     "capacity": {
       "variant": "cuda",
       "required_free_bytes": 42949672960,
@@ -259,12 +259,12 @@
     },
     "capacity_before": {
       "/home/doczeus": 219903021056,
-      "/home/doczeus/Projects/Nvidia Wrappers/Broadcast-hosted-native-cuda-repro-20261025": 219903021056,
+      "Broadcast-hosted-native-cuda-repro-20261025": 219903021056,
       "/tmp": 219903021056
     },
     "capacity_after": {
       "/home/doczeus": 195765112832,
-      "/home/doczeus/Projects/Nvidia Wrappers/Broadcast-hosted-native-cuda-repro-20261025": 195765112832,
+      "Broadcast-hosted-native-cuda-repro-20261025": 195765112832,
       "/tmp": 195765112832
     },
     "minimum_free_bytes": 68719476736,
