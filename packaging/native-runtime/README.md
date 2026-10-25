@@ -432,8 +432,8 @@ devices. CUDA qualification requires actual CPU provider execution and a failed
 CUDA provider probe, including after interrupted RPM installation and repair.
 It does not establish GPU execution; the local hardware matrix remains separate
 evidence. Physical devices, clean virtual machines and production promotion are
-also separate. Frozen v1.5.3 release assets remain unchanged. Adding workflow
-support alone is not a successful hosted CUDA qualification record.
+also separate. Frozen v1.5.3 release assets remain unchanged. The successful
+hosted CUDA qualification below covers the exact recorded revision 7 artifacts.
 
 Local equivalents are `validate_candidate.py`, `finalize_candidate.py`,
 `fixtures/build_fixture.py` and `qualify_candidate.py`. Fixture and qualification
@@ -442,6 +442,26 @@ checkout; producer files provide expected identities through `git show`, while
 the checked-out tools provide all executed probes. `--evidence-output` exports
 only public receipts and referenced logs, excluding private working snapshots
 and probe inputs.
+
+The [2026-10-25 hosted CUDA record](qualification/2026-10-25-hosted-cuda.json)
+records producer run `40240561476` and protected finalizer `40241470218` for
+`e765a951` / `1.5.3-7.cuda`. Source/payload validation, existing project-key
+signing, all **14 DEB, 19 RPM and 24 interrupted-install recovery checks**, and
+final retention passed. Disconnected Ubuntu 24.04/Fedora 44 containers proved
+CPU provider execution and expected CUDA rejection; the repaired RPM runtime
+passed the same provider check after an observed mid-unpack SIGKILL and replay.
+
+Independent download/readback verified the retained archive digest, all **75
+files**, **57 execution logs** and the interruption transcript. A fresh RPM
+database containing only the pinned project public key verified the actual
+signed RPM. Both generated recordings decoded 24 video frames and nonzero
+synthetic audio. A separate fresh offline build from the same source and
+recorded builders reproduced both unsigned archives and all six compared
+metadata files **byte for byte**. The final DEB is 2,070,585,242 bytes; the signed
+RPM is 2,058,428,352 bytes. Both remain strictly below 2 GiB. The qualified
+[development artifact](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40241470218/artifacts/12617194457)
+expires on **24 November 2026**. GPU execution on these exact signed bytes,
+physical devices, clean-VM acceptance and release promotion remain separate.
 
 The [2026-10-23 finalization and reproducibility record](qualification/2026-10-23-cpu-finalization.json)
 records the successful protected workflow from `a007338`, qualifying the

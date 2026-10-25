@@ -1,0 +1,1303 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-25",
+  "status": "pass",
+  "updated_at": "2026-10-25T23:28:28.195011+00:00",
+  "scope": "Linux x86_64 CUDA development candidate: exact hosted source/payload validation, protected project RPM signing, disconnected Ubuntu/Fedora install/media/removal and actual RPM interruption/recovery, independent retained-artifact readback, and byte-identical unsigned hosted/local reproduction using the recorded authenticated builders.",
+  "version": "1.5.3-7.cuda",
+  "variant": "cuda",
+  "application_revision": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+  "adapter_revision": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+  "source_tree": "38ed939529138a903ce4a523b5ff11b0a08a8bec",
+  "implementation": {
+    "status": "pass",
+    "pull_request": 168,
+    "source": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+    "tested_revision": "3a987e4805d8c63fa88f47370ea1b32c8bf5759d",
+    "tested_tree_matches_source": true,
+    "changes": [
+      "Explicit CPU/CUDA workflow selection with CPU default and existing CPU bounds preserved.",
+      "Trusted per-variant capacity, transport, decoded-payload and package ceilings.",
+      "Variant binding through source validation, isolated RPM signing, disconnected qualification and final retention.",
+      "Hosted CUDA requires actual CPU provider execution and expected CUDA rejection without exposed GPUs, including after RPM recovery."
+    ],
+    "ci": {
+      "run_id": 40240200821,
+      "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40240200821",
+      "conclusion": "success",
+      "checks": [
+        {
+          "name": "Contributor credit",
+          "conclusion": "success",
+          "head_sha": "3a987e4805d8c63fa88f47370ea1b32c8bf5759d"
+        },
+        {
+          "name": "Python 3.14",
+          "conclusion": "success",
+          "head_sha": "3a987e4805d8c63fa88f47370ea1b32c8bf5759d"
+        },
+        {
+          "name": "Linux validation",
+          "conclusion": "success",
+          "head_sha": "3a987e4805d8c63fa88f47370ea1b32c8bf5759d"
+        },
+        {
+          "name": "Python 3.11",
+          "conclusion": "success",
+          "head_sha": "3a987e4805d8c63fa88f47370ea1b32c8bf5759d"
+        },
+        {
+          "name": "GitGuardian Security Checks",
+          "conclusion": "success",
+          "head_sha": "3a987e4805d8c63fa88f47370ea1b32c8bf5759d"
+        }
+      ],
+      "test_summaries": [
+        {
+          "job": "Python 3.11",
+          "step": "Run supported-runtime tests",
+          "summary": "290 passed, 68 subtests passed in 14.01s"
+        },
+        {
+          "job": "Linux validation",
+          "step": "Run unit and packaging checks",
+          "summary": "1457 passed, 38 skipped, 1 warning, 1590 subtests passed in 46.47s"
+        },
+        {
+          "job": "Linux validation",
+          "step": "Check responsive GTK layout under Xvfb",
+          "summary": "20 passed, 11 warnings, 25 subtests passed in 30.12s"
+        },
+        {
+          "job": "Python 3.14",
+          "step": "Run supported-runtime tests",
+          "summary": "290 passed, 68 subtests passed in 12.66s"
+        }
+      ],
+      "dependency_audit_no_known_findings": true,
+      "receipt": {
+        "path": "Broadcast-hosted-native-cuda-20261025/dist/ci-head/summary.json",
+        "bytes": 4890,
+        "sha256": "29bfa0b035eea3dca71ae8c00a75ee4cc0cd4820e5b3ef42446d9511ac7c1f95"
+      }
+    },
+    "independent_review": {
+      "path": "Broadcast-hosted-native-cuda-20261025/dist/review-code/independent-policy-finalizer-review.json",
+      "bytes": 4498,
+      "sha256": "38175d52699a3ceb51e45907fc32b56453c60c5285b838d35f94bba8880f2c95"
+    }
+  },
+  "producer": {
+    "status": "pass",
+    "repository": "Hkshoonya/nvidia-broadcast-linux",
+    "workflow": ".github/workflows/native-cpu-candidate.yml",
+    "source": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+    "run_id": 40240561476,
+    "run_attempt": 1,
+    "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40240561476",
+    "conclusion": "success",
+    "completed_at": "2026-10-25T22:39:44Z",
+    "artifact": {
+      "id": 12617112379,
+      "node_id": "MDg6QXJ0aWZhY3QxMjYxNzExMjM3OQ==",
+      "name": "native-cuda-candidate-e765a951e1dd30aaa10476ca31c1bb19f1be3ac5-40240561476-1",
+      "size_in_bytes": 4139944218,
+      "url": "https://api.github.com/repos/Hkshoonya/nvidia-broadcast-linux/actions/artifacts/12617112379",
+      "archive_download_url": "https://api.github.com/repos/Hkshoonya/nvidia-broadcast-linux/actions/artifacts/12617112379/zip",
+      "expired": false,
+      "digest": "sha256:ccd015c32f859af7cfa2ddb38b6e4a01c9eef810bd930d2d93cc765db412298c",
+      "created_at": "2026-10-25T22:39:36Z",
+      "updated_at": "2026-10-25T22:39:36Z",
+      "expires_at": "2026-11-24T22:39:08Z",
+      "workflow_run": {
+        "id": 40240561476,
+        "repository_id": 1184001936,
+        "head_repository_id": 1184001936,
+        "head_branch": "main",
+        "head_sha": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5"
+      }
+    },
+    "host_boundary_tests": {
+      "passed": 35,
+      "framework": "unittest"
+    },
+    "receipt": {
+      "path": "Broadcast-hosted-native-cuda-20261025/dist/producer-run/summary.json",
+      "bytes": 7017,
+      "sha256": "a2c39e929959af6f39ef34a9807fe3d7f9784cea57c862970d7f75613f045fe9"
+    },
+    "scope": "Successful unsigned producer, live metadata/log verification and downloaded artifact transport verification. Protected signing and runtime qualification are recorded separately below.",
+    "capacity": {
+      "variant": "cuda",
+      "required_free_bytes": 42949672960,
+      "observed_free_bytes": {
+        "GITHUB_WORKSPACE": 91713441792,
+        "RUNNER_TEMP": 91713441792,
+        "HOME": 91713441792
+      },
+      "scope": "Variant allocation budget; CUDA threshold is conservative, not a measured peak",
+      "observed_free_bytes_after": {
+        "GITHUB_WORKSPACE": 65615958016,
+        "RUNNER_TEMP": 65615958016,
+        "HOME": 65615958016
+      },
+      "receipt": {
+        "path": "Broadcast-hosted-native-cuda-20261025/dist/producer-artifact/extracted/dist/builder-delivery/capacity.json",
+        "bytes": 411,
+        "sha256": "67e308185b5fed1d6deb06343d4666cad45973baab2b6f46e88d5aa5a829d9e4"
+      }
+    }
+  },
+  "transport_verification": {
+    "status": "pass",
+    "receipt": {
+      "path": "Broadcast-hosted-native-cuda-20261025/dist/producer-artifact/transport.json",
+      "bytes": 802,
+      "sha256": "1bbe72190f890ca266965b373d8632f9f51fb6965126c6f3b518cbd65c16fef4"
+    },
+    "source": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+    "variant": "cuda",
+    "version": "1.5.3-7.cuda",
+    "run_id": 40240561476,
+    "run_attempt": 1,
+    "artifact_id": 12617112379,
+    "artifact_digest": "sha256:ccd015c32f859af7cfa2ddb38b6e4a01c9eef810bd930d2d93cc765db412298c",
+    "artifact_bytes": 4139944218,
+    "extraction": {
+      "files": 13,
+      "provenance_bytes": 10928320
+    },
+    "scope": "Root verified live run/source/attempt/artifact authority, streamed ZIP size/digest and strict 13-file whitelist/limits before extraction."
+  },
+  "local_fresh_reproduction": {
+    "status": "pass",
+    "source": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+    "tree": "38ed939529138a903ce4a523b5ff11b0a08a8bec",
+    "version": "1.5.3-7.cuda",
+    "offline": true,
+    "reused_runtime": false,
+    "reused_staging": false,
+    "authenticated_cached_input_files": 84,
+    "authenticated_cached_input_bytes": 2715610164,
+    "original_cached_inputs_unchanged": true,
+    "builder_images": {
+      "bindings": "sha256:7295102d8391699de28d86df555bddae343c5540c32bb21cbd5af10f92fc07ad",
+      "deb": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "rpm": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c"
+    },
+    "packages": [
+      {
+        "family": "deb",
+        "variant": "cuda",
+        "version": "1.5.3-7.cuda",
+        "artifact": "deb/nvbroadcast_1.5.3-7.cuda_amd64.deb",
+        "bytes": 2070585242,
+        "sha256": "b16c3195bcd01e4536ca3a59feb474dcbda3ca39c1c6f2da3d36829a0c0ad539",
+        "content_sha256": "1e9ad0f06117dc8b85f7f66c19d635489138d138a28abbaa4ecccb8d155040b8",
+        "runtime_manifest_sha256": "f9ca970e4e060df6362c1612f96641bbdf44eaa2a83de5ede0b15ff54fe33641"
+      },
+      {
+        "family": "rpm",
+        "variant": "cuda",
+        "version": "1.5.3-7.cuda",
+        "artifact": "rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-7.cuda.x86_64.rpm",
+        "bytes": 2058428352,
+        "sha256": "a629decc0e2e30dc7a3571b66ab00ac74ca65d83f08676b36c19f0ea9263ba67",
+        "content_sha256": "77c0606637b83d48d06eb6f9c1831682ebd6440a4734a476d09a6686932ae49b",
+        "runtime_manifest_sha256": "f9ca970e4e060df6362c1612f96641bbdf44eaa2a83de5ede0b15ff54fe33641"
+      }
+    ],
+    "verification": {
+      "runtime_entries": 19571,
+      "runtime_regular_file_bytes": 5003906349,
+      "native_entries": {
+        "deb": 19599,
+        "rpm": 19600
+      },
+      "application_python_files_verified": 62,
+      "adapter_source_file_hashes_verified": 15,
+      "fresh_wheels": {
+        "nvbroadcast-1.5.3-py3-none-any.whl": {
+          "bytes": 477221,
+          "sha256": "513f83117cce3598819984bd0f47557545ba9575cbe97e62b7ea37f23dfa6d29"
+        },
+        "pycairo-1.29.0-cp313-cp313-linux_x86_64.whl": {
+          "bytes": 128852,
+          "sha256": "bb12333fbd4c047ee8f88b5ae091a4d495bf8730e7526fa35f6605326176fea1"
+        },
+        "pygobject-3.48.2-cp313-cp313-linux_x86_64.whl": {
+          "bytes": 255558,
+          "sha256": "ebfbcb4a688e59766018f1431c533d68e060b4a4128ee1f74cd18c3185d0e588"
+        }
+      },
+      "metadata": {
+        "assembly/pylock.toml": {
+          "bytes": 28715,
+          "sha256": "ebc3cc66374df134cd445e2c5f7240291086239820f56030884560c249b2d60a"
+        },
+        "build-provenance.json": {
+          "bytes": 2106,
+          "sha256": "43d74b50d977bccc6471a163f309de392f4e9af0ed19f3d41fd7fc784d29f141"
+        },
+        "deb/content.json": {
+          "bytes": 3707787,
+          "sha256": "1e9ad0f06117dc8b85f7f66c19d635489138d138a28abbaa4ecccb8d155040b8"
+        },
+        "packages.json": {
+          "bytes": 5458,
+          "sha256": "3283d8f7d969a97f25b0671657f7a9faceb1d9a0129a51279dc526c4fabb3f4b"
+        },
+        "payload/manifest.json": {
+          "bytes": 3426677,
+          "sha256": "f9ca970e4e060df6362c1612f96641bbdf44eaa2a83de5ede0b15ff54fe33641"
+        },
+        "rpm/content.json": {
+          "bytes": 3707932,
+          "sha256": "77c0606637b83d48d06eb6f9c1831682ebd6440a4734a476d09a6686932ae49b"
+        }
+      }
+    },
+    "capacity_before": {
+      "HOME": 219903021056,
+      "Broadcast-hosted-native-cuda-repro-20261025": 219903021056,
+      "/tmp": 219903021056
+    },
+    "capacity_after": {
+      "HOME": 195765112832,
+      "Broadcast-hosted-native-cuda-repro-20261025": 195765112832,
+      "/tmp": 195765112832
+    },
+    "minimum_free_bytes": 68719476736,
+    "remaining_task_containers": [],
+    "tracked_source_unchanged": true,
+    "receipts": {
+      "dist/build-receipts/preparation.json": {
+        "path": "Broadcast-hosted-native-cuda-repro-20261025/dist/build-receipts/preparation.json",
+        "bytes": 34516,
+        "sha256": "3e352dda472816ee5b20df055d7fc3e2a528ff9b2888d6b645a70c6f9c6df205"
+      },
+      "dist/build-receipts/cuda-execution.json": {
+        "path": "Broadcast-hosted-native-cuda-repro-20261025/dist/build-receipts/cuda-execution.json",
+        "bytes": 9400,
+        "sha256": "deec944db5a59d3e1e20a05657d6bdc31a5df1d2a91b376de19cd684bbf934b8"
+      },
+      "dist/build-receipts/summary.json": {
+        "path": "Broadcast-hosted-native-cuda-repro-20261025/dist/build-receipts/summary.json",
+        "bytes": 620,
+        "sha256": "64d8cb5914083e74b3d4abc3899cf218d519e32ae1be2dee8ec4d969d57ab4f1"
+      },
+      "dist/repro-wrapper.json": {
+        "path": "Broadcast-hosted-native-cuda-repro-20261025/dist/repro-wrapper.json",
+        "bytes": 1654,
+        "sha256": "a62bd40095e756d2f342088bfdc5bd9621463e7a2447e6e5c6309413073be6ca"
+      }
+    },
+    "scope": "Fresh unsigned local build and full source/runtime/native content readback; all eight hosted unsigned archive and metadata byte streams now match exactly."
+  },
+  "hosted_local_reproducibility": {
+    "status": "pass",
+    "receipt": {
+      "path": "Broadcast-hosted-native-cuda-repro-20261025/dist/build-receipts/hosted-reproducibility.json",
+      "bytes": 4208,
+      "sha256": "ac8c8ce57d7d6481949cf77f317653784ee71ee39fd3ffa0984f9e9c06dfe279"
+    },
+    "expected_files": 8,
+    "method": "Direct full-byte comparison of both unsigned archives and six metadata/manifests, without normalization or exclusions.",
+    "driver": {
+      "path": "Broadcast-hosted-native-cuda-repro-20261025/dist/build-tools/compare_hosted.py",
+      "bytes": 8949,
+      "sha256": "af460dcc8fd2a3a6e656ddb3a5d6608656f0eeb526a742bdf7eaabd8919efc55"
+    },
+    "all_identical": true,
+    "files": [
+      {
+        "hosted": {
+          "bytes": 5458,
+          "sha256": "3283d8f7d969a97f25b0671657f7a9faceb1d9a0129a51279dc526c4fabb3f4b"
+        },
+        "identical_bytes": true,
+        "local": {
+          "bytes": 5458,
+          "sha256": "3283d8f7d969a97f25b0671657f7a9faceb1d9a0129a51279dc526c4fabb3f4b"
+        },
+        "path": "packages.json"
+      },
+      {
+        "hosted": {
+          "bytes": 2106,
+          "sha256": "43d74b50d977bccc6471a163f309de392f4e9af0ed19f3d41fd7fc784d29f141"
+        },
+        "identical_bytes": true,
+        "local": {
+          "bytes": 2106,
+          "sha256": "43d74b50d977bccc6471a163f309de392f4e9af0ed19f3d41fd7fc784d29f141"
+        },
+        "path": "build-provenance.json"
+      },
+      {
+        "hosted": {
+          "bytes": 28715,
+          "sha256": "ebc3cc66374df134cd445e2c5f7240291086239820f56030884560c249b2d60a"
+        },
+        "identical_bytes": true,
+        "local": {
+          "bytes": 28715,
+          "sha256": "ebc3cc66374df134cd445e2c5f7240291086239820f56030884560c249b2d60a"
+        },
+        "path": "assembly/pylock.toml"
+      },
+      {
+        "hosted": {
+          "bytes": 3426677,
+          "sha256": "f9ca970e4e060df6362c1612f96641bbdf44eaa2a83de5ede0b15ff54fe33641"
+        },
+        "identical_bytes": true,
+        "local": {
+          "bytes": 3426677,
+          "sha256": "f9ca970e4e060df6362c1612f96641bbdf44eaa2a83de5ede0b15ff54fe33641"
+        },
+        "path": "payload/manifest.json"
+      },
+      {
+        "hosted": {
+          "bytes": 3707787,
+          "sha256": "1e9ad0f06117dc8b85f7f66c19d635489138d138a28abbaa4ecccb8d155040b8"
+        },
+        "identical_bytes": true,
+        "local": {
+          "bytes": 3707787,
+          "sha256": "1e9ad0f06117dc8b85f7f66c19d635489138d138a28abbaa4ecccb8d155040b8"
+        },
+        "path": "deb/content.json"
+      },
+      {
+        "hosted": {
+          "bytes": 3707932,
+          "sha256": "77c0606637b83d48d06eb6f9c1831682ebd6440a4734a476d09a6686932ae49b"
+        },
+        "identical_bytes": true,
+        "local": {
+          "bytes": 3707932,
+          "sha256": "77c0606637b83d48d06eb6f9c1831682ebd6440a4734a476d09a6686932ae49b"
+        },
+        "path": "rpm/content.json"
+      },
+      {
+        "hosted": {
+          "bytes": 2070585242,
+          "sha256": "b16c3195bcd01e4536ca3a59feb474dcbda3ca39c1c6f2da3d36829a0c0ad539"
+        },
+        "identical_bytes": true,
+        "local": {
+          "bytes": 2070585242,
+          "sha256": "b16c3195bcd01e4536ca3a59feb474dcbda3ca39c1c6f2da3d36829a0c0ad539"
+        },
+        "path": "deb/nvbroadcast_1.5.3-7.cuda_amd64.deb"
+      },
+      {
+        "hosted": {
+          "bytes": 2058428352,
+          "sha256": "a629decc0e2e30dc7a3571b66ab00ac74ca65d83f08676b36c19f0ea9263ba67"
+        },
+        "identical_bytes": true,
+        "local": {
+          "bytes": 2058428352,
+          "sha256": "a629decc0e2e30dc7a3571b66ab00ac74ca65d83f08676b36c19f0ea9263ba67"
+        },
+        "path": "rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-7.cuda.x86_64.rpm"
+      }
+    ]
+  },
+  "protected_finalization": {
+    "status": "pass",
+    "workflow": ".github/workflows/native-cpu-finalize.yml",
+    "run_id": 40241470218,
+    "run_attempt": 1,
+    "source": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+    "run_url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40241470218",
+    "completed_at": "2026-10-25T23:16:12Z",
+    "jobs": [
+      {
+        "id": 121313982148,
+        "name": "validate",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-25T22:42:43Z",
+        "completed_at": "2026-10-25T22:50:35Z",
+        "html_url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40241470218/job/121313982148"
+      },
+      {
+        "id": 121315751556,
+        "name": "sign",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-25T22:50:39Z",
+        "completed_at": "2026-10-25T22:53:05Z",
+        "html_url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40241470218/job/121315751556"
+      },
+      {
+        "id": 121316309211,
+        "name": "qualify-rpm / qualify",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-25T22:53:08Z",
+        "completed_at": "2026-10-25T23:03:52Z",
+        "html_url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40241470218/job/121316309211"
+      },
+      {
+        "id": 121316309277,
+        "name": "qualify-deb / qualify",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-25T22:53:08Z",
+        "completed_at": "2026-10-25T23:08:06Z",
+        "html_url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40241470218/job/121316309277"
+      },
+      {
+        "id": 121319724033,
+        "name": "retain",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-25T23:08:09Z",
+        "completed_at": "2026-10-25T23:16:11Z",
+        "html_url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40241470218/job/121319724033"
+      }
+    ],
+    "artifact": {
+      "id": 12617194457,
+      "node_id": "MDg6QXJ0aWZhY3QxMjYxNzE5NDQ1Nw==",
+      "name": "native-cuda-qualified-e765a951e1dd30aaa10476ca31c1bb19f1be3ac5-40241470218-1",
+      "size_in_bytes": 4129285714,
+      "url": "https://api.github.com/repos/Hkshoonya/nvidia-broadcast-linux/actions/artifacts/12617194457",
+      "archive_download_url": "https://api.github.com/repos/Hkshoonya/nvidia-broadcast-linux/actions/artifacts/12617194457/zip",
+      "expired": false,
+      "digest": "sha256:b9b13de541fe159f74b011a01c078b131a64e3e0a7b6fc5f823500d058c8680a",
+      "created_at": "2026-10-25T23:16:08Z",
+      "updated_at": "2026-10-25T23:16:08Z",
+      "expires_at": "2026-11-24T23:15:29Z",
+      "workflow_run": {
+        "id": 40241470218,
+        "repository_id": 1184001936,
+        "head_repository_id": 1184001936,
+        "head_branch": "main",
+        "head_sha": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5"
+      }
+    },
+    "candidate_manifest_sha256": "3f37ec031a598bc6399637b3430bb26d6a1b98c26f83ab0aba66d71832323ec1",
+    "validation": {
+      "artifact_bytes": 4139944218,
+      "artifact_digest": "sha256:ccd015c32f859af7cfa2ddb38b6e4a01c9eef810bd930d2d93cc765db412298c",
+      "artifact_id": 12617112379,
+      "artifact_name": "native-cuda-candidate-e765a951e1dd30aaa10476ca31c1bb19f1be3ac5-40240561476-1",
+      "driver_sha256": "08110c09b4287367529ec5dc6f8a86f2174c5318ede315ff1f54731e5b35ba67",
+      "expected_artifact_digest": "sha256:ccd015c32f859af7cfa2ddb38b6e4a01c9eef810bd930d2d93cc765db412298c",
+      "packages": {
+        "deb": {
+          "application_python_files": 62,
+          "bytes": 2070585242,
+          "path": "/home/runner/work/nvidia-broadcast-linux/nvidia-broadcast-linux/dist/validated/dist/native-cuda/deb/nvbroadcast_1.5.3-7.cuda_amd64.deb",
+          "payload_entries": 19599,
+          "payload_regular_bytes": 5007343217,
+          "recovery_helper_sha256": null,
+          "relative_path": "dist/native-cuda/deb/nvbroadcast_1.5.3-7.cuda_amd64.deb",
+          "runtime_entries": 19571,
+          "runtime_manifest_sha256": "f9ca970e4e060df6362c1612f96641bbdf44eaa2a83de5ede0b15ff54fe33641",
+          "scriptlet_source_match": true,
+          "sha256": "b16c3195bcd01e4536ca3a59feb474dcbda3ca39c1c6f2da3d36829a0c0ad539"
+        },
+        "rpm": {
+          "application_python_files": 62,
+          "bytes": 2058428352,
+          "path": "/home/runner/work/nvidia-broadcast-linux/nvidia-broadcast-linux/dist/validated/dist/native-cuda/rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-7.cuda.x86_64.rpm",
+          "payload_entries": 19596,
+          "payload_regular_bytes": 5007369578,
+          "recovery_helper_sha256": "4c7cb21c6389d83c5ce051e039aa9e36dcc53077c9896f73f13773eab6d536cc",
+          "relative_path": "dist/native-cuda/rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-7.cuda.x86_64.rpm",
+          "runtime_entries": 19571,
+          "runtime_manifest_sha256": "f9ca970e4e060df6362c1612f96641bbdf44eaa2a83de5ede0b15ff54fe33641",
+          "scriptlet_source_match": true,
+          "sha256": "a629decc0e2e30dc7a3571b66ab00ac74ca65d83f08676b36c19f0ea9263ba67"
+        }
+      },
+      "repository": "Hkshoonya/nvidia-broadcast-linux",
+      "repository_id": 1184001936,
+      "run_attempt": 1,
+      "run_id": 40240561476,
+      "schema_version": 1,
+      "scope": "Read-only artifact/source validation; unsigned native candidates, no install or physical-device claim",
+      "source": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+      "source_tree": "38ed939529138a903ce4a523b5ff11b0a08a8bec",
+      "source_workflow_sha256": "5c3c615e41b34a73bc258609b9925e8c85fafc781eca82c6daaf984e18392f34",
+      "status": "pass",
+      "trusted_checkout": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+      "variant": "cuda",
+      "version": "1.5.3-7.cuda",
+      "zip": {
+        "files": 13,
+        "provenance_bytes": 10928320
+      }
+    },
+    "signing": {
+      "status": "pass",
+      "job_id": 121315751556,
+      "publisher_fingerprint": "A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1",
+      "public_key_sha256": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+      "signing_receipt_sha256": "fba38568c67701ec1a20b3cf4cc7bd96f9a681e82bc724d0f70aa1084290bbda",
+      "validation_receipt_sha256": "bdc3a71bddf72ae52fd8f08a3c52a3a4cb42c8a935a73099b34fd11f18c847a9",
+      "finalizer_revision": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+      "packages": {
+        "deb": {
+          "bytes": 2070585242,
+          "path": "deb/nvbroadcast_1.5.3-7.cuda_amd64.deb",
+          "sha256": "b16c3195bcd01e4536ca3a59feb474dcbda3ca39c1c6f2da3d36829a0c0ad539"
+        },
+        "rpm": {
+          "bytes": 2058428352,
+          "path": "rpm/nvbroadcast-1.5.3-7.cuda.x86_64.rpm",
+          "sha256": "1575edf2be669f02357e73dcb5886ed31bbeb9aff480d8b11de38d4ca7c58eea"
+        }
+      },
+      "scope": "Protected signing verified publisher identity and unchanged immutable RPM header/payload; independent retained-artifact verification also passed with a fresh project-only public-key database.",
+      "retained_receipt": {
+        "status": "verified",
+        "fingerprint": "A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1",
+        "input_sha256": "a629decc0e2e30dc7a3571b66ab00ac74ca65d83f08676b36c19f0ea9263ba67",
+        "signed_sha256": "1575edf2be669f02357e73dcb5886ed31bbeb9aff480d8b11de38d4ca7c58eea",
+        "signed_bytes": 2058428352,
+        "payload_sha256": "16dc0f9ef515f950711be0b29800f228f081b910facba4bdc10b82f8a56806f8",
+        "public_key_sha256": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+        "signature_verification": "/tmp/nvb-rpm-verify-4tlwbj8w/package.rpm:\n    Header V4 RSA/SHA256 Signature, key ID dbacbcb5: OK\n    Header SHA256 digest: OK\n    Header SHA1 digest: OK\n    Payload SHA256 digest: OK\n    MD5 digest: OK\n"
+      }
+    },
+    "installed_smoke": {
+      "deb": {
+        "image": "sha256:1f6f0f1552e38cfde03a4893234a91238324439092208cf0eadb50836227021f",
+        "sha256": "b2aa74faedb98020555d5068c0977e3449ecbfcc167a9d6fa8c6a0ae8b2c9559",
+        "status": "pass",
+        "steps": 14,
+        "variant": "cuda"
+      },
+      "rpm": {
+        "image": "sha256:9db892f54d872ba688bbf1e573b4f1959192370d155dbc284b54f14a88249d31",
+        "sha256": "fc0d0e2bffdd6cbc0156dc215b0ee7c7c7d80d3f87863d52d3a6e3787564e2b5",
+        "status": "pass",
+        "steps": 19,
+        "variant": "cuda"
+      }
+    },
+    "fresh_rpm_recovery": {
+      "image": "sha256:9db892f54d872ba688bbf1e573b4f1959192370d155dbc284b54f14a88249d31",
+      "sha256": "cdadd362b1abffc6df2ac91457f0d4cfff6f7752455cf87ac1bcad162cfda3ce",
+      "status": "pass",
+      "steps": 24,
+      "variant": "cuda",
+      "authenticated": true,
+      "helper_sha256": "4c7cb21c6389d83c5ce051e039aa9e36dcc53077c9896f73f13773eab6d536cc",
+      "interruption": {
+        "manager_pid": 76,
+        "observed_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13;6ade8a5a",
+        "observed_bytes": 68616192,
+        "signal": "SIGKILL",
+        "fresh_install": true,
+        "manager_exit": 9,
+        "manager_log_sha256": "0ba8893403beefb98fe577970419fde8e17e83d09842d8fa24f9309686890181"
+      },
+      "preservation_sha256": "3146c05e03c0ea7865937802de467c2580fe685457796d7ecf184c6ffb262a99",
+      "container_removed": true,
+      "original_package_unchanged": true,
+      "snapshots_unchanged": true,
+      "runtime_probe": {
+        "status": "pass",
+        "variant": "cuda",
+        "cpu_success": true,
+        "cpu_executed_providers": [
+          "CPUExecutionProvider"
+        ],
+        "cuda_unavailable_expected": true,
+        "cuda_success": false,
+        "cuda_executed_providers": [],
+        "cupy_execution": null
+      }
+    },
+    "checks_total": 57,
+    "fixtures": {
+      "deb": {
+        "base": "ubuntu@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc",
+        "distribution": "Ubuntu 24.04",
+        "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.deb",
+        "dockerfile_sha256": "55f692ffffb82e9867fd487015fcffa5869bffbf5f9dc2179fc07b3491cd2672",
+        "driver_sha256": "05735cfb5faa146b40044e8d0563cc1f98b8efac107736856c43c3e8b15f0b39",
+        "family": "deb",
+        "files": {
+          "build.log": "14e34de498f22bcb26d3d25e1dd72b71ceba6485b199cc94414d11ff58d5004e",
+          "fixture-packages.txt": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78",
+          "image.id": "42eef03912451e1ccb40405d6e56fe1ae320ad5650cc188f32bf4d7ad72d0943",
+          "os-release": "87458b3b1f1ca0e5c693ade771de7007c3783bdc692fa6b39eb6414bf2af2763"
+        },
+        "image": "sha256:1f6f0f1552e38cfde03a4893234a91238324439092208cf0eadb50836227021f",
+        "inventory_container_removed": true,
+        "inventory_sha256": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78",
+        "manifest_sha256": "92d80df6531ca985525b9aec8d625c1b3b289453ff51b957a0a231a9f19ea356",
+        "os_release": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+        "platform": "linux/amd64",
+        "scope": "Disposable qualification fixtures; OS dependencies use current distribution repositories, not a reproduced OS snapshot. Record each built image ID and its packages.tsv inventory. Candidate installation and tests run with network disabled.",
+        "status": "pass"
+      },
+      "rpm": {
+        "base": "fedora@sha256:be9d65e2344d805cc11114319c685ecaa96b6d9b4350a0a6460cdb931babbd19",
+        "distribution": "Fedora 44",
+        "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.rpm",
+        "dockerfile_sha256": "f1176d5aa13f0e1462ef03b92966bb621f7c65a3075e0f75f23a1ea91c0c302a",
+        "driver_sha256": "05735cfb5faa146b40044e8d0563cc1f98b8efac107736856c43c3e8b15f0b39",
+        "family": "rpm",
+        "files": {
+          "build.log": "78aa461f4bd77646ef6bf6dda69893a940b81fdc1e083d753125d753c79e1e6f",
+          "fixture-packages.txt": "b87269a89658623b4892aecde541aa1740c14b0ebf5835e8122c5cfd39fa97bf",
+          "image.id": "4c317b032f24745ddcec73012db4ead9d86f4596dd18d280644aa2aac7f72414",
+          "os-release": "2f6bf1f4e47d29ad351269e1fe4f56a9667f2f0c87dd0365c752948ee9dc1d8b"
+        },
+        "image": "sha256:9db892f54d872ba688bbf1e573b4f1959192370d155dbc284b54f14a88249d31",
+        "inventory_container_removed": true,
+        "inventory_sha256": "b87269a89658623b4892aecde541aa1740c14b0ebf5835e8122c5cfd39fa97bf",
+        "manifest_sha256": "92d80df6531ca985525b9aec8d625c1b3b289453ff51b957a0a231a9f19ea356",
+        "os_release": "NAME=\"Fedora Linux\"\nVERSION=\"44 (Container Image)\"\nRELEASE_TYPE=stable\nID=fedora\nVERSION_ID=44\nVERSION_CODENAME=\"\"\nPRETTY_NAME=\"Fedora Linux 44 (Container Image)\"\nANSI_COLOR=\"0;38;2;60;110;180\"\nLOGO=fedora-logo-icon\nCPE_NAME=\"cpe:/o:fedoraproject:fedora:44\"\nDEFAULT_HOSTNAME=\"fedora\"\nHOME_URL=\"https://fedoraproject.org/\"\nDOCUMENTATION_URL=\"https://docs.fedoraproject.org/en-US/fedora/f44/\"\nSUPPORT_URL=\"https://ask.fedoraproject.org/\"\nBUG_REPORT_URL=\"https://bugzilla.redhat.com/\"\nREDHAT_BUGZILLA_PRODUCT=\"Fedora\"\nREDHAT_BUGZILLA_PRODUCT_VERSION=44\nREDHAT_SUPPORT_PRODUCT=\"Fedora\"\nREDHAT_SUPPORT_PRODUCT_VERSION=44\nSUPPORT_END=2027-05-19\nVARIANT=\"Container Image\"\nVARIANT_ID=container\n",
+        "platform": "linux/amd64",
+        "scope": "Disposable qualification fixtures; OS dependencies use current distribution repositories, not a reproduced OS snapshot. Record each built image ID and its packages.tsv inventory. Candidate installation and tests run with network disabled.",
+        "status": "pass"
+      }
+    },
+    "runtime_manifest_sha256": "f9ca970e4e060df6362c1612f96641bbdf44eaa2a83de5ede0b15ff54fe33641",
+    "download_observations": {
+      "steps": [
+        {
+          "job": "sign",
+          "step_number": 5,
+          "elapsed_seconds": 38.0,
+          "conclusion": "success"
+        },
+        {
+          "job": "qualify-rpm / qualify",
+          "step_number": 4,
+          "elapsed_seconds": 374.0,
+          "conclusion": "success"
+        },
+        {
+          "job": "qualify-deb / qualify",
+          "step_number": 4,
+          "elapsed_seconds": 778.0,
+          "conclusion": "success"
+        },
+        {
+          "job": "retain",
+          "step_number": 4,
+          "elapsed_seconds": 425.0,
+          "conclusion": "success"
+        },
+        {
+          "job": "retain",
+          "step_number": 5,
+          "elapsed_seconds": 1.0,
+          "conclusion": "success"
+        },
+        {
+          "job": "retain",
+          "step_number": 6,
+          "elapsed_seconds": 2.0,
+          "conclusion": "success"
+        }
+      ],
+      "actual_transfer_retry_or_failure_messages_observed": false,
+      "notes": "Completed logs show successful digest-matching transfers. Configuration lines digest-mismatch: error are the failure policy, not observed digest errors. Running RPM job log previously returned404 because its log blob was not yet available. No transfer retry was inferred from elapsed time."
+    },
+    "evidence": {
+      "summary": {
+        "path": "dist/finalizer-run/summary.json",
+        "sha256": "c37c724896f44a783c4899060f5a2de7aa89e4de27692494d2e8206ffd8733d0"
+      },
+      "completed_log": {
+        "path": "dist/finalizer-run/run-40241470218-attempt1.log",
+        "sha256": "7859e02fe816c3fc7002b78c03c8db9f2f1cb7dfbe576c30aae17c9752f1741d"
+      },
+      "candidate_manifest": {
+        "path": "dist/finalizer-run/log-extracted-candidate.json",
+        "sha256": "3f37ec031a598bc6399637b3430bb26d6a1b98c26f83ab0aba66d71832323ec1",
+        "origin": "Canonical reconstruction from completed verify stdout; matches signed job output hash."
+      },
+      "qualification": {
+        "path": "dist/finalizer-run/log-extracted-qualification.json",
+        "sha256": "784f9a9046c9c3a210ef448ab4d84c72f6be7b0545458d81bbe784e33f85c369",
+        "origin": "Completed retain stdout."
+      }
+    },
+    "scope": "Cloud protected finalization and 57 disconnected no-device qualification checks. The independent retained-byte and public-only signature readback is recorded separately below."
+  },
+  "independent_retained_readback": {
+    "status": "pass",
+    "receipt": {
+      "path": "Broadcast-hosted-native-cuda-20261025/dist/hosted-cuda-retained-review/review.json",
+      "bytes": 16125,
+      "sha256": "99a3f9a71a558000ad19ce9d1a6f03f3816c028279aa778c6c06384556c2186f"
+    },
+    "result": {
+      "approval_sha256": "5a3fa070e40b26bbcf6e83e0c271b0c64c752abe279f7ad3304e4cd7c63c8350",
+      "approved_producer": {
+        "artifact_digest": "sha256:ccd015c32f859af7cfa2ddb38b6e4a01c9eef810bd930d2d93cc765db412298c",
+        "artifact_id": 12617112379,
+        "run_attempt": 1,
+        "run_id": 40240561476,
+        "source": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5"
+      },
+      "artifact": {
+        "digest": "sha256:b9b13de541fe159f74b011a01c078b131a64e3e0a7b6fc5f823500d058c8680a",
+        "id": 12617194457,
+        "name": "native-cuda-qualified-e765a951e1dd30aaa10476ca31c1bb19f1be3ac5-40241470218-1",
+        "size_in_bytes": 4129285714
+      },
+      "attempt": 1,
+      "bounds": {
+        "directory_bytes": 2097152,
+        "entries": 128,
+        "metadata_file_bytes": 16777216,
+        "package_bytes": 2147483647,
+        "total_evidence_bytes": 134217728,
+        "transport_bytes": 4432330750
+      },
+      "driver_sha256": "b523dfc1f62c747e8b499c49461706b423be72954f6d3d70e6e3bef0a242437e",
+      "evidence": {
+        "additional_manager_logs": 1,
+        "execution_logs": 57,
+        "qualification_sha256": "784f9a9046c9c3a210ef448ab4d84c72f6be7b0545458d81bbe784e33f85c369",
+        "results": {
+          "deb": {
+            "image": "sha256:1f6f0f1552e38cfde03a4893234a91238324439092208cf0eadb50836227021f",
+            "sha256": "b2aa74faedb98020555d5068c0977e3449ecbfcc167a9d6fa8c6a0ae8b2c9559",
+            "status": "pass",
+            "steps": 14,
+            "variant": "cuda"
+          },
+          "recovery": {
+            "image": "sha256:9db892f54d872ba688bbf1e573b4f1959192370d155dbc284b54f14a88249d31",
+            "sha256": "cdadd362b1abffc6df2ac91457f0d4cfff6f7752455cf87ac1bcad162cfda3ce",
+            "status": "pass",
+            "steps": 24,
+            "variant": "cuda"
+          },
+          "rpm": {
+            "image": "sha256:9db892f54d872ba688bbf1e573b4f1959192370d155dbc284b54f14a88249d31",
+            "sha256": "fc0d0e2bffdd6cbc0156dc215b0ee7c7c7d80d3f87863d52d3a6e3787564e2b5",
+            "status": "pass",
+            "steps": 19,
+            "variant": "cuda"
+          }
+        }
+      },
+      "expected_artifact_id": 12617194457,
+      "expected_digest": "sha256:b9b13de541fe159f74b011a01c078b131a64e3e0a7b6fc5f823500d058c8680a",
+      "files": {
+        "evidence/deb/fixture-packages.txt": {
+          "bytes": 18201,
+          "sha256": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78"
+        },
+        "evidence/deb/fixture.json": {
+          "bytes": 1817,
+          "sha256": "379f2207c0bc639a346888a7a9f55abe6c22a7856c8306ccede69e63b1126e64"
+        },
+        "evidence/deb/smoke/00-confirm-no-existing-package.log": {
+          "bytes": 51,
+          "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7"
+        },
+        "evidence/deb/smoke/01-sentinels.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/deb/smoke/02-record-system-python-state.log": {
+          "bytes": 21,
+          "sha256": "9592687fa235a018a8927968dd916f248fc1d49bb8992f931448c597b49c5629"
+        },
+        "evidence/deb/smoke/03-install-exact-hosted-package.log": {
+          "bytes": 367,
+          "sha256": "dfc7c7127fe55464312f17ff92757e006033dddcc6b98aa5a8e0531a40ff37b8"
+        },
+        "evidence/deb/smoke/04-installed-source-adapter-manifest-identity.log": {
+          "bytes": 2199,
+          "sha256": "3a5bcacc97604f50214c9fbf1edc3e45d0b7777a797836c31e1c17d953ffa2ac"
+        },
+        "evidence/deb/smoke/05-complete-installed-integrity.log": {
+          "bytes": 59,
+          "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757"
+        },
+        "evidence/deb/smoke/06-native-package-state.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/deb/smoke/07-ordinary-user-launcher.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/deb/smoke/08-ordinary-user-runtime-media-gtk.log": {
+          "bytes": 19223,
+          "sha256": "35639fb00f1284a43c10c79be509b7353966a87c0e48d5c0ed49f9a3dc53c35b"
+        },
+        "evidence/deb/smoke/09-ordinary-user-generated-recording.log": {
+          "bytes": 1463,
+          "sha256": "373c92bc924483adce6d4e60fb24847489ea0ac0e5dbd48fd410804a2ba83c3e"
+        },
+        "evidence/deb/smoke/10-remove-native-package.log": {
+          "bytes": 231,
+          "sha256": "2303aed8e261d692282566ba58fac0c4fd0b04a7046e4ff4095cb93e641a5820"
+        },
+        "evidence/deb/smoke/11-package-uninstalled.log": {
+          "bytes": 51,
+          "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7"
+        },
+        "evidence/deb/smoke/12-preserve-user-system-and-stable-lock.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/deb/smoke/13-preserve-system-python-state.log": {
+          "bytes": 29,
+          "sha256": "958afdb4a5264cfe39ead4d69856bbe2464c3ca88317d6eed9ed7b2e43c5ae20"
+        },
+        "evidence/deb/smoke/result.json": {
+          "bytes": 23047,
+          "sha256": "b2aa74faedb98020555d5068c0977e3449ecbfcc167a9d6fa8c6a0ae8b2c9559"
+        },
+        "evidence/rpm/fixture-packages.txt": {
+          "bytes": 14105,
+          "sha256": "b87269a89658623b4892aecde541aa1740c14b0ebf5835e8122c5cfd39fa97bf"
+        },
+        "evidence/rpm/fixture.json": {
+          "bytes": 2121,
+          "sha256": "e7c740cf5ae38a483f697011d362a62a2f44e0e0eaf0803647c2af1a62a1e4dc"
+        },
+        "evidence/rpm/recovery/00-confirm-clean-fixture.log": {
+          "bytes": 37,
+          "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432"
+        },
+        "evidence/rpm/recovery/01-clean-private-paths.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/02-system-python.log": {
+          "bytes": 78,
+          "sha256": "3390f487e76eafa5f84322a4c36f33c56fb32893840e8937940e9724f00f8e84"
+        },
+        "evidence/rpm/recovery/03-private-verification-keyring.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/04-import-only-project-public-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/05-authenticate-signed-target.log": {
+          "bytes": 185,
+          "sha256": "b977f4146a3b7d394ed0765ad7e3a569b9ed82fc571fcf34b20b9cb8541daff4"
+        },
+        "evidence/rpm/recovery/06-signed-rpm-metadata.log": {
+          "bytes": 132,
+          "sha256": "b3758d34c2c333e63da114b914d26293b516a51a40e404af9bb609d715f54563"
+        },
+        "evidence/rpm/recovery/07-authenticated-payload-bindings.log": {
+          "bytes": 2322,
+          "sha256": "74dbe9b95c79ef44c0dea459ea3d7bb649bf03b569533157e96ec0fcf900ebf5"
+        },
+        "evidence/rpm/recovery/08-import-install-public-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/09-sigkill-observed-first-install.log": {
+          "bytes": 165,
+          "sha256": "c30102c68013fe93c38b6e4fe3cf260555bc23ee660785925eedc557a2a655e1"
+        },
+        "evidence/rpm/recovery/10-fresh-launcher-not-committed.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/11-bootstrap-identity.log": {
+          "bytes": 178,
+          "sha256": "5347eaf9bca9d7d373b02c82a9b9988178dee71e61d45c47ccb5b0282865ff7f"
+        },
+        "evidence/rpm/recovery/12-bootstrap-uses-system-python.log": {
+          "bytes": 1009,
+          "sha256": "15afed029ad259166eac8a193c1f68b5b17a20424ca7224ea06684124c129fc2"
+        },
+        "evidence/rpm/recovery/13-inspect-authenticated-fragments.log": {
+          "bytes": 20523,
+          "sha256": "50ac9e42a997752999b28bf7503a8005014a4e01d925468e05d84ea9c37a9d72"
+        },
+        "evidence/rpm/recovery/14-preserve-authenticated-fragments.log": {
+          "bytes": 23827,
+          "sha256": "3146c05e03c0ea7865937802de467c2580fe685457796d7ecf184c6ffb262a99"
+        },
+        "evidence/rpm/recovery/15-audit-preserved-bytes-and-marker.log": {
+          "bytes": 29,
+          "sha256": "abeb5b49bcbd2cbe32794ea1ee817044685b73edde89a66543a079bc3f293781"
+        },
+        "evidence/rpm/recovery/16-import-preserved-public-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/17-replay-exact-preserved-package.log": {
+          "bytes": 339,
+          "sha256": "8a9da6fd9a363279240db4f4ac3e01fb8430f1e054494bbfdc9362e945e34dda"
+        },
+        "evidence/rpm/recovery/18-configured-marker-and-bootstrap-cleared.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/19-installed-payload-bindings.log": {
+          "bytes": 2322,
+          "sha256": "74dbe9b95c79ef44c0dea459ea3d7bb649bf03b569533157e96ec0fcf900ebf5"
+        },
+        "evidence/rpm/recovery/20-native-package-state.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/21-complete-installed-integrity.log": {
+          "bytes": 59,
+          "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757"
+        },
+        "evidence/rpm/recovery/22-launcher-after-repair.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/recovery/23-recovered-runtime-cpu-fallback.log": {
+          "bytes": 6487,
+          "sha256": "2cb6d22face0fd43d83505c91a6813fefffa080ac25a449fe02ce6ac7d0e4e60"
+        },
+        "evidence/rpm/recovery/interrupted-manager.log": {
+          "bytes": 188,
+          "sha256": "0ba8893403beefb98fe577970419fde8e17e83d09842d8fa24f9309686890181"
+        },
+        "evidence/rpm/recovery/preservation.json": {
+          "bytes": 23827,
+          "sha256": "3146c05e03c0ea7865937802de467c2580fe685457796d7ecf184c6ffb262a99"
+        },
+        "evidence/rpm/recovery/result.json": {
+          "bytes": 14930,
+          "sha256": "cdadd362b1abffc6df2ac91457f0d4cfff6f7752455cf87ac1bcad162cfda3ce"
+        },
+        "evidence/rpm/smoke/00-confirm-no-existing-package.log": {
+          "bytes": 37,
+          "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432"
+        },
+        "evidence/rpm/smoke/01-fresh-project-verification-keyring.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/02-import-project-verification-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/03-verify-finalized-project-signature.log": {
+          "bytes": 186,
+          "sha256": "d1e671772b4f49e8575054297ad2a041aa6d07b0248ccd76dcf1a4c039570846"
+        },
+        "evidence/rpm/smoke/04-import-project-installation-key.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/05-sentinels.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/06-record-system-python-state.log": {
+          "bytes": 83,
+          "sha256": "f66edb4339f8ffb9b881bf7782ee1d9240d508007cfc10dc6244da9f5c198694"
+        },
+        "evidence/rpm/smoke/07-install-exact-hosted-package.log": {
+          "bytes": 339,
+          "sha256": "8a9da6fd9a363279240db4f4ac3e01fb8430f1e054494bbfdc9362e945e34dda"
+        },
+        "evidence/rpm/smoke/08-installed-source-adapter-manifest-identity.log": {
+          "bytes": 2199,
+          "sha256": "f0eb9c38ebdfbe43cd56e12228f1b5117f6077086bdb83d5dcb26b59b5633074"
+        },
+        "evidence/rpm/smoke/09-complete-installed-integrity.log": {
+          "bytes": 59,
+          "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757"
+        },
+        "evidence/rpm/smoke/10-native-package-state.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/11-ordinary-user-launcher.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/12-system-python-recovery-interface.log": {
+          "bytes": 998,
+          "sha256": "a3d9d692338f4fc0b7bf06f7a2aeca40199b441a6d536752c2314b7debb0f0ea"
+        },
+        "evidence/rpm/smoke/13-ordinary-user-runtime-media-gtk.log": {
+          "bytes": 18980,
+          "sha256": "608a72cdd01cdc38f4227e01e6de76a418594bbbcb481f63395742072a69bd60"
+        },
+        "evidence/rpm/smoke/14-ordinary-user-generated-recording.log": {
+          "bytes": 766,
+          "sha256": "f8a1127a1908b1625e8002eb25716ba3317257caff540cb44311a39eb8c0daec"
+        },
+        "evidence/rpm/smoke/15-remove-native-package.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/16-package-uninstalled.log": {
+          "bytes": 37,
+          "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432"
+        },
+        "evidence/rpm/smoke/17-preserve-user-system-and-stable-lock.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evidence/rpm/smoke/18-preserve-system-python-state.log": {
+          "bytes": 21,
+          "sha256": "3a409f2d6007ac08025114543781cbb6ec0cb1c96fb860e4434cc463ea2cbae9"
+        },
+        "evidence/rpm/smoke/result.json": {
+          "bytes": 24910,
+          "sha256": "fc0d0e2bffdd6cbc0156dc215b0ee7c7c7d80d3f87863d52d3a6e3787564e2b5"
+        },
+        "packages/RPM-GPG-KEY-nvbroadcast.asc": {
+          "bytes": 3943,
+          "sha256": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a"
+        },
+        "packages/SHA256SUMS": {
+          "bytes": 644,
+          "sha256": "637c5359ed14991bcfafa69b71f0894d4ee8376aff1da7ee1333d1bb2546e85b"
+        },
+        "packages/candidate.json": {
+          "bytes": 2209,
+          "sha256": "3f37ec031a598bc6399637b3430bb26d6a1b98c26f83ab0aba66d71832323ec1"
+        },
+        "packages/deb/nvbroadcast_1.5.3-7.cuda_amd64.deb": {
+          "bytes": 2070585242,
+          "sha256": "b16c3195bcd01e4536ca3a59feb474dcbda3ca39c1c6f2da3d36829a0c0ad539"
+        },
+        "packages/nvbroadcast-native-upgrade": {
+          "bytes": 13548,
+          "sha256": "117fabd2464d87dd0cf544e91359bae27cae0fb20adb2fc27118eabf230d6d0c"
+        },
+        "packages/rpm-signing.json": {
+          "bytes": 711,
+          "sha256": "fba38568c67701ec1a20b3cf4cc7bd96f9a681e82bc724d0f70aa1084290bbda"
+        },
+        "packages/rpm/nvbroadcast-1.5.3-7.cuda.x86_64.rpm": {
+          "bytes": 2058428352,
+          "sha256": "1575edf2be669f02357e73dcb5886ed31bbeb9aff480d8b11de38d4ca7c58eea"
+        },
+        "packages/validation.json": {
+          "bytes": 2626,
+          "sha256": "bdc3a71bddf72ae52fd8f08a3c52a3a4cb42c8a935a73099b34fd11f18c847a9"
+        },
+        "qualification.json": {
+          "bytes": 5970,
+          "sha256": "784f9a9046c9c3a210ef448ab4d84c72f6be7b0545458d81bbe784e33f85c369"
+        }
+      },
+      "finished_at": "2026-10-25T23:28:28.195011+00:00",
+      "packages": {
+        "deb": {
+          "bytes": 2070585242,
+          "path": "deb/nvbroadcast_1.5.3-7.cuda_amd64.deb",
+          "sha256": "b16c3195bcd01e4536ca3a59feb474dcbda3ca39c1c6f2da3d36829a0c0ad539"
+        },
+        "rpm": {
+          "bytes": 2058428352,
+          "path": "rpm/nvbroadcast-1.5.3-7.cuda.x86_64.rpm",
+          "sha256": "1575edf2be669f02357e73dcb5886ed31bbeb9aff480d8b11de38d4ca7c58eea"
+        }
+      },
+      "run_id": 40241470218,
+      "scope": "Retained CUDA development candidate readback; hosted CPU execution and expected no-device CUDA rejection. No installation, signing, GPU computation, physical-device, clean-VM or release acceptance.",
+      "signature": {
+        "container_removed": true,
+        "fixture_image": "sha256:fb2daa7eb39488d8f6da9f893d044f33b1e768b9d5dc16d7a15f8860726c2b66",
+        "keyring": "fresh-project-only",
+        "log_sha256": "d1e671772b4f49e8575054297ad2a041aa6d07b0248ccd76dcf1a4c039570846",
+        "network": "none",
+        "package_sha256": "1575edf2be669f02357e73dcb5886ed31bbeb9aff480d8b11de38d4ca7c58eea",
+        "public_key_sha256": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+        "publisher_fingerprint": "A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1",
+        "status": "verified"
+      },
+      "source": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+      "status": "pass",
+      "version": "1.5.3-7.cuda"
+    },
+    "files_verified": 75,
+    "execution_logs_verified": 57,
+    "additional_interrupted_manager_logs": 1,
+    "approval_sha256": "5a3fa070e40b26bbcf6e83e0c271b0c64c752abe279f7ad3304e4cd7c63c8350",
+    "verifier_sha256": "b523dfc1f62c747e8b499c49461706b423be72954f6d3d70e6e3bef0a242437e",
+    "verifier_boundary_tests": {
+      "passed": 14,
+      "subtests_passed": 18
+    },
+    "download_retries": 0,
+    "partial_recovery_used": false,
+    "media": {
+      "deb": {
+        "runtime_probe_status": "pass",
+        "variant": "cuda",
+        "cpu_execution": {
+          "available_providers": [
+            "TensorrtExecutionProvider",
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ],
+          "diagnostics": "probe stderr:\n\u001b[0;93m2026-10-25 23:07:55.093752638 [W:onnxruntime:Default, device_discovery.cc:132 GetPciBusId] Skipping pci_bus_id for PCI path at \"/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/MSFT1000:00/5620e0c7-8062-4dce-aeb7-520c7ef76171\" because filename \"\"5620e0c7-8062-4dce-aeb7-520c7ef76171\"\" dit not match expected pattern of [0-9a-f]+:[0-9a-f]+:[0-9a-f]+[.][0-9a-f]+\u001b[m",
+          "error": "",
+          "executed_providers": [
+            "CPUExecutionProvider"
+          ],
+          "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+          "output": [
+            1.0,
+            4.0,
+            9.0,
+            16.0
+          ],
+          "output_shape": [
+            1,
+            4
+          ],
+          "provider": "cpu",
+          "registered_providers": [
+            "CPUExecutionProvider"
+          ],
+          "success": true,
+          "traceback": ""
+        },
+        "cuda_execution": {
+          "available_providers": [
+            "TensorrtExecutionProvider",
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ],
+          "diagnostics": "probe stdout:\n*************** EP Error ***************\nEP Error /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=24825fb58eb3 ; file=/onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc ; line=67 ; expr=cudaGetDeviceCount(&num_devices); \n when using [('CUDAExecutionProvider', {'device_id': 0})]\nFalling back to ['CPUExecutionProvider'] and retrying.\n****************************************\nprobe stderr:\n\u001b[0;93m2026-10-25 23:07:55.577510569 [W:onnxruntime:Default, device_discovery.cc:132 GetPciBusId] Skipping pci_bus_id for PCI path at \"/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/MSFT1000:00/5620e0c7-8062-4dce-aeb7-520c7ef76171\" because filename \"\"5620e0c7-8062-4dce-aeb7-520c7ef76171\"\" dit not match expected pattern of [0-9a-f]+:[0-9a-f]+:[0-9a-f]+[.][0-9a-f]+\u001b[m\n\u001b[1;31m2026-10-25 23:07:55.647979732 [E:onnxruntime:Default, cuda_call.cc:123 CudaCall] CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=24825fb58eb3 ; file=/onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc ; line=67 ; expr=cudaGetDeviceCount(&num_devices); \u001b[m\n\u001b[1;31m2026-10-25 23:07:55.655761376 [E:onnxruntime:, inference_session.cc:2500 Initialize] Conflicting session configuration: explicitly added the CPU EP to the session, but also disabled fallback to the CPU EP via session configuration options.\u001b[m",
+          "error": "RuntimeError: /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=24825fb58eb3 ; file=/onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc ; line=67 ; expr=cudaGetDeviceCount(&num_devices); \n",
+          "executed_providers": [],
+          "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+          "output": [],
+          "output_shape": [],
+          "provider": "cuda",
+          "registered_providers": [],
+          "success": false,
+          "traceback": "Traceback (most recent call last):\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 504, in __init__\n    self._create_inference_session(providers, provider_options, disabled_optimizers)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 610, in _create_inference_session\n    sess.initialize_session(providers, provider_options, disabled_optimizers)\n    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=24825fb58eb3 ; file=/onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc ; line=67 ; expr=cudaGetDeviceCount(&num_devices); \n\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/nvbroadcast/runtime/probe.py\", line 372, in execute_provider_probe\n    session = ort.InferenceSession(\n        model,\n        sess_options=options,\n        providers=_provider_request(provider, device_id),\n    )\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 517, in __init__\n    raise fallback_error from e\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 512, in __init__\n    self._create_inference_session(self._fallback_providers, None)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 610, in _create_inference_session\n    sess.initialize_session(providers, provider_options, disabled_optimizers)\n    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nonnxruntime.capi.onnxruntime_pybind11_state.InvalidArgument: [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Conflicting session configuration: explicitly added the CPU EP to the session, but also disabled fallback to the CPU EP via session configuration options.\n"
+        },
+        "cuda_unavailable_expected": true,
+        "cupy_execution": null,
+        "gtk_window_mapped": true,
+        "video_and_audio_pipelines": "eos",
+        "recording": {
+          "audio_encoder": "voaacenc",
+          "audio_peak": 0.8085297346115112,
+          "audio_samples": 49152,
+          "file_bytes": 211392,
+          "status": "pass",
+          "video_encoder": "x264enc",
+          "video_frames": 24
+        }
+      },
+      "rpm": {
+        "runtime_probe_status": "pass",
+        "variant": "cuda",
+        "cpu_execution": {
+          "available_providers": [
+            "TensorrtExecutionProvider",
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ],
+          "diagnostics": "probe stderr:\n\u001b[0;93m2026-10-25 23:01:16.294498579 [W:onnxruntime:Default, device_discovery.cc:132 GetPciBusId] Skipping pci_bus_id for PCI path at \"/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/MSFT1000:00/5620e0c7-8062-4dce-aeb7-520c7ef76171\" because filename \"\"5620e0c7-8062-4dce-aeb7-520c7ef76171\"\" dit not match expected pattern of [0-9a-f]+:[0-9a-f]+:[0-9a-f]+[.][0-9a-f]+\u001b[m",
+          "error": "",
+          "executed_providers": [
+            "CPUExecutionProvider"
+          ],
+          "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+          "output": [
+            1.0,
+            4.0,
+            9.0,
+            16.0
+          ],
+          "output_shape": [
+            1,
+            4
+          ],
+          "provider": "cpu",
+          "registered_providers": [
+            "CPUExecutionProvider"
+          ],
+          "success": true,
+          "traceback": ""
+        },
+        "cuda_execution": {
+          "available_providers": [
+            "TensorrtExecutionProvider",
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ],
+          "diagnostics": "probe stdout:\n*************** EP Error ***************\nEP Error /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=35d4037b7c8c ; file=/onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc ; line=67 ; expr=cudaGetDeviceCount(&num_devices); \n when using [('CUDAExecutionProvider', {'device_id': 0})]\nFalling back to ['CPUExecutionProvider'] and retrying.\n****************************************\nprobe stderr:\n\u001b[0;93m2026-10-25 23:01:17.013748976 [W:onnxruntime:Default, device_discovery.cc:132 GetPciBusId] Skipping pci_bus_id for PCI path at \"/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/MSFT1000:00/5620e0c7-8062-4dce-aeb7-520c7ef76171\" because filename \"\"5620e0c7-8062-4dce-aeb7-520c7ef76171\"\" dit not match expected pattern of [0-9a-f]+:[0-9a-f]+:[0-9a-f]+[.][0-9a-f]+\u001b[m\n\u001b[1;31m2026-10-25 23:01:17.112053437 [E:onnxruntime:Default, cuda_call.cc:123 CudaCall] CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=35d4037b7c8c ; file=/onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc ; line=67 ; expr=cudaGetDeviceCount(&num_devices); \u001b[m\n\u001b[1;31m2026-10-25 23:01:17.120374318 [E:onnxruntime:, inference_session.cc:2500 Initialize] Conflicting session configuration: explicitly added the CPU EP to the session, but also disabled fallback to the CPU EP via session configuration options.\u001b[m",
+          "error": "RuntimeError: /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=35d4037b7c8c ; file=/onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc ; line=67 ; expr=cudaGetDeviceCount(&num_devices); \n",
+          "executed_providers": [],
+          "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+          "output": [],
+          "output_shape": [],
+          "provider": "cuda",
+          "registered_providers": [],
+          "success": false,
+          "traceback": "Traceback (most recent call last):\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 504, in __init__\n    self._create_inference_session(providers, provider_options, disabled_optimizers)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 610, in _create_inference_session\n    sess.initialize_session(providers, provider_options, disabled_optimizers)\n    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=35d4037b7c8c ; file=/onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc ; line=67 ; expr=cudaGetDeviceCount(&num_devices); \n\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/nvbroadcast/runtime/probe.py\", line 372, in execute_provider_probe\n    session = ort.InferenceSession(\n        model,\n        sess_options=options,\n        providers=_provider_request(provider, device_id),\n    )\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 517, in __init__\n    raise fallback_error from e\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 512, in __init__\n    self._create_inference_session(self._fallback_providers, None)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/nvbroadcast/runtime/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py\", line 610, in _create_inference_session\n    sess.initialize_session(providers, provider_options, disabled_optimizers)\n    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nonnxruntime.capi.onnxruntime_pybind11_state.InvalidArgument: [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Conflicting session configuration: explicitly added the CPU EP to the session, but also disabled fallback to the CPU EP via session configuration options.\n"
+        },
+        "cuda_unavailable_expected": true,
+        "cupy_execution": null,
+        "gtk_window_mapped": true,
+        "video_and_audio_pipelines": "eos",
+        "recording": {
+          "audio_encoder": "fdkaacenc",
+          "audio_peak": 0.8150238394737244,
+          "audio_samples": 51200,
+          "file_bytes": 143537,
+          "status": "pass",
+          "video_encoder": "openh264enc",
+          "video_frames": 24
+        }
+      }
+    }
+  },
+  "local_verification_tool_corrections": [
+    {
+      "scope": "Local comparison harness review before any hosted comparison; no artifact defect observed.",
+      "finding": "Initial comparator hashed an approved transport receipt without binding the compared directory to its extracted root.",
+      "correction": "Require verified transport status, exact source/variant/version/run/attempt, strict artifact identity/digest/size and exact canonical extracted-root/dist/native-cuda binding."
+    },
+    {
+      "scope": "Local comparison harness review before any hosted comparison; no artifact defect observed.",
+      "finding": "Initial comparison did not enforce actual-file limits before or while streaming.",
+      "correction": "Use nofollow regular-file descriptors, pre-read package/metadata size ceilings, counted streaming bounds and descriptor/path stability checks."
+    }
+  ],
+  "comparison_driver_review": {
+    "status": "pass",
+    "sha256": "af460dcc8fd2a3a6e656ddb3a5d6608656f0eeb526a742bdf7eaabd8919efc55",
+    "reviewer": "cuda_switch_qualifier",
+    "author_isolated_checks_passed": 14,
+    "independent_isolated_checks_passed": 12,
+    "actual_hosted_comparison_executed": true
+  },
+  "limits": [
+    "Direct complete byte comparison passed for both unsigned CUDA packages and six metadata/manifests; signature determinism is not covered.",
+    "Historical builder images and authenticated downloaded inputs are reused; native dependency source reconstruction is not established.",
+    "The hosted 40 GiB policy and local 64 GiB gate are allocation budgets; observed free disk is evidence for these runs, not measured peak use across all environments.",
+    "Hosted no-device qualification establishes CPU execution and expected CUDA rejection; it does not establish GPU execution; the earlier local hardware matrix remains bound to its recorded revision 6 packages.",
+    "No new physical camera/microphone, clean-VM, power-loss, default-switch or production promotion acceptance.",
+    "No release, tag, frozen v1.5.3 artifact, installed Snap or Flatpak changed by this work."
+  ],
+  "evidence": {
+    "paths_relative_to": "the original workspace parent containing the named worktrees",
+    "local_build_root": "Broadcast-hosted-native-cuda-repro-20261025/dist/build-cuda",
+    "capacity_path_labels": {
+      "HOME": "the local home directory"
+    }
+  }
+}
