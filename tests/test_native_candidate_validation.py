@@ -14,7 +14,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -433,6 +433,32 @@ class VariantBoundaryTests(unittest.TestCase):
             header.size = v.GIB+1
             with self.assertRaisesRegex(ValueError, "member exceeds"):
                 v.BoundedTarStream(io.BytesIO(header.tobuf()), variant).read(512)
+
+    def test_decoded_payload_budget_counts_regular_bytes_for_each_variant(self):
+        # Small real tar members exercise cumulative expansion without allocating
+        # gigabytes or starting a container. Only process/resource boundaries vary.
+        for variant in ("cpu", "cuda"):
+            selected = v.policy.policy_for(variant)._replace(payload_max_bytes=32)
+            for second_size in (16, 17):
+                raw = io.BytesIO()
+                with tarfile.open(fileobj=raw, mode="w") as archive:
+                    for name, size in (("usr/a", 16), ("usr/b", second_size)):
+                        member = tarfile.TarInfo(name)
+                        member.size, member.mode = size, 0o644
+                        archive.addfile(member, io.BytesIO(b"x"*size))
+                raw.seek(0)
+                process = Mock(stdout=raw, returncode=0)
+                process.wait.return_value = process.poll.return_value = 0
+                with self.subTest(variant=variant, second_size=second_size), \
+                        patch.object(v.subprocess, "Popen", return_value=process), \
+                        patch.object(v, "bounded", return_value=b""), \
+                        patch.object(v.policy, "policy_for", return_value=selected) as choose:
+                    if second_size == 16:
+                        self.assertEqual(v.decoded_inventory(Path("fixture.deb"), "deb", variant=variant)[3], 32)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "expands beyond bound"):
+                            v.decoded_inventory(Path("fixture.deb"), "deb", variant=variant)
+                    self.assertTrue(all(call.args == (variant,) for call in choose.call_args_list))
 
     def test_cross_variant_version_rejected_before_file_open(self):
         for variant, version in (("cpu", "1.5.3-7.cuda"), ("cuda", VERSION)):
