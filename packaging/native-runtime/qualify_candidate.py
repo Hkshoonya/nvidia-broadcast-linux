@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qualify reviewed CPU candidate bytes in explicitly provisioned offline fixtures.
+"""Qualify reviewed native candidate bytes in explicitly provisioned offline fixtures.
 
 Run finalize_candidate.py verify first to authenticate the bundle manifest.
 This command checks the supplied package hash again; it neither signs packages
@@ -31,6 +31,7 @@ recovery = load("recover_candidate.py")
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--family", choices=("deb", "rpm"), required=True)
+    parser.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--artifact-sha256", required=True)
     parser.add_argument("--source", required=True, help="approved full application and adapter commit")
@@ -46,6 +47,7 @@ def parse_arguments(argv=None):
 
 
 def make_plan(args):
+    recovery.policy.policy_for(args.variant)
     for value, size in ((args.source, 40), (args.artifact_sha256, 64),
                         (args.runtime_manifest_sha256, 64), (args.recovery_helper_sha256, 64)):
         recovery.identity(value, size)
@@ -61,18 +63,19 @@ def make_plan(args):
         raise ValueError("use a fresh qualification output directory")
     if any(c in str(path) for path in (artifact, output) for c in ",\n\r"):
         raise ValueError("unsupported Docker mount path")
-    if recovery.digest(artifact) != args.artifact_sha256 or not artifact.stat().st_size:
+    if recovery.package_digest(artifact, args.variant) != args.artifact_sha256:
         raise ValueError("artifact differs from the approved input identity")
     if args.evidence_output is not None and (args.evidence_output.exists() or args.evidence_output.is_symlink()):
         raise ValueError("use a fresh evidence output directory")
-    return {"status": "planned-not-executed", "family": args.family,
-            "source": args.source, "version": args.package_version + "-" + args.package_revision + ".cpu",
+    return {"status": "planned-not-executed", "family": args.family, "variant": args.variant,
+            "source": args.source, "version": args.package_version + "-" + args.package_revision + "." + args.variant,
             "artifact": str(artifact), "artifact_sha256": args.artifact_sha256,
             "runtime_manifest_sha256": args.runtime_manifest_sha256,
             "recovery_helper_sha256": args.recovery_helper_sha256,
             "image": args.image, "output": str(output), "network": "none",
             "scenarios": ["smoke"] + (["recovery"] if args.family == "rpm" else []),
             "host_devices_or_application_source_mounted": False,
+            "container_runtime": "runc", "gpu_device": None, "nvidia_visible_devices": "void",
             "drivers": {name: recovery.digest(HERE / name) for name in
                         ("qualify_candidate.py", "smoke_candidate.py", "recover_candidate.py")}}
 
@@ -113,7 +116,7 @@ def execute(args, plan):
     output = Path(plan["output"])
     output.mkdir(parents=True, mode=0o700, exist_ok=False)
     smoke = load("smoke_candidate.py")
-    shared = ["--package-version", args.package_version, "--package-revision", args.package_revision,
+    shared = ["--variant", args.variant, "--package-version", args.package_version, "--package-revision", args.package_revision,
               "--image", args.image, "--runtime-manifest-sha256", args.runtime_manifest_sha256]
     plan["status"] = "running"
     try:

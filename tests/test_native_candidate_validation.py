@@ -401,5 +401,215 @@ class SourceHistoryTests(unittest.TestCase):
 
 
 
+class VariantBoundaryTests(unittest.TestCase):
+    def test_policy_allowlist_and_cpu_compatibility(self):
+        cpu, cuda = (v.policy.policy_for(name) for name in ("cpu", "cuda"))
+        self.assertEqual(tuple(cpu)[1:], (v.GIB, 2*v.GIB, 4*v.GIB, 5*v.GIB, 12*v.GIB))
+        self.assertEqual(cuda.package_max_bytes, 2*v.GIB-1)
+        self.assertGreaterEqual(cuda.transport_max_bytes, 2*cuda.package_max_bytes+32*v.MIB)
+        self.assertLessEqual(cuda.transport_max_bytes, 4*v.GIB+64*v.MIB)
+        self.assertGreater(cuda.payload_max_bytes, 5003906349)
+        self.assertLessEqual(cuda.payload_max_bytes, 6*v.GIB)
+        self.assertEqual(cuda.tar_max_bytes, 7*v.GIB)
+        self.assertEqual(cuda.capacity_bytes, 40*v.GIB)
+        for variant in (None, "CUDA", "cuda/../cpu", "", 1):
+            with self.subTest(variant=variant), self.assertRaises(ValueError):
+                v.policy.policy_for(variant)
+        v.policy.check_variant({}, "cpu")
+        for record, variant in (({}, "cuda"), ({"variant": "cuda"}, "cpu"),
+                                ({"variant": "cpu"}, "cuda"), ({"variant": None}, "cpu")):
+            with self.subTest(record=record, variant=variant), self.assertRaises(ValueError):
+                v.policy.check_variant(record, variant)
+
+    def test_raw_tar_total_bound_is_selected_without_relaxing_member_bounds(self):
+        for variant in ("cpu", "cuda"):
+            limit = v.policy.policy_for(variant).tar_max_bytes
+            stream = v.BoundedTarStream(io.BytesIO(bytes(1024)), variant)
+            stream.total = limit - 512
+            self.assertEqual(len(stream.read(512)), 512)
+            with self.assertRaisesRegex(ValueError, "total byte bound"):
+                stream.read(512)
+            header = tarfile.TarInfo("huge")
+            header.size = v.GIB+1
+            with self.assertRaisesRegex(ValueError, "member exceeds"):
+                v.BoundedTarStream(io.BytesIO(header.tobuf()), variant).read(512)
+
+    def test_cross_variant_version_rejected_before_file_open(self):
+        for variant, version in (("cpu", "1.5.3-7.cuda"), ("cuda", VERSION)):
+            with self.subTest(variant=variant), self.assertRaisesRegex(ValueError, "explicit variant"):
+                v.unpack_zip(Path("does-not-exist"), {}, Path("unused"), version, variant)
+
+    def test_cuda_archive_layout_and_individual_package_limit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "candidate.zip"
+            names = [name.replace("native-cpu", "native-cuda").replace(".cpu", ".cuda") for name in NAMES]
+            with zipfile.ZipFile(archive, "w") as saved:
+                for name in names:
+                    saved.writestr(name, b"content")
+            metadata = {"size_in_bytes": archive.stat().st_size, "digest": "sha256:" + v.file_digest(archive)}
+            output = root / "output"
+            output.mkdir()
+            self.assertEqual(v.unpack_zip(archive, metadata, output, VERSION.replace(".cpu", ".cuda"), "cuda")["files"], 13)
+            with self.assertRaisesRegex(ValueError, "file set"):
+                v.unpack_zip(archive, metadata, output, VERSION, "cpu")
+            original = zipfile.ZipFile.infolist
+            for size in (2*v.GIB-1, 2*v.GIB):
+                def changed(saved):
+                    members = original(saved)
+                    members[0].file_size = size
+                    return members
+                with self.subTest(size=size), patch.object(zipfile.ZipFile, "infolist", changed), \
+                        patch.object(zipfile.ZipFile, "open", side_effect=RuntimeError("reached extraction")):
+                    expected = RuntimeError if size < 2*v.GIB else ValueError
+                    message = "reached extraction" if size < 2*v.GIB else "entry exceeds bound"
+                    with self.assertRaisesRegex(expected, message):
+                        v.unpack_zip(archive, metadata, output, VERSION.replace(".cpu", ".cuda"), "cuda")
+
+    def test_runtime_probe_requires_executed_cpu_and_failed_cuda(self):
+        good = {"status": "pass", "variant": "cuda", "cuda_unavailable_expected": True,
+                "cpu_execution": {"provider": "cpu", "success": True, "executed_providers": ["CPUExecutionProvider"]},
+                "cuda_execution": {"provider": "cuda", "success": False, "executed_providers": []}}
+        v.policy.validate_runtime_probe(good, "cuda")
+        for key, value in (("variant", "cpu"), ("cuda_unavailable_expected", False),
+                ("cpu_execution", {"provider": "cpu", "success": True, "executed_providers": []}),
+                ("cuda_execution", {"provider": "cuda", "success": True, "executed_providers": ["CUDAExecutionProvider"]}),
+                ("cuda_execution", {"provider": "cuda", "success": False, "executed_providers": ["CUDAExecutionProvider"]}),
+                ("cupy_execution", {"output": [1]})):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                v.policy.validate_runtime_probe(dict(good, **{key: value}), "cuda")
+        v.policy.validate_runtime_probe({"status": "pass"}, "cpu")
+
+    def test_hook_variant_comes_from_explicit_selection(self):
+        git = lambda path: (ROOT / path).read_bytes()
+        for variant in ("cpu", "cuda"):
+            version = "1.5.3-7." + variant
+            script = v.expected_hook(git, "finish", version, "deb", b"", variant)
+            self.assertIn(variant, script)
+            self.assertIn(version, script)
+            self.assertNotIn("@VARIANT@", script)
+
+
+class CudaAuthorityTests(CandidateAuthorityTests):
+    def setUp(self):
+        super().setUp()
+        self.args.variant = "cuda"
+        self.artifact["name"] = self.artifact["name"].replace("native-cpu", "native-cuda")
+
+    def test_artifact_identity_and_transport_mismatch(self):
+        for size in (2*v.GIB+1, v.policy.policy_for("cuda").transport_max_bytes):
+            self.artifact["size_in_bytes"] = size
+            self.assertEqual(self.check()[1]["size_in_bytes"], size)
+        for key, value in (("size_in_bytes", v.policy.policy_for("cuda").transport_max_bytes+1),
+                           ("size_in_bytes", True), ("name", self.artifact["name"].replace("native-cuda", "native-cpu"))):
+            changed = dict(self.artifact, **{key: value})
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "artifact identity"):
+                self.check(artifact=changed)
+
+
+
+class VariantPayloadIdentityTests(unittest.TestCase):
+    """Exercise real validation order with a small inert decoded payload fixture."""
+    def validate_fixture(self, variant, change=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = {"revision": "a"*40, "version": "1.5.3", "source_date_epoch": 1}
+            version = "1.5.3-7." + variant
+            git = lambda path: (ROOT / path).read_bytes()
+            adapter = {"revision": source["revision"], "tree": "b"*40,
+                       "files": {name: v.digest(git(name)) for name in v.ADAPTER_PATHS}}
+            base_lock = git(f"packaging/native-runtime/pylock.linux-x86_64-cp313-{variant}.toml")
+            app_lock = ('\n[[packages]]\nname="nvbroadcast"\nversion="1.5.3"\n'
+                        '[packages.archive]\npath="nvbroadcast-1.5.3-py3-none-any.whl"\n'
+                        '[packages.archive.hashes]\nsha256="' + 'c'*64 + '"\n').encode()
+            lock = base_lock + app_lock
+            pins = json.loads(git("packaging/native-runtime/builders.json"))
+            delivery = json.loads(git("packaging/native-runtime/builder-delivery.json"))
+            packaging = next(p for p in v.tomllib.loads(git("packaging/runtime-prototype/pylock.build.toml").decode())["packages"] if p["name"] == "packaging")
+            base = f"dist/native-{variant}/"
+            files = {base+"build-provenance.json": {"application": source, "adapter": adapter},
+                     base+"payload/manifest.json": {}, base+"assembly/pylock.toml": lock,
+                     "packaging/native-runtime/builders.json": git("packaging/native-runtime/builders.json"),
+                     "packaging/native-runtime/builder-delivery.json": git("packaging/native-runtime/builder-delivery.json"),
+                     "dist/builder-delivery/capacity.json": {"variant": variant,
+                         "required_free_bytes": v.policy.policy_for(variant).capacity_bytes,
+                         "observed_free_bytes": {name: 64*v.GIB for name in ("GITHUB_WORKSPACE", "RUNNER_TEMP", "HOME")}},
+                     "dist/builder-delivery/host-tools.json": {"interpreter": "/usr/bin/python3", "isolated": True,
+                         "site_disabled": True, "packaging_version": packaging["version"],
+                         "wheel_sha256": packaging["wheels"][0]["hashes"]["sha256"]},
+                     "dist/builder-delivery/authenticated-builders.json": {"status": "authenticated_import_delivery",
+                         "archive_sha256": delivery["archive"]["sha256"], "archive_bytes": delivery["archive"]["bytes"],
+                         "blob_count": 23, "builder_images": {role: pin["image"] for role, pin in pins.items()},
+                         "origin": "maintainer-qualified-historical-snapshot", "original_build_provenance_authenticated": False,
+                         "installed_inventory": {role: {"image": pin["image"], "package_count": len(pin["packages"])} for role, pin in pins.items()}}}
+            packages = []
+            for family, name in (("deb", f"deb/nvbroadcast_{version}_amd64.deb"),
+                                 ("rpm", f"rpm/build/RPMS/x86_64/nvbroadcast-{version}.x86_64.rpm")):
+                files[base+name] = b"inert package"
+                files[base+family+"/content.json"] = {}
+                packages.append({"family": family, "artifact": name, "content": family+"/content.json",
+                    "version": version, "variant": variant, "source": dict(source), "adapter": adapter,
+                    "builder_image": pins[family]["image"], "runtime_manifest_sha256": v.digest(b"{}"),
+                    "content_sha256": v.digest(b"{}"), "bytes": 13, "sha256": v.digest(b"inert package")})
+            files[base+"packages.json"] = packages
+            inputs = json.loads(git("packaging/runtime-prototype/inputs.json"))
+            inputs["application"] = source
+            kept = {"/usr/lib/nvbroadcast/runtime-manifest.json": b"{}",
+                    v.PREFIX+"share/nvbroadcast-runtime-provenance/pylock.toml": lock,
+                    v.PREFIX+"share/nvbroadcast-runtime-provenance/builders.json": git("packaging/native-runtime/builders.json"),
+                    "/usr/lib/nvbroadcast/validate-install.py": git("packaging/native-runtime/validate_install.py"),
+                    v.PREFIX+"share/nvbroadcast-runtime-provenance/inputs.json": json.dumps(inputs).encode(),
+                    v.PREFIX+"share/nvbroadcast-runtime-provenance/selection.json": json.dumps({
+                        "target": "linux-x86_64-cp313-"+variant, "lock_sha256": v.digest(lock), "source": source}).encode(),
+                    "/usr/lib/nvbroadcast/package.json": json.dumps({"schema_version": 1, "variant": variant,
+                        "version": version, "source": source, "adapter": adapter, "runtime_manifest_sha256": v.digest(b"{}")}).encode()}
+            if change:
+                change(files, kept, base)
+            args = argparse.Namespace(variant=variant, repo=ROOT, source=source["revision"], package_revision="7",
+                run_id=1, attempt=1, artifact_id=1, expected_digest="sha256:"+"d"*64,
+                output=root/"output", zip=root/"unused.zip")
+            def extract(*_):
+                for name, value in files.items():
+                    path = args.output / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(value if isinstance(value, bytes) else json.dumps(value).encode())
+                return {"files": len(files)}
+            def command(argv, **_):
+                if argv[0] == "docker":
+                    return (argv[-1]+"\n").encode()
+                return b"" if "ls-tree" in argv else b"1"
+            controls = {name: b"" for name in ("/control", "/preinst", "/prerm", "/postinst", "/postrm")}
+            def decode(*_, control=False, **kwargs):
+                self.assertEqual(kwargs["variant"], variant)
+                return (controls, {}, controls, 0) if control else ({}, {}, kept, 0)
+            with patch.object(v, "source_identity", return_value={"source_tree": "b"*40}), \
+                    patch.object(v, "git_bytes", side_effect=lambda repo, revision, name: git(name)), \
+                    patch.object(v, "live_metadata", return_value=({}, {"name": "fixture", "size_in_bytes": 1, "digest": args.expected_digest})), \
+                    patch.object(v, "unpack_zip", side_effect=extract), patch.object(v, "bounded", side_effect=command), \
+                    patch.object(v, "decoded_inventory", side_effect=decode), \
+                    patch.object(v, "expected_hook", side_effect=RuntimeError("identity checked before script comparison")):
+                v.validate(args)
+
+    def test_selected_variant_identity_reaches_script_comparison(self):
+        for variant in ("cpu", "cuda"):
+            with self.subTest(variant=variant), self.assertRaisesRegex(RuntimeError, "identity checked"):
+                self.validate_fixture(variant)
+
+    def test_opposite_lock_and_provenance_cannot_cross_variant_boundary(self):
+        for variant, other in (("cpu", "cuda"), ("cuda", "cpu")):
+            def replace_lock(files, kept, base):
+                files[base+"assembly/pylock.toml"] = (ROOT/f"packaging/native-runtime/pylock.linux-x86_64-cp313-{other}.toml").read_bytes()
+            cases = [("lock prefix", replace_lock),
+                ("provenance", lambda files, kept, base: files[base+"packages.json"][0].update(variant=other)),
+                ("provenance", lambda files, kept, base: files[base+"packages.json"][0].update(version="1.5.3-7."+other)),
+                ("provenance", lambda files, kept, base: files[base+"packages.json"][0]["source"].update(revision="f"*40)),
+                ("variant differs", lambda files, kept, base: files["dist/builder-delivery/capacity.json"].update(variant=other)),
+                ("input selection", lambda files, kept, base: kept.update({v.PREFIX+"share/nvbroadcast-runtime-provenance/selection.json": json.dumps({"target": "linux-x86_64-cp313-"+other}).encode()})),
+                ("package identity", lambda files, kept, base: kept.update({"/usr/lib/nvbroadcast/package.json": json.dumps({"variant": other}).encode()}))]
+            for message, change in cases:
+                with self.subTest(variant=variant, message=message), self.assertRaisesRegex(ValueError, message):
+                    self.validate_fixture(variant, change)
+
+
 if __name__ == "__main__":
     unittest.main()

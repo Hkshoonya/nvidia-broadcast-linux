@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind reviewed CPU artifacts, publisher signing, and isolated qualification.
+"""Bind reviewed native artifacts, publisher signing, and isolated qualification.
 
 No command installs a package or runs its interpreter. Signing receives secrets
 only in its dedicated job; verify and complete need public evidence alone.
@@ -17,6 +17,10 @@ import stat
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
+_policy_spec = importlib.util.spec_from_file_location(
+    "native_candidate_policy", Path(__file__).with_name("candidate_policy.py"))
+policy = importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(policy)
 FINGERPRINT = "A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1"
 PUBLIC_SHA = "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a"
 MAX_PACKAGE = 1024**3
@@ -105,16 +109,18 @@ def source_identity(source):
                    check=True, timeout=30)
 
 
-def checked_receipt(directory, expected):
+def checked_receipt(directory, expected, variant="cpu"):
+    limits = policy.policy_for(variant)
     directory = directory.resolve(strict=True)
     path = relative_file(directory, "result.json")
     require(sha(path) == digest(expected), "validation receipt differs from approved job output")
     report = read_json(path)
+    policy.check_variant(report, variant)
     require(report.get("status") == "pass", "candidate did not pass independent validation")
     source_identity(report["source"])
     version = report.get("version")
-    require(isinstance(version, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*\.cpu", version),
-            "invalid CPU package version")
+    require(isinstance(version, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*\." + variant, version),
+            "invalid expected-variant package version")
     require(set(report.get("packages", {})) == {"deb", "rpm"}, "incomplete validated packages")
     for key in ("run_id", "run_attempt", "artifact_id"):
         require(type(report.get(key)) is int and report[key] > 0, "invalid producer identity")
@@ -124,7 +130,7 @@ def checked_receipt(directory, expected):
     paths = {}
     for family, record in report["packages"].items():
         require(record.get("scriptlet_source_match") is True, "package scripts were not source-verified")
-        path = verified_file(directory, record["relative_path"], record)
+        path = verified_file(directory, record["relative_path"], record, maximum=limits.package_max_bytes)
         require(path.name == names[family], "unexpected native package name")
         paths[family] = path
         digest(record["runtime_manifest_sha256"])
@@ -145,8 +151,9 @@ def record_file(path):
     return {"sha256": sha(path), "bytes": path.stat().st_size}
 
 
-def sign_candidate(directory, expected, output):
-    report, paths, receipt_path = checked_receipt(directory, expected)
+def sign_candidate(directory, expected, output, variant="cpu"):
+    limits = policy.policy_for(variant)
+    report, paths, receipt_path = checked_receipt(directory, expected, variant=variant)
     public = ROOT / "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc"
     require(sha(public) == PUBLIC_SHA and
             (ROOT / "packaging/keys/RPM-GPG-KEY-nvbroadcast.fingerprint").read_text().strip() == FINGERPRINT,
@@ -160,6 +167,9 @@ def sign_candidate(directory, expected, output):
             signing["fingerprint"] == FINGERPRINT and signing["public_key_sha256"] == PUBLIC_SHA,
             "signer output differs from reviewed inputs")
     signed = output / "rpm" / paths["rpm"].name
+    signed_info = signed.lstat()
+    require(stat.S_ISREG(signed_info.st_mode) and 0 < signed_info.st_size <= limits.package_max_bytes,
+            "signed package exceeds expected variant size bound")
     require(sha(signed) == signing["signed_sha256"], "signed bytes differ from signing receipt")
     (output / "deb").mkdir()
     deb = output / "deb" / paths["deb"].name
@@ -174,6 +184,7 @@ def sign_candidate(directory, expected, output):
                            version, revision, output / "nvbroadcast-native-upgrade")
     files = {str(path.relative_to(output)): record_file(path) for path in sorted(output.rglob("*")) if path.is_file()}
     manifest = {"schema_version": 1, "status": "signed-awaiting-qualification", "version": report["version"],
+                "variant": variant,
                 "producer": {key: report[key] for key in ("source", "run_id", "run_attempt", "artifact_id", "artifact_digest")},
                 "validation_receipt_sha256": expected, "publisher_fingerprint": FINGERPRINT,
                 "public_key_sha256": PUBLIC_SHA,
@@ -187,18 +198,22 @@ def sign_candidate(directory, expected, output):
     (output / "SHA256SUMS").write_text("".join(f"{record['sha256']}  {name}\n" for name, record in sorted(checksums.items())))
     for family, path in paths.items():
         require(sha(path) == report["packages"][family]["sha256"], "original package changed")
-    return {"status": manifest["status"], "manifest_sha256": sha(output / "candidate.json")}
+    return {"status": manifest["status"], "variant": variant, "manifest_sha256": sha(output / "candidate.json")}
 
 
-def verify_bundle(directory, expected):
+def verify_bundle(directory, expected, variant="cpu"):
+    limits = policy.policy_for(variant)
     directory = directory.resolve(strict=True)
     path = relative_file(directory, "candidate.json")
     require(sha(path) == digest(expected), "candidate manifest differs from approved job output")
     manifest = read_json(path)
+    policy.check_variant(manifest, variant)
     require(manifest.get("schema_version") == 1 and manifest.get("status") == "signed-awaiting-qualification",
             "invalid signed candidate state")
     version = manifest.get("version", "")
-    require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*\.cpu", version), "invalid CPU candidate")
+    require(isinstance(version, str) and
+            re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*\." + variant, version),
+            "invalid expected-variant candidate")
     names = {"deb": f"deb/nvbroadcast_{version}_amd64.deb", "rpm": f"rpm/nvbroadcast-{version}.x86_64.rpm"}
     expected_files = {*names.values(), "RPM-GPG-KEY-nvbroadcast.asc", "rpm-signing.json", "validation.json", "nvbroadcast-native-upgrade"}
     require(set(manifest.get("files", {})) == expected_files and set(manifest.get("packages", {})) == {"deb", "rpm"},
@@ -206,7 +221,8 @@ def verify_bundle(directory, expected):
     actual = {str(p.relative_to(directory)) for p in directory.rglob("*") if not p.is_dir() or p.is_symlink()}
     require(actual == expected_files | {"candidate.json", "SHA256SUMS"}, "extra or missing bundle entries")
     for name, record in manifest["files"].items():
-        verified_file(directory, name, record)
+        verified_file(directory, name, record,
+                      maximum=limits.package_max_bytes if name in names.values() else MAX_PACKAGE)
     for family, name in names.items():
         require(manifest["packages"][family] == {"path": name, **manifest["files"][name]}, "package mapping differs")
     require(manifest.get("publisher_fingerprint") == FINGERPRINT and manifest.get("public_key_sha256") == PUBLIC_SHA
@@ -214,6 +230,7 @@ def verify_bundle(directory, expected):
     require(manifest["files"]["validation.json"]["sha256"] == manifest["validation_receipt_sha256"], "validation binding differs")
     signing = read_json(directory / "rpm-signing.json")
     validated = read_json(directory / "validation.json")
+    policy.check_variant(validated, variant)
     require(validated.get("status") == "pass" and validated.get("version") == version, "validation state differs")
     producer_keys = {"source", "run_id", "run_attempt", "artifact_id", "artifact_digest"}
     require(set(manifest.get("producer", {})) == producer_keys and
@@ -233,8 +250,10 @@ def verify_bundle(directory, expected):
     return manifest
 
 
-def check_execution(path, manifest, family, recovery=False):
+def check_execution(path, manifest, family, recovery=False, variant="cpu"):
+    policy.check_variant(manifest, variant)
     report = read_json(path)
+    policy.check_variant(report, variant)
     require(report.get("status") == "pass", "qualification did not pass")
     require(report.get("source_revision" if recovery else "source") == manifest["producer"]["source"],
             "qualification source differs")
@@ -258,6 +277,8 @@ def check_execution(path, manifest, family, recovery=False):
         require(log.stat().st_size <= 8 * 1024**2 and sha(log) == digest(step.get("log_sha256", step.get("sha256"))),
                 "execution log differs")
     expected_steps = RECOVERY_STEPS if recovery else SMOKE_STEPS | (RPM_SMOKE_STEPS if family == "rpm" else set())
+    if recovery and variant == "cuda":
+        expected_steps = expected_steps | {"recovered-runtime-cpu-fallback"}
     require(names == expected_steps, "incomplete or unexpected qualification steps")
     if recovery:
         require(report.get("authenticated") is True and report.get("helper_sha256") == manifest["recovery_helper_sha256"],
@@ -277,13 +298,19 @@ def check_execution(path, manifest, family, recovery=False):
     else:
         require(report.get("probes_unchanged") is True, "qualification probes changed")
         require(report.get("family") == family and report.get("version") == manifest["version"], "qualified package identity differs")
-        require(report.get("runtime_probe", {}).get("status") == "pass" and report.get("recording", {}).get("status") == "pass",
-                "runtime or recording failed")
+        policy.validate_runtime_probe(report.get("runtime_probe", {}), variant)
+        require(report.get("recording", {}).get("status") == "pass", "recording failed")
         if family == "rpm":
             require(report.get("rpm_authentication", {}).get("status") == "verified"
                     and report["rpm_authentication"].get("publisher_fingerprint") == FINGERPRINT,
                     "final RPM was not authenticated")
-    return {"sha256": sha(path), "steps": len(steps), "image": report["image"], "status": "pass"}
+    if variant == "cuda":
+        require(report.get("container_runtime") == "runc" and "gpu_device" in report
+                and report["gpu_device"] is None and report.get("nvidia_visible_devices") == "void",
+                "CUDA qualification must exclude GPU devices")
+        if recovery:
+            policy.validate_runtime_probe(report.get("runtime_probe", {}), variant)
+    return {"sha256": sha(path), "steps": len(steps), "image": report["image"], "variant": variant, "status": "pass"}
 
 
 def evidence_files(directory, family):
@@ -313,11 +340,12 @@ def evidence_files(directory, family):
     return fixture
 
 
-def complete(directory, expected, deb_evidence, rpm_evidence, output):
-    manifest = verify_bundle(directory, expected)
-    results = {"deb": check_execution(deb_evidence / "smoke/result.json", manifest, "deb"),
-               "rpm": check_execution(rpm_evidence / "smoke/result.json", manifest, "rpm"),
-               "recovery": check_execution(rpm_evidence / "recovery/result.json", manifest, "rpm", recovery=True)}
+def complete(directory, expected, deb_evidence, rpm_evidence, output, variant="cpu"):
+    manifest = verify_bundle(directory, expected, variant=variant)
+    results = {"deb": check_execution(deb_evidence / "smoke/result.json", manifest, "deb", variant=variant),
+               "rpm": check_execution(rpm_evidence / "smoke/result.json", manifest, "rpm", variant=variant),
+               "recovery": check_execution(rpm_evidence / "recovery/result.json", manifest, "rpm", recovery=True,
+                                           variant=variant)}
     fixtures = {"deb": evidence_files(deb_evidence, "deb"), "rpm": evidence_files(rpm_evidence, "rpm")}
     for family, fixture in fixtures.items():
         require(fixture["image"] == results[family]["image"], "qualified fixture image differs")
@@ -327,8 +355,10 @@ def complete(directory, expected, deb_evidence, rpm_evidence, output):
     shutil.copytree(deb_evidence, output / "evidence/deb")
     shutil.copytree(rpm_evidence, output / "evidence/rpm")
     report = {"schema_version": 1, "status": "qualified-development-candidate", "candidate_manifest_sha256": expected,
+              "variant": variant,
               "producer": manifest["producer"], "packages": manifest["packages"], "qualification": results, "fixtures": fixtures,
-              "scope": "Disconnected Ubuntu/Fedora x86_64 CPU containers; no physical-device, CUDA, clean-VM or release promotion claim"}
+              "scope": (f"Disconnected Ubuntu/Fedora x86_64 {variant.upper()} package containers; "
+                        "CPU execution only; no physical-device, GPU execution, clean-VM or release promotion claim")}
     (output / "qualification.json").write_bytes(json_bytes(report))
     return report
 
@@ -340,21 +370,24 @@ def main():
     sign.add_argument("--validated", type=Path, required=True)
     sign.add_argument("--expected-receipt", required=True)
     sign.add_argument("--output", type=Path, required=True)
+    sign.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
     for name in ("verify", "complete"):
         command = sub.add_parser(name)
         command.add_argument("--bundle", type=Path, required=True)
         command.add_argument("--expected-manifest", required=True)
+        command.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
         if name == "complete":
             command.add_argument("--deb-evidence", type=Path, required=True)
             command.add_argument("--rpm-evidence", type=Path, required=True)
             command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "sign":
-        result = sign_candidate(args.validated, args.expected_receipt, args.output)
+        result = sign_candidate(args.validated, args.expected_receipt, args.output, variant=args.variant)
     elif args.command == "verify":
-        result = verify_bundle(args.bundle, args.expected_manifest)
+        result = verify_bundle(args.bundle, args.expected_manifest, variant=args.variant)
     else:
-        result = complete(args.bundle, args.expected_manifest, args.deb_evidence, args.rpm_evidence, args.output)
+        result = complete(args.bundle, args.expected_manifest, args.deb_evidence, args.rpm_evidence, args.output,
+                          variant=args.variant)
     print(json.dumps(result, sort_keys=True))
 
 

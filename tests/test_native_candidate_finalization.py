@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import types
 import unittest
+import sys
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,19 +28,22 @@ RECOVERY = "3" * 64
 
 
 class CandidateFixture(unittest.TestCase):
+    variant = "cpu"
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="nvb-finalization-test-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.validated = self.root / "validated"
         self.validated.mkdir()
+        self.version = "1.5.3-4." + self.variant
         self.report = {
-            "status": "pass", "source": SOURCE, "version": "1.5.3-4.cpu",
+            "status": "pass", "source": SOURCE, "version": self.version, "variant": self.variant,
             "run_id": 11, "run_attempt": 2, "artifact_id": 13,
             "artifact_digest": "sha256:" + "4" * 64, "packages": {},
         }
-        for family, name in (("deb", "nvbroadcast_1.5.3-4.cpu_amd64.deb"),
-                             ("rpm", "nvbroadcast-1.5.3-4.cpu.x86_64.rpm")):
+        for family, name in (("deb", f"nvbroadcast_{self.version}_amd64.deb"),
+                             ("rpm", f"nvbroadcast-{self.version}.x86_64.rpm")):
             path = self.validated / family / name
             path.parent.mkdir()
             path.write_bytes(("unsigned-" + family).encode())
@@ -80,7 +84,7 @@ class CandidateFixture(unittest.TestCase):
         return report
 
     def build_bundle(self):
-        result = finalize.sign_candidate(self.validated, self.receipt_hash, self.output)
+        result = finalize.sign_candidate(self.validated, self.receipt_hash, self.output, variant=self.variant)
         self.manifest_hash = result["manifest_sha256"]
         self.manifest = finalize.read_json(self.output / "candidate.json")
         return result
@@ -97,6 +101,18 @@ class CandidateFixture(unittest.TestCase):
         checksums = {**self.manifest["files"], "candidate.json": finalize.record_file(manifest_path)}
         (self.output / "SHA256SUMS").write_text("".join(
             f"{item['sha256']}  {name}\n" for name, item in sorted(checksums.items())))
+
+    def runtime_probe(self):
+        if self.variant == "cpu":
+            return {"status": "pass"}
+        return {
+            "status": "pass", "variant": "cuda", "cuda_unavailable_expected": True,
+            "cpu_execution": {"success": True, "provider": "cpu", "executed_providers": ["CPUExecutionProvider"],
+                              "output": [1.0, 4.0, 9.0, 16.0], "output_shape": [1, 4]},
+            "cuda_execution": {"success": False, "provider": "cuda", "executed_providers": [],
+                               "error": "CUDA device unavailable in isolated fixture"},
+            "cupy_execution": None,
+        }
 
     def execution(self, family, recovery=False):
         output = self.root / (family + "-evidence") / ("recovery" if recovery else "smoke")
@@ -121,8 +137,12 @@ class CandidateFixture(unittest.TestCase):
                  ["ordinary-user-runtime-media-gtk", "ordinary-user-generated-recording",
                   "remove-native-package", "package-uninstalled", "preserve-user-system-and-stable-lock",
                   "preserve-system-python-state"])
-        report = {"status": "pass", "image": "sha256:" + "5" * 64,
+        if recovery and self.variant == "cuda":
+            names.append("recovered-runtime-cpu-fallback")
+        report = {"status": "pass", "variant": self.variant, "image": "sha256:" + "5" * 64,
                   "runtime_manifest_sha256": RUNTIME, "container_removed": True, "steps": []}
+        if self.variant == "cuda":
+            report.update(container_runtime="runc", gpu_device=None, nvidia_visible_devices="void")
         if recovery:
             report.update(source_revision=SOURCE, package_sha256=self.manifest["packages"][family]["sha256"],
                           original_package_unchanged=True, snapshots_unchanged=True, authenticated=True,
@@ -135,17 +155,19 @@ class CandidateFixture(unittest.TestCase):
             preservation = output / "preservation.json"
             preservation.write_bytes(finalize.json_bytes({
                 "package_sha256": self.manifest["packages"][family]["sha256"],
-                "version": "1.5.3-4.cpu", "fingerprint": finalize.FINGERPRINT,
+                "version": self.version, "fingerprint": finalize.FINGERPRINT,
                 "entries": [{"original": "/usr/bin/nvbroadcast;1234", "size": 42,
                              "sha256": "7" * 64}],
                 "preserved": ["/usr/bin/nvbroadcast;1234"],
             }))
             report["preservation_sha256"] = finalize.sha(preservation)
+            if self.variant == "cuda":
+                report["runtime_probe"] = self.runtime_probe()
         else:
             report.update(source=SOURCE, artifact_sha256=self.manifest["packages"][family]["sha256"],
                           input_unchanged=True, snapshot_unchanged=True, probes_unchanged=True,
-                          family=family, version="1.5.3-4.cpu",
-                          runtime_probe={"status": "pass"}, recording={"status": "pass"})
+                          family=family, version=self.version,
+                          runtime_probe=self.runtime_probe(), recording={"status": "pass"})
             if family == "rpm":
                 report["rpm_authentication"] = {"status": "verified", "publisher_fingerprint": finalize.FINGERPRINT}
         expected_failures = {"confirm-clean-fixture", "confirm-no-existing-package", "package-uninstalled"}
@@ -260,6 +282,28 @@ class SigningPreconditionTests(CandidateFixture):
         self.receipt_hash = finalize.sha(self.receipt)
         self.reject_before_signer()
 
+    def test_cpu_default_preserves_historical_receipt_without_variant(self):
+        self.report.pop("variant")
+        self.save_receipt()
+        self.build_bundle()
+        self.assertEqual(self.manifest["variant"], "cpu")
+        self.assertEqual(finalize.verify_bundle(self.output, self.manifest_hash), self.manifest)
+
+    def test_wrong_explicit_variant_rejected_before_signing(self):
+        for variant in ("cuda", "other", None, True):
+            with self.subTest(variant=variant):
+                with self.assertRaises(ValueError):
+                    finalize.sign_candidate(self.validated, self.receipt_hash, self.output, variant=variant)
+                self.signer.assert_not_called()
+                self.assertFalse(self.output.exists())
+
+    def test_receipt_variant_cannot_disagree_with_cpu_version(self):
+        for variant in ("cuda", None, True):
+            with self.subTest(variant=variant):
+                self.report["variant"] = variant
+                self.save_receipt()
+                self.reject_before_signer()
+
 
 class BundleBindingTests(CandidateFixture):
     def setUp(self):
@@ -332,6 +376,36 @@ class BundleBindingTests(CandidateFixture):
         self.rewrite_bundle()
         with self.assertRaisesRegex(ValueError, "signing"):
             finalize.verify_bundle(self.output, self.manifest_hash)
+
+    def test_explicit_cuda_does_not_accept_cpu_bundle(self):
+        with self.assertRaises(ValueError):
+            finalize.verify_bundle(self.output, self.manifest_hash, variant="cuda")
+
+    def test_manifest_variant_change_rejected_beneath_outer_digest(self):
+        for variant in ("cuda", None, True):
+            with self.subTest(variant=variant):
+                self.manifest["variant"] = variant
+                self.rewrite_bundle()
+                with self.assertRaises(ValueError):
+                    finalize.verify_bundle(self.output, self.manifest_hash)
+
+    def test_nested_validation_variant_change_rejected_beneath_outer_digest(self):
+        path = self.output / "validation.json"
+        original = finalize.read_json(path)
+        for variant in ("cuda", None, True):
+            with self.subTest(variant=variant):
+                report = copy.deepcopy(original)
+                report["variant"] = variant
+                path.write_bytes(finalize.json_bytes(report))
+                self.manifest["validation_receipt_sha256"] = finalize.sha(path)
+                self.rewrite_bundle()
+                with self.assertRaises(ValueError):
+                    finalize.verify_bundle(self.output, self.manifest_hash)
+
+    def test_historical_cpu_manifest_without_variant_remains_verifiable(self):
+        self.manifest.pop("variant")
+        self.rewrite_bundle()
+        self.assertEqual(finalize.verify_bundle(self.output, self.manifest_hash), self.manifest)
 
 
 class QualificationEvidenceTests(CandidateFixture):
@@ -554,6 +628,197 @@ class QualificationEvidenceTests(CandidateFixture):
         with self.assertRaisesRegex(ValueError, "fixture image differs"):
             finalize.complete(self.output, self.manifest_hash, deb.parent.parent, rpm.parent.parent, target)
         self.assertFalse(target.exists())
+
+
+class CudaCandidateTests(CandidateFixture):
+    variant = "cuda"
+
+    def test_cuda_requires_explicit_choice_before_signing(self):
+        with self.assertRaises(ValueError):
+            finalize.sign_candidate(self.validated, self.receipt_hash, self.output)
+        self.signer.assert_not_called()
+        self.assertFalse(self.output.exists())
+
+    def test_cuda_receipt_must_carry_matching_variant_before_signing(self):
+        original = copy.deepcopy(self.report)
+        for value in (None, "cpu", True, "cuda "):
+            with self.subTest(value=value):
+                self.report = copy.deepcopy(original)
+                if value is None:
+                    self.report.pop("variant")
+                else:
+                    self.report["variant"] = value
+                self.save_receipt()
+                with self.assertRaises(ValueError):
+                    finalize.sign_candidate(self.validated, self.receipt_hash, self.output, variant="cuda")
+                self.signer.assert_not_called()
+                self.assertFalse(self.output.exists())
+
+    def test_explicit_cuda_sign_verify_complete_with_authenticated_variant(self):
+        self.build_bundle()
+        manifest = finalize.verify_bundle(self.output, self.manifest_hash, variant="cuda")
+        self.assertEqual(manifest["variant"], "cuda")
+        self.assertEqual(manifest["version"], self.version)
+        deb, _ = self.execution("deb")
+        rpm, _ = self.execution("rpm")
+        self.execution("rpm", recovery=True)
+        target = self.root / "qualified"
+        with self.assertRaises(ValueError):
+            finalize.complete(self.output, self.manifest_hash, deb.parent.parent, rpm.parent.parent, target)
+        self.assertFalse(target.exists())
+        result = finalize.complete(self.output, self.manifest_hash, deb.parent.parent,
+                                   rpm.parent.parent, target, variant="cuda")
+        self.assertEqual(result["variant"], "cuda")
+        self.assertEqual(result["qualification"]["recovery"]["steps"], 24)
+        self.assertIn("CPU execution only", result["scope"])
+        self.assertEqual(finalize.sha(target / "packages/candidate.json"), self.manifest_hash)
+
+    def test_cuda_bundle_cannot_silently_use_cpu_default(self):
+        self.build_bundle()
+        with self.assertRaises(ValueError):
+            finalize.verify_bundle(self.output, self.manifest_hash)
+
+    def test_cuda_bundle_variant_is_mandatory_beneath_outer_hash(self):
+        self.build_bundle()
+        original = copy.deepcopy(self.manifest)
+        for value in (None, "cpu", True):
+            with self.subTest(value=value):
+                self.manifest = copy.deepcopy(original)
+                if value is None:
+                    self.manifest.pop("variant")
+                else:
+                    self.manifest["variant"] = value
+                self.rewrite_bundle()
+                with self.assertRaises(ValueError):
+                    finalize.verify_bundle(self.output, self.manifest_hash, variant="cuda")
+
+    def test_cuda_cannot_rebind_cpu_validation(self):
+        self.build_bundle()
+        path = self.output / "validation.json"
+        report = finalize.read_json(path)
+        report["variant"] = "cpu"
+        path.write_bytes(finalize.json_bytes(report))
+        self.manifest["validation_receipt_sha256"] = finalize.sha(path)
+        self.rewrite_bundle()
+        with self.assertRaises(ValueError):
+            finalize.verify_bundle(self.output, self.manifest_hash, variant="cuda")
+
+    def test_cuda_smoke_and_recovery_require_runtime_variant_and_no_gpu(self):
+        self.build_bundle()
+        for recovery in (False, True):
+            path, original = self.execution("rpm", recovery=recovery)
+            changes = {
+                "variant": "cpu", "runtime_probe": {"status": "pass"},
+                "container_runtime": "nvidia", "gpu_device": "GPU-test",
+                "nvidia_visible_devices": "all",
+            }
+            for field, value in changes.items():
+                with self.subTest(recovery=recovery, field=field):
+                    report = copy.deepcopy(original)
+                    report[field] = value
+                    path.write_bytes(finalize.json_bytes(report))
+                    with self.assertRaises(ValueError):
+                        finalize.check_execution(path, self.manifest, "rpm", recovery=recovery, variant="cuda")
+            for field in ("variant", "runtime_probe", "gpu_device"):
+                with self.subTest(recovery=recovery, missing=field):
+                    report = copy.deepcopy(original)
+                    report.pop(field)
+                    path.write_bytes(finalize.json_bytes(report))
+                    with self.assertRaises(ValueError):
+                        finalize.check_execution(path, self.manifest, "rpm", recovery=recovery, variant="cuda")
+
+    def test_cuda_runtime_cannot_claim_gpu_execution_or_false_cpu_success(self):
+        self.build_bundle()
+        path, original = self.execution("deb")
+        mutations = (
+            lambda p: p.update(variant="cpu"),
+            lambda p: p.update(cuda_unavailable_expected=False),
+            lambda p: p["cpu_execution"].update(success=False),
+            lambda p: p["cpu_execution"].update(executed_providers=["CUDAExecutionProvider"]),
+            lambda p: p["cuda_execution"].update(success=True),
+            lambda p: p["cuda_execution"].update(executed_providers=["CUDAExecutionProvider"]),
+            lambda p: p.update(cupy_execution={"device": "unexpected GPU"}),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(index=index):
+                report = copy.deepcopy(original)
+                mutate(report["runtime_probe"])
+                path.write_bytes(finalize.json_bytes(report))
+                with self.assertRaises(ValueError):
+                    finalize.check_execution(path, self.manifest, "deb", variant="cuda")
+
+    def test_cuda_recovery_requires_its_extra_step(self):
+        self.build_bundle()
+        path, report = self.execution("rpm", recovery=True)
+        report["steps"] = [s for s in report["steps"] if s["name"] != "recovered-runtime-cpu-fallback"]
+        path.write_bytes(finalize.json_bytes(report))
+        with self.assertRaisesRegex(ValueError, "qualification steps"):
+            finalize.check_execution(path, self.manifest, "rpm", recovery=True, variant="cuda")
+
+    def test_signed_cuda_at_release_ceiling_never_creates_candidate_manifest(self):
+        def oversized(*args):
+            report = self.fake_sign(*args)
+            with (args[-1] / args[0].name).open("r+b") as stream:
+                stream.truncate(2 * 1024**3)
+            return report
+        self.signer.side_effect = oversized
+        with self.assertRaisesRegex(ValueError, "signed package.*size bound"):
+            self.build_bundle()
+        self.assertFalse((self.output / "candidate.json").exists())
+
+
+class VariantPackageBoundsTests(CandidateFixture):
+    def test_package_size_boundaries_are_variant_specific_without_reading_sparse_data(self):
+        path = self.validated / "sparse.rpm"
+        for variant, allowed in (("cpu", 1024**3), ("cuda", 2 * 1024**3 - 1)):
+            maximum = finalize.policy.policy_for(variant).package_max_bytes
+            self.assertEqual(maximum, allowed)
+            for size, accepted in ((allowed, True), (allowed + 1, False)):
+                with self.subTest(variant=variant, size=size):
+                    with path.open("wb") as stream:
+                        stream.truncate(size)
+                    record = {"bytes": size, "sha256": "8" * 64}
+                    with mock.patch.object(finalize, "sha", return_value="8" * 64) as hashed:
+                        if accepted:
+                            self.assertEqual(finalize.verified_file(self.validated, path.name, record,
+                                                                   maximum=maximum), path)
+                            hashed.assert_called_once_with(path)
+                        else:
+                            with self.assertRaisesRegex(ValueError, "file size"):
+                                finalize.verified_file(self.validated, path.name, record, maximum=maximum)
+                            hashed.assert_not_called()
+
+    def test_signed_growth_beyond_cpu_bound_never_creates_candidate_manifest(self):
+        def oversized(*args):
+            report = self.fake_sign(*args)
+            signed = args[-1] / args[0].name
+            with signed.open("r+b") as stream:
+                stream.truncate(1024**3 + 1)
+            return report
+        self.signer.side_effect = oversized
+        with self.assertRaisesRegex(ValueError, "signed package.*size bound"):
+            self.build_bundle()
+        self.assertFalse((self.output / "candidate.json").exists())
+
+
+class VariantCommandLineTests(unittest.TestCase):
+    def test_cli_defaults_cpu_and_forwards_explicit_cuda_through_every_stage(self):
+        commands = {
+            "sign": ("sign_candidate", ["--validated", "/validated", "--expected-receipt", "1" * 64,
+                                         "--output", "/signed"]),
+            "verify": ("verify_bundle", ["--bundle", "/signed", "--expected-manifest", "2" * 64]),
+            "complete": ("complete", ["--bundle", "/signed", "--expected-manifest", "2" * 64,
+                                      "--deb-evidence", "/deb", "--rpm-evidence", "/rpm",
+                                      "--output", "/qualified"]),
+        }
+        for command, (function, arguments) in commands.items():
+            for variant, option in (("cpu", []), ("cuda", ["--variant", "cuda"])):
+                with self.subTest(command=command, variant=variant):
+                    with mock.patch.object(sys, "argv", ["finalize", command, *arguments, *option]), \
+                            mock.patch.object(finalize, function, return_value={}) as target, \
+                            mock.patch("builtins.print"):
+                        finalize.main()
+                    self.assertEqual(target.call_args.kwargs, {"variant": variant})
 
 
 if __name__ == "__main__":

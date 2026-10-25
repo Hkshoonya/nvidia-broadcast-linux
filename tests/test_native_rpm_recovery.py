@@ -100,6 +100,23 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("--replacepkgs", report["replay_command"])
         self.assertNotIn("installed successfully", report["status"])
 
+    def test_cuda_signed_identity_preserves_exact_variant_through_recovery(self):
+        self.version = "1.5.3-6.cuda"
+        self.target["version"] = self.version
+        self.fs.path(recovery.MARKER).write_text(self.version + "\n")
+        fragment = self.fragment()
+        with mock.patch.object(recovery, "tool", side_effect=["", "Signature: OK\n",
+                "nvbroadcast\n" + self.version + "\nx86_64\n"]):
+            authenticated = recovery.authenticate(self.rpm, self.key, self.root / "cuda-verification")
+        self.assertEqual(authenticated["version"], self.version)
+        entries = self.plan()
+        report = recovery.preserve(self.fs, self.target, entries)
+        self.assertEqual(report["version"], self.version)
+        self.assertEqual(report["package_sha256"], self.target["sha256"])
+        self.assertEqual(self.fs.path(recovery.MARKER).read_text(), self.version + "\n")
+        self.assertFalse(fragment.exists())
+        self.assertEqual(Path(report["package"]).read_bytes(), self.rpm.read_bytes())
+
     def test_unknown_private_file_aborts_complete_plan_without_moving_known_fragment(self):
         fragment = self.fragment()
         unknown = self.fs.path(recovery.BASE + "/administrator-note")
