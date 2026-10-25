@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -30,6 +31,21 @@ from assemble import inventory
 spec = importlib.util.spec_from_file_location("native_primitives", HERE.parent / "native-prototype/build.py")
 native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
+
+# GitHub release assets must be strictly smaller than 2 GiB. Check the actual
+# archive before recording it as a successful build; compressed size varies
+# with source and dependencies. CUDA needs more compression than the CPU pack.
+RELEASE_ASSET_LIMIT = 2 * 1024**3
+ZSTD_LEVEL = {"cpu": 8, "cuda": 10}
+
+
+def release_asset_bytes(path: Path) -> int:
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size < RELEASE_ASSET_LIMIT:
+        raise ValueError(
+            f"{path.name}: native release asset must be a nonempty regular file "
+            f"smaller than {RELEASE_ASSET_LIMIT} bytes; got {info.st_size} bytes")
+    return info.st_size
 
 
 def run(command: list[str], log: Path, **kwargs) -> None:
@@ -258,7 +274,7 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
         native.write(stage / "DEBIAN/postinst", '#!/bin/sh\nset -eu\n[ "$1" != configure ] || {\n' + hook("finish", version, args.variant, family) + "\n}\n", 0o755)
         native.write(stage / "DEBIAN/postrm", '#!/bin/sh\nset -eu\ncase "$1" in remove|purge)\n' + hook("remove", version, args.variant, family) + "\n;; esac\n", 0o755)
         artifact = work / f"nvbroadcast_{version}_amd64.deb"
-        command = ["dpkg-deb", "--root-owner-group", "-Zzstd", "-z8", "--threads-max=2", "--build", "/stage", f"/work/{artifact.name}"]
+        command = ["dpkg-deb", "--root-owner-group", "-Zzstd", f"-z{ZSTD_LEVEL[args.variant]}", "--threads-max=2", "--build", "/stage", f"/work/{artifact.name}"]
         image = args.deb_image
     else:
         recovery_interface(stage)
@@ -270,7 +286,7 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
             "Requires(pre): python3 >= 3.11, util-linux, coreutils\n"
             "Recommends: libayatana-appindicator-gtk3, gstreamer1-plugin-openh264, openh264\n"
             "%global __os_install_post %{nil}\n%global _build_id_links none\n%global debug_package %{nil}\n"
-            "%global _binary_payload w8.zstdio\n%description\nPrivate Python and hash-locked application dependencies.\n"
+            f"%global _binary_payload w{ZSTD_LEVEL[args.variant]}.zstdio\n%description\nPrivate Python and hash-locked application dependencies.\n"
             "%install\nmkdir -p %{buildroot}\ncp -a /stage/. %{buildroot}/\n"
             "%pre\n" + hook("prepare", version, args.variant, family).replace("%", "%%") + "\n%posttrans\n" + hook("finish", version, args.variant, family).replace("%", "%%") +
             '\n%preun\nif [ "$1" -eq 0 ]; then\n' + hook("prepare-remove", version, args.variant, family).replace("%", "%%") +
@@ -293,8 +309,9 @@ def wrap(args, runtime: Path, output: Path, source: dict, family: str) -> dict:
     for path in (stage, *stage.rglob("*")):
         os.utime(path, (source["source_date_epoch"],) * 2, follow_symlinks=False)
     docker(image, {stage: "/stage:ro", work: "/work"}, command, work / "build.log", source["source_date_epoch"])
+    artifact_bytes = release_asset_bytes(artifact)
     return {"family": family, "variant": args.variant, "version": version, "artifact": str(artifact.relative_to(output)),
-            "sha256": prepare.digest(artifact), "bytes": artifact.stat().st_size, "builder_image": image,
+            "sha256": prepare.digest(artifact), "bytes": artifact_bytes, "builder_image": image,
             "runtime_manifest_sha256": prepare.digest(runtime.parent / "manifest.json"), "source": source, "adapter": args.adapter,
             "content": str((work / "content.json").relative_to(output)), "content_sha256": prepare.digest(work / "content.json")}
 

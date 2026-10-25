@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 from importlib import metadata
@@ -24,6 +25,152 @@ def load(name, filename):
 
 build = load("native_production_build", "build.py")
 validator = load("native_production_validator", "validate_install.py")
+
+
+class NativeArchiveTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.runtime = self.root / "runtime"
+        self.runtime.mkdir()
+        (self.runtime / "module.py").write_text("fixture payload\n")
+        self.source = {"revision": "a" * 40, "version": "2.7.11", "source_date_epoch": 1700000000}
+        provenance = self.runtime / "share/nvbroadcast-runtime-provenance/inputs.json"
+        provenance.parent.mkdir(parents=True)
+        provenance.write_text(json.dumps({"application": self.source}))
+        (self.root / "manifest.json").write_text(json.dumps(build.inventory(self.runtime)))
+        # These tests exercise archive construction, not application installation.
+        # Keep real inventory, staging, hooks, recipe rendering and size checks.
+        for target, name in ((build.native, "verify_owner"), (build.native, "app_files"),
+                             (build, "verify_application_source")):
+            patch = mock.patch.object(target, name)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def arguments(self, variant):
+        return SimpleNamespace(variant=variant, package_revision="17", adapter={"revision": "b" * 40},
+            deb_image="sha256:" + "c" * 64, rpm_image="sha256:" + "d" * 64)
+
+    def archive(self, output, family, variant):
+        version = f"2.7.11-17.{variant}"
+        relative = (f"deb/nvbroadcast_{version}_amd64.deb" if family == "deb" else
+                    f"rpm/build/RPMS/x86_64/nvbroadcast-{version}.x86_64.rpm")
+        return output / relative
+
+    def builder(self, archive, size=23):
+        def invoke(image, mounts, command, log, epoch):
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open("wb") as stream:
+                stream.truncate(size)
+            log.write_text("fixture builder completed\n")
+        return invoke
+
+    def test_release_asset_limit_is_exclusive_without_reading_gigabytes(self):
+        archive = self.root / "boundary.deb"
+        # Sparse files exercise real filesystem sizes without allocating or
+        # reading a multi-gigabyte archive. The public limit is exactly 2 GiB.
+        limit = 2 * 1024**3
+        for size in (1, limit - 1, limit, limit + 1, 0):
+            with self.subTest(size=size):
+                with archive.open("wb") as stream:
+                    stream.truncate(size)
+                if 0 < size < limit:
+                    self.assertEqual(build.release_asset_bytes(archive), size)
+                else:
+                    with self.assertRaisesRegex(ValueError, "smaller than 2147483648 bytes"):
+                        build.release_asset_bytes(archive)
+
+    def test_missing_directory_symlink_and_fifo_are_not_release_assets(self):
+        with self.assertRaises(FileNotFoundError):
+            build.release_asset_bytes(self.root / "missing")
+        target = self.root / "archive.deb"
+        target.write_bytes(b"nonempty")
+        link = self.root / "link.deb"
+        link.symlink_to(target)
+        fifo = self.root / "pipe.deb"
+        os.mkfifo(fifo)
+        for path in (self.runtime, link, fifo):
+            with self.subTest(path=path.name), self.assertRaises(ValueError):
+                build.release_asset_bytes(path)
+
+    def test_wrappers_use_variant_compression_and_bind_actual_archive_bytes(self):
+        for family in ("deb", "rpm"):
+            for variant, level in (("cpu", 8), ("cuda", 10)):
+                with self.subTest(family=family, variant=variant):
+                    output = self.root / f"{family}-{variant}"
+                    archive = self.archive(output, family, variant)
+                    args = self.arguments(variant)
+                    with mock.patch.object(build, "docker", side_effect=self.builder(archive)) as invoke:
+                        record = build.wrap(args, self.runtime, output, self.source, family)
+                    command = invoke.call_args.args[2]
+                    if family == "deb":
+                        self.assertEqual([arg for arg in command if arg.startswith("-z")], [f"-z{level}"])
+                        self.assertIn("-Zzstd", command)
+                    else:
+                        spec = (output / "rpm/package.spec").read_text()
+                        payload = [line for line in spec.splitlines() if line.startswith("%global _binary_payload ")]
+                        self.assertEqual(payload, [f"%global _binary_payload w{level}.zstdio"])
+                    self.assertEqual(record["bytes"], 23)
+                    self.assertEqual(record["sha256"], hashlib.sha256(archive.read_bytes()).hexdigest())
+                    self.assertEqual(record["source"], self.source)
+                    self.assertEqual(record["adapter"], args.adapter)
+                    self.assertEqual(record["variant"], variant)
+                    self.assertEqual(record["version"], f"2.7.11-17.{variant}")
+
+    def test_oversized_wrappers_fail_before_hashing_or_accepting_archive(self):
+        digest = build.prepare.digest
+        for family in ("deb", "rpm"):
+            for variant in ("cpu", "cuda"):
+                with self.subTest(family=family, variant=variant):
+                    output = self.root / f"oversized-{family}-{variant}"
+                    archive = self.archive(output, family, variant)
+                    def guarded_digest(path):
+                        self.assertNotEqual(path, archive, "oversized archive must be rejected before hashing")
+                        return digest(path)
+                    with mock.patch.object(build, "docker", side_effect=self.builder(archive, 2 * 1024**3)), \
+                            mock.patch.object(build.prepare, "digest", side_effect=guarded_digest):
+                        with self.assertRaisesRegex(ValueError, "native release asset"):
+                            build.wrap(self.arguments(variant), self.runtime, output, self.source, family)
+                    self.assertTrue(archive.is_file())
+                    self.assertEqual((output / family / "build.log").read_text(), "fixture builder completed\n")
+
+    def test_failed_archive_is_not_written_to_packages_manifest(self):
+        output = self.root / "failed-build"
+        args = self.arguments("cuda")
+        archive = self.archive(output, "deb", "cuda")
+        argv = ["build.py", "--variant", "cuda", "--package-revision", "17", "--families", "deb",
+                "--cache", str(self.root / "cache"), "--output", str(output),
+                "--bindings-image", "sha256:" + "e" * 64,
+                "--deb-image", args.deb_image, "--rpm-image", args.rpm_image]
+        old_umask = os.umask(0o022)
+        self.addCleanup(os.umask, old_umask)
+        with mock.patch.object(build.sys, "argv", argv), \
+                mock.patch.object(build, "source_identity", return_value=self.source), \
+                mock.patch.object(build, "recipe_identity", return_value=args.adapter), \
+                mock.patch.object(build, "verified_images"), \
+                mock.patch.object(build, "assemble", return_value=self.runtime), \
+                mock.patch.object(build.os, "getuid", return_value=1000), \
+                mock.patch.object(build, "docker", side_effect=self.builder(archive, 2 * 1024**3)):
+            with self.assertRaisesRegex(ValueError, "native release asset"):
+                build.main()
+        self.assertFalse((output / "packages.json").exists())
+        self.assertTrue((output / "build-provenance.json").is_file())
+        self.assertTrue(archive.is_file())
+
+    def test_uncommitted_recipe_is_rejected_before_identity_is_recorded(self):
+        with mock.patch.object(build.subprocess, "check_output",
+                return_value=" M packaging/native-runtime/build.py\n"), \
+                mock.patch.object(build.prepare, "digest") as digest:
+            with self.assertRaisesRegex(ValueError, "commit the executable adapter"):
+                build.recipe_identity()
+            digest.assert_not_called()
+
+    def test_recipe_identity_binds_compression_and_size_policy(self):
+        with mock.patch.object(build.subprocess, "check_output", side_effect=["", "a" * 40, "b" * 40]):
+            identity = build.recipe_identity()
+        self.assertEqual(identity["files"]["packaging/native-runtime/build.py"],
+                         hashlib.sha256((HERE / "build.py").read_bytes()).hexdigest())
 
 
 class NativeProductionTests(unittest.TestCase):
