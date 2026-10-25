@@ -258,12 +258,12 @@
       }
     },
     "capacity_before": {
-      "/home/doczeus": 219903021056,
+      "HOME": 219903021056,
       "Broadcast-hosted-native-cuda-repro-20261025": 219903021056,
       "/tmp": 219903021056
     },
     "capacity_after": {
-      "/home/doczeus": 195765112832,
+      "HOME": 195765112832,
       "Broadcast-hosted-native-cuda-repro-20261025": 195765112832,
       "/tmp": 195765112832
     },
@@ -729,7 +729,7 @@
         "origin": "Completed retain stdout."
       }
     },
-    "scope": "Cloud protected finalization and57 disconnected no-device qualification checks. Retained bytes/public-only signature readback remains an independent gate and is not marked complete here."
+    "scope": "Cloud protected finalization and 57 disconnected no-device qualification checks. The independent retained-byte and public-only signature readback is recorded separately below."
   },
   "independent_retained_readback": {
     "status": "pass",
@@ -1295,6 +1295,9 @@
   ],
   "evidence": {
     "paths_relative_to": "the original workspace parent containing the named worktrees",
-    "local_build_root": "Broadcast-hosted-native-cuda-repro-20261025/dist/build-cuda"
+    "local_build_root": "Broadcast-hosted-native-cuda-repro-20261025/dist/build-cuda",
+    "capacity_path_labels": {
+      "HOME": "the local home directory"
+    }
   }
 }
