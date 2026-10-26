@@ -16,7 +16,7 @@ import subprocess
 import time
 import uuid
 
-from qualify import selected
+from qualify import expected_python_version, selected
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -159,7 +159,7 @@ def main() -> None:
         execute("migrated-launcher", ["/usr/bin/nvbroadcast", "--help"], user=True)
         execute("migrated-inference-media-window", ["bash", "/source/packaging/runtime-prototype/desktop_probe.sh",
             "/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "/source/packaging/runtime-prototype/probe.py",
-            "--runtime", "/usr/lib/nvbroadcast/runtime", "--python-version", "3.13.16", "--window",
+            "--runtime", "/usr/lib/nvbroadcast/runtime", "--python-version", expected_python_version(target), "--window",
             "--variant", target["variant"], "--lock",
             "/usr/lib/nvbroadcast/runtime/share/nvbroadcast-runtime-provenance/pylock.toml"], user=True)
         result["status"] = "pass"

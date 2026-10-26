@@ -89,7 +89,8 @@ def build(work: Path, *, refresh_lock: bool = False, cache: Path | None = None, 
     work.mkdir(parents=True, exist_ok=False)
     (work / "native-build-inventory.json").write_text(json.dumps(native, indent=2) + "\n")
     pins = json.loads((HERE / "inputs.json").read_text())
-    if pins["minimum_macos"] != runtime.MINIMUM_MACOS:
+    if (pins["minimum_macos"] != runtime.MINIMUM_MACOS
+            or pins["minimum_python"] != ".".join(map(str, runtime.MINIMUM_PYTHON))):
         raise ValueError("Builder and runtime deployment floors disagree")
     inputs = cache or work / "inputs"
     inputs.mkdir(parents=True, exist_ok=True)
@@ -164,6 +165,7 @@ def build(work: Path, *, refresh_lock: bool = False, cache: Path | None = None, 
     (bundle / "requirements.txt").write_text(runtime.requirements(packages))
     manifest = {"schema_version": 1, "target": runtime.TARGET, "minimum_macos": runtime.MINIMUM_MACOS,
                 "source_revision": revision, "source_date_epoch": epoch, "packages": packages,
+                "minimum_python": pins["minimum_python"],
                 "resolver": pins["uv"], "native_build_inventory": native,
                 "supplier_lock_sha256": lock_sha256, "dependency_resolution": "reviewed-fixed-inputs",
                 "limits": ["Homebrew native dependencies and CPython are external prerequisites",

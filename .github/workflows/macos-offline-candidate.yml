@@ -45,6 +45,14 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           /opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
+          # Refresh the interpreter security patch without replacing installed
+          # CPython 3.13 bindings with current formulae targeting 3.14/3.15.
+          # Actual native imports/media below remain mandatory ABI checks.
+          /opt/homebrew/bin/brew update
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_INSTALL_CLEANUP=1 \
+            /opt/homebrew/bin/brew upgrade python@3.13
+          /opt/homebrew/opt/python@3.13/bin/python3.13 -c \
+            'import sys; assert (3, 13, 18) <= sys.version_info[:3] < (3, 14, 0), sys.version'
           /opt/homebrew/bin/brew list --versions
 
       - name: Build unsigned isolated candidate and exact wheel manifest

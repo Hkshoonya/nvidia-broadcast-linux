@@ -60,8 +60,9 @@ echo "[5/5] Setting up Python environment..."
 # Recheck immediately before Python mutations to narrow the race window.
 preflight_python_environment
 python3 -m venv .venv --system-site-packages
-.venv/bin/pip install --upgrade \
-    "pip>=26.2" "setuptools>=83.0.0" wheel
+# Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+.venv/bin/pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+.venv/bin/pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel
 .venv/bin/python scripts/install_runtime_variant.py \
     --project . --variant cpu --meeting-backends none \
     --source-venv .venv --editable

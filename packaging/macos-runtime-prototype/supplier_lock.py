@@ -21,9 +21,10 @@ from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import Version
 
 from wheel_target import rank_wheels
+from runtime import MINIMUM_PYTHON
 
 
-PYTHON_VERSION = "3.13.0"
+PYTHON_VERSION = ".".join(map(str, MINIMUM_PYTHON))
 MARKERS = {
     "implementation_name": "cpython", "implementation_version": PYTHON_VERSION,
     "os_name": "posix", "platform_machine": "arm64", "platform_release": "23.0.0",
@@ -203,6 +204,7 @@ def verify_wheelhouse(selection: list[dict], directory: Path, app_wheel: Path,
             extras.setdefault(name, set()).update(canonicalize_name(extra) for extra in requirement.extras)
             pending.add(name)
     return {"status": "pass", "target": "macos-arm64-cp313-cpu", "minimum_macos": "14.0",
+            "minimum_python": PYTHON_VERSION,
             "supplier_count": len(selection), "application_sha256": sha256(app_wheel),
             "application_version": app["Version"], "dependency_closure": "pass"}
 

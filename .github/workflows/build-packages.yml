@@ -496,7 +496,9 @@ jobs:
 
       - name: Install project and test dependencies
         run: |
-          python3 -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel
+          # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+          python3 -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          python3 -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel
           python3 -m pip install ".[dev,cpu]"
           python3 -m pip install "pip-audit>=2.9"
           python3 -m pip check
@@ -597,7 +599,9 @@ jobs:
       - name: Create release-smoke venv
         run: |
           /usr/bin/python3 -m venv --system-site-packages .venv
-          .venv/bin/python -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel
+          # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+          .venv/bin/python -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          .venv/bin/python -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel
 
       - name: Validate arm64 Python wheel availability
         if: matrix.name == 'arm64'
@@ -611,7 +615,7 @@ jobs:
             --python-version 312 \
             --implementation cp \
             --abi cp312 \
-            numpy "opencv-contrib-python>=4.8.1.78,<5" "mediapipe==1.0.0" "protobuf>=6.33.5,<7" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy "Pillow>=12.3.0" requests psutil pyrnnoise "av>=16,<17" faster-whisper==1.2.1 ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm packaging "setuptools>=83.0.0"
+            numpy "opencv-contrib-python>=4.8.1.78,<5" "mediapipe==1.0.0" "protobuf>=6.33.5,<7" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy "Pillow>=13.0.0" requests psutil pyrnnoise "av>=16,<17" faster-whisper==1.2.1 ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm packaging "setuptools>=84.1.0"
 
       - name: Install Linux project dependencies
         run: |
@@ -663,7 +667,9 @@ jobs:
 
       - name: Install project and test dependencies
         run: |
-          python -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel
+          # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+          python -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          python -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel
           python -m pip install ".[dev,cpu]"
           python -m pip check
 

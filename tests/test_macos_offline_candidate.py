@@ -3,7 +3,9 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -28,7 +30,7 @@ spec.loader.exec_module(wheel_target)
 
 spec = importlib.util.spec_from_file_location("mac_supplier_lock", HERE / "supplier_lock.py")
 supplier = importlib.util.module_from_spec(spec)
-with mock.patch.dict(sys.modules, {"wheel_target": wheel_target}):
+with mock.patch.dict(sys.modules, {"wheel_target": wheel_target, "runtime": runtime}):
     spec.loader.exec_module(supplier)
 
 
@@ -255,6 +257,49 @@ assert versions == ['2.0'], versions
         self.assertIsNone(ranks[other_abi])
         self.assertIsNotNone(ranks[universal])
         self.assertLess(ranks[old], ranks[universal])
+
+    def test_candidate_rejects_unpatched_python_before_native_imports(self):
+        for version in ((3, 13, 0), (3, 13, 15), (3, 13, 17)):
+            with self.subTest(version=version), mock.patch.object(runtime.sys, "version_info", version):
+                with self.assertRaisesRegex(RuntimeError, "CPython 3.13.18 or newer"):
+                    runtime.native_probe()
+        for version in ((3, 13, 18), (3, 13, 19)):
+            runtime.validate_python_version(version)
+        for version in ((3, 12, 16), (3, 14, 10)):
+            with self.assertRaisesRegex(RuntimeError, "matching native bindings"):
+                runtime.validate_python_version(version)
+        pins = json.loads((HERE / "inputs.json").read_text())
+        self.assertEqual(pins["minimum_python"], ".".join(map(str, runtime.MINIMUM_PYTHON)))
+        self.assertEqual(supplier.PYTHON_VERSION, pins["minimum_python"])
+
+    @unittest.skipIf(os.geteuid() == 0, "candidate launcher refuses Installer root")
+    def test_launcher_does_not_start_app_when_interpreter_policy_fails(self):
+        bundle = self.root / "launch-bundle"
+        bundle.mkdir()
+        identity = "a" * 64
+        (bundle / "macos-runtime-id").write_text(identity + "\n")
+        user_home = self.root / "user-home"
+        installed = user_home / "Library/Application Support/NVBroadcast Offline Candidate" / identity
+        (installed / ".venv/bin").mkdir(parents=True)
+        (installed / "runtime-ready").write_text(identity + "\n")
+        python = installed / ".venv/bin/python"
+        python.write_text('''#!/bin/bash
+if [[ "$2" == python-policy ]]; then
+    echo 'interpreter policy rejected' >&2
+    exit 23
+fi
+echo application-started >> "$NVB_TEST_LOG"
+''')
+        python.chmod(0o755)
+        launcher = self.root / "candidate-launcher"
+        launcher.write_text((HERE / "launcher.sh").read_text().replace(
+            "bundle=/opt/nvbroadcast-offline-candidate", "bundle=" + shlex.quote(str(bundle))))
+        app_log = self.root / "app.log"
+        result = subprocess.run(["bash", str(launcher), "--help"], capture_output=True, text=True,
+                                env={**os.environ, "HOME": str(user_home), "NVB_TEST_LOG": str(app_log)})
+        self.assertEqual(result.returncode, 23)
+        self.assertIn("interpreter policy rejected", result.stderr)
+        self.assertFalse(app_log.exists())
 
     def test_candidate_floor_matches_pinned_pyav_and_rejects_higher_tags(self):
         pinned = "av-16.1.0-cp313-cp313-macosx_14_0_arm64.whl"

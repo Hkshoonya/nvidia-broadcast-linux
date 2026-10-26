@@ -2,7 +2,7 @@
 
 This adapter builds the current application's complete CPU or CUDA Python
 environment before creating a native package. It uses the reviewed private
-CPython 3.13.16 supplier archive and dependency hashes from the runtime
+CPython 3.13.18 supplier archive and dependency hashes from the runtime
 investigation, while building the application from an explicit Git commit.
 Both formats retain the public package name `nvbroadcast`. Architecture is
 `amd64` for DEB and `x86_64` for RPM, with a distinct `N.cpu` or `N.cuda`

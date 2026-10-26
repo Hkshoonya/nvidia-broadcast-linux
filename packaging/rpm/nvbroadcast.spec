@@ -150,8 +150,9 @@ esac
 install_runtime() {
   rm -rf -- /opt/nvbroadcast/.venv || return
   python3 -m venv /opt/nvbroadcast/.venv --system-site-packages || return
-  /opt/nvbroadcast/.venv/bin/pip install --upgrade \
-    "pip>=26.2" "setuptools>=83.0.0" wheel -q || return
+  # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+  /opt/nvbroadcast/.venv/bin/pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" -q || return
+  /opt/nvbroadcast/.venv/bin/pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel -q || return
   /opt/nvbroadcast/.venv/bin/python /opt/nvbroadcast/scripts/install_runtime_variant.py \
     --project /opt/nvbroadcast --variant "$1" --meeting-backends faster
 }

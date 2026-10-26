@@ -450,7 +450,7 @@ class PackagingMetadataTests(unittest.TestCase):
         for content in (pyproject, snapcraft, build_workflow):
             self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
             self.assertNotIn("opencv-python-headless", content)
-            self.assertIn("Pillow>=12.3.0", content)
+            self.assertIn("Pillow>=13.0.0", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn('"packaging>=26.0"', pyproject)
@@ -472,9 +472,13 @@ class PackagingMetadataTests(unittest.TestCase):
             REPO_ROOT / "scripts" / "setup_macos_runtime.sh",
         )
         for installer in installers:
-            self.assertIn("pip>=26.2", installer.read_text(), str(installer))
+            self.assertIn("pip>=26.2.2", installer.read_text(), str(installer))
+            contents = installer.read_text()
+            fixed_wheel = "pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+            self.assertIn(fixed_wheel, contents, str(installer))
+            self.assertLess(contents.index(fixed_wheel), contents.index("pip>=26.2.2"), str(installer))
             self.assertIn(
-                "setuptools>=83.0.0", installer.read_text(), str(installer)
+                "setuptools>=84.1.0", installer.read_text(), str(installer)
             )
 
         install_script = (REPO_ROOT / "install.sh").read_text()
@@ -482,9 +486,9 @@ class PackagingMetadataTests(unittest.TestCase):
             "CORE_PY_MODULES=(numpy cv2 onnxruntime PIL psutil onnx mediapipe)",
             install_script,
         )
-        self.assertIn('requires = ["setuptools>=83.0.0", "wheel"]', pyproject)
-        self.assertIn("pip>=26.2", build_workflow)
-        self.assertIn("setuptools>=83.0.0", build_workflow)
+        self.assertIn('requires = ["setuptools>=84.1.0", "wheel"]', pyproject)
+        self.assertIn("pip>=26.2.2", build_workflow)
+        self.assertIn("setuptools>=84.1.0", build_workflow)
 
     def test_native_package_payloads_use_safe_ownership_and_permissions(self):
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
@@ -1179,7 +1183,12 @@ class PackagingMetadataTests(unittest.TestCase):
                     'cp "$NVB_TEST_PYTHON" "$3/bin/python"\n'
                     'record_stage venv || exit $?\n'
                 ),
-                "pip": "record_stage bootstrap || exit $?\nexit 0\n",
+                "pip": (
+                    'case "$*" in\n'
+                    '  *pip-26.2.2-py3-none-any.whl#sha256=*) record_stage trust-bootstrap || exit $? ;;\n'
+                    '  *) record_stage bootstrap || exit $? ;;\n'
+                    'esac\nexit 0\n'
+                ),
                 "python": (
                     'while [ "$1" != "--variant" ]; do shift; done\n'
                     'printf "%s\\n" "$2" >> "$NVB_TEST_CALLS"\n'
@@ -1250,7 +1259,7 @@ class PackagingMetadataTests(unittest.TestCase):
         deb_postinstall = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
         spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         rpm_postinstall = spec.split("\n%post\n", 1)[1].split("\n%preun\n", 1)[0]
-        stages = ["cleanup", "venv", "bootstrap"]
+        stages = ["cleanup", "venv", "trust-bootstrap", "bootstrap"]
         for package, postinstall, shell in (
             ("DEB", deb_postinstall, "/bin/bash"),
             ("RPM", rpm_postinstall, "/bin/sh"),
@@ -1492,6 +1501,93 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Verify Snap excludes runtime pip", workflow)
         self.assertIn("must not contain a runtime pip installer", workflow)
 
+    def test_snap_repairs_bootstrap_trust_before_plugin_resolution_and_stops_on_failure(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        prelude = snapcraft.split("    override-build: |\n", 1)[1].split(
+            "      # The GNOME build extension", 1
+        )[0]
+        script = "\n".join(line[6:] for line in prelude.splitlines()) + "\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            commands = root / "commands"
+            commands.mkdir()
+            driver = root / "python-driver"
+            driver.write_text('''#!/bin/sh
+case "$*" in
+  *"--no-deps"*"pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"*) ;;
+  *) exit 91 ;;
+esac
+printf 'trust-bootstrap\n' >> "$NVB_TEST_CALLS"
+test "$NVB_TEST_BOOTSTRAP_EXIT" = 0 || exit "$NVB_TEST_BOOTSTRAP_EXIT"
+touch "$NVB_TEST_FIXED_PIP"
+''')
+            (commands / "python3").write_text('''#!/bin/sh
+test "$1" = -m && test "$2" = venv || exit 92
+mkdir -p "$3/bin"
+cp "$NVB_TEST_PIP_DRIVER" "$3/bin/python3"
+chmod +x "$3/bin/python3"
+''')
+            (commands / "craftctl").write_text('''#!/bin/sh
+test -f "$NVB_TEST_FIXED_PIP" || exit 93
+test "$PYTHONPATH" = craftctl-only || exit 94
+printf 'plugin-resolution\n' >> "$NVB_TEST_CALLS"
+''')
+            for path in commands.iterdir():
+                path.chmod(0o755)
+            for exit_code in (0, 37):
+                with self.subTest(bootstrap_exit=exit_code):
+                    calls, fixed = root / f"calls-{exit_code}", root / f"fixed-{exit_code}"
+                    result = subprocess.run(["bash"], input=script, capture_output=True, text=True,
+                        env={**os.environ, "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                             "PARTS_PYTHON_INTERPRETER": "python3", "PYTHONPATH": "",
+                             "CRAFTCTL_PYTHONPATH": "craftctl-only", "CRAFT_PART_INSTALL": str(root / f"install-{exit_code}"),
+                             "NVB_TEST_PIP_DRIVER": str(driver), "NVB_TEST_CALLS": str(calls),
+                             "NVB_TEST_FIXED_PIP": str(fixed), "NVB_TEST_BOOTSTRAP_EXIT": str(exit_code)})
+                    self.assertEqual(result.returncode, exit_code, result.stderr)
+                    expected = ["trust-bootstrap", "plugin-resolution"] if exit_code == 0 else ["trust-bootstrap"]
+                    self.assertEqual(calls.read_text().splitlines(), expected)
+
+    def test_snap_owner_installs_use_fixed_venv_instead_of_sdk_python(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        installs = snapcraft.split('      SNAP_PYTHON_SITE=', 1)[1].split(
+            '      # Optional runtime installation', 1
+        )[0]
+        script = 'SNAP_PYTHON_SITE=' + "\n".join(
+            line[6:] if index else line
+            for index, line in enumerate(installs.splitlines())
+        ) + "\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            commands, venv = root / "commands", root / "install"
+            commands.mkdir()
+            (venv / "bin").mkdir(parents=True)
+            sdk_python = commands / "python3"
+            sdk_python.write_text('#!/bin/sh\necho "Unexpected SDK pip" >&2\nexit 95\n')
+            sdk_python.chmod(0o755)
+            fixed_python = venv / "bin" / "python3"
+            fixed_python.write_text('''#!/bin/sh
+test "$1" = -m && test "$2" = pip || exit 96
+printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
+''')
+            fixed_python.chmod(0o755)
+            for arch, owner in (("amd64", "onnxruntime-gpu==1.24.4"),
+                                ("arm64", "onnxruntime==1.24.4")):
+                with self.subTest(arch=arch):
+                    calls = root / f"calls-{arch}"
+                    result = subprocess.run(["bash", "-e"], input=script,
+                        capture_output=True, text=True,
+                        env={**os.environ, "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                             "CRAFT_PART_INSTALL": str(venv), "CRAFT_ARCH_BUILD_FOR": arch,
+                             "NVB_TEST_CALLS": str(calls)})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    operations = calls.read_text().splitlines()
+                    self.assertEqual(len(operations), 2)
+                    self.assertIn(owner, operations[0])
+                    self.assertIn("faster-whisper==1.2.1", operations[1])
+                    for operation in operations:
+                        self.assertIn("--no-deps", operation)
+                        self.assertIn(f"--target {venv}/lib/python3/dist-packages", operation)
+
     def test_snap_validates_runtime_dependency_closure(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
@@ -1500,7 +1596,7 @@ class PackagingMetadataTests(unittest.TestCase):
         )[1].split("# nvImageCodec", 1)[0]
 
         self.assertIn("- packaging>=26.0", snapcraft)
-        self.assertIn("- setuptools>=83.0.0", snapcraft)
+        self.assertIn("- setuptools>=84.1.0", snapcraft)
         self.assertIn('      - CRAFTCTL_PYTHONPATH: "$PYTHONPATH"', snapcraft)
         self.assertIn('      - PYTHONPATH: ""', snapcraft)
         self.assertIn(
@@ -1654,12 +1750,12 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('[[ "$MACOS_ARCH" != "arm64" ]]', installer)
         self.assertIn("supports Apple Silicon Macs only", installer)
         self.assertIn("for minor in 13 12 11; do", installer)
-        self.assertIn("(3, 11) <= sys.version_info[:2] <= (3, 13)", installer)
+        self.assertIn("{(3, 11): 18, (3, 12): 16, (3, 13): 18}.get(sys.version_info[:2])", installer)
         self.assertIn("import cairo", installer)
         self.assertIn("import gi", installer)
         setup = (REPO_ROOT / "scripts" / "setup_macos_runtime.sh").read_text()
         self.assertIn("for minor in 13 12 11; do", setup)
-        self.assertIn("(3, 11) <= sys.version_info[:2] <= (3, 13)", setup)
+        self.assertIn("{(3, 11): 18, (3, 12): 16, (3, 13): 18}.get(sys.version_info[:2])", setup)
         self.assertIn("import gi", setup)
         self.assertIn('hostArchitectures="arm64"', build_script)
         self.assertIn('<os-version min="13.0"/>', build_script)

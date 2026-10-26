@@ -26,6 +26,7 @@ import zipfile
 BREW = Path("/opt/homebrew")
 TARGET = "macos-arm64-cp313-cpu"
 MINIMUM_MACOS = "14.0"
+MINIMUM_PYTHON = (3, 13, 18)
 
 
 def run(*args, **kwargs):
@@ -107,8 +108,17 @@ def validate_bundle(bundle: Path) -> dict:
     return manifest
 
 
+def validate_python_version(version: tuple[int, ...]) -> None:
+    if version[:2] != (3, 13):
+        raise RuntimeError("Candidate requires Homebrew CPython 3.13 and matching native bindings")
+    if version[:3] < MINIMUM_PYTHON:
+        raise RuntimeError("Candidate requires Homebrew CPython 3.13.18 or newer in the 3.13 series; "
+                           "update python@3.13 before building or running this candidate")
+
+
 def native_probe() -> dict:
-    if (platform.system(), platform.machine(), sys.version_info[:2]) != ("Darwin", "arm64", (3, 13)):
+    validate_python_version(sys.version_info)
+    if (platform.system(), platform.machine()) != ("Darwin", "arm64"):
         raise RuntimeError("Candidate requires macOS arm64 Homebrew CPython 3.13")
     if tuple(map(int, platform.mac_ver()[0].split(".")[:2])) < (14, 0):
         raise RuntimeError("Candidate requires macOS 14 or newer for the pinned PyAV wheel ABI")
@@ -176,6 +186,7 @@ def pinned_distribution_problems(packages: list[dict], prefix: Path, search_path
 
 
 def verify_runtime(bundle: Path, runtime: Path) -> dict:
+    validate_python_version(sys.version_info)
     manifest = validate_bundle(bundle)
     if Path(sys.prefix).resolve() != (runtime / ".venv").resolve():
         raise RuntimeError("Qualification must use the candidate's private environment")
@@ -235,13 +246,15 @@ def install(bundle: Path, runtime: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("install", "verify", "probe"))
+    parser.add_argument("command", choices=("install", "verify", "probe", "python-policy"))
     parser.add_argument("--bundle", type=Path)
     parser.add_argument("--runtime", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     os.umask(0o077)
-    if args.command == "probe":
+    if args.command == "python-policy":
+        validate_python_version(sys.version_info)
+    elif args.command == "probe":
         args.output.write_text(json.dumps(native_probe(), indent=2) + "\n")
     elif args.command == "install":
         install(args.bundle.resolve(strict=True), args.runtime.absolute())

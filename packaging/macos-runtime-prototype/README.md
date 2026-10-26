@@ -7,8 +7,9 @@ This candidate requires **macOS 14 (Sonoma) or newer**. The canonical PyAV 16
 arm64 CPython 3.13 supplier wheels require macOS 14; a real runner resolution for
 macOS 13 failed for that reason. The shipping package's support policy is unchanged.
 
-The candidate keeps the tested **Homebrew CPython 3.13, PyGObject, Pycairo,
-GTK4, libadwaita and GStreamer** contract. It replaces destination source builds,
+The candidate requires **Homebrew CPython 3.13.18 or newer in the 3.13 series**,
+with matching CPython 3.13 PyGObject/Pycairo bindings, GTK4, libadwaita and
+GStreamer. Build, setup, qualification and launch reject older interpreters. It replaces destination source builds,
 pip index queries and dependency resolution with prebuilt wheels selected and
 hashed at build time. Homebrew provisioning is still an online prerequisite;
 this is not yet a self-contained macOS runtime. Model weights are not included.
@@ -31,6 +32,23 @@ hashed wheel per external distribution for arm64 CPython 3.13 and the macOS 14
 wheel baseline. Its initial 54 supplier selections come from the retained
 [qualified PR #148 build](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/37985568418);
 the originating resolver-lock hash and source revision are recorded in `inputs.json`.
+
+The 2026-10-26 security refresh replaces certifi with 2026.10.19, filelock with
+4.2.1, Pillow with 13.0.0, setuptools with 84.1.0, pip with 26.2.2, and the
+refresh-only uv with 0.13.4. The interpreter and certificate tooling minimums
+follow the [Python security notice](https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576).
+Previous functional qualification used older inputs and is historical; the
+revised selections require actual macOS runtime and rebuild qualification.
+Updating wheel pins does not update an existing installed candidate or Homebrew.
+
+As checked on 2026-10-26, [Homebrew supplies Python 3.13.18](https://formulae.brew.sh/api/formula/python@3.13.json),
+but its current [PyGObject](https://formulae.brew.sh/api/formula/pygobject3.json)
+and [Pycairo](https://formulae.brew.sh/api/formula/py3cairo.json) formulae build
+bindings for Python 3.14/3.15. Installing current formulae alone therefore does
+not establish the required CPython 3.13 native ABI. Retained compatible bindings
+must pass the actual native import/media probe with patched Python; otherwise
+provide reviewed CPython 3.13 bindings before proceeding. The candidate fails
+instead of switching Python ABI or accepting an unpatched interpreter.
 
 Normal builds never invoke the resolver. They rebuild the application wheel from
 committed source using the pinned builder tools, fetch only exact reviewed wheel
@@ -131,5 +149,5 @@ Primary supplier references consulted 2026-10-09:
 - [pip hash-checked installs](https://pip.pypa.io/en/stable/topics/secure-installs/)
 - [pip offline and no-dependency installation options](https://pip.pypa.io/en/stable/cli/pip_install/)
 - [Homebrew PyGObject formula and Python ABI dependencies](https://formulae.brew.sh/formula/pygobject3)
-- [Pinned uv release](https://github.com/astral-sh/uv/releases/tag/0.11.7)
+- [Pinned uv release](https://github.com/astral-sh/uv/releases/tag/0.13.4)
 - [PyAV 16.1.0 supplier wheel filenames and hashes](https://pypi.org/pypi/av/16.1.0/json)

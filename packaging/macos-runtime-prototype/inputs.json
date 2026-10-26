@@ -3,22 +3,22 @@
   "target": "macos-arm64-cp313-cpu",
   "minimum_macos": "14.0",
   "uv": {
-    "version": "0.11.7",
-    "url": "https://github.com/astral-sh/uv/releases/download/0.11.7/uv-aarch64-apple-darwin.tar.gz",
-    "sha256": "66e37d91f839e12481d7b932a1eccbfe732560f42c1cfb89faddfa2454534ba8"
+    "version": "0.13.4",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.13.4/uv-aarch64-apple-darwin.tar.gz",
+    "sha256": "e0b1d4743ce64c55d9f0f4a444afa6b81125680070ee04e853fcd0f6c1ebf8f1"
   },
   "bootstrap": [
     {
       "name": "pip",
-      "version": "26.2",
-      "url": "https://files.pythonhosted.org/packages/62/36/a3aed958d60531cb442b7ab4596cda7b3621cfb916f8ae1d6769795c7dc1/pip-26.2-py3-none-any.whl",
-      "sha256": "931c303696af6fa3417112103b1cad26890e5a07eccb5b99783700e33f2b8aad"
+      "version": "26.2.2",
+      "url": "https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl",
+      "sha256": "fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
     },
     {
       "name": "setuptools",
-      "version": "84.0.0",
-      "url": "https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl",
-      "sha256": "51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670"
+      "version": "84.1.0",
+      "url": "https://files.pythonhosted.org/packages/18/02/b4bbb90f8f29e334898ff45c6d9b1fffaa6f378017052b3023a06262b5f7/setuptools-84.1.0-py3-none-any.whl",
+      "sha256": "5231689c6ac8156cd155cfb98c3fd6fb252c3e7e9bd3d78b64d3c55f132624c9"
     },
     {
       "name": "wheel",
@@ -35,9 +35,23 @@
   ],
   "supplier_lock": {
     "file": "pylock.macos-arm64-cp313-cpu.toml",
-    "sha256": "fe37104a8bf997de4c3557d2238284d975eb5820dd28ddb40231321f5246cc3e",
+    "sha256": "ac26cc807c7989b6985be816f71ba8393a76ecd0c2d7b4109ba1bc60930d801f",
     "origin_run": 37985568418,
     "origin_source": "cc8af2d4941fa0ed647868fa1ddf543063665fb8",
-    "origin_lock_sha256": "99741348b362dd97c455f79ef2b7f6f4787f5c41c57a18b2d772283bef5e7fd3"
-  }
+    "origin_lock_sha256": "99741348b362dd97c455f79ef2b7f6f4787f5c41c57a18b2d772283bef5e7fd3",
+    "security_refresh": {
+      "date": "2026-10-26",
+      "replaces_lock_sha256": "fe37104a8bf997de4c3557d2238284d975eb5820dd28ddb40231321f5246cc3e",
+      "updated_packages": {
+        "certifi": "2026.10.19",
+        "filelock": "4.2.1",
+        "pillow": "13.0.0",
+        "pip": "26.2.2",
+        "setuptools": "84.1.0"
+      },
+      "notice": "https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576",
+      "qualification": "Revised macOS runner qualification required; prior functional results are historical"
+    }
+  },
+  "minimum_python": "3.13.18"
 }

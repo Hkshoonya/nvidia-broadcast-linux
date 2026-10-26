@@ -26,8 +26,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/c4/19/a8528d5bba592b3
 
 [[packages]]
 name = "certifi"
-version = "2026.7.22"
-wheels = [{ url = "https://files.pythonhosted.org/packages/0b/a7/71ac2cff56fec219ed242bb11b8efb69fcc4bec75db06fb7bfe35de520e6/certifi-2026.7.22-py3-none-any.whl", upload-time = 2026-07-22T03:35:11Z, size = 136983, hashes = { sha256 = "62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775" } }]
+version = "2026.10.19"
+wheels = [{ url = "https://files.pythonhosted.org/packages/c4/51/29046e48f693c54e5b7412216d447a1d8362c9653148d98c02cdf65fa733/certifi-2026.10.19-py3-none-any.whl", upload-time = 2026-10-20T02:24:15.072385Z, size = 136464, hashes = { sha256 = "42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b" } }]
 
 [[packages]]
 name = "cffi"
@@ -81,8 +81,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/05/99/49ee85903dee060
 
 [[packages]]
 name = "filelock"
-version = "4.0.12"
-wheels = [{ url = "https://files.pythonhosted.org/packages/da/a1/b047e1c486a2c66283633b7dbb73872ca16ca1ce6a426f70d4d037fc8e1c/filelock-4.0.12-py3-none-any.whl", upload-time = 2026-10-05T13:17:42Z, size = 111732, hashes = { sha256 = "5f17ee83ecee8a6f3e389c75822fb70a1c2f0506b99438a6dffa1d56793588c8" } }]
+version = "4.2.1"
+wheels = [{ url = "https://files.pythonhosted.org/packages/28/00/db89d339bc4ecdc8087fa7b8607ba22ffc27bf96286f340c9620bea428b3/filelock-4.2.1-py3-none-any.whl", upload-time = 2026-10-17T16:48:12.937020Z, size = 162455, hashes = { sha256 = "7be2662e9e826b9bba28afc0f843a123280d799a2ea44bb5d35ccec67905ae44" } }]
 
 [[packages]]
 name = "flatbuffers"
@@ -184,7 +184,7 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/3a/1b/3b16a9bc514a440
 [[packages]]
 name = "nvbroadcast"
 version = "1.5.2"
-archive = { path = "../../dist/native-cuda-switching/runtime-build/wheels/nvbroadcast-1.5.2-py3-none-any.whl", hashes = { sha256 = "9960081d102a896a96b1e8f683f47708c7fa61326b36e30bbacf0ea5e89247c9" } }
+archive = { path = "../../dist/native-cuda-switching/runtime-build/wheels/nvbroadcast-1.5.2-py3-none-any.whl", hashes = { sha256 = "5d866e14a2fca7908eb346cbade35f2102777b32b32f9cba2201287c06b550ff" } }
 
 [[packages]]
 name = "nvidia-cublas-cu12"
@@ -256,8 +256,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/63/34/ba1c580383c9ead
 
 [[packages]]
 name = "pillow"
-version = "12.3.0"
-wheels = [{ url = "https://files.pythonhosted.org/packages/f7/62/de5bdd77d935331f4f802edc11e4d82950f642caad6cb2f949837b8560e2/pillow-12.3.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", upload-time = 2026-07-01T11:54:38Z, size = 6937129, hashes = { sha256 = "0847a763afefb695bc912d7c131e7e0632d4edc1d8698f58ddabec8e46b8b6d3" } }]
+version = "13.0.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/ef/fe/f5cdaa2d1c4086e757430f368c271a58ee29cfe7378e7ae7b9d964015c25/pillow-13.0.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", upload-time = 2026-10-16T22:16:14.844872Z, size = 7142544, hashes = { sha256 = "5f56499c1a74d2b862beb0c33b8016f99d095858455df9d21583bbbc1c15b582" } }]
 
 [[packages]]
 name = "protobuf"

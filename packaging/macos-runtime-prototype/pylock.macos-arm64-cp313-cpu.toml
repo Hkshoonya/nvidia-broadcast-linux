@@ -20,8 +20,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/d2/c4/0b49cf730d0ae8c
 
 [[packages]]
 name = "certifi"
-version = "2026.7.22"
-wheels = [{ url = "https://files.pythonhosted.org/packages/0b/a7/71ac2cff56fec219ed242bb11b8efb69fcc4bec75db06fb7bfe35de520e6/certifi-2026.7.22-py3-none-any.whl", size = 136983, hashes = { sha256 = "62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775" } }]
+version = "2026.10.19"
+wheels = [{ url = "https://files.pythonhosted.org/packages/c4/51/29046e48f693c54e5b7412216d447a1d8362c9653148d98c02cdf65fa733/certifi-2026.10.19-py3-none-any.whl", size = 136464, hashes = { sha256 = "42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b" } }]
 
 [[packages]]
 name = "cffi"
@@ -60,8 +60,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/05/99/49ee85903dee060
 
 [[packages]]
 name = "filelock"
-version = "4.1.0"
-wheels = [{ url = "https://files.pythonhosted.org/packages/ee/86/032133892a5de43b5a98200b01aadcad68cc255e274a762f08b8a76d2912/filelock-4.1.0-py3-none-any.whl", size = 133003, hashes = { sha256 = "2ce9818e3e2d8f284c1a964414447ef148d42a5fd5e2a477a7118e574b293ec1" } }]
+version = "4.2.1"
+wheels = [{ url = "https://files.pythonhosted.org/packages/28/00/db89d339bc4ecdc8087fa7b8607ba22ffc27bf96286f340c9620bea428b3/filelock-4.2.1-py3-none-any.whl", size = 162455, hashes = { sha256 = "7be2662e9e826b9bba28afc0f843a123280d799a2ea44bb5d35ccec67905ae44" } }]
 
 [[packages]]
 name = "flatbuffers"
@@ -175,13 +175,13 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/b7/b9/c538f279a4e237a
 
 [[packages]]
 name = "pillow"
-version = "12.3.0"
-wheels = [{ url = "https://files.pythonhosted.org/packages/10/76/8803c13605b763d33d156c4678fc77f8443389c0c51c8aef707bb02015f4/pillow-12.3.0-cp313-cp313-macosx_11_0_arm64.whl", size = 4780109, hashes = { sha256 = "d69141514cc30b774ceea5e3ed3a6635c8d8a96edf664689b890f4089111fb35" } }]
+version = "13.0.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/98/c8/ccede3dcc4f274b80fb49199eed1ef34ba05566c8b71976b9d1f111da2e3/pillow-13.0.0-cp313-cp313-macosx_11_0_arm64.whl", size = 4852187, hashes = { sha256 = "f11a3c1358bb3c68012a7b1f41b223c3db9f7bfde90b481df028cfe1c3363313" } }]
 
 [[packages]]
 name = "pip"
-version = "26.2"
-wheels = [{ url = "https://files.pythonhosted.org/packages/62/36/a3aed958d60531cb442b7ab4596cda7b3621cfb916f8ae1d6769795c7dc1/pip-26.2-py3-none-any.whl", size = 1816475, hashes = { sha256 = "931c303696af6fa3417112103b1cad26890e5a07eccb5b99783700e33f2b8aad" } }]
+version = "26.2.2"
+wheels = [{ url = "https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl", size = 1819850, hashes = { sha256 = "fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" } }]
 
 [[packages]]
 name = "protobuf"
@@ -225,8 +225,8 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/9a/d7/21d890274f75ea3
 
 [[packages]]
 name = "setuptools"
-version = "84.0.0"
-wheels = [{ url = "https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl", size = 818216, hashes = { sha256 = "51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670" } }]
+version = "84.1.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/18/02/b4bbb90f8f29e334898ff45c6d9b1fffaa6f378017052b3023a06262b5f7/setuptools-84.1.0-py3-none-any.whl", size = 819380, hashes = { sha256 = "5231689c6ac8156cd155cfb98c3fd6fb252c3e7e9bd3d78b64d3c55f132624c9" } }]
 
 [[packages]]
 name = "six"
