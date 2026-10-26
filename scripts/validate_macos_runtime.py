@@ -145,7 +145,9 @@ def check_generated_media(Gst, video_encoder, audio_encoder, diagnostics_root=No
             encode = Gst.parse_launch(
                 f'mp4mux name=mux ! filesink location="{recording}" '
                 'videotestsrc num-buffers=24 ! '
+                # Match the production CPU recording branch's 8-bit 4:2:0 input.
                 'video/x-raw,width=320,height=240,framerate=24/1 ! videoconvert ! '
+                'video/x-raw,format=I420 ! '
                 f'{video_encoder} ! h264parse ! queue ! mux. '
                 'audiotestsrc num-buffers=48 samplesperbuffer=1024 ! '
                 'audio/x-raw,rate=48000,channels=1 ! audioconvert ! audioresample ! '
