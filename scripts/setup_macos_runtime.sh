@@ -53,8 +53,10 @@ for minor in 13 12 11; do
     fi
     if "$candidate" - <<'PY'
 import sys
-if not ((3, 11) <= sys.version_info[:2] <= (3, 13)):
-    raise SystemExit("Python 3.11-3.13 required")
+# PSF's October 2026 certificate incident mitigation; check before imports.
+minimum_patch = {(3, 11): 18, (3, 12): 16, (3, 13): 18}.get(sys.version_info[:2])
+if minimum_patch is None or sys.version_info[2] < minimum_patch:
+    raise SystemExit("Python 3.11.18+, 3.12.16+, or 3.13.18+ required; update Homebrew Python")
 import cairo
 import gi
 for namespace, version in (("Gtk", "4.0"), ("Adw", "1"), ("Gst", "1.0"),
@@ -118,7 +120,9 @@ cp "$INSTALL_DIR/pyproject.toml" "$INSTALL_DIR/LICENSE" "$INSTALL_DIR/NOTICE" \
     "$INSTALL_DIR/README.md" "$INSTALL_DIR/CONTRIBUTORS.md" "$PROJECT_DIR/"
 "$PYTHON" -m venv "$RUNTIME_DIR/.venv" --system-site-packages
 RUNTIME_PYTHON="$RUNTIME_DIR/.venv/bin/python"
-"$RUNTIME_PYTHON" -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel
+# Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+"$RUNTIME_PYTHON" -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+"$RUNTIME_PYTHON" -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel
 "$RUNTIME_PYTHON" "$INSTALL_DIR/scripts/install_runtime_variant.py" \
     --project "$PROJECT_DIR" --variant cpu --meeting-backends faster
 "$RUNTIME_PYTHON" -m pip check

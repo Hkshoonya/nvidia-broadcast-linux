@@ -1,7 +1,10 @@
 # Runtime inputs for the development Flatpak. Keep these constraints aligned
 # with pyproject.toml and src/nvbroadcast/runtime/variants.py.
 numpy>=1.26
-Pillow>=12.3.0
+Pillow>=13.0.0
+certifi>=2026.10.19
+filelock>=4.2.1
+urllib3>=2.8.0
 opencv-contrib-python>=4.8.1.78,<5
 mediapipe>=1.0.0
 protobuf>=6.33.5,<7

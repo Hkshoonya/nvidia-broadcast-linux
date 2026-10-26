@@ -609,7 +609,7 @@ esac
         runner.write_text('''import sys
 import types
 
-sys.version_info = (3, 13, 0, "final", 0)
+sys.version_info = (3, 13, 18, "final", 0)
 gi = types.ModuleType("gi")
 gi.require_version = lambda *_: None
 repository = types.ModuleType("gi.repository")
@@ -786,13 +786,28 @@ exec(compile(sys.stdin.read(), "source installer preflight", "exec"), {})
                     setattr(repository, namespace, object())
                 modules = {"cairo": types.ModuleType("cairo"), "gi": gi, "gi.repository": repository}
                 with mock.patch.dict(sys.modules, modules), \
-                     mock.patch.object(sys, "version_info", (3, 13, 0, "final", 0)):
+                     mock.patch.object(sys, "version_info", (3, 13, 18, "final", 0)):
                     if missing is None:
                         exec(compile(probe, "source installer desktop probe", "exec"), {})
                     else:
                         with self.assertRaisesRegex(SystemExit, "Missing GStreamer plugins"):
                             exec(compile(probe, "source installer desktop probe", "exec"), {})
                 gst.init.assert_called_once_with([])
+
+    def test_installer_preflights_reject_unpatched_python_before_native_imports(self):
+        source = (ROOT / "install_macos.sh").read_text()
+        packaged = (ROOT / "scripts/setup_macos_runtime.sh").read_text()
+        probes = {
+            "source": source.split("check_desktop_stack() {", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY", 1)[0],
+            "package": packaged.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0],
+        }
+        for name, probe in probes.items():
+            for version in ((3, 11, 17), (3, 12, 15), (3, 13, 17), (3, 10, 20), (3, 14, 10)):
+                with self.subTest(installer=name, version=version), \
+                     mock.patch.object(sys, "version_info", version), \
+                     mock.patch.dict(sys.modules, {"cairo": None, "gi": None}):
+                    with self.assertRaisesRegex(SystemExit, "update Homebrew Python"):
+                        exec(compile(probe, name + " preflight", "exec"), {})
 
     def test_source_launcher_refuses_root_and_cannot_fall_back_when_venv_is_missing(self):
         result = self.run_installer()

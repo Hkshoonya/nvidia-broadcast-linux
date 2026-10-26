@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=83.0.0", "wheel"]
+requires = ["setuptools>=84.1.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -28,7 +28,10 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.26",
-    "Pillow>=12.3.0",
+    "Pillow>=13.0.0",
+    "certifi>=2026.10.19",
+    "filelock>=4.2.1",
+    "urllib3>=2.8.0; sys_platform == 'linux'",
     "opencv-contrib-python>=4.8.1.78,<5",
     # Current secure macOS wheels are Apple Silicon-only. Requiring 1.0.0
     # prevents Intel Macs from silently resolving an older vulnerable

@@ -121,7 +121,7 @@ parts:
       - numpy
       - opencv-contrib-python>=4.8.1.78,<5
       - packaging>=26.0
-      - setuptools>=83.0.0
+      - setuptools>=84.1.0
       - protobuf>=6.33.5,<7
       - onnx>=1.22.0
       - click>=8.3.3
@@ -137,7 +137,10 @@ parts:
       - sympy
       - pyrnnoise
       - psutil
-      - Pillow>=12.3.0
+      - Pillow>=13.0.0
+      - certifi>=2026.10.19
+      - filelock>=4.2.1
+      - urllib3>=2.8.0
       - requests
     stage-packages:
       - pipewire-bin
@@ -145,6 +148,13 @@ parts:
       - v4l-utils
       - gnome-settings-daemon-common
     override-build: |
+      # The SDK's ensurepip can seed an older CA bundle. Repair the plugin's
+      # build venv before either online resolver pass; its repeated venv setup
+      # preserves this newer pip. Runtime pip is still removed below.
+      "${PARTS_PYTHON_INTERPRETER:-python3}" -m venv "$CRAFT_PART_INSTALL" || exit $?
+      "$CRAFT_PART_INSTALL/bin/python3" -m pip --isolated install --upgrade --no-deps \
+        --disable-pip-version-check \
+        "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" || exit $?
       PYTHONPATH="$CRAFTCTL_PYTHONPATH" craftctl default
       # The GNOME build extension puts its SDK interpreter first on PATH.
       # That SDK is not mounted under strict confinement, so make the venv use
@@ -170,7 +180,7 @@ parts:
       case "${CRAFT_ARCH_BUILD_FOR:-$(uname -m)}" in
         amd64|x86_64)
           echo "Installing sole amd64 CUDA runtime owner into Snap..."
-          python3 -m pip install --no-cache-dir --upgrade \
+          "$CRAFT_PART_INSTALL/bin/python3" -m pip install --no-cache-dir --upgrade \
             --timeout 120 \
             --retries 5 \
             --no-deps \
@@ -191,7 +201,7 @@ parts:
           ;;
         *)
           echo "Installing sole arm64 CPU runtime owner into Snap..."
-          python3 -m pip install --no-cache-dir --upgrade \
+          "$CRAFT_PART_INSTALL/bin/python3" -m pip install --no-cache-dir --upgrade \
             --no-deps \
             --target "$SNAP_PYTHON_SITE" \
             onnxruntime==1.24.4
@@ -199,7 +209,7 @@ parts:
       esac
       # faster-whisper declares the CPU distribution name. Install its code
       # without dependencies so amd64 keeps onnxruntime-gpu as sole owner.
-      python3 -m pip install --no-cache-dir --upgrade \
+      "$CRAFT_PART_INSTALL/bin/python3" -m pip install --no-cache-dir --upgrade \
         --no-deps \
         --target "$SNAP_PYTHON_SITE" \
         faster-whisper==1.2.1

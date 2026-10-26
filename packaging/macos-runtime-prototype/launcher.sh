@@ -23,4 +23,5 @@ fi
 export XDG_CONFIG_HOME="$HOME/Library/Application Support/NVBroadcast Offline Candidate/config"
 export XDG_CACHE_HOME="$HOME/Library/Caches/NVBroadcast Offline Candidate"
 cd "$bundle"
+"$runtime/.venv/bin/python" "$bundle/runtime.py" python-policy
 exec "$runtime/.venv/bin/python" -m nvbroadcast "$@"

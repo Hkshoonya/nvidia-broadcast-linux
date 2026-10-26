@@ -25,6 +25,20 @@ def load(name, filename):
 
 build = load("native_production_build", "build.py")
 validator = load("native_production_validator", "validate_install.py")
+qualifier = load("native_production_qualifier", "qualify.py")
+
+
+class CandidateInterpreterTests(unittest.TestCase):
+    def test_each_candidate_uses_its_authenticated_interpreter_pin(self):
+        for version in ("3.13.16", "3.13.18"):
+            data = json.dumps({"python": {"version": version}}).encode()
+            package = {"adapter": {"revision": "a" * 40, "files": {
+                "packaging/runtime-prototype/inputs.json": hashlib.sha256(data).hexdigest()}}}
+            with self.subTest(version=version), mock.patch.object(qualifier.subprocess, "check_output", return_value=data):
+                self.assertEqual(qualifier.expected_python_version(package), version)
+                package["adapter"]["files"]["packaging/runtime-prototype/inputs.json"] = "0" * 64
+                with self.assertRaisesRegex(ValueError, "differs from recorded adapter"):
+                    qualifier.expected_python_version(package)
 
 
 class NativeArchiveTests(unittest.TestCase):

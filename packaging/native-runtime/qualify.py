@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import time
 import uuid
@@ -37,6 +38,22 @@ def selected(directory: Path, family: str) -> dict:
     if not content.is_relative_to(directory) or sha(content) != package["content_sha256"]:
         raise ValueError("package content manifest identity mismatch")
     return package
+
+
+def expected_python_version(package: dict) -> str:
+    """Read the interpreter expectation from this package's recorded recipe."""
+    path = "packaging/runtime-prototype/inputs.json"
+    adapter = package["adapter"]
+    revision, expected = adapter["revision"], adapter["files"][path]
+    if not re.fullmatch(r"[0-9a-f]{40}", revision) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise ValueError("invalid package adapter identity")
+    data = subprocess.check_output(["git", "show", revision + ":" + path], cwd=REPO, timeout=30)
+    if hashlib.sha256(data).hexdigest() != expected:
+        raise ValueError("package interpreter input differs from recorded adapter")
+    version = json.loads(data)["python"]["version"]
+    if not re.fullmatch(r"3\.13\.[0-9]+", version):
+        raise ValueError("unsupported package interpreter target")
+    return version
 
 
 def main() -> None:
@@ -83,14 +100,14 @@ def main() -> None:
         path = mount + "/" + package["artifact"]
         return (["dpkg", "-i", path] if args.family == "deb" else ["rpm", "-Uvh", "--replacepkgs", "--oldpackage", path])
 
-    def verify(label):
+    def verify(label, package):
         execute(label + "-integrity", ["/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B",
-            "/usr/lib/nvbroadcast/validate-install.py", "--variant", first["variant"]])
+            "/usr/lib/nvbroadcast/validate-install.py", "--variant", package["variant"]])
         execute(label + "-launcher", ["/usr/bin/nvbroadcast", "--help"], user=True)
         execute(label + "-inference-media-window", ["bash", "/source/packaging/runtime-prototype/desktop_probe.sh",
             "/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "/source/packaging/runtime-prototype/probe.py",
-            "--runtime", "/usr/lib/nvbroadcast/runtime", "--python-version", "3.13.16", "--window",
-            "--variant", first["variant"], "--lock", "/usr/lib/nvbroadcast/runtime/share/nvbroadcast-runtime-provenance/pylock.toml"], user=True)
+            "--runtime", "/usr/lib/nvbroadcast/runtime", "--python-version", expected_python_version(package), "--window",
+            "--variant", package["variant"], "--lock", "/usr/lib/nvbroadcast/runtime/share/nvbroadcast-runtime-provenance/pylock.toml"], user=True)
 
     try:
         subprocess.run(["docker", "run", "-d", "--init", "--pull=never", "--network=none", "--name", name,
@@ -103,7 +120,7 @@ def main() -> None:
             "if test -e /usr/bin/python3; then sha256sum /usr/bin/python3 > /tmp/system-python.sha256; "
             "else touch /tmp/no-system-python; fi"])
         execute("install", install(first, "/first"))
-        verify("installed")
+        verify("installed", first)
         execute("generated-recording", ["bash", "/source/packaging/runtime-prototype/desktop_probe.sh",
             "/usr/lib/nvbroadcast/runtime/bin/python", "-I", "-B", "/source/packaging/native-runtime/recording_probe.py"], user=True)
         execute("start-installed-launcher", ["bash", "/source/packaging/runtime-prototype/desktop_probe.sh",
@@ -126,9 +143,9 @@ def main() -> None:
         execute("stop-held-runtime", ["sh", "-c", 'kill "$(cat /tmp/held-runtime.pid)"; test ! -e /usr/lib/nvbroadcast/.transaction'])
         execute("preserved-running-selection", ["/usr/bin/nvbroadcast", "--help"], user=True)
         execute("upgrade", install(second, "/second"))
-        verify("upgraded")
+        verify("upgraded", second)
         execute("rollback", install(first, "/first"))
-        verify("rolled-back")
+        verify("rolled-back", first)
         execute("reinstall", install(first, "/first"))
         # A required-component failure must block completion and launch until repair.
         execute("corrupt-required-file", ["bash", "-eu", "-c",
@@ -138,7 +155,7 @@ def main() -> None:
             "/usr/lib/nvbroadcast/validate-install.py", "--variant", first["variant"]], failure=True)
         execute("corrupt-launch-blocked", ["/usr/bin/nvbroadcast", "--help"], user=True, failure=True)
         execute("corruption-repair", install(first, "/first"))
-        verify("repaired")
+        verify("repaired", first)
         # Observe a large payload staging file before killing the unpacker.
         command = install(second, "/second")
         interruption_log = output / "interruption-manager.log"
@@ -186,7 +203,7 @@ def main() -> None:
                 raise RuntimeError("mid-unpack interruption left no authenticated RPM fragments")
             (output / "rpm-unpack-preservation.json").write_text(json.dumps(report, indent=2) + "\n")
         execute("interrupted-repair", install(second, "/second"))
-        verify("interruption-repaired")
+        verify("interruption-repaired", second)
         execute("remove", ["dpkg", "--purge", "nvbroadcast"] if args.family == "deb" else ["rpm", "-e", "nvbroadcast"])
         execute("preservation", ["bash", "-eu", "-c",
             "test ! -e /usr/lib/nvbroadcast/runtime; test ! -e /usr/bin/nvbroadcast; "

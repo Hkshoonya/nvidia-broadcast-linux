@@ -88,14 +88,29 @@ jobs:
       - name: Create test environment
         run: |
           /usr/bin/python3 -m venv --system-site-packages .venv
-          .venv/bin/python -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel
-          .venv/bin/python -m pip install ".[dev,cpu]" "pip-audit>=2.9" "bandit>=1.8"
+          .venv/bin/python -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          .venv/bin/python -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" wheel
+          .venv/bin/python -m pip install ".[dev,cpu]" "pip-audit>=2.9" "bandit>=1.8" "PyYAML==6.0.3"
           .venv/bin/python -m pip check
 
       - name: Audit dependencies and source
+        timeout-minutes: 10
         run: |
-          .venv/bin/python -m pip_audit . --skip-editable --progress-spinner off
-          .venv/bin/python -m bandit -q -r src -ll
+          audit_status=0
+          .venv/bin/python scripts/audit_locked_dependencies.py \
+            --output dist/locked-dependency-audit.json || audit_status=$?
+          .venv/bin/python -m pip_audit . --skip-editable --progress-spinner off || audit_status=$?
+          .venv/bin/python -m bandit -q -r src -ll || audit_status=$?
+          exit "$audit_status"
+
+      - name: Retain exact-pin advisory evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: locked-dependency-audit-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: dist/locked-dependency-audit.json
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Run unit and packaging checks
         env:
@@ -137,7 +152,8 @@ jobs:
 
       - name: Install project and test dependencies
         run: |
-          python -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel
+          python -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          python -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" wheel
           python -m pip install ".[dev,cpu]"
           python -m pip check
 
