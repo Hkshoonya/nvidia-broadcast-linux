@@ -175,7 +175,7 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/3a/1b/3b16a9bc514a440
 [[packages]]
 name = "nvbroadcast"
 version = "1.5.2"
-archive = { path = "../../dist/native-runtime-stage0/wheels/nvbroadcast-1.5.2-py3-none-any.whl", hashes = { sha256 = "9960081d102a896a96b1e8f683f47708c7fa61326b36e30bbacf0ea5e89247c9" } }
+archive = { path = "../../dist/native-runtime-stage0/wheels/nvbroadcast-1.5.2-py3-none-any.whl", hashes = { sha256 = "5d866e14a2fca7908eb346cbade35f2102777b32b32f9cba2201287c06b550ff" } }
 
 [[packages]]
 name = "onnx"
