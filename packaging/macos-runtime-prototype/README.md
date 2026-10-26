@@ -22,18 +22,50 @@ clean committed checkout and provide the native prerequisites first:
 ```sh
 /opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
 /opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/build.py \
-  --directory "$PWD/dist/macos-offline-candidate"
+  --directory "$PWD/dist/macos-offline-candidate" --cache "$PWD/dist/macos-offline-inputs"
 ```
 
-`inputs.json` pins the resolver and builder wheels by exact supplier URL and
-SHA-256. The build uses the committed application source and canonical
-`cpu,meeting-support` extras, plus the managed faster-whisper version. It resolves
-only on the build host, targeting arm64 CPython 3.13 and a macOS 14 wheel baseline.
-The generated PEP 751 lock retains supplier URLs and wheel hashes. An exact
-macOS 14 arm64 CPython 3.13 wheel selection becomes `manifest.json` and hash-checked
-`requirements.txt` in the package. No sdists enter the runtime. Keep and review
-these outputs before treating a particular candidate as reproducible; this
-initial experiment intentionally refreshes the dependency lock during builds.
+`inputs.json` pins the builder wheels and the SHA-256 of the committed
+`pylock.macos-arm64-cp313-cpu.toml`. This supplier-only lock selects exactly one
+hashed wheel per external distribution for arm64 CPython 3.13 and the macOS 14
+wheel baseline. Its initial 54 supplier selections come from the retained
+[qualified PR #148 build](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/37985568418);
+the originating resolver-lock hash and source revision are recorded in `inputs.json`.
+
+Normal builds never invoke the resolver. They rebuild the application wheel from
+committed source using the pinned builder tools, fetch only exact reviewed wheel
+URLs, and verify filenames, platform/ABI tags, hashes, metadata, managed
+faster-whisper and bootstrap versions, and the complete dependency closure before
+`pkgbuild`. The app's `cpu,meeting-support` extras and transitive dependency extras
+are evaluated against the declared Mac target; changed app requirements fail if
+the reviewed supplier set no longer satisfies them. No sdists enter the runtime.
+The generated full package lock includes the newly built application hash rather
+than retaining an older application's same-version wheel.
+
+Use `--offline --cache /absolute/cache` to consume existing authenticated inputs
+without downloads. Missing or changed inputs fail instead of accessing an index.
+The hosted workflow repeats the complete build with networking denied and
+compares every candidate payload file's bytes and mode, including the launcher,
+application wheel, supplier inventory and Installer scripts. This verifies fixed Python input
+consumption on the same native host; it does not establish independent Homebrew
+reproducibility or byte-identical PKG archives.
+
+Dependency refresh is a separate explicit operation:
+
+```sh
+/opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/build.py \
+  --refresh-lock --directory "$PWD/dist/macos-lock-proposal" \
+  --cache "$PWD/dist/macos-offline-inputs"
+```
+
+This uses the pinned resolver, verifies the proposed wheelhouse and current-source
+closure, and writes `supplier-lock.toml`, `supplier-selection.json`,
+`supplier-closure.json`, `resolved-pylock.toml` and `supplier-lock-update.json`.
+It does not build a package or edit the reviewed inputs. Review the supplier
+changes, then copy the proposed lock to the checked-in lock path and update its
+SHA-256/provenance in `inputs.json` in the same PR. If builder versions change,
+review and update the bootstrap pins as part of that change. Keep the new runner
+qualification evidence before treating the updated inputs as qualified.
 
 The native probe imports actual GI/Pycairo extensions using the selected Python,
 checks their resolved Homebrew origins, and records Python, binding hashes,
@@ -76,7 +108,8 @@ The dedicated workflow performs a fresh install and repeat setup under macOS
 fail with a permission error. No signing secrets, production environment,
 release upload or default package modification is involved. Artifact evidence
 includes the exact source/package identity, selected wheel manifest, full
-resolver lock, native inventory, generated-media results and install logs.
+package lock, supplier lock/selection/closure and rebuild receipt, native
+inventory, generated-media results and install logs.
 PR triggers cover prototype/runtime packaging inputs. Run the manual workflow
 on the final candidate revision when unrelated application changes also need
 qualification; an older green prototype run does not qualify newer source.

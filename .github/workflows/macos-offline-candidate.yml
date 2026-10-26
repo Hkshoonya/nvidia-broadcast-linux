@@ -50,10 +50,38 @@ jobs:
       - name: Build unsigned isolated candidate and exact wheel manifest
         run: |
           /opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/build.py \
-            --directory "$PWD/dist/macos-offline-candidate"
+            --directory "$PWD/dist/macos-offline-candidate" --cache "$PWD/dist/macos-offline-inputs"
 
       - name: Test inventory and target selection with pinned builder tools
         run: dist/macos-offline-candidate/builder/bin/python -m unittest -v tests.test_macos_offline_candidate
+
+      - name: Rebuild fixed Python inputs with networking denied
+        run: |
+          set -euo pipefail
+          /usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network*)' \
+            /opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/build.py \
+            --directory "$PWD/dist/macos-offline-rebuild" --cache "$PWD/dist/macos-offline-inputs" --offline
+          /opt/homebrew/opt/python@3.13/bin/python3.13 - <<'PYTHON'
+          import importlib.util, json
+          from pathlib import Path
+          path = Path('packaging/macos-runtime-prototype/runtime.py')
+          spec = importlib.util.spec_from_file_location('candidate_runtime', path)
+          runtime = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(runtime)
+          first = Path('dist/macos-offline-candidate')
+          second = Path('dist/macos-offline-rebuild')
+          identities = {}
+          for name in ('root', 'installer-scripts'):
+              pair = [runtime.tree_digest(directory / name) for directory in (first, second)]
+              if pair[0] != pair[1]:
+                  raise SystemExit(f'Fixed-input rebuild changed {name}')
+              identities[name] = pair[0]
+          evidence = {'status': 'pass', 'content_identities': identities,
+                      'network_denied_rebuild': True, 'same_native_host': True,
+                      'limits': ['Homebrew native stack remains external',
+                                 'PKG archive byte reproducibility is not claimed']}
+          (first / 'fixed-input-rebuild.json').write_text(json.dumps(evidence, indent=2) + '\n')
+          PYTHON
 
       - name: Install candidate package on the disposable runner
         run: |
@@ -129,7 +157,7 @@ jobs:
               if [[ -f "$runtime/$name" ]]; then cp "$runtime/$name" dist/macos-offline-evidence/; fi
             done
           fi
-          for name in package.json native-build-inventory.json pylock.macos-arm64-cp313-cpu.toml offline-install.log installer.log face-effects-tests.log; do
+          for name in package.json native-build-inventory.json pylock.macos-arm64-cp313-cpu.toml supplier-lock.toml supplier-selection.json supplier-closure.json fixed-input-rebuild.json offline-install.log installer.log face-effects-tests.log; do
             if [[ -f "dist/macos-offline-candidate/$name" ]]; then
               cp "dist/macos-offline-candidate/$name" dist/macos-offline-evidence/
             fi
