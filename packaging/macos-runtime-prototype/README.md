@@ -132,6 +132,41 @@ PR triggers cover prototype/runtime packaging inputs. Run the manual workflow
 on the final candidate revision when unrelated application changes also need
 qualification; an older green prototype run does not qualify newer source.
 
+## Fixed Python inputs qualification — 26 October 2026
+
+**Functional results only; release promotion is blocked.** A subsequent audit
+of all 54 exact supplier inputs found active advisories affecting certifi
+`2026.7.22`, Pillow `12.3.0`, filelock `4.1.0` and setuptools `84.0.0`. This
+includes the [certifi trust-store advisory](https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2)
+and [Pillow decoder advisory](https://github.com/advisories/GHSA-5x8w-8jj5-q52h).
+Affected inputs require replacement, rebuild, audit and requalification. The
+passing results below apply only to the original recorded bytes; they do not
+qualify replacement inputs or authorize this candidate for release.
+
+PR #170 is merged at `c7de2c8a78a128c427f215406f786ec6851df5d7`.
+[macOS run 40386251353](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40386251353)
+passed on macOS 15.7.9 arm64 with Homebrew CPython 3.13.15. Its tested merge
+source `5791b410ccf09df268fd4d9bf03e087df0942601` has the same tree as the
+reviewed PR head and final merge.
+
+Both builds used the same 54 reviewed supplier wheels and rebuilt the current
+application from source. The second build ran with networking denied; the full
+installed root and Installer scripts matched, including the launcher. Fresh and
+repeated offline setup passed, as did CPU inference, generated H.264/AAC media
+with 24 decoded video buffers and 49 audio buffers, 30 portable tests and 25
+installed face-effects tests.
+
+Independent readback authenticated the uploaded ZIP, decoded the PKG without
+executing it, recomputed both payload identities and repeated the packaged
+application's supplier/metadata dependency-closure check. The
+[historical functional-test artifact](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40386251353/artifacts/12680622031)
+is retained until 24 January 2027. Its source, package and evidence hashes are
+recorded in [the permanent qualification record](qualification/2026-10-26-fixed-python-inputs.json).
+
+These results verify fixed Python supplier-input consumption and same-host
+payload reproduction for the recorded inputs only. Homebrew's external native stack, minimum-OS, signed final-package
+and physical-device acceptance remain separate; issue #60 stays open.
+
 ## Qualification limits
 
 Portable unit tests cover tampered/incomplete inventories, duplicate/CUDA owners,
