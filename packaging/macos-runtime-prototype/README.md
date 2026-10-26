@@ -167,6 +167,21 @@ These results verify fixed Python supplier-input consumption and same-host
 payload reproduction for the recorded inputs only. Homebrew's external native stack, minimum-OS, signed final-package
 and physical-device acceptance remain separate; issue #60 stays open.
 
+## Security refresh qualification — 26 October 2026
+
+[PR #171](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/171) replaces the
+affected supplier inputs and requires Homebrew CPython 3.13.18 or newer within
+3.13. [The final-head Mac run](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40398088336)
+passed 32 portable tests, 25 installed tests, offline setup, CPU inference and
+generated recording. Independent readback verified all 55 distributions and 64
+application source/data files; the exact-version PyPI audit covered all 54
+supplier versions with zero active advisories or lookup errors. The
+[security-refresh record](qualification/2026-10-26-security-refresh.json) binds
+the tested source, package, inputs and audit receipts. The historical hold above
+still applies to its old affected bytes. This new unsigned candidate remains
+separate from public release: external native-stack review, minimum-OS,
+signed-package and physical-device acceptance remain open under issue #60.
+
 ## Qualification limits
 
 Portable unit tests cover tampered/incomplete inventories, duplicate/CUDA owners,

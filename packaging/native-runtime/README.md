@@ -347,6 +347,17 @@ security hold. Physical devices, GPU execution, interactive desktop behavior,
 CPU-variant VMs, upgrade/downgrade and power-loss acceptance remain separate.
 These results do not close #60 or modify the installed Snap or v1.5.3 assets.
 
+The [security-refresh record](qualification/2026-10-26-security-refresh.json)
+adds fresh unsigned `1.5.3-8.cpu` and `1.5.3-8.cuda` packages from `0721ae7`,
+with CPython 3.13.18 and repaired Python dependencies. Installed container
+checks passed 106 steps without a GPU and 92 further steps on Ubuntu/RTX 3080
+and Fedora/RTX 5070, including actual CUDA/CuPy execution, generated recordings,
+running-launcher refusals and CPU rollback. Follow-up `5d78452` changes only
+the prototype application-wheel hashes; it does not relabel these packages.
+Revision 7's hold remains. Refreshed signing, protected hosted artifacts,
+clean-VM/device acceptance and sustained-performance checks remain separate;
+these development results do not authorize release promotion.
+
 ### CPU/CUDA switching and explicit GPU execution
 
 `qualify_switching.py` checks a reviewed pair of local native development builds
