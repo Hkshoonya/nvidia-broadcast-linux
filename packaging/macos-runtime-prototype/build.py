@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build a NON-DEFAULT unsigned arm64 Mac candidate with an audited wheelhouse.
 
-Resolution is an explicit build-only experiment. The generated PEP 751 lock,
-wheel hashes, app source revision and native inventory travel with the artifact.
+Normal builds consume the reviewed supplier lock without resolving. Explicit
+refresh mode proposes a new lock without packaging; current source is rebuilt.
 No signing credentials, production package identifiers or release uploads.
 """
 
@@ -48,7 +48,39 @@ fi
 '''
 
 
-def build(work: Path):
+def select_suppliers(python: Path, work: Path, inputs: Path, pins: dict, app_wheel: Path,
+                     records: list[dict], faster: str, *, refresh_lock: bool) -> tuple[list[dict], Path, str]:
+    supplier_lock_path = work / "supplier-lock.toml"
+    if refresh_lock:
+        requirement_input = work / "requirements.in"
+        requirement_input.write_text(f"nvbroadcast[cpu,meeting-support] @ {app_wheel.as_uri()}\nfaster-whisper=={faster}\n"
+                                     + "".join(f"{item['name']}=={item['version']}\n" for item in records))
+        resolver_archive = prepare.fetch(inputs, pins["uv"])
+        prepare.unpack_uv(resolver_archive, pins["uv"], work / "resolver")
+        resolved = work / "resolved-pylock.toml"
+        runtime.run(work / "resolver/uv-aarch64-apple-darwin/uv", "pip", "compile", requirement_input,
+                    "--python", sys.executable, "--python-version", "3.13", "--no-python-downloads",
+                    "--python-platform", "aarch64-apple-darwin", "--only-binary", ":all:",
+                    "--format", "pylock.toml", "--output-file", resolved,
+                    env={**os.environ, "MACOSX_DEPLOYMENT_TARGET": runtime.MINIMUM_MACOS, "UV_NO_CONFIG": "1"})
+        selection_result = runtime.run(python, HERE / "supplier_lock.py", "propose",
+            "--lock", resolved, "--app-wheel", app_wheel, "--output", supplier_lock_path,
+            capture_output=True, text=True)
+        lock_sha256 = runtime.digest(supplier_lock_path)
+    else:
+        reviewed = pins["supplier_lock"]
+        if reviewed["file"] != "pylock.macos-arm64-cp313-cpu.toml":
+            raise ValueError("Unexpected supplier lock path")
+        shutil.copyfile(HERE / reviewed["file"], supplier_lock_path)
+        lock_sha256 = reviewed["sha256"]
+        selection_result = runtime.run(python, HERE / "supplier_lock.py", "select",
+            "--lock", supplier_lock_path, "--sha256", lock_sha256, capture_output=True, text=True)
+    return json.loads(selection_result.stdout), supplier_lock_path, lock_sha256
+
+
+def build(work: Path, *, refresh_lock: bool = False, cache: Path | None = None, offline: bool = False):
+    if refresh_lock and offline:
+        raise ValueError("Refreshing the supplier lock requires explicit online resolution")
     if os.geteuid() == 0:
         raise RuntimeError("Build as an ordinary user")
     native = runtime.native_probe()
@@ -59,13 +91,14 @@ def build(work: Path):
     pins = json.loads((HERE / "inputs.json").read_text())
     if pins["minimum_macos"] != runtime.MINIMUM_MACOS:
         raise ValueError("Builder and runtime deployment floors disagree")
-    inputs = work / "inputs"
-    inputs.mkdir()
+    inputs = cache or work / "inputs"
+    inputs.mkdir(parents=True, exist_ok=True)
     bootstrap = work / "bootstrap"
     (bootstrap / "wheels").mkdir(parents=True)
     records = []
     for item in pins["bootstrap"]:
-        path = prepare.fetch(bootstrap / "wheels", item)
+        path = prepare.fetch(inputs, item, offline=offline)
+        shutil.copyfile(path, bootstrap / "wheels" / path.name)
         record = runtime.wheel_record(path)
         if record["name"] != item["name"] or record["version"] != item["version"]:
             raise ValueError("Bootstrap wheel metadata mismatch")
@@ -87,52 +120,44 @@ def build(work: Path):
     revision = runtime.run("git", "rev-parse", "HEAD", cwd=ROOT, capture_output=True, text=True).stdout.strip()
     epoch = runtime.run("git", "show", "-s", "--format=%ct", "HEAD", cwd=ROOT, capture_output=True, text=True).stdout.strip()
     runtime.run(python, "-m", "pip", "--isolated", "wheel", "--no-index", "--no-deps",
-                "--no-build-isolation", "--wheel-dir", wheels, source,
+                "--no-build-isolation", "--no-cache-dir", "--wheel-dir", wheels, source,
                 env={**os.environ, "SOURCE_DATE_EPOCH": epoch})
     app_wheel, = wheels.glob("*.whl")
     tree = ast.parse((source / "src/nvbroadcast/runtime/variants.py").read_text())
     faster = next(ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign)
                   and any(isinstance(target, ast.Name) and target.id == "FASTER_WHISPER_VERSION" for target in node.targets))
-    requirement_input = work / "requirements.in"
-    requirement_input.write_text(f"nvbroadcast[cpu,meeting-support] @ {app_wheel.as_uri()}\nfaster-whisper=={faster}\n"
-                                 + "".join(f"{item['name']}=={item['version']}\n" for item in records))
-    resolver_archive = prepare.fetch(inputs, pins["uv"])
-    prepare.unpack_uv(resolver_archive, pins["uv"], work / "resolver")
+    selection, supplier_lock_path, lock_sha256 = select_suppliers(
+        python, work, inputs, pins, app_wheel, records, faster, refresh_lock=refresh_lock)
+    (work / "supplier-selection.json").write_text(json.dumps(selection, indent=2) + "\n")
+    supplier_wheels = work / "supplier-wheels"
+    supplier_wheels.mkdir()
+    for item in selection:
+        downloaded = prepare.fetch(inputs, item, offline=offline)
+        shutil.copyfile(downloaded, supplier_wheels / item["file"])
+    # Verify the complete current-source dependency closure before pkgbuild.
+    # The helper runs using pinned packaging tools and only reads target wheels.
+    closure = runtime.run(python, HERE / "supplier_lock.py", "verify",
+        "--lock", supplier_lock_path, "--sha256", lock_sha256, "--app-wheel", app_wheel,
+        "--wheelhouse", supplier_wheels, "--faster-whisper", faster, "--pins", HERE / "inputs.json",
+        capture_output=True, text=True)
+    (work / "supplier-closure.json").write_text(closure.stdout)
+    if refresh_lock:
+        (work / "supplier-lock-update.json").write_text(json.dumps({
+            "file": "pylock.macos-arm64-cp313-cpu.toml", "sha256": lock_sha256,
+            "source_revision": revision, "status": "proposed; review before committing"}, indent=2) + "\n")
+        print(f"Proposed supplier lock (no package built): {supplier_lock_path}")
+        return
+
     lock_path = work / "pylock.macos-arm64-cp313-cpu.toml"
-    runtime.run(work / "resolver/uv-aarch64-apple-darwin/uv", "pip", "compile", requirement_input,
-                "--python", sys.executable, "--python-version", "3.13", "--no-python-downloads",
-                "--python-platform", "aarch64-apple-darwin", "--only-binary", ":all:",
-                "--format", "pylock.toml", "--output-file", lock_path,
-                env={**os.environ, "MACOSX_DEPLOYMENT_TARGET": runtime.MINIMUM_MACOS, "UV_NO_CONFIG": "1"})
-    # Keep the lock portable; all other wheels retain supplier URLs and hashes.
-    lock_text = lock_path.read_text().replace(json.dumps(str(app_wheel)), json.dumps("app-wheel/" + app_wheel.name))
-    lock_path.write_text("# Generated on macOS arm64 by the pinned resolver.\n" + "\n".join(
-        line for line in lock_text.splitlines() if not line.startswith("#")) + "\n")
+    lock_path.write_text(supplier_lock_path.read_text() +
+        '\n[[packages]]\nname = "nvbroadcast"\nversion = ' + json.dumps(runtime.wheel_record(app_wheel)["version"]) +
+        '\narchive = { path = ' + json.dumps("app-wheel/" + app_wheel.name) +
+        ', hashes = { sha256 = ' + json.dumps(runtime.digest(app_wheel)) + ' } }\n')
     payload_root = work / "root"
     bundle = payload_root / "opt/nvbroadcast-offline-candidate"
     bundle.mkdir(parents=True)
-    (bundle / "wheels").mkdir()
-    # uv's platform lock can contain several compatible wheel alternatives.
-    # Select exactly one using explicit macOS 14 arm64 CPython 3.13 tags;
-    # record the complete original lock as well as the selected wheel hashes.
-    lock = tomllib.loads(lock_path.read_text())
-    selection = runtime.run(python, HERE / "wheel_target.py",
-        input=json.dumps([prepare.filename({"url": wheel["url"]})
-                      for package in lock["packages"] for wheel in package.get("wheels", [])]),
-        capture_output=True, text=True)
-    ranks = json.loads(selection.stdout)
-    for package in lock["packages"]:
-        if "archive" in package:
-            if package["name"] != "nvbroadcast" or package["archive"]["hashes"]["sha256"] != runtime.digest(app_wheel):
-                raise ValueError("Unexpected local wheel in runtime lock")
-            shutil.copyfile(app_wheel, bundle / "wheels" / app_wheel.name)
-            continue
-        choices = [wheel for wheel in package.get("wheels", [])
-                   if ranks[prepare.filename({"url": wheel["url"]})] is not None]
-        if not choices:
-            raise ValueError(f"No macOS {runtime.MINIMUM_MACOS} arm64 CPython 3.13 wheel for {package['name']}")
-        selected = min(choices, key=lambda wheel: ranks[prepare.filename({"url": wheel["url"]})])
-        prepare.fetch(bundle / "wheels", {"url": selected["url"], "sha256": selected["hashes"]["sha256"]})
+    shutil.copytree(supplier_wheels, bundle / "wheels")
+    shutil.copyfile(app_wheel, bundle / "wheels" / app_wheel.name)
     packages = sorted((runtime.wheel_record(path) for path in (bundle / "wheels").iterdir()), key=lambda item: item["name"])
     if len({item["name"] for item in packages}) != len(packages):
         raise ValueError("Target lock has more than one wheel per distribution; select an exact target before packaging")
@@ -140,11 +165,14 @@ def build(work: Path):
     manifest = {"schema_version": 1, "target": runtime.TARGET, "minimum_macos": runtime.MINIMUM_MACOS,
                 "source_revision": revision, "source_date_epoch": epoch, "packages": packages,
                 "resolver": pins["uv"], "native_build_inventory": native,
+                "supplier_lock_sha256": lock_sha256, "dependency_resolution": "reviewed-fixed-inputs",
                 "limits": ["Homebrew native dependencies and CPython are external prerequisites",
                            "Models are not bundled; first model acquisition still needs networking",
                            "Unsigned non-default candidate; no physical hardware qualification"]}
     (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     shutil.copyfile(lock_path, bundle / lock_path.name)
+    for name in ("supplier-lock.toml", "supplier-selection.json", "supplier-closure.json"):
+        shutil.copyfile(work / name, bundle / name)
     for filename in ("runtime.py", "setup.sh"):
         shutil.copyfile(HERE / filename, bundle / filename)
     shutil.copyfile(ROOT / "scripts/validate_macos_runtime.py", bundle / "validate_macos_runtime.py")
@@ -178,4 +206,9 @@ def build(work: Path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
-    build(parser.parse_args().directory.absolute())
+    parser.add_argument("--refresh-lock", action="store_true", help="propose a new supplier lock; do not build a package")
+    parser.add_argument("--cache", type=Path, help="cache of verified build and supplier inputs")
+    parser.add_argument("--offline", action="store_true", help="require all input archives in --cache; no downloads")
+    args = parser.parse_args()
+    build(args.directory.absolute(), refresh_lock=args.refresh_lock,
+          cache=args.cache.absolute() if args.cache else None, offline=args.offline)

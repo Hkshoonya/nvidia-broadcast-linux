@@ -32,5 +32,12 @@
       "url": "https://files.pythonhosted.org/packages/b7/b9/c538f279a4e237a006a2c98387d081e9eb060d203d8ed34467cc0f0b9b53/packaging-26.0-py3-none-any.whl",
       "sha256": "b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529"
     }
-  ]
+  ],
+  "supplier_lock": {
+    "file": "pylock.macos-arm64-cp313-cpu.toml",
+    "sha256": "fe37104a8bf997de4c3557d2238284d975eb5820dd28ddb40231321f5246cc3e",
+    "origin_run": 37985568418,
+    "origin_source": "cc8af2d4941fa0ed647868fa1ddf543063665fb8",
+    "origin_lock_sha256": "99741348b362dd97c455f79ef2b7f6f4787f5c41c57a18b2d772283bef5e7fd3"
+  }
 }

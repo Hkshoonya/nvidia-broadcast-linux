@@ -1,11 +1,13 @@
 """Portable negative tests; actual macOS runtime is qualified by its own CI job."""
 
+import copy
 import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from unittest import mock
 import zipfile
@@ -23,6 +25,11 @@ with mock.patch.dict(sys.modules, {"runtime": runtime}):
 spec = importlib.util.spec_from_file_location("mac_offline_target", HERE / "wheel_target.py")
 wheel_target = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wheel_target)
+
+spec = importlib.util.spec_from_file_location("mac_supplier_lock", HERE / "supplier_lock.py")
+supplier = importlib.util.module_from_spec(spec)
+with mock.patch.dict(sys.modules, {"wheel_target": wheel_target}):
+    spec.loader.exec_module(supplier)
 
 
 class MacOfflineCandidateTests(unittest.TestCase):
@@ -257,6 +264,158 @@ assert versions == ['2.0'], versions
         pins = json.loads((HERE / "inputs.json").read_text())
         self.assertEqual(pins["minimum_macos"], runtime.MINIMUM_MACOS)
         self.assertEqual(runtime.MINIMUM_MACOS, "14.0")
+
+
+class MacFixedSupplierTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.wheels = self.root / "supplier-wheels"
+        self.wheels.mkdir()
+        self.selection = []
+        for name in sorted(supplier.REQUIRED):
+            self.add_supplier(name)
+        self.app = self.write_wheel(self.root, "nvbroadcast", requirements=[
+            'onnxruntime>=1; extra == "cpu"', 'faster-whisper>=1; extra == "meeting-support"',
+            'linux-only; sys_platform == "linux"'], extras=("cpu", "meeting-support"))
+        self.pins = [{key: item[key] for key in ("name", "version", "url", "sha256")}
+                     for item in self.selection if item["name"] in {"pip", "setuptools", "wheel", "packaging"}]
+
+    def write_wheel(self, directory, name, version="1.0", requirements=(), extras=(), tag="py3-none-any"):
+        normalized = name.replace("-", "_")
+        path = directory / f"{normalized}-{version}-{tag}.whl"
+        text = f"Metadata-Version: 2.3\nName: {name}\nVersion: {version}\nRequires-Python: >=3.11\n"
+        text += "".join(f"Requires-Dist: {requirement}\n" for requirement in requirements)
+        text += "".join(f"Provides-Extra: {extra}\n" for extra in extras)
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr(f"{normalized}-{version}.dist-info/METADATA", text)
+        return path
+
+    def add_supplier(self, name, **kwargs):
+        path = self.write_wheel(self.wheels, name, **kwargs)
+        item = {"name": name, "version": kwargs.get("version", "1.0"), "file": path.name,
+                "url": "https://supplier.example/" + path.name, "sha256": supplier.sha256(path),
+                "size": path.stat().st_size}
+        self.selection.append(item)
+        return item
+
+    def verify(self):
+        return supplier.verify_wheelhouse(self.selection, self.wheels, self.app, "1.0", self.pins)
+
+    def test_committed_selection_is_hash_pinned_and_matches_bootstrap(self):
+        pins = json.loads((HERE / "inputs.json").read_text())
+        lock = pins["supplier_lock"]
+        selected = supplier.read_selection(HERE / lock["file"], lock["sha256"])
+        self.assertEqual(len(selected), 54)
+        owners = {item["name"]: item for item in selected}
+        self.assertNotIn("nvbroadcast", owners)
+        for item in pins["bootstrap"]:
+            self.assertEqual({key: owners[item["name"]][key] for key in item}, item)
+
+    def test_normal_selection_executes_no_resolver_and_rejects_changed_lock(self):
+        pins = json.loads((HERE / "inputs.json").read_text())
+        with mock.patch.object(builder.prepare, "fetch", side_effect=AssertionError("Unexpected resolver download")):
+            selection, path, digest = builder.select_suppliers(Path(sys.executable), self.root, self.root,
+                pins, self.app, [], "1.0", refresh_lock=False)
+        self.assertEqual(len(selection), 54)
+        self.assertEqual(digest, supplier.sha256(path))
+        path.write_text(path.read_text() + "\n# changed\n")
+        with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+            supplier.read_selection(path, digest)
+
+    def test_fixed_lock_rejects_missing_duplicate_local_and_wrong_target_entries(self):
+        lock = tomllib.loads(supplier.render_lock(self.selection))
+        cases = []
+        missing = copy.deepcopy(lock); missing["packages"].pop(); cases.append(missing)
+        duplicate = copy.deepcopy(lock); duplicate["packages"].append(duplicate["packages"][0]); cases.append(duplicate)
+        local = copy.deepcopy(lock); local["packages"][0]["archive"] = {"path": "evil.whl"}; cases.append(local)
+        for tag in ("cp314-cp314-macosx_14_0_arm64", "cp313-cp313-macosx_14_0_x86_64", "cp313-cp313-macosx_15_0_arm64"):
+            wrong = copy.deepcopy(lock)
+            wrong["packages"][0]["wheels"][0]["url"] = wrong["packages"][0]["wheels"][0]["url"].replace("py3-none-any", tag)
+            cases.append(wrong)
+        for invalid in cases:
+            with self.subTest(invalid=invalid["packages"][0]["name"]):
+                with self.assertRaises(ValueError):
+                    supplier.supplier_selection(invalid)
+
+    def test_supplier_download_never_repairs_missing_or_tampered_offline_input(self):
+        item = self.selection[0]
+        with mock.patch.object(builder.prepare.urllib.request, "urlopen", side_effect=AssertionError("Network access")):
+            with self.assertRaises(FileNotFoundError):
+                builder.prepare.fetch(self.root, item, offline=True)
+            (self.root / item["file"]).write_bytes(b"tampered cache")
+            with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+                builder.prepare.fetch(self.root, item, offline=True)
+
+    def test_current_application_and_transitive_extra_closure_are_verified(self):
+        self.add_supplier("parent", requirements=['child>=2; extra == "chosen"'], extras=("chosen",))
+        self.add_supplier("child", version="2.0")
+        self.app = self.write_wheel(self.root, "nvbroadcast", requirements=['parent[chosen]>=1'], extras=("cpu", "meeting-support"))
+        self.assertEqual(self.verify()["dependency_closure"], "pass")
+        self.app = self.write_wheel(self.root, "nvbroadcast", requirements=['parent[chosen]>=2'], extras=("cpu", "meeting-support"))
+        with self.assertRaisesRegex(ValueError, "Unsatisfied locked dependency"):
+            self.verify()
+
+    def test_marker_evaluation_uses_mac_target_and_app_extras(self):
+        self.assertEqual(self.verify()["status"], "pass")
+        for requirement in ('new-package; sys_platform == "darwin"', 'new-package; extra == "cpu"',
+                            'new-package; extra == "meeting-support"'):
+            self.app = self.write_wheel(self.root, "nvbroadcast", requirements=[requirement], extras=("cpu", "meeting-support"))
+            with self.subTest(requirement=requirement):
+                with self.assertRaisesRegex(ValueError, "Unsatisfied locked dependency"):
+                    self.verify()
+
+    def test_active_direct_url_and_undefined_dependency_extra_are_rejected(self):
+        for requirement, error in [('onnxruntime @ https://supplier.example/other.whl', "direct URL"),
+                                    ('onnxruntime[not-provided]', "requested extras")]:
+            self.app = self.write_wheel(self.root, "nvbroadcast", requirements=[requirement], extras=("cpu", "meeting-support"))
+            with self.assertRaisesRegex(ValueError, error):
+                self.verify()
+
+    def test_missing_extra_tampered_and_redirected_wheelhouse_files_are_rejected(self):
+        self.assertEqual(self.verify()["status"], "pass")
+        path = self.wheels / self.selection[0]["file"]
+        original = path.read_bytes()
+        path.unlink()
+        with self.assertRaisesRegex(ValueError, "missing, extra"):
+            self.verify()
+        path.write_bytes(original + b"tampered")
+        with self.assertRaisesRegex(ValueError, "hash/size"):
+            self.verify()
+        path.unlink()
+        source = self.root / path.name
+        source.write_bytes(original)
+        path.symlink_to(source)
+        with self.assertRaisesRegex(ValueError, "hash/size"):
+            self.verify()
+        path.unlink(); path.write_bytes(original)
+        (self.wheels / "extra.whl").write_bytes(b"extra")
+        with self.assertRaisesRegex(ValueError, "missing, extra"):
+            self.verify()
+
+    def test_changed_managed_version_and_builder_bootstrap_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "faster-whisper"):
+            supplier.verify_wheelhouse(self.selection, self.wheels, self.app, "2.0", self.pins)
+        self.pins[0]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "bootstrap"):
+            self.verify()
+
+    def test_refreshed_lock_requires_current_application_identity(self):
+        resolved = supplier.render_lock(self.selection) + ('\n[[packages]]\nname = "nvbroadcast"\nversion = "1.0"\n'
+            'archive = { path = ' + json.dumps(str(self.app)) + ', hashes = { sha256 = ' +
+            json.dumps(supplier.sha256(self.app)) + ' } }\n')
+        path = self.root / "resolved.toml"; path.write_text(resolved)
+        output = self.root / "proposal.toml"
+        supplier.propose_lock(path, self.app, output)
+        self.assertEqual(supplier.supplier_selection(tomllib.loads(output.read_text())), self.selection)
+        self.app.write_bytes(self.app.read_bytes() + b"new source")
+        with self.assertRaisesRegex(ValueError, "rebuilt source wheel"):
+            supplier.propose_lock(path, self.app, output)
+
+    def test_refresh_cannot_hide_online_resolution_behind_offline_flag(self):
+        with self.assertRaisesRegex(ValueError, "explicit online resolution"):
+            builder.build(self.root / "output", refresh_lock=True, offline=True)
 
 
 if __name__ == "__main__":
