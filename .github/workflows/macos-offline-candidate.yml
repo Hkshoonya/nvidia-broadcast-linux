@@ -106,6 +106,8 @@ jobs:
           test ! -e /usr/local/bin/nvbroadcast
 
       - name: Fresh per-user install with outbound networking denied
+        env:
+          NVBROADCAST_RETAIN_MEDIA_DIAGNOSTICS: '1'
         run: |
           set -euo pipefail
           /usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network*)' /bin/bash <<'OFFLINE' \
@@ -154,6 +156,26 @@ jobs:
           raise SystemExit(not result.wasSuccessful())
           PY
 
+      - name: Compare automatic and software decoding of the same synthetic recording
+        if: always()
+        env:
+          NVBROADCAST_RETAIN_MEDIA_DIAGNOSTICS: '1'
+        run: |
+          set -euo pipefail
+          if [[ ! -f /opt/nvbroadcast-offline-candidate/macos-runtime-id ]]; then
+            echo "No installed candidate is available for media diagnostics."
+            exit 0
+          fi
+          identity="$(cat /opt/nvbroadcast-offline-candidate/macos-runtime-id)"
+          runtime="$HOME/Library/Application Support/NVBroadcast Offline Candidate/$identity"
+          if [[ ! -x "$runtime/.venv/bin/python" ]]; then
+            echo "Candidate runtime creation did not finish; no media probe can run."
+            exit 0
+          fi
+          /usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network*)' \
+            "$runtime/.venv/bin/python" -I /opt/nvbroadcast-offline-candidate/validate_macos_runtime.py \
+            --output "$runtime/diagnostic-media.json" --diagnostic-repeats 3
+
       - name: Retain installed qualification and package identity
         if: always()
         run: |
@@ -161,9 +183,12 @@ jobs:
           if [[ -f /opt/nvbroadcast-offline-candidate/macos-runtime-id ]]; then
             identity="$(cat /opt/nvbroadcast-offline-candidate/macos-runtime-id)"
             runtime="$HOME/Library/Application Support/NVBroadcast Offline Candidate/$identity"
-            for name in qualification.json generated-media.json runtime-ready; do
+            for name in qualification.json generated-media.json diagnostic-media.json runtime-ready; do
               if [[ -f "$runtime/$name" ]]; then cp "$runtime/$name" dist/macos-offline-evidence/; fi
             done
+            if [[ -d "$runtime/generated-media-diagnostics" ]]; then
+              cp -R "$runtime/generated-media-diagnostics" dist/macos-offline-evidence/
+            fi
           fi
           for name in package.json native-build-inventory.json pylock.macos-arm64-cp313-cpu.toml supplier-lock.toml supplier-selection.json supplier-closure.json fixed-input-rebuild.json offline-install.log installer.log face-effects-tests.log; do
             if [[ -f "dist/macos-offline-candidate/$name" ]]; then

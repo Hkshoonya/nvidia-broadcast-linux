@@ -34,6 +34,11 @@ with mock.patch.dict(sys.modules, {"wheel_target": wheel_target, "runtime": runt
     spec.loader.exec_module(supplier)
 
 
+spec = importlib.util.spec_from_file_location("mac_media_validator", ROOT / "scripts/validate_macos_runtime.py")
+media_validator = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(media_validator)
+
+
 class MacOfflineCandidateTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -461,6 +466,105 @@ class MacFixedSupplierTests(unittest.TestCase):
     def test_refresh_cannot_hide_online_resolution_behind_offline_flag(self):
         with self.assertRaisesRegex(ValueError, "explicit online resolution"):
             builder.build(self.root / "output", refresh_lock=True, offline=True)
+
+
+class MacGeneratedMediaTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.retained = self.root / "diagnostics"
+        self.recordings = []
+        self.gst = mock.MagicMock()
+
+        def encode(description):
+            location = next(token.removeprefix("location=") for token in shlex.split(description)
+                            if token.startswith("location="))
+            recording = Path(location)
+            recording.write_bytes(b"synthetic fixture only")
+            self.recordings.append(recording)
+            return mock.Mock()
+
+        self.gst.parse_launch.side_effect = encode
+        patcher = mock.patch.object(media_validator, "_complete", return_value={"status": "pass"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def decoded(video=24, audio=49, status="pass"):
+        return {"status": status, "decoded_buffers": {"video": video, "audio": audio},
+                "decoder_factories": [{"factory": "fixture_decoder"}]}
+
+    def check(self, reports, *, retain=True, repeats=1):
+        with mock.patch.object(media_validator, "_decode_recording", side_effect=reports) as decode:
+            result = media_validator.check_generated_media(
+                self.gst, "fixture_video", "fixture_audio", self.retained if retain else None,
+                diagnostic_repeats=repeats)
+            return result, decode.call_count
+
+    def evidence(self):
+        paths = list(self.retained.glob("attempt-*/diagnostics.json"))
+        self.assertEqual(len(paths), 1)
+        return json.loads(paths[0].read_text())
+
+    def test_complete_software_cannot_rescue_truncated_automatic_recording(self):
+        with self.assertRaisesRegex(RuntimeError, "Incomplete audiovisual"):
+            self.check([self.decoded(video=3), self.decoded()])
+        evidence = self.evidence()
+        self.assertEqual(evidence["status"], "fail")
+        self.assertEqual(evidence["automatic"]["decoded_buffers"]["video"], 3)
+        self.assertEqual(evidence["software"]["decoded_buffers"]["video"], 24)
+        self.assertEqual(self.recordings[0].read_bytes(), b"synthetic fixture only")
+
+    def test_missing_software_plugins_cannot_rescue_automatic_failure(self):
+        self.gst.ElementFactory.find.return_value = None
+        with self.assertRaisesRegex(RuntimeError, "Incomplete audiovisual"):
+            self.check([self.decoded(status="fail")])
+        self.assertEqual(self.evidence()["software"]["status"], "unavailable")
+
+    def test_normal_checks_clean_up_recording_on_success_and_failure(self):
+        result, count = self.check([self.decoded()], retain=False)
+        self.assertEqual(count, 1)  # Normal success does not run a software comparison.
+        self.assertFalse(result["decoder_diagnostics"]["retained"])
+        self.assertFalse(self.recordings[-1].parent.exists())
+        with self.assertRaisesRegex(RuntimeError, "Incomplete audiovisual"):
+            self.check([self.decoded(video=3), self.decoded()], retain=False)
+        self.assertFalse(self.recordings[-1].parent.exists())
+        self.assertFalse(self.retained.exists())
+
+    def test_later_automatic_repeat_failure_is_not_hidden(self):
+        with self.assertRaisesRegex(RuntimeError, "Incomplete audiovisual"):
+            self.check([self.decoded(), self.decoded(video=3), self.decoded(), self.decoded()], repeats=3)
+        self.assertEqual(len(self.evidence()["automatic_repeats"]), 3)
+
+    def test_diagnostics_require_complete_software_and_present_plugins(self):
+        with self.assertRaisesRegex(RuntimeError, "Incomplete audiovisual"):
+            self.check([self.decoded(), self.decoded(), self.decoded(video=3)], repeats=2)
+        self.gst.ElementFactory.find.return_value = None
+        with self.assertRaisesRegex(RuntimeError, "Software comparison plugins are unavailable"):
+            self.check([self.decoded(), self.decoded()], retain=False, repeats=2)
+
+    def test_video_without_audio_remains_failure(self):
+        with self.assertRaisesRegex(RuntimeError, "Incomplete audiovisual"):
+            self.check([self.decoded(audio=0), self.decoded()])
+
+    def test_redirected_diagnostic_directory_is_rejected_before_encoding(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        self.retained.symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            self.check([])
+        self.assertFalse(self.recordings)
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_changed_file_cannot_be_compared_as_the_same_recording(self):
+        def mutate(_gst, recording, *, software):
+            recording.write_bytes(b"changed recording")
+            return self.decoded()
+        with mock.patch.object(media_validator, "_decode_recording", side_effect=mutate):
+            with self.assertRaisesRegex(RuntimeError, "Generated file changed"):
+                media_validator.check_generated_media(self.gst, "video", "audio", self.retained)
+        self.assertEqual(self.evidence()["status"], "fail")
 
 
 if __name__ == "__main__":
