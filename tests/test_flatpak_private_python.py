@@ -5,6 +5,10 @@ from pathlib import Path
 import tempfile
 import shutil
 import unittest
+import os
+import subprocess
+import sys
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +52,7 @@ class PrivatePythonTests(unittest.TestCase):
                              ('pylock.build.toml', repo / private.BUILD_LOCK)):
             shutil.copyfile(source, provenance / name)
         record = {'schema_version': 1, 'python': python, 'tools': tools, 'ssl_fixture': inputs['ssl_fixture'],
+                  'tool_locations': {tool['name']: private.APP_SITE for tool in tools},
                   'input_sha256': {name: private.digest(repo / source) for name, source in sources.items()},
                   'interpreter': '/app/bin/python3.13', 'pythonpath': private.PYTHON_PATH,
                   'shared_python_path': private.SHARED_SITE, 'python_metadata_sha256': private.digest(metadata),
@@ -94,6 +99,39 @@ class PrivatePythonTests(unittest.TestCase):
             with self.subTest(prefix=prefix), self.assertRaisesRegex(ValueError, '/app prefix'):
                 private.install(Path(prefix))
 
+    def test_bootstrap_child_cannot_discover_sdk_tools_and_selects_each_private_distribution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app, shared = root / 'app-site', root / 'shared-site'
+            app.mkdir()
+            shared.mkdir()
+            _, _, tools = private.load_inputs(HERE / 'inputs.json', ROOT / private.PYTHON_INPUTS,
+                                              ROOT / private.BUILD_LOCK)
+            def add_distribution(site, tool):
+                metadata = site / (tool['name'] + '-' + tool['version'] + '.dist-info')
+                metadata.mkdir()
+                (metadata / 'METADATA').write_text('Name: ' + tool['name'] + '\nVersion: ' + tool['version'] + '\n')
+            for tool in tools:
+                add_distribution(shared, tool)
+            command = [sys.executable, '-S', '-c',
+                       'import importlib.metadata as m,json; from pathlib import Path; '
+                       'print(json.dumps({d.metadata["Name"]:str(Path(d.locate_file("")).resolve()) '
+                       'for d in m.distributions()}))']
+            with patch.object(private, 'APP_SITE', str(app)):
+                environment = private.bootstrap_environment()
+            self.assertEqual(environment['SSL_CERT_FILE'], private.CA_FILE)
+            self.assertEqual(environment['SSL_CERT_DIR'], private.CA_DIRECTORY)
+            self.assertEqual(environment['PYTHONNOUSERSITE'], '1')
+            control = {**environment, 'PYTHONPATH': str(app) + os.pathsep + str(shared)}
+            before = json.loads(subprocess.check_output(command, env=control, text=True, timeout=10))
+            self.assertEqual(before, {tool['name']: str(shared) for tool in tools})
+            hidden = json.loads(subprocess.check_output(command, env=environment, text=True, timeout=10))
+            self.assertEqual(hidden, {})
+            for tool in tools:
+                add_distribution(app, tool)
+            after = json.loads(subprocess.check_output(command, env=environment, text=True, timeout=10))
+            self.assertEqual(after, {tool['name']: str(app) for tool in tools})
+
     def test_prefix_copy_preserves_links_and_notices_and_refuses_overwrite(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -117,6 +155,8 @@ class PrivatePythonTests(unittest.TestCase):
         self.assertEqual(digest, private.digest(path))
         for field, value in (('python', {**record['python'], 'version': '3.13.16'}),
                              ('tools', []), ('python_binary_sha256', '0' * 64),
+                             ('tool_locations', {name: '/usr/lib/python3.13/site-packages'
+                                                 for name in record['tool_locations']}),
                              ('license_files', {'../PYTHON.json': '0' * 64})):
             with self.subTest(field=field):
                 path.write_text(json.dumps({**record, field: value}))

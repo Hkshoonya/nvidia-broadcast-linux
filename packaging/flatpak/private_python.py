@@ -24,6 +24,13 @@ CA_FILE = '/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem'
 CA_DIRECTORY = '/etc/pki/tls/certs'
 
 
+def bootstrap_environment():
+    # Shared GI/cairo belongs to the finished app, not pip's installation view:
+    # outside a venv, force-reinstall may uninstall any visible SDK distribution.
+    return {**os.environ, 'PYTHONNOUSERSITE': '1', 'PYTHONPATH': APP_SITE,
+            'SSL_CERT_FILE': CA_FILE, 'SSL_CERT_DIR': CA_DIRECTORY}
+
+
 def digest(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -117,6 +124,7 @@ def verify_prefix_provenance(prefix, repo):
             record.get('tools') != tools or record.get('ssl_fixture') != inputs['ssl_fixture'] or
             record.get('input_sha256') != {name: digest(source) for name, source in source_files.items()} or
             record.get('interpreter') != '/app/bin/python3.13' or record.get('pythonpath') != PYTHON_PATH or
+            record.get('tool_locations') != {tool['name']: APP_SITE for tool in tools} or
             record.get('shared_python_path') != SHARED_SITE):
         raise ValueError('Private Python prefix provenance differs from the named source inputs')
     for name, source in (('flatpak-inputs.json', source_files['private-inputs.json']),
@@ -181,27 +189,32 @@ def install(prefix):
     requirements.write_text(''.join(f'{tool["name"]}=={tool["version"]} --hash=sha256:{tool["sha256"]}\n'
                                     for tool in tools))
     interpreter = prefix / 'bin/python3.13'
-    environment = {**os.environ, 'PYTHONNOUSERSITE': '1', 'PYTHONPATH': PYTHON_PATH,
-                   'SSL_CERT_FILE': CA_FILE, 'SSL_CERT_DIR': CA_DIRECTORY}
+    environment = bootstrap_environment()
     subprocess.run([str(interpreter), '-m', 'pip', '--isolated', 'install', '--no-index',
                     '--no-deps', '--no-cache-dir', '--force-reinstall', '--require-hashes',
                     '--only-binary=:all:', '--find-links=.', '-r', str(requirements)],
                    env=environment, check=True, timeout=300)
     expected_versions = {tool['name']: tool['version'] for tool in tools}
-    check = ('import sys,json,importlib.metadata as m; '
+    check = ('import sys,json,importlib.metadata as m; from pathlib import Path; '
              'assert sys.version_info[:2] == (3,13) and sys.version_info[2] >= 18; '
              'assert sys.executable == "/app/bin/python3.13"; '
-             'print(json.dumps({name:m.version(name) for name in ' + repr(list(expected_versions)) + '}))')
+             'print(json.dumps({name:{"version":m.version(name), '
+             '"location":str(Path(m.distribution(name).locate_file("")).resolve())} '
+             'for name in ' + repr(list(expected_versions)) + '}))')
     result = subprocess.run([str(interpreter), '-c', check], env=environment,
                             check=True, capture_output=True, text=True, timeout=30)
-    if json.loads(result.stdout) != expected_versions:
-        raise ValueError('Private Python build-tool versions differ after offline installation')
+    actual_tools = json.loads(result.stdout)
+    if (set(actual_tools) != set(expected_versions) or
+            any(item['version'] != expected_versions[name] or item['location'] != APP_SITE
+                for name, item in actual_tools.items())):
+        raise ValueError('Private Python build-tool versions or private-prefix origins differ after offline installation')
     provenance = prefix / 'share/nvbroadcast-runtime-provenance'
     shutil.copyfile(inputs_path, provenance / 'flatpak-inputs.json')
     shutil.copyfile(python_path, provenance / 'python-inputs.json')
     shutil.copyfile(lock_path, provenance / 'pylock.build.toml')
     (provenance / 'flatpak-private-python.json').write_text(json.dumps({
         'schema_version': 1, 'python': python, 'tools': tools,
+        'tool_locations': {name: item['location'] for name, item in actual_tools.items()},
         'input_sha256': {str(path): digest(path) for path in (inputs_path, python_path, lock_path, unpacker_path)},
         'python_metadata_sha256': record['python_metadata_sha256'],
         'python_binary_sha256': digest(interpreter),
