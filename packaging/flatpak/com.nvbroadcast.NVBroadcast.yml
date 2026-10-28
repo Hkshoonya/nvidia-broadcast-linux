@@ -41,10 +41,6 @@ modules:
         sha256: 3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab
     cleanup:
       - /bin/wheel
-      - /lib/python3.13/site-packages/_distutils_hack
-      - /lib/python3.13/site-packages/distutils-precedence.pth
-      - /lib/python3.13/site-packages/setuptools
-      - /lib/python3.13/site-packages/setuptools-*.dist-info
       - /lib/python3.13/site-packages/wheel
       - /lib/python3.13/site-packages/wheel-*.dist-info
 

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "base_image": "ghcr.io/flathub-infra/flatpak-github-actions@sha256:bdbeb241813021cf96f3001ccceea46b8e0c3c46a316172992fd60ad9dfc50e2",
+  "remote_url": "https://dl.flathub.org/repo/",
+  "public_key_sha256": "c504fa5dc891df6cfcc10021dd9addf08459007f1787f40b9c6fd3c7e58416ea",
+  "rejected_certificate_sha256": [
+    "86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b"
+  ],
+  "runtimes": [
+    {
+      "ref": "runtime/org.gnome.Platform/x86_64/50",
+      "commit": "6d4b29aa8bb4f28b7476d67f9d1668d5d5a0409a1836d9f96381f6e0d4a1a0b8",
+      "ca_sha256": "aed9738e514a48f682f4bac015a400800979d496a7c9cdc1e1c66bdedb353c0d"
+    },
+    {
+      "ref": "runtime/org.gnome.Sdk/x86_64/50",
+      "commit": "dfa2bb30bac0d2c93f357e8f17f1ce94baeda5d681f2c94cde291f592b907d15",
+      "ca_sha256": "aed9738e514a48f682f4bac015a400800979d496a7c9cdc1e1c66bdedb353c0d"
+    }
+  ]
+}

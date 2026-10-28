@@ -37,6 +37,7 @@ class FlatpakBundleTests(unittest.TestCase):
             "packaging/flatpak/com.nvbroadcast.NVBroadcast.yml",
             "packaging/flatpak/python3-flatpak-requirements.yaml",
             "packaging/flatpak/requirements.txt",
+            *bundle.BUILD_INPUTS[4:],
         ):
             path = self.source / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,6 +60,19 @@ class FlatpakBundleTests(unittest.TestCase):
         self.fail_import = False
         self.commands = []
         self.payloads = bundle.source_payloads(self.source, self.build)
+        self.runtime_inputs = {"status": "pass", "base_image": "example/builder@sha256:" + "b" * 64,
+                               "lock_sha256": "a" * 64}
+        self.preparation = self.source / "dist/flatpak-runtime/prepared-image.json"
+        self.preparation.parent.mkdir(parents=True)
+        self.preparation.write_text(json.dumps({
+            "schema_version": 1, "status": "pass", "base_image": self.runtime_inputs["base_image"],
+            "base_image_id": "sha256:" + "b" * 64, "prepared_image_id": "sha256:" + "e" * 64,
+            "base_rootfs_layers": ["sha256:" + "c" * 64],
+            "prepared_rootfs_layers": ["sha256:" + "c" * 64, "sha256:" + "d" * 64],
+            "effective_environment": {"FLATPAK_SYSTEM_DIR": "/var/lib/nvbroadcast-flatpak",
+                                      "NVIDIA_VISIBLE_DEVICES": "void"},
+            "runtime_inputs": self.runtime_inputs, "lock_sha256": self.runtime_inputs["lock_sha256"],
+        }))
         subprocess.run(("git", "init", "--quiet", str(self.source)), check=True)
         subprocess.run(("git", "-C", str(self.source), "add", "."), check=True)
         subprocess.run(
@@ -90,10 +104,12 @@ class FlatpakBundleTests(unittest.TestCase):
 
     def export(self, revision=None):
         revision = self.revision if revision is None else revision
-        with patch.object(bundle, "command", side_effect=self.fake_command):
+        with patch.object(bundle, "command", side_effect=self.fake_command), \
+                patch.object(bundle.runtime_policy, "inspect_runtime", return_value=self.runtime_inputs):
             return bundle.export_bundle(
                 self.source, self.build, self.repo, self.output, revision,
                 "example/builder@sha256:" + "b" * 64,
+                "sha256:" + "e" * 64,
             )
 
     def test_flatpak_metadata_cannot_drift_from_the_named_commit(self):
@@ -108,6 +124,10 @@ class FlatpakBundleTests(unittest.TestCase):
     def test_success_records_bundle_digest_source_files_and_import_proof(self):
         evidence = self.export()
         self.assertEqual(evidence["application_commit"], self.commit)
+        self.assertEqual(evidence["prepared_builder_image"], "sha256:" + "e" * 64)
+        self.assertEqual(evidence["runtime_inputs"]["status"], "pass")
+        self.assertEqual(evidence["builder_preparation"]["runtime_inputs"], evidence["runtime_inputs"])
+        self.assertEqual(evidence["builder_preparation_sha256"], bundle.sha256(self.preparation))
         self.assertFalse(evidence["public_distribution_qualified"])
         self.assertFalse(evidence["host_installation_performed"])
         self.assertEqual(len(evidence["verification"]["source_payloads"]), 9)
@@ -119,6 +139,26 @@ class FlatpakBundleTests(unittest.TestCase):
         self.assertEqual(len((self.output / "SHA256SUMS").read_text().splitlines()), 2)
         self.assertTrue(any("fsck" in args for args in self.commands))
         self.assertFalse(any("install" in args for args in self.commands))
+
+    def test_wrong_committed_image_or_runtime_proof_prevents_export(self):
+        original = self.preparation.read_text()
+        for field, value in (("prepared_image_id", "sha256:" + "f" * 64),
+                             ("base_rootfs_layers", ["sha256:" + "f" * 64]),
+                             ("effective_environment", {}), ("runtime_inputs", {})):
+            with self.subTest(field=field):
+                proof = json.loads(original)
+                proof[field] = value
+                self.preparation.write_text(json.dumps(proof))
+                with self.assertRaises(ValueError):
+                    self.export()
+                self.assertFalse(self.output.exists())
+                self.assertFalse(any(args[:2] == ("flatpak", "build-bundle") for args in self.commands))
+
+    def test_missing_committed_image_inspection_prevents_export(self):
+        self.preparation.unlink()
+        with self.assertRaisesRegex(ValueError, "Missing, redirected"):
+            self.export()
+        self.assertFalse(self.output.exists())
 
     def test_import_failure_keeps_output_absent(self):
         self.fail_import = True
@@ -180,6 +220,22 @@ class FlatpakBundleTests(unittest.TestCase):
         (self.source / "packaging/flatpak/requirements.txt").write_text("changed")
         with self.assertRaisesRegex(ValueError, "Source differs from named Git"):
             self.export()
+        self.assertFalse(self.output.exists())
+
+    def test_runtime_lock_edits_are_bound_to_named_source(self):
+        (self.source / "packaging/flatpak/runtime-lock.json").write_text("changed")
+        with self.assertRaisesRegex(ValueError, "Source differs from named Git"):
+            self.export()
+        self.assertFalse(self.output.exists())
+
+    def test_export_rechecks_actual_runtime_and_fails_before_bundle_creation(self):
+        with patch.object(bundle, "command", side_effect=self.fake_command), \
+                patch.object(bundle.runtime_policy, "inspect_runtime", side_effect=ValueError("stale runtime")):
+            with self.assertRaisesRegex(ValueError, "stale runtime"):
+                bundle.export_bundle(self.source, self.build, self.repo, self.output,
+                                     self.revision, "example/builder@sha256:" + "b" * 64,
+                                     "sha256:" + "e" * 64)
+        self.assertFalse(any('build-bundle' in args for args in self.commands))
         self.assertFalse(self.output.exists())
 
     def test_untracked_application_file_is_rejected(self):

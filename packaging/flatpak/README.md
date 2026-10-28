@@ -71,15 +71,17 @@ sandbox. Firefox profile changes must also be made from the host.
 
 ## Generate dependencies
 
-Use the GNOME 50 builder image so dependency resolution uses the same Python
-3.13 ABI as the runtime:
+Use the authenticated GNOME 50 builder preparation so dependency resolution uses
+the same pinned SDK and Python 3.13 ABI as CI (choose a fresh output directory):
 
 ```bash
+python3 packaging/flatpak/runtime_policy.py --output dist/flatpak-runtime
+PREPARED_BUILDER_IMAGE=$(cat dist/flatpak-runtime/image-id)
 docker run --rm --privileged \
   -v "$PWD:/workspace:ro" \
   -v "$PWD/packaging/flatpak:/output" \
   -w /workspace \
-  ghcr.io/flathub-infra/flatpak-github-actions:gnome-50 \
+  "$PREPARED_BUILDER_IMAGE" \
   flatpak-pip-generator \
   --requirements-file packaging/flatpak/requirements.txt \
   --runtime org.gnome.Sdk//50 \
@@ -106,15 +108,45 @@ flatpak-builder --run flatpak-build \
   python3 -c 'import cv2, mediapipe, onnxruntime, pyrnnoise, nvbroadcast'
 ```
 
-The repository also validates this manifest in the maintained GNOME 50 Docker
+The repository also validates this manifest in a prepared GNOME 50 Docker
 builder, which avoids changing the host package set. The scoped Flatpak workflow
 runs when packaging inputs change and can be dispatched manually after other
 source changes or before a release.
 
+`runtime-lock.json` fixes the official builder digest, Flathub public-key hash,
+and exact signed Platform/SDK commits. `runtime_policy.py` creates a fresh
+private Flatpak installation, authenticates each commit and its reference with
+the pinned Flathub key, and verifies the deployed CA bundle hashes and rejected
+certificate fingerprints. Installation uses only those local refs, with no
+automatic dependency or related-extension updates. All workflow stages use the
+same prepared immutable Docker image ID and private installation. Export checks
+the active deployments, signatures and CA bytes again, recording them with the
+image ID and lock hash in provenance. A mutable image tag is not a runtime update.
+
+The finished application also checks its actual stdlib SSL/HTTPS and
+HTTPX/Requests trust contexts offline. The application keeps its pinned
+`setuptools==84.1.0`, startup shim, and `distutils` override; the smoke test checks
+their actual `/app` origins. The GNOME runtime's older shared setuptools copy
+still exists, and its Mako development build has no release-specific PyPI audit.
+The tested application-module imports must not load Mako. These checks do not
+constitute a complete GNOME/system-library audit. The original builder container's
+own CA store is separate and retains the rejected emSign root; bootstrap relies
+on exact image digest, pinned Flathub signing key, authenticated commit/ref
+signatures and checksummed objects. No TLS verification is disabled.
+
+To refresh runtime inputs, independently verify the official signed commits,
+their reference bindings, current CA contents and Python dependency advisories;
+then update the lock and rerun preparation, closure, trust, import and media
+checks. Never regenerate the lock by trusting an unchecked current tag. The
+preparation helper requires 25 GiB free initially and checks space again before
+committing, retaining a 10 GiB margin. It modifies only a task container/image,
+not the host Flatpak installation.
+
 Successful workflow runs retain a `flatpak-development-cpu-x86_64` artifact for
 14 days. It contains an unsigned `.flatpak` bundle, `SHA256SUMS`, and
 `bundle-provenance.json` recording the checked-out Git revision, pinned builder
-image, application OSTree commit, runtime reference, and build-input hashes.
+image and prepared image ID, application OSTree commit, authenticated runtime
+inputs, runtime reference, and build-input hashes.
 Before retaining the bundle, the workflow imports it into a fresh temporary
 repository, checks the commit and all OSTree objects, and compares packaged app
 source, resources, project license, notices, and sandbox metadata with the build.

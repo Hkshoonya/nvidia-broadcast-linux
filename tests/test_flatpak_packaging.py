@@ -64,6 +64,26 @@ class FlatpakPackagingTests(unittest.TestCase):
         self.assertNotIn("--cleanup scripts", generated.splitlines()[0])
         self.assertNotRegex(generated, r"(?m)^\s+- /bin\s*$")
 
+    def test_application_setuptools_override_and_startup_shim_survive_cleanup(self):
+        manifest = MANIFEST.read_text()
+        self.assertIn('setuptools==84.1.0', manifest)
+        for path in ('setuptools', '_distutils_hack', 'distutils-precedence.pth'):
+            self.assertNotRegex(manifest, rf'(?m)^\s+- /lib/python3\.13/site-packages/{re.escape(path)}')
+        self.assertIn('- /lib/python3.13/site-packages/wheel', manifest)
+        smoke = (FLATPAK_DIR / 'runtime_smoke.py').read_text()
+        self.assertIn("startup_shim = sys.modules.get('_distutils_hack')", smoke)
+        self.assertIn("app_origin(distutils)", smoke)
+        self.assertIn("importlib.metadata.version('setuptools') != '84.1.0'", smoke)
+
+    def test_every_workflow_container_uses_prepared_immutable_image(self):
+        workflow = WORKFLOW.read_text()
+        self.assertIn('runtime_policy.py --output dist/flatpak-runtime', workflow)
+        for command in workflow.split('docker run ')[1:]:
+            command = command.split('\n      - name:', 1)[0]
+            self.assertIn('"$PREPARED_BUILDER_IMAGE"', command)
+        self.assertIn('--prepared-builder-image "$PREPARED_BUILDER_IMAGE"', workflow)
+        self.assertIn('< packaging/flatpak/runtime_smoke.py', workflow)
+
     def test_flatpak_ci_is_pinned_read_only_and_does_not_publish(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 

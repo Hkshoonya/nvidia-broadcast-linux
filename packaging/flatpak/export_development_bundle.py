@@ -4,6 +4,7 @@
 import argparse
 import configparser
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -29,7 +30,18 @@ BUILD_INPUTS = (
     "pyproject.toml", "packaging/flatpak/com.nvbroadcast.NVBroadcast.yml",
     "packaging/flatpak/python3-flatpak-requirements.yaml",
     "packaging/flatpak/requirements.txt",
+    "packaging/flatpak/runtime-lock.json",
+    "packaging/flatpak/runtime_policy.py",
+    "packaging/flatpak/runtime_smoke.py",
+    "packaging/flatpak/export_development_bundle.py",
+    ".github/workflows/flatpak.yml",
 )
+
+_SPEC = importlib.util.spec_from_file_location(
+    "flatpak_runtime_policy", Path(__file__).with_name("runtime_policy.py")
+)
+runtime_policy = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(runtime_policy)
 
 
 def sha256(path):
@@ -116,11 +128,14 @@ def verify_git_sources(source, source_revision, paths):
             raise ValueError(f"Source differs from named Git revision: {name}")
 
 
-def export_bundle(source, build, repo, output, source_revision, builder_image):
+def export_bundle(source, build, repo, output, source_revision, builder_image,
+                  prepared_builder_image):
     if not re.fullmatch(r"[0-9a-f]{40}", source_revision):
         raise ValueError("Expected the full checked-out Git source revision")
     if not re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", builder_image):
         raise ValueError("Expected a digest-pinned builder image")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", prepared_builder_image):
+        raise ValueError("Expected an immutable prepared builder image ID")
     if output.exists():
         raise ValueError("Output directory already exists; use a fresh destination")
     metadata = configparser.ConfigParser()
@@ -135,6 +150,16 @@ def export_bundle(source, build, repo, output, source_revision, builder_image):
     verify_git_sources(
         source, source_revision,
         [*pairs.values(), *(source / name for name in BUILD_INPUTS)],
+    )
+    # Re-read active deployments, signatures and CA bytes inside this image.
+    runtime_inputs = runtime_policy.inspect_runtime(
+        source / "packaging/flatpak/runtime-lock.json"
+    )
+    if runtime_inputs["base_image"] != builder_image:
+        raise ValueError("Builder base differs from the authenticated runtime lock")
+    preparation, preparation_sha256 = runtime_policy.verify_preparation_proof(
+        source / "dist/flatpak-runtime/prepared-image.json", builder_image,
+        prepared_builder_image, runtime_inputs,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     # A failed import or payload comparison must not leave a usable artifact.
@@ -166,6 +191,10 @@ def export_bundle(source, build, repo, output, source_revision, builder_image):
             "schema_version": 1,
             "source_revision": source_revision,
             "builder_image": builder_image,
+            "prepared_builder_image": prepared_builder_image,
+            "builder_preparation": preparation,
+            "builder_preparation_sha256": preparation_sha256,
+            "runtime_inputs": runtime_inputs,
             "application_ref": APP_REF,
             "application_commit": application_commit,
             "runtime_ref": runtime_ref,
@@ -200,10 +229,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--builder-image", required=True)
+    parser.add_argument("--prepared-builder-image", required=True)
     args = parser.parse_args()
     evidence = export_bundle(
         args.source, args.build, args.repo, args.output,
-        args.source_revision, args.builder_image,
+        args.source_revision, args.builder_image, args.prepared_builder_image,
     )
     print(json.dumps(evidence["bundle"]))
 
