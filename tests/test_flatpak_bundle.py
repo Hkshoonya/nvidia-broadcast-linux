@@ -53,6 +53,7 @@ class FlatpakBundleTests(unittest.TestCase):
         (self.build / "metadata").write_text(
             f"[Application]\nname={bundle.APP_ID}\n"
             "runtime=org.gnome.Platform/x86_64/50\n"
+            "[Environment]\nPYTHONPATH=/app/lib/python3.13/site-packages\n"
         )
         self.commit = "c" * 64
         self.imported_commit = self.commit
@@ -159,6 +160,17 @@ class FlatpakBundleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Missing, redirected"):
             self.export()
         self.assertFalse(self.output.exists())
+
+    def test_missing_or_shared_startup_path_prevents_export(self):
+        metadata = self.build / "metadata"
+        original = metadata.read_text()
+        for path in ("", "/usr/lib/python3.13/site-packages"):
+            with self.subTest(path=path):
+                metadata.write_text(original.replace("/app/lib/python3.13/site-packages", path))
+                with self.assertRaisesRegex(ValueError, "before startup"):
+                    self.export()
+                self.assertFalse(self.output.exists())
+                self.assertFalse(any(args[:2] == ("flatpak", "build-bundle") for args in self.commands))
 
     def test_import_failure_keeps_output_absent(self):
         self.fail_import = True

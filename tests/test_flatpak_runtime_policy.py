@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import ssl
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -80,6 +81,34 @@ class RuntimePolicyTests(unittest.TestCase):
         redirect.symlink_to(self.lock)
         with self.assertRaisesRegex(ValueError, 'redirected'):
             policy.load_lock(redirect)
+
+    def test_manifest_app_path_precedes_runtime_startup_shim(self):
+        # Exercise real Python startup: the runtime .pth imports its shim before
+        # GNOME's later sitecustomize inserts /app. A retained app copy alone
+        # cannot replace the module already cached in sys.modules.
+        venv = self.root / 'startup-venv'
+        subprocess.run((sys.executable, '-m', 'venv', '--without-pip', str(venv)),
+                       check=True, capture_output=True, timeout=30)
+        site = venv / f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages'
+        app = self.root / 'app-site'
+        for directory in (site, app):
+            shim = directory / '_distutils_hack'
+            shim.mkdir(parents=True)
+            (shim / '__init__.py').write_text('def add_shim(): pass\n')
+        (site / 'distutils-precedence.pth').write_text('import _distutils_hack; _distutils_hack.add_shim()\n')
+        (site / 'sitecustomize.py').write_text(f'import sys\nsys.path.insert(0, {str(app)!r})\n')
+        environment = {**os.environ, 'PYTHONNOUSERSITE': '1'}
+        for key in ('PYTHONHOME', 'PYTHONPATH'):
+            environment.pop(key, None)
+        command = (str(venv / 'bin/python'), '-c',
+                   'import sys; print(sys.modules["_distutils_hack"].__file__)')
+        control = subprocess.check_output(command, env=environment, text=True, timeout=10).strip()
+        self.assertEqual(Path(control), site / '_distutils_hack/__init__.py')
+        manifest = (DIRECTORY / 'com.nvbroadcast.NVBroadcast.yml').read_text()
+        self.assertIn('  - --env=PYTHONPATH=/app/lib/python3.13/site-packages\n', manifest)
+        environment['PYTHONPATH'] = str(app)
+        selected = subprocess.check_output(command, env=environment, text=True, timeout=10).strip()
+        self.assertEqual(Path(selected), app / '_distutils_hack/__init__.py')
 
     def test_remote_key_signatures_https_and_http1_are_required(self):
         repo = self.root / 'repo'

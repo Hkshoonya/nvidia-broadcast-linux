@@ -145,6 +145,8 @@ def export_bundle(source, build, repo, output, source_revision, builder_image,
     runtime_ref = metadata["Application"]["runtime"]
     if runtime_ref != "org.gnome.Platform/x86_64/50":
         raise ValueError("Unexpected development runtime")
+    if metadata.get("Environment", "PYTHONPATH", fallback="") != "/app/lib/python3.13/site-packages":
+        raise ValueError("Application metadata must select its Python packages before startup")
     application_commit = commit(repo)
     pairs = source_payloads(source, build)
     verify_git_sources(

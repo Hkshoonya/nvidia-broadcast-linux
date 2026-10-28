@@ -22,6 +22,8 @@ finish-args:
   - --device=all
   - --talk-name=org.kde.StatusNotifierWatcher
   - --env=PYTHONNOUSERSITE=1
+  # GNOME adds /app only after global .pth files have loaded startup modules.
+  - --env=PYTHONPATH=/app/lib/python3.13/site-packages
 
 modules:
   - name: python3-build-tools
