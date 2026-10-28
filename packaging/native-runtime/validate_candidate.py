@@ -309,7 +309,9 @@ def unpack_zip(path, metadata, output, version, variant="cpu"):
 
 def docker_command(package, family, name, command):
     require("," not in str(package), "unsupported mount path")
-    return ["docker", "run", "--name", name, "--rm", "--init", "--network=none", "--pull=never", "--read-only",
+    # Binary archive stdout is a bounded transport, not a daemon log. Disable
+    # the second, JSON-escaped copy that can exceed the payload disk budget.
+    return ["docker", "run", "--name", name, "--rm", "--init", "--log-driver=none", "--network=none", "--pull=never", "--read-only",
             "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=1g", "--cpus=2",
             "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=32m,mode=1777",
             "--user=65534:65534", "--mount", f"type=bind,source={package},target=/package.{family},readonly",
