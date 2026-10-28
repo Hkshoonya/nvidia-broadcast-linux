@@ -27,7 +27,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.5.3"
+        current = "1.5.4"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -44,7 +44,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-10-10">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-10-28">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
         # Website native downloads are updated after release publication;
@@ -1404,6 +1404,8 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--variant cpu --meeting-backends faster", setup)
         self.assertIn("(( EUID == 0 ))", setup)
         self.assertIn("macos-runtime-id", setup)
+        self.assertIn('"$INSTALL_DIR/scripts/macos-bindings-inputs.json"', setup)
+        self.assertIn("install -m 644 packaging/macos-runtime/inputs.json", pkg_builder)
         self.assertNotIn("rm -rf", setup)
         self.assertIn(
             'mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/scripts"', pkg_builder
@@ -1426,6 +1428,38 @@ class PackagingMetadataTests(unittest.TestCase):
             "opt/nvbroadcast/scripts/install_runtime_variant.py", macos_builder
         )
         self.assertIn('test -x "$runtime_installer"', macos_builder)
+        self.assertIn('cmp packaging/macos-runtime/inputs.json "$binding_inputs"', macos_builder)
+        runtime_test = workflow.split("  test-macos-runtime:", 1)[1].split("  sign-macos:", 1)[0]
+        self.assertIn("path.relative_to(prefix)", runtime_test)
+        self.assertIn("private_binding_fallback_exercised", runtime_test)
+        self.assertIn("('gi', 'gi._gi', 'cairo', 'cairo._cairo')", runtime_test)
+        prerequisites = "brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer pkgconf ninja"
+        self.assertIn(prerequisites, setup)
+        self.assertIn(prerequisites, (REPO_ROOT / "docs/MACOS_SIGNING.md").read_text())
+        self.assertIn(prerequisites, (REPO_ROOT / "docs/index.html").read_text())
+
+    def test_macos_private_binding_pins_match_source_and_wheel_identities(self):
+        from packaging.utils import (
+            canonicalize_name, parse_sdist_filename, parse_wheel_filename,
+        )
+        from urllib.parse import urlsplit
+
+        inputs = json.loads((REPO_ROOT / "packaging/macos-runtime/inputs.json").read_text())
+        self.assertEqual(inputs["schema_version"], 1)
+        self.assertEqual(inputs["target"], "macos-arm64-cp313-cpu")
+        self.assertEqual({item["name"] for item in inputs["bootstrap"]},
+                         {"meson", "meson-python", "pyproject-metadata", "packaging"})
+        self.assertEqual({item["name"] for item in inputs["bindings"]}, {"pycairo", "PyGObject"})
+        for item in inputs["bootstrap"] + inputs["bindings"]:
+            with self.subTest(package=item["name"]):
+                url = urlsplit(item["url"])
+                self.assertEqual((url.scheme, url.netloc), ("https", "files.pythonhosted.org"))
+                filename = url.path.rsplit("/", 1)[-1]
+                parsed = (parse_wheel_filename(filename) if filename.endswith(".whl")
+                          else parse_sdist_filename(filename))
+                self.assertEqual(parsed[0], canonicalize_name(item["name"]))
+                self.assertEqual(str(parsed[1]), item["version"])
+                self.assertRegex(item["sha256"], r"^[a-f0-9]{64}$")
 
     def test_macos_source_installer_guards_openai_whisper(self):
         script = (REPO_ROOT / "install_macos.sh").read_text()

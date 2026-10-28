@@ -349,6 +349,8 @@ build_pkg() {
 
     install -m 755 scripts/setup_macos_runtime.sh \
         "$INSTALL_ROOT/opt/nvbroadcast/scripts/setup_macos_runtime.sh"
+    install -m 644 packaging/macos-runtime/inputs.json \
+        "$INSTALL_ROOT/opt/nvbroadcast/scripts/macos-bindings-inputs.json"
     printf '%s\n' "${VERSION}-${REV}" > \
         "$INSTALL_ROOT/opt/nvbroadcast/macos-package-version"
 

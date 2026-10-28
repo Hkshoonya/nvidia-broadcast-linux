@@ -1,3 +1,16 @@
+nvbroadcast (1.5.4-1) unstable; urgency=high
+
+  * Refresh affected Python dependencies and certificate bundles and audit
+    exact frozen versions in CI.
+  * Keep Eye Contact tracking fresh when camera frame object IDs are reused.
+  * Recognize live Arch CUDA-enabled ONNX builds under the plain package name
+    while preserving duplicate-owner rejection and real inference checks.
+  * Stop runtime setup on prerequisite or CPU fallback failure.
+  * Keep managed protobuf discoverable with Fedora’s legacy google namespace
+    hook while retaining distro-only namespace modules.
+
+ -- DocZeus <harshit@kshoonya.com>  Wed, 28 Oct 2026 12:00:00 -0400
+
 nvbroadcast (1.5.3-1) unstable; urgency=medium
 
   * Keep Camera, Audio, and preview controls usable in small windows.

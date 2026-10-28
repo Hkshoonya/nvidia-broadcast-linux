@@ -205,6 +205,9 @@ jobs:
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/usr/local/bin/nvbroadcast' -print -quit)"
           runtime_installer="$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/scripts/install_runtime_variant.py' -print -quit)"
           test -x "$runtime_installer"
+          binding_inputs="$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/scripts/macos-bindings-inputs.json' -print -quit)"
+          test -f "$binding_inputs"
+          cmp packaging/macos-runtime/inputs.json "$binding_inputs"
           distribution="$(find /tmp/nvbroadcast-pkg-expanded -name Distribution -type f -print -quit)"
           test -n "$distribution"
           grep -q 'hostArchitectures="arm64"' "$distribution"
@@ -233,7 +236,15 @@ jobs:
           persist-credentials: false
 
       - name: Install user runtime prerequisites
-        run: brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
+        run: |
+          set -euo pipefail
+          /opt/homebrew/bin/brew update
+          /opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer pkgconf ninja
+          # Exercise current binding formulae, rather than relying on CP313
+          # extensions retained on an older runner image.
+          /opt/homebrew/bin/brew upgrade python@3.13 pygobject3 py3cairo
+          /opt/homebrew/opt/python@3.13/bin/python3.13 -c \
+            'import sys; assert (3, 13, 18) <= sys.version_info[:3] < (3, 14, 0), sys.version'
 
       - name: Download this run's package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -273,7 +284,7 @@ jobs:
             > dist/macos-runtime/destination-access.txt 2>&1 || true
           sudo /usr/sbin/installer -verboseR -dumplog -pkg "${packages[0]}" -target / \
             2>&1 | tee dist/macos-runtime/installer.log
-          /opt/nvbroadcast/scripts/setup_macos_runtime.sh
+          /opt/nvbroadcast/scripts/setup_macos_runtime.sh 2>&1 | tee dist/macos-runtime/runtime-setup.log
           package_id="$(cat /opt/nvbroadcast/macos-package-version)"
           runtime_id="$(cat /opt/nvbroadcast/macos-runtime-id)"
           runtime_python="$HOME/Library/Application Support/NVBroadcast/$package_id-$runtime_id/.venv/bin/python"
@@ -281,6 +292,27 @@ jobs:
           printf 'MACOS_RUNTIME_PYTHON=%s\n' "$runtime_python" >> "$GITHUB_ENV"
           /usr/local/bin/nvbroadcast --help
           "$runtime_python" -m pip check
+          # A retained compatible system binding must not hide a broken fresh
+          # Homebrew fallback. Verify actual modules/extensions in this venv.
+          "$runtime_python" - <<'PY'
+          import hashlib, importlib, importlib.metadata, json, pathlib, sys
+          prefix = pathlib.Path(sys.prefix).resolve()
+          assert (3, 13, 18) <= sys.version_info[:3] < (3, 14, 0), sys.version
+          inputs_path = pathlib.Path('/opt/nvbroadcast/scripts/macos-bindings-inputs.json')
+          inputs = json.loads(inputs_path.read_text())
+          bindings = {}
+          for name in ('gi', 'gi._gi', 'cairo', 'cairo._cairo'):
+              path = pathlib.Path(importlib.import_module(name).__file__).resolve()
+              path.relative_to(prefix)
+              bindings[name] = {'file': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+          versions = {item['name']: importlib.metadata.version(item['name']) for item in inputs['bindings']}
+          assert versions == {item['name']: item['version'] for item in inputs['bindings']}, versions
+          evidence = {'python': sys.version, 'executable': sys.executable, 'prefix': str(prefix),
+                      'private_binding_fallback_exercised': True, 'bindings': bindings, 'versions': versions,
+                      'manifest_sha256': hashlib.sha256(inputs_path.read_bytes()).hexdigest()}
+          pathlib.Path('dist/macos-runtime/native-bindings.json').write_text(json.dumps(evidence, indent=2) + '\n')
+          print(json.dumps(evidence, indent=2))
+          PY
 
       - name: Validate actual imports, CPU inference and generated recording
         run: |
