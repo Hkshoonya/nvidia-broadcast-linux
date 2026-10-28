@@ -4,7 +4,9 @@
   "build-options": {
     "build-args": [
       "--unshare=network"
-    ]
+    ],
+    "strip": false,
+    "no-debuginfo": true
   },
   "build-commands": [
     "test \"$(uname -m)\" = \"x86_64\"",

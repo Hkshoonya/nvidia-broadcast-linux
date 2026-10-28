@@ -92,8 +92,11 @@ def load_inputs(inputs_path, python_path, lock_path):
 def generated_module(repo):
     inputs, python, tools = load_inputs(repo / 'packaging/flatpak/inputs.json',
                                        repo / PYTHON_INPUTS, repo / BUILD_LOCK)
+    # Preserve the archive-authenticated executable bytes and install-time hash.
+    # These options apply only to this module, not subsequent app dependencies.
     return {'name': 'python3-private-runtime', 'buildsystem': 'simple',
-            'build-options': {'build-args': ['--unshare=network']},
+            'build-options': {'build-args': ['--unshare=network'],
+                              'strip': False, 'no-debuginfo': True},
             'build-commands': ['test "$(uname -m)" = "x86_64"',
                                'python3 private_python.py install --prefix=${FLATPAK_DEST}'],
             'sources': [

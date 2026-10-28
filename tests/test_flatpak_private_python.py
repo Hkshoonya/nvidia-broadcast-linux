@@ -69,6 +69,11 @@ class PrivatePythonTests(unittest.TestCase):
         self.assertEqual(module['sources'][0]['url'], canonical['url'])
         self.assertEqual(module['sources'][0]['sha256'], canonical['sha256'])
         self.assertEqual(module['build-options']['build-args'], ['--unshare=network'])
+        self.assertIs(module['build-options']['strip'], False)
+        self.assertIs(module['build-options']['no-debuginfo'], True)
+        manifest = (HERE / 'com.nvbroadcast.NVBroadcast.yml').read_text()
+        self.assertNotIn('no-debuginfo:', manifest)
+        self.assertNotIn('    strip:', manifest)
         _, python, tools = private.load_inputs(HERE / 'inputs.json', ROOT / private.PYTHON_INPUTS,
                                               ROOT / private.BUILD_LOCK)
         self.assertEqual(python['version'], '3.13.18')
