@@ -13,6 +13,9 @@ on:
       - 'README.md'
       - 'data/**'
       - 'packaging/flatpak/**'
+      - 'packaging/runtime-prototype/inputs.json'
+      - 'packaging/runtime-prototype/prepare.py'
+      - 'packaging/runtime-prototype/pylock.build.toml'
       - 'pyproject.toml'
       - 'src/**'
       - 'tests/test_flatpak*.py'
@@ -107,6 +110,8 @@ jobs:
             "$PREPARED_BUILDER_IMAGE" \
             flatpak build --runtime --readonly flatpak-build python3 - \
             "$(cat packaging/flatpak/runtime-lock.json)" \
+            "$(cat packaging/runtime-prototype/inputs.json)" \
+            "$(cat packaging/flatpak/inputs.json)" \
             < packaging/flatpak/runtime_smoke.py
 
       - name: Encode and decode packaged recording

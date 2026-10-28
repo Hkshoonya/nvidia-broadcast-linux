@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "base_image": "ghcr.io/flathub-infra/flatpak-github-actions@sha256:bdbeb241813021cf96f3001ccceea46b8e0c3c46a316172992fd60ad9dfc50e2",
   "remote_url": "https://dl.flathub.org/repo/",
   "public_key_sha256": "c504fa5dc891df6cfcc10021dd9addf08459007f1787f40b9c6fd3c7e58416ea",
@@ -9,13 +9,20 @@
   "runtimes": [
     {
       "ref": "runtime/org.gnome.Platform/x86_64/50",
-      "commit": "6d4b29aa8bb4f28b7476d67f9d1668d5d5a0409a1836d9f96381f6e0d4a1a0b8",
+      "commit": "4337a389125f814785bd83f4ace01da5b6baa80fdcf5a9c81e60dcd03896c067",
       "ca_sha256": "aed9738e514a48f682f4bac015a400800979d496a7c9cdc1e1c66bdedb353c0d"
     },
     {
       "ref": "runtime/org.gnome.Sdk/x86_64/50",
-      "commit": "dfa2bb30bac0d2c93f357e8f17f1ce94baeda5d681f2c94cde291f592b907d15",
+      "commit": "eb50b0d668d379b1dbfc9acb153425b6100390a94368b0c395ddad3a7d0f64a6",
       "ca_sha256": "aed9738e514a48f682f4bac015a400800979d496a7c9cdc1e1c66bdedb353c0d"
+    }
+  ],
+  "extensions": [
+    {
+      "ref": "runtime/org.freedesktop.Platform.codecs-extra/x86_64/25.08-extra",
+      "commit": "4ac6fc6727e278ddff768b8996a9240ef3f40becead3b70289faa43314934c5b",
+      "extension_of": "runtime/org.freedesktop.Platform/x86_64/25.08"
     }
   ]
 }

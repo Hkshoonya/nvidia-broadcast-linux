@@ -18,6 +18,8 @@ INSTALLATION = Path('/var/lib/nvbroadcast-flatpak')
 BASE_REPO = Path('/var/lib/flatpak/repo')
 CA_PATH = 'files/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem'
 REFS = {'runtime/org.gnome.Platform/x86_64/50', 'runtime/org.gnome.Sdk/x86_64/50'}
+CODEC_REF = 'runtime/org.freedesktop.Platform.codecs-extra/x86_64/25.08-extra'
+CODEC_PARENT = 'runtime/org.freedesktop.Platform/x86_64/25.08'
 HEX = re.compile(r'[0-9a-f]{64}')
 IMAGE_ID = re.compile(r'sha256:[0-9a-f]{64}')
 MINIMUM_FREE = 25 * 1024 ** 3
@@ -42,7 +44,7 @@ def load_lock(path):
     data = read_regular(path, 65536)
     lock = json.loads(data)
     if not isinstance(lock, dict) or set(lock) != {'schema_version', 'base_image', 'remote_url', 'public_key_sha256',
-                     'rejected_certificate_sha256', 'runtimes'} or lock['schema_version'] != 1:
+                     'rejected_certificate_sha256', 'runtimes', 'extensions'} or lock['schema_version'] != 2:
         raise ValueError('Unsupported runtime lock')
     if not isinstance(lock['base_image'], str) or not re.fullmatch(r'ghcr\.io/flathub-infra/flatpak-github-actions@sha256:[0-9a-f]{64}', lock['base_image']):
         raise ValueError('Runtime base image must be an official immutable digest')
@@ -60,6 +62,12 @@ def load_lock(path):
     for entry in entries:
         if set(entry) != {'ref', 'commit', 'ca_sha256'} or not all(isinstance(entry[k], str) and HEX.fullmatch(entry[k]) for k in ('commit', 'ca_sha256')):
             raise ValueError('Runtime commits and CA bundles require exact hashes')
+    extensions = lock['extensions']
+    if (not isinstance(extensions, list) or len(extensions) != 1 or
+            not isinstance(extensions[0], dict) or set(extensions[0]) != {'ref', 'commit', 'extension_of'} or
+            extensions[0]['ref'] != CODEC_REF or extensions[0]['extension_of'] != CODEC_PARENT or
+            not isinstance(extensions[0]['commit'], str) or not HEX.fullmatch(extensions[0]['commit'])):
+        raise ValueError('The exact compatible signed codec extension must be locked')
     return lock
 
 
@@ -239,6 +247,15 @@ def signed_commit(entry):
     return signature
 
 
+def verify_codec_metadata(metadata, parent):
+    config = configparser.ConfigParser(interpolation=None)
+    config.optionxform = str
+    config.read_string(metadata.decode())
+    if (config.get('Runtime', 'name', fallback='') != CODEC_REF.split('/')[1] or
+            config.get('ExtensionOf', 'ref', fallback='') != parent or config.has_section('Extra Data')):
+        raise ValueError('Codec extension has an incompatible identity/parent or external post-install data')
+
+
 def inspect_runtime(lock_path):
     lock = load_lock(lock_path)
     if os.environ.get('FLATPAK_SYSTEM_DIR') != str(INSTALLATION):
@@ -257,6 +274,18 @@ def inspect_runtime(lock_path):
         ca = inspect_ca(read_regular(location / CA_PATH), entry['ca_sha256'],
                         lock['rejected_certificate_sha256'])
         records.append({**entry, 'signature': signature, 'tls_ca_bundle': ca})
+    extensions = []
+    for entry in lock['extensions']:
+        actual = command('flatpak', 'info', '--system', '--show-commit', entry['ref'], env=runtime_env()).strip()
+        if actual != entry['commit']:
+            raise ValueError('Active codec extension differs from the reviewed lock')
+        signature = signed_commit(entry)
+        location = Path(command('flatpak', 'info', '--system', '--show-location', entry['ref'], env=runtime_env()).strip())
+        if location != INSTALLATION / entry['ref'] / entry['commit']:
+            raise ValueError('Codec deployment is outside the prepared installation')
+        metadata = read_regular(location / 'metadata')
+        verify_codec_metadata(metadata, entry['extension_of'])
+        extensions.append({**entry, 'signature': signature, 'metadata_sha256': sha256(metadata)})
     return {'schema_version': 1, 'status': 'pass', 'base_image': lock['base_image'],
             'lock_sha256': sha256(read_regular(lock_path)), 'installation': str(INSTALLATION),
             'official_remote_url': lock['remote_url'], 'gpg_verify': True,
@@ -264,6 +293,7 @@ def inspect_runtime(lock_path):
             'public_key_sha256': lock['public_key_sha256'],
             'rejected_certificate_sha256': lock['rejected_certificate_sha256'],
             'runtimes': records,
+            'extensions': extensions,
             'limits': ['Base-container trust and native/system package audits remain separate',
                        'This verifies exact SDK/Platform signatures and CA inputs, not all OS components']}
 
@@ -283,7 +313,7 @@ def prepare_installation(lock_path):
     command('ostree', repo, 'config', 'set', 'remote "flathub".http2', 'false',
             env=runtime_env())
     verify_remote(lock)
-    for entry in lock['runtimes']:
+    for entry in [*lock['runtimes'], *lock['extensions']]:
         # Native HTTP pulls authenticate signed commits. Cached objects remain
         # checksum-verified; no runtime from the image is silently reused.
         # Identify this application; the CDN rejects the bare library identifier.
@@ -300,7 +330,7 @@ def prepare_installation(lock_path):
     # a different revision or add unreviewed related extensions here.
     command('flatpak', 'install', '--system', '--noninteractive', '--no-pull',
             '--no-related', '--no-deps', 'flathub',
-            *(entry['ref'] for entry in lock['runtimes']), env=runtime_env(), timeout=900)
+            *(entry['ref'] for entry in [*lock['runtimes'], *lock['extensions']]), env=runtime_env(), timeout=900)
     return inspect_runtime(lock_path)
 
 

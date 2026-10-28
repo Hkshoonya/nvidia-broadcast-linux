@@ -1,4 +1,5 @@
 import re
+import json
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,7 @@ GENERATED = FLATPAK_DIR / "python3-flatpak-requirements.yaml"
 REQUIREMENTS = FLATPAK_DIR / "requirements.txt"
 README = FLATPAK_DIR / "README.md"
 WORKFLOW = ROOT / ".github" / "workflows" / "flatpak.yml"
+PRIVATE_MODULE = FLATPAK_DIR / "python3-private-runtime.yml"
 
 
 class FlatpakPackagingTests(unittest.TestCase):
@@ -21,7 +23,9 @@ class FlatpakPackagingTests(unittest.TestCase):
         self.assertIn('runtime-version: "50"', manifest)
         self.assertIn("sdk: org.gnome.Sdk", manifest)
         self.assertIn("command: nvbroadcast", manifest)
-        self.assertIn('test "$(uname -m)" = "x86_64"', manifest)
+        self.assertIn('python3-private-runtime.yml', manifest)
+        self.assertIn('test "$(uname -m)" = "x86_64"',
+                      json.loads(PRIVATE_MODULE.read_text())["build-commands"])
         self.assertIn(
             "ln -s /usr/lib/x86_64-linux-gnu/libsndfile.so.1", manifest
         )
@@ -66,10 +70,12 @@ class FlatpakPackagingTests(unittest.TestCase):
 
     def test_application_setuptools_override_and_startup_shim_survive_cleanup(self):
         manifest = MANIFEST.read_text()
-        self.assertIn('setuptools==84.1.0', manifest)
+        private = PRIVATE_MODULE.read_text()
+        self.assertIn('setuptools-84.1.0-py3-none-any.whl', private)
         for path in ('setuptools', '_distutils_hack', 'distutils-precedence.pth'):
             self.assertNotRegex(manifest, rf'(?m)^\s+- /lib/python3\.13/site-packages/{re.escape(path)}')
-        self.assertIn('- /lib/python3.13/site-packages/wheel', manifest)
+        self.assertIn('/lib/python3.13/site-packages/wheel',
+                      json.loads(private)["cleanup"])
         smoke = (FLATPAK_DIR / 'runtime_smoke.py').read_text()
         self.assertIn("startup_shim = sys.modules.get('_distutils_hack')", smoke)
         self.assertIn("app_origin(distutils)", smoke)
@@ -99,6 +105,9 @@ class FlatpakPackagingTests(unittest.TestCase):
             "'NOTICE'",
             "'README.md'",
             "'src/**'",
+            "'packaging/runtime-prototype/inputs.json'",
+            "'packaging/runtime-prototype/prepare.py'",
+            "'packaging/runtime-prototype/pylock.build.toml'",
         ):
             self.assertIn(packaged_input, workflow)
         self.assertIn("flatpak-builder-lint manifest", workflow)

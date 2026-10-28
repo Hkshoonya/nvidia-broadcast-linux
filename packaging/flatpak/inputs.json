@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "target": "linux-x86_64-cp313-cpu",
+  "python_inputs": "packaging/runtime-prototype/inputs.json",
+  "build_lock": "packaging/runtime-prototype/pylock.build.toml",
+  "build_tools": [
+    "packaging",
+    "setuptools",
+    "wheel"
+  ],
+  "bootstrap": [
+    {
+      "name": "pip",
+      "version": "26.2.2",
+      "url": "https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl",
+      "sha256": "fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+    }
+  ],
+  "ssl_fixture": {
+    "path": "lib/python3.13/test/certdata/distrusted.zip",
+    "sha256": "8a9874e20b8583e80e9d7d6c82ea566c22d50458a93bfef6400d70dde132a053",
+    "source_url": "https://raw.githubusercontent.com/python/cpython/0d4bd512fc429e3d4eacdd113c975e161f21644d/Lib/test/certdata/distrusted.zip"
+  }
+}

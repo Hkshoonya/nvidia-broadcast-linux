@@ -9,6 +9,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+import zipfile
 from unittest.mock import patch
 
 
@@ -82,6 +83,50 @@ class RuntimePolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'redirected'):
             policy.load_lock(redirect)
 
+    def test_private_ssl_builtin_is_bound_to_executable_and_shared_extension_is_refused(self):
+        binary = self.root / 'private-python'
+        binary.write_bytes(b'fixture executable')
+        module = SimpleNamespace(__name__='_ssl', __spec__=SimpleNamespace(origin='built-in'))
+        with patch.object(sys, 'builtin_module_names', ('_ssl',)):
+            record = smoke.private_ssl_origin(module, binary)
+        self.assertEqual(record['interpreter_sha256'], hashlib.sha256(binary.read_bytes()).hexdigest())
+        self.assertEqual(record['kind'], 'built-in')
+        shared = SimpleNamespace(__name__='_ssl', __file__='/usr/lib/python3.13/lib-dynload/_ssl.so')
+        with self.assertRaisesRegex(ValueError, 'shared runtime'):
+            smoke.private_ssl_origin(shared, binary)
+        with patch.object(sys, 'builtin_module_names', ()):
+            with self.assertRaisesRegex(ValueError, 'authenticated origin'):
+                smoke.private_ssl_origin(module, binary)
+
+    def test_private_ssl_fixture_hash_and_closed_member_set_fail_before_handshake(self):
+        fixture = self.root / 'fixture.zip'
+        with zipfile.ZipFile(fixture, 'w') as archive:
+            archive.writestr('unreviewed.pem', 'fixture bytes')
+        with self.assertRaisesRegex(ValueError, 'reviewed hash'):
+            smoke.check_spki_distrust(fixture, '0' * 64)
+        digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
+        with self.assertRaisesRegex(ValueError, 'unexpected members'):
+            smoke.check_spki_distrust(fixture, digest)
+
+    def test_codec_extension_requires_exact_ref_parent_and_commit(self):
+        for extensions in ([], [{**LOCK['extensions'][0], 'ref': 'runtime/other/x86_64/25.08'}],
+                           [{**LOCK['extensions'][0], 'extension_of': 'runtime/other/x86_64/25.08'}],
+                           [{**LOCK['extensions'][0], 'commit': 'moving'}]):
+            with self.subTest(extensions=extensions):
+                self.lock.write_text(json.dumps({**LOCK, 'extensions': extensions}))
+                with self.assertRaisesRegex(ValueError, 'codec extension'):
+                    policy.load_lock(self.lock)
+
+    def test_codec_metadata_cannot_request_external_data_or_another_parent(self):
+        good = ('[Runtime]\nname=org.freedesktop.Platform.codecs-extra\n'
+                '[ExtensionOf]\nref=runtime/org.freedesktop.Platform/x86_64/25.08\n')
+        policy.verify_codec_metadata(good.encode(), policy.CODEC_PARENT)
+        for metadata in (good + '[Extra Data]\nname=unreviewed-download\n',
+                         good.replace('25.08', '26.08'),
+                         good.replace('name=', 'Name=')):
+            with self.subTest(metadata=metadata), self.assertRaisesRegex(ValueError, 'Codec extension'):
+                policy.verify_codec_metadata(metadata.encode(), policy.CODEC_PARENT)
+
     def test_manifest_app_path_precedes_runtime_startup_shim(self):
         # Exercise real Python startup: the runtime .pth imports its shim before
         # GNOME's later sitecustomize inserts /app. A retained app copy alone
@@ -105,7 +150,7 @@ class RuntimePolicyTests(unittest.TestCase):
         control = subprocess.check_output(command, env=environment, text=True, timeout=10).strip()
         self.assertEqual(Path(control), site / '_distutils_hack/__init__.py')
         manifest = (DIRECTORY / 'com.nvbroadcast.NVBroadcast.yml').read_text()
-        self.assertIn('  - --env=PYTHONPATH=/app/lib/python3.13/site-packages\n', manifest)
+        self.assertIn('  - --env=PYTHONPATH=/app/lib/python3.13/site-packages:/usr/lib/python3.13/site-packages\n', manifest)
         environment['PYTHONPATH'] = str(app)
         selected = subprocess.check_output(command, env=environment, text=True, timeout=10).strip()
         self.assertEqual(Path(selected), app / '_distutils_hack/__init__.py')
