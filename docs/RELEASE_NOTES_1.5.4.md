@@ -50,6 +50,14 @@ on failed prerequisite steps and reports an error if CUDA setup and its clean
 CPU fallback both fail. These installer changes do not promote the experimental
 offline runtime adapter.
 
+The macOS PKG setup also handles fresh Homebrew installations whose PyGObject
+formula targets Python 3.14/3.15. It can build hash-pinned PyGObject and Pycairo
+for supported Python 3.13 inside the per-user runtime, using Homebrew's native
+GTK/GStreamer libraries. Existing working bindings for supported Python
+3.11–3.13 remain usable. This change retains the patched Python floor and
+macOS CPU ONNX Runtime constraint; actual fresh-Mac compilation and media
+qualification remain required before releasing the PKG.
+
 ## Candidate verification and distribution scope
 
 The following gates remain pending for the actual v1.5.4 candidate:

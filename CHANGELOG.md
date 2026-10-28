@@ -34,6 +34,11 @@ verification. Public downloads and Snap stable remain on v1.5.3.
   and its clean CPU fallback both fail
   ([PR #142](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/142),
   [PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143)).
+- **Handle Fresh Homebrew Python Bindings** - The macOS PKG setup can build
+  pinned GTK/Cairo Python bindings in its per-user runtime when current
+  Homebrew bindings target a newer Python ABI. Working supported system
+  bindings remain available; fresh Mac compilation and media checks remain
+  candidate verification gates.
 
 These source changes still require exact v1.5.4 package and installed-candidate
 verification. Experimental offline native adapters and Flatpak distribution

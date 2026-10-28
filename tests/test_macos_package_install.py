@@ -67,6 +67,9 @@ class MacPackageInstallTests(unittest.TestCase):
         self.write_executable(
             self.app / "scripts" / "setup_macos_runtime.sh", "exit 0"
         )
+        (self.app / "scripts" / "macos-bindings-inputs.json").write_bytes(
+            (ROOT / "packaging" / "macos-runtime" / "inputs.json").read_bytes()
+        )
         self.local_bin = self.root / "usr" / "local" / "bin"
         self.local_bin.mkdir(parents=True)
         self.write_executable(self.local_bin / "nvbroadcast", "exit 0")
@@ -168,12 +171,17 @@ fi
             'echo "$MACOS_TEST_BREW"',
         )
 
-    def provide_python(self, minor=13, *, probe_ok=True):
+    def provide_python(self, minor=13, *, probe_ok=True, version_ok=True):
         path = self.brew / "opt" / f"python@3.{minor}" / "bin" / f"python3.{minor}"
         body = r'''
 echo "python $0 $*" >> "$MACOS_TEST_LOG"
 if [[ "$1" == "-" ]]; then
-    /bin/cat > /dev/null
+    program=$(/bin/cat)
+    if [[ "$program" == *minimum_patch* ]]; then exit VERSION_STATUS; fi
+    if [[ "$program" == *json.loads* ]]; then
+        printf '%s' "$program" | "$MACOS_TEST_INTERPRETER" - "$2" "$3"
+        exit $?
+    fi
     if [[ "$0" != *"/.venv/"* && PROBE_STATUS != 0 ]]; then exit 1; fi
     if [[ "$MACOS_TEST_FAIL" == "gi" && "$0" == *"/.venv/"* ]]; then exit 19; fi
 elif [[ "$1 $2" == "-m venv" ]]; then
@@ -183,15 +191,26 @@ elif [[ "$1 $2" == "-m venv" ]]; then
     chmod 755 "$3/bin/python"
 elif [[ "$1 $2 $3" == "-m pip install" ]]; then
     if [[ "$MACOS_TEST_FAIL" == "pip" ]]; then exit 18; fi
+    if [[ "$MACOS_TEST_FAIL" == "bindings" && "$*" == *"/pygobject-requirements.txt"* ]]; then exit 22; fi
 elif [[ "$1 $2 $3" == "-m pip check" ]]; then
     if [[ "$MACOS_TEST_FAIL" == "closure" ]]; then exit 21; fi
 elif [[ "$1" == *"install_runtime_variant.py" ]]; then
     [[ "$2" == "--project" && -f "$3/src/source.txt" && -w "$3" ]]
     if [[ "$MACOS_TEST_FAIL" == "runtime" ]]; then exit 20; fi
 fi
-'''.replace("PROBE_STATUS", "0" if probe_ok else "1")
+'''.replace("PROBE_STATUS", "0" if probe_ok else "1").replace(
+            "VERSION_STATUS", "0" if version_ok else "1"
+        )
         self.write_executable(path, body)
         return path
+
+    def provide_binding_build_tools(self, *, native_headers=True):
+        self.write_executable(
+            self.brew / "bin" / "pkg-config",
+            'echo "pkg-config $*" >> "$MACOS_TEST_LOG"\n'
+            + ("exit 0" if native_headers else "exit 1"),
+        )
+        self.write_executable(self.brew / "bin" / "ninja", "exit 0")
 
     def make_ready_runtime(self):
         self.write_executable(
@@ -290,14 +309,85 @@ fi
         self.assertEqual(self.commands(), "")
         self.assertFalse(self.runtime.exists())
 
-    def test_setup_rejects_python_with_unusable_gi(self):
+    def test_setup_rejects_insecure_python_before_binding_build_or_download(self):
         self.provide_brew()
-        self.provide_python(probe_ok=False)
+        self.provide_python(probe_ok=False, version_ok=False)
+        self.provide_binding_build_tools()
         result = self.run_script(self.setup_script())
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("working GTK/Adw/GStreamer", result.stderr)
         self.assertIn("brew install python@3.13", result.stderr)
         self.assertFalse(self.runtime.exists())
+        self.assertNotIn("pip install", self.commands())
+        self.assertNotIn("pkg-config", self.commands())
+
+    def test_setup_version_policy_keeps_security_floors_and_supported_minors(self):
+        script = (ROOT / "scripts" / "setup_macos_runtime.sh").read_text()
+        policy = script.split("check_python_version() {", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+        for version, accepted in (
+            ((3, 11, 17), False), ((3, 11, 18), True),
+            ((3, 12, 15), False), ((3, 12, 16), True),
+            ((3, 13, 15), False), ((3, 13, 18), True),
+            ((3, 14, 0), False), ((3, 15, 0), False),
+        ):
+            with self.subTest(version=version), mock.patch.dict(
+                sys.modules, {"sys": types.SimpleNamespace(version_info=version)}
+            ):
+                if accepted:
+                    exec(policy, {})
+                else:
+                    with self.assertRaises(SystemExit):
+                        exec(policy, {})
+
+    def test_setup_builds_private_cp313_bindings_when_brew_abi_is_unavailable(self):
+        self.provide_brew()
+        python = self.provide_python(probe_ok=False)
+        self.provide_binding_build_tools()
+        result = self.run_script(self.setup_script())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"{python} -m venv", self.commands())
+        self.assertIn("--exists cairo girepository-2.0", self.commands())
+        self.assertIn("--no-deps --force-reinstall -r", self.commands())
+        self.assertIn("--no-deps --no-build-isolation --ignore-installed -r", self.commands())
+        self.assertIn(str(self.runtime / "pycairo-requirements.txt"), self.commands())
+        self.assertIn(str(self.runtime / "pygobject-requirements.txt"), self.commands())
+        self.assertIn("#sha256=4c80598ade17fbaa7798e01a25d0bf29ce109740786026a074c5c62bb3e79d23",
+                      (self.runtime / "pygobject-requirements.txt").read_text())
+        self.assertEqual(
+            (self.runtime / "runtime-ready").read_text(), f"{PACKAGE_ID}:{RUNTIME_ID}\n"
+        )
+        self.assertNotIn("brew install", self.commands())
+
+    def test_setup_private_bindings_require_native_build_prerequisites(self):
+        self.provide_brew()
+        self.provide_python(probe_ok=False)
+        for headers in (None, False):
+            with self.subTest(headers=headers):
+                if headers is False:
+                    self.provide_binding_build_tools(native_headers=False)
+                result = self.run_script(self.setup_script())
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("native headers, pkgconf and ninja", result.stderr)
+                self.assertFalse(self.runtime.exists())
+                self.assertNotIn("pip install", self.commands())
+
+    def test_setup_does_not_build_cp313_bindings_for_unsupported_system_abi(self):
+        self.provide_brew()
+        self.provide_python(12, probe_ok=False)
+        self.provide_binding_build_tools()
+        result = self.run_script(self.setup_script())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.runtime.exists())
+        self.assertNotIn("pip install", self.commands())
+
+    def test_private_binding_build_failure_cannot_mark_runtime_ready(self):
+        self.provide_brew()
+        self.provide_python(probe_ok=False)
+        self.provide_binding_build_tools()
+        self.environment["MACOS_TEST_FAIL"] = "bindings"
+        result = self.run_script(self.setup_script())
+        self.assertEqual(result.returncode, 22, result.stderr)
+        self.assertFalse((self.runtime / "runtime-ready").exists())
 
     def test_setup_resolves_versioned_homebrew_without_python_on_path(self):
         self.provide_brew()
@@ -321,6 +411,7 @@ fi
         result = self.run_script(self.setup_script())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"{second} -m venv", self.commands())
+        self.assertNotIn("--no-build-isolation", self.commands())
 
     def test_setup_failures_leave_no_ready_marker_and_preserve_user_files(self):
         self.provide_brew()

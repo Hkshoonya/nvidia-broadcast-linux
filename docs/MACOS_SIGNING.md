@@ -194,7 +194,9 @@ normally in Installer. Keep Gatekeeper enabled. The package installs its
 admin-owned source; runtime preparation is a separate user step:
 
 ```bash
-/opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
+/opt/homebrew/bin/brew update
+/opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer pkgconf ninja
+/opt/homebrew/bin/brew upgrade python@3.13
 /opt/nvbroadcast/scripts/setup_macos_runtime.sh
 /usr/local/bin/nvbroadcast
 ```
@@ -204,6 +206,12 @@ plugins, provisions a user runtime tied to the exact package source, and marks
 it ready only after validation. Old runtime generations are retained. Unsafe
 or redirected package destinations require administrator review; Installer
 does not change ownership/ACLs or execute Homebrew/Python as root.
+
+The v1.5.4 candidate adds private, pinned Python 3.13 bindings when the current
+Homebrew formula no longer supplies that ABI. This compile path requires
+Apple's Command Line Tools (`xcode-select --install` if missing), plus the
+`pkgconf` and `ninja` prerequisites above. Its fresh-Mac compilation and media
+checks must pass before the candidate PKG is released.
 
 Use `/usr/local/bin/nvbroadcast` explicitly during acceptance so a previous
 source-install launcher does not shadow this package. Check:
