@@ -307,6 +307,57 @@ native dependencies fail clearly; they are not silently downloaded in this mode.
 
 ## Qualification
 
+### Finalized CUDA clean-VM functional checks — 26 October 2026
+
+**Functional results only; release promotion is blocked.** The tested
+`1.5.3-7.cuda` packages retain certifi `2026.7.22` and Pillow `12.3.0`, which
+match the [certifi trust-store advisory](https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2)
+and [Pillow decoder advisory](https://github.com/advisories/GHSA-5x8w-8jj5-q52h).
+Replacement inputs need rebuild, audit and requalification. Passing lifecycle
+checks below do not qualify refreshed packages or authorize release promotion.
+
+The exact finalized DEB and project-signed RPM from source `e765a951` passed
+**50 Ubuntu 24.04 and 54 Fedora 44 checks** in fresh KVM cloud machines. Vendor
+image signatures/checksums, native package inventories, package/probe hashes
+and all 62 installed application Python files were independently verified.
+OS dependencies were fetched before a complete VM shutdown; installation ran
+after restart with outbound routing disabled. Application-only dependency and
+launcher checks preceded installation of synthetic display/audio tools.
+
+Both machines passed CPU execution with expected CUDA rejection, actual
+`NVBroadcastApp` window mapping, generated recording/decode, a clean reboot,
+repeated runtime/window/media checks and package removal. Each of four
+recordings contained 24 decoded video frames and nonzero generated audio.
+Removal verified all **17,688 DEB / 17,689 RPM** package-owned files absent,
+while user sentinels, system Python and the runtime lock remained intact.
+Independent readback checked all **104 execution logs**, six distinct boot
+identities, network boundaries, unchanged inputs and stopped VM processes.
+
+Fedora's synthetic audio fixture explicitly replaces only `pipewire-pulseaudio`
+with a private PulseAudio daemon after app-only dependency/launcher checks.
+This does not establish default PipeWire desktop audio. The Btrfs filesystem
+also exposed a test error: Linux device numbers can change across reboot.
+The corrected check binds filesystem UUID/subvolume/inode and lock metadata
+across boots, then keeps exact device/inode verification within the uninstall
+boot. The original failure and observed device renumbering are retained.
+
+The [permanent functional record](qualification/2026-10-26-clean-vm.json)
+binds exact artifacts, images, logs, corrected fixture failures and the known
+security hold. Physical devices, GPU execution, interactive desktop behavior,
+CPU-variant VMs, upgrade/downgrade and power-loss acceptance remain separate.
+These results do not close #60 or modify the installed Snap or v1.5.3 assets.
+
+The [security-refresh record](qualification/2026-10-26-security-refresh.json)
+adds fresh unsigned `1.5.3-8.cpu` and `1.5.3-8.cuda` packages from `0721ae7`,
+with CPython 3.13.18 and repaired Python dependencies. Installed container
+checks passed 106 steps without a GPU and 92 further steps on Ubuntu/RTX 3080
+and Fedora/RTX 5070, including actual CUDA/CuPy execution, generated recordings,
+running-launcher refusals and CPU rollback. Follow-up `5d78452` changes only
+the prototype application-wheel hashes; it does not relabel these packages.
+Revision 7's hold remains. Refreshed signing, protected hosted artifacts,
+clean-VM/device acceptance and sustained-performance checks remain separate;
+these development results do not authorize release promotion.
+
 ### CPU/CUDA switching and explicit GPU execution
 
 `qualify_switching.py` checks a reviewed pair of local native development builds
