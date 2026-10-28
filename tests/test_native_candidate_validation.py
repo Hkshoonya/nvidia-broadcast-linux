@@ -421,6 +421,26 @@ class VariantBoundaryTests(unittest.TestCase):
             with self.subTest(record=record, variant=variant), self.assertRaises(ValueError):
                 v.policy.check_variant(record, variant)
 
+    def test_decoder_preserves_binary_stream_without_daemon_logging(self):
+        payload = bytes(range(256)) * 4
+        for family in ("deb", "rpm"):
+            raw = io.BytesIO()
+            with tarfile.open(fileobj=raw, mode="w") as archive:
+                member = tarfile.TarInfo("usr/binary")
+                member.size, member.mode = len(payload), 0o644
+                archive.addfile(member, io.BytesIO(payload))
+            raw.seek(0)
+            process = Mock(stdout=raw, returncode=0)
+            process.wait.return_value = process.poll.return_value = 0
+            with self.subTest(family=family), \
+                    patch.object(v.subprocess, "Popen", return_value=process) as start, \
+                    patch.object(v, "bounded", return_value=b""):
+                inventory, _, _, size = v.decoded_inventory(Path("/tmp/fixture." + family), family)
+                self.assertIn("--log-driver=none", start.call_args.args[0])
+                self.assertEqual(start.call_args.kwargs["stdout"], subprocess.PIPE)
+                self.assertEqual(inventory["/usr/binary"]["sha256"], hashlib.sha256(payload).hexdigest())
+                self.assertEqual(size, len(payload))
+
     def test_raw_tar_total_bound_is_selected_without_relaxing_member_bounds(self):
         for variant in ("cpu", "cuda"):
             limit = v.policy.policy_for(variant).tar_max_bytes
