@@ -71,7 +71,7 @@ class LockedDependencyAuditTests(unittest.TestCase):
         inventory = audit.collect_pins(self.root)
         self.assertEqual({(p["name"], p["version"]) for p in inventory["pins"]}, {
             ("pillow", "12.3.0"), ("pip", "26.2.2"), ("pygobject", "3.48.2"), ("uv", "0.13.4"), ("numpy", "2.5.2")})
-        self.assertEqual(len(inventory["input_sha256"]), 10)
+        self.assertEqual(len(inventory["input_sha256"]), 12)
         self.assertEqual(len(next(p for p in inventory["pins"] if p["name"] == "pillow")["sources"]), 6)
         self.assertEqual(inventory["skipped_local_application"][0]["name"], "nvbroadcast")
         self.assertEqual(inventory["outside_pypi_scope"][0]["component"], "CPython")
@@ -85,6 +85,17 @@ class LockedDependencyAuditTests(unittest.TestCase):
                    'name="pycairo"\nversion="1.29.0"\narchive={path="locally-built.whl"}\n')
         pins = audit.collect_pins(self.root)["pins"]
         self.assertIn(("pycairo", "1.29.0"), [(p["name"], p["version"]) for p in pins])
+
+    def test_flatpak_module_includes_keep_exact_sources_and_fail_on_missing_or_external_files(self):
+        main = self.root / audit.REQUIRED_FLATPAKS[0]
+        main.write_text('modules:\n  - python3-private-runtime.yml\n  - python3-flatpak-requirements.yaml\n')
+        inventory = audit.collect_pins(self.root)
+        self.assertIn(("numpy", "2.5.2"), [(p["name"], p["version"]) for p in inventory["pins"]])
+        for module in ('missing.yml', '../external.yml'):
+            with self.subTest(module=module):
+                main.write_text(f'modules:\n  - {module}\n')
+                with self.assertRaisesRegex(ValueError, 'module|included'):
+                    audit.collect_pins(self.root)
 
     def test_exact_pinned_version_is_queried_even_when_latest_would_be_safe(self):
         requests = []

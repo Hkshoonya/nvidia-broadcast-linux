@@ -1,4 +1,5 @@
 import re
+import json
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,7 @@ GENERATED = FLATPAK_DIR / "python3-flatpak-requirements.yaml"
 REQUIREMENTS = FLATPAK_DIR / "requirements.txt"
 README = FLATPAK_DIR / "README.md"
 WORKFLOW = ROOT / ".github" / "workflows" / "flatpak.yml"
+PRIVATE_MODULE = FLATPAK_DIR / "python3-private-runtime.yml"
 
 
 class FlatpakPackagingTests(unittest.TestCase):
@@ -21,7 +23,9 @@ class FlatpakPackagingTests(unittest.TestCase):
         self.assertIn('runtime-version: "50"', manifest)
         self.assertIn("sdk: org.gnome.Sdk", manifest)
         self.assertIn("command: nvbroadcast", manifest)
-        self.assertIn('test "$(uname -m)" = "x86_64"', manifest)
+        self.assertIn('python3-private-runtime.yml', manifest)
+        self.assertIn('test "$(uname -m)" = "x86_64"',
+                      json.loads(PRIVATE_MODULE.read_text())["build-commands"])
         self.assertIn(
             "ln -s /usr/lib/x86_64-linux-gnu/libsndfile.so.1", manifest
         )
@@ -64,6 +68,28 @@ class FlatpakPackagingTests(unittest.TestCase):
         self.assertNotIn("--cleanup scripts", generated.splitlines()[0])
         self.assertNotRegex(generated, r"(?m)^\s+- /bin\s*$")
 
+    def test_application_setuptools_override_and_startup_shim_survive_cleanup(self):
+        manifest = MANIFEST.read_text()
+        private = PRIVATE_MODULE.read_text()
+        self.assertIn('setuptools-84.1.0-py3-none-any.whl', private)
+        for path in ('setuptools', '_distutils_hack', 'distutils-precedence.pth'):
+            self.assertNotRegex(manifest, rf'(?m)^\s+- /lib/python3\.13/site-packages/{re.escape(path)}')
+        self.assertIn('/lib/python3.13/site-packages/wheel',
+                      json.loads(private)["cleanup"])
+        smoke = (FLATPAK_DIR / 'runtime_smoke.py').read_text()
+        self.assertIn("startup_shim = sys.modules.get('_distutils_hack')", smoke)
+        self.assertIn("app_origin(distutils)", smoke)
+        self.assertIn("importlib.metadata.version('setuptools') != '84.1.0'", smoke)
+
+    def test_every_workflow_container_uses_prepared_immutable_image(self):
+        workflow = WORKFLOW.read_text()
+        self.assertIn('runtime_policy.py --output dist/flatpak-runtime', workflow)
+        for command in workflow.split('docker run ')[1:]:
+            command = command.split('\n      - name:', 1)[0]
+            self.assertIn('"$PREPARED_BUILDER_IMAGE"', command)
+        self.assertIn('--prepared-builder-image "$PREPARED_BUILDER_IMAGE"', workflow)
+        self.assertIn('< packaging/flatpak/runtime_smoke.py', workflow)
+
     def test_flatpak_ci_is_pinned_read_only_and_does_not_publish(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
@@ -79,6 +105,9 @@ class FlatpakPackagingTests(unittest.TestCase):
             "'NOTICE'",
             "'README.md'",
             "'src/**'",
+            "'packaging/runtime-prototype/inputs.json'",
+            "'packaging/runtime-prototype/prepare.py'",
+            "'packaging/runtime-prototype/pylock.build.toml'",
         ):
             self.assertIn(packaged_input, workflow)
         self.assertIn("flatpak-builder-lint manifest", workflow)
