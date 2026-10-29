@@ -154,10 +154,20 @@ issue. The current native installers still resolve parts of their Python
 environment online during installation, so the complete installed environment
 is not yet hermetic or independently reproducible. Target-specific dependency
 locks, offline wheelhouses, complete SBOMs, independent runtime rebuild
-comparison and RPM signing remain separate acceptance work. The v1.5.3 tag PKG
-has passed actual Developer ID Installer signing, notarization, ticket stapling
-and Gatekeeper acceptance; that package qualification does not make its
-network-provisioned Python runtime hermetic. See
+comparison and remaining platform qualification remain separate acceptance work.
+
+The v1.5.4 tag RPM passed project-key signing and independent native signature
+and digest verification with project primary fingerprint
+`A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1`. The draft includes the matching
+`RPM-GPG-KEY-nvbroadcast.asc` public key. See
+[RPM signing and verification](RPM_SIGNING.md).
+
+The v1.5.4 tag PKG passed actual Developer ID Installer signing, notarization,
+ticket stapling and Gatekeeper acceptance. Both packages have verified GitHub
+attestations for the exact release tag and commit; they remain in the unpublished
+draft. These package qualifications do not make their online-provisioned Python
+runtimes hermetic. Destination trust-policy configuration and broader platform
+coverage remain separate. See
 [macOS signing and acceptance](MACOS_SIGNING.md).
 
 Official references:
