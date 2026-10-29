@@ -1836,6 +1836,68 @@ printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
         )
         self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
 
+    def test_snap_promotion_preflight_precedes_both_store_credentials(self):
+        workflow = (REPO_ROOT / ".github/workflows/snap-promote.yml").read_text()
+        preflight = workflow.split("      - name: Verify promotion release source\n", 1)[1].split(
+            "      - name: Install Snapcraft\n", 1
+        )[0]
+        self.assertNotIn("if:", preflight)
+        self.assertNotIn("secrets.", preflight)
+        self.assertIn("ref: ${{ github.ref }}", workflow)
+        for credential in ("secrets.SNAP_CANDIDATE_TOKEN", "secrets.SNAP_TOKEN"):
+            self.assertLess(workflow.index("- name: Verify promotion release source"), workflow.index(credential))
+        self.assertIn("git --no-replace-objects rev-parse --verify", preflight)
+
+    def test_snap_promotion_preflight_rejects_wrong_ref_version_and_commit(self):
+        workflow = (REPO_ROOT / ".github/workflows/snap-promote.yml").read_text()
+        step = workflow.split("      - name: Verify promotion release source\n", 1)[1].split(
+            "      - name: Install Snapcraft\n", 1
+        )[0]
+        body = step.split("        run: |\n", 1)[1]
+        script = "\n".join(line[10:] for line in body.splitlines())
+        script += "\nprintf 'STORE_ACTION_REACHED\\n'\n"
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+            def git(*arguments):
+                return subprocess.check_output(
+                    ["git", "-c", "user.name=Promotion fixture", "-c", "user.email=fixture@example.invalid",
+                     "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null", *arguments],
+                    cwd=project, env=environment, stderr=subprocess.DEVNULL, text=True,
+                ).strip()
+            git("init", "--quiet")
+            snapcraft = project / "snap/snapcraft.yaml"
+            snapcraft.parent.mkdir()
+            snapcraft.write_text("name: fixture\nversion: '7.8.9'\n")
+            git("add", "snap/snapcraft.yaml")
+            git("commit", "--quiet", "-m", "Release fixture")
+            release = git("rev-parse", "HEAD")
+            git("tag", "v7.8.9")
+            git("commit", "--quiet", "--allow-empty", "-m", "Other commit")
+            other = git("rev-parse", "HEAD")
+            cases = (
+                ("valid", "tag", "refs/tags/v7.8.9", release, release, "7.8.9", True),
+                ("branch", "branch", "refs/heads/main", release, release, "7.8.9", False),
+                ("wrong tag", "tag", "refs/tags/v7.8.8", release, release, "7.8.9", False),
+                ("wrong version", "tag", "refs/tags/v7.8.9", release, release, "7.8.10", False),
+                ("wrong workflow commit", "tag", "refs/tags/v7.8.9", other, release, "7.8.9", False),
+                ("wrong checkout", "tag", "refs/tags/v7.8.9", other, other, "7.8.9", False),
+            )
+            for operation in ("candidate", "stable"):
+                for name, ref_type, ref, workflow_sha, checkout, version, allowed in cases:
+                    with self.subTest(operation=operation, case=name):
+                        git("checkout", "--quiet", "--detach", checkout)
+                        snapcraft.write_text(f"name: fixture\nversion: '{version}'\n")
+                        result = subprocess.run(
+                            ["bash", "-c", script], cwd=project,
+                            env=dict(environment, GITHUB_REF_TYPE=ref_type, GITHUB_REF=ref,
+                                     GITHUB_SHA=workflow_sha, INPUT_OPERATION=operation),
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                        self.assertEqual("STORE_ACTION_REACHED" in result.stdout, allowed, result.stdout)
+                        snapcraft.write_text("name: fixture\nversion: '7.8.9'\n")
+
     def test_snap_promotion_workflow_validates_exact_revisions_and_rolls_back(self):
         workflow = (
             REPO_ROOT / ".github" / "workflows" / "snap-promote.yml"
