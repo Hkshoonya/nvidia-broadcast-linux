@@ -6,9 +6,11 @@ Changes following the v1.5.4 candidate will be recorded here.
 
 ## v1.5.4 - Security and Runtime Reliability
 
-**Candidate in preparation on 28 October 2026; not published.** See the
-[candidate release notes](docs/RELEASE_NOTES_1.5.4.md) for scope and pending
-verification. Public downloads and Snap stable remain on v1.5.3.
+**Tagged 29 October 2026; the GitHub release is still a draft.** The exact
+native packages and tag-built Snaps passed the scoped verification recorded in
+[the release notes](docs/RELEASE_NOTES_1.5.4.md). Store candidate delivery,
+observation and stable/publication decisions remain pending. Public downloads
+and Snap stable remain on v1.5.3.
 
 - **Refresh Security-Sensitive Python Inputs** - Update affected certificate
   bundles, image decoding, file locking and build/install tools. Audit actual
@@ -37,13 +39,15 @@ verification. Public downloads and Snap stable remain on v1.5.3.
 - **Handle Fresh Homebrew Python Bindings** - The macOS PKG setup can build
   pinned GTK/Cairo Python bindings in its per-user runtime when current
   Homebrew bindings target a newer Python ABI. Working supported system
-  bindings remain available; fresh Mac compilation and media checks remain
-  candidate verification gates.
+  bindings remain available. The tag-built PKG passed fresh binding compilation,
+  CPU inference and synthetic media checks on the Apple Silicon runner.
 
-These source changes still require exact v1.5.4 package and installed-candidate
-verification. Experimental offline native adapters and Flatpak distribution
-remain separate work under #60 and #95; this candidate does not enable them as
-release defaults or close the remaining quality and physical-device issues.
+Exact-tag package contents, signatures and provenance are verified within the
+recorded scope; the owner also confirmed the requested Linux and M2 Mac checks.
+The separately built Store revisions still require their own verification and
+candidate acceptance. Experimental offline native adapters and Flatpak remain
+separate work under #60 and #95; this release does not enable them as defaults
+or close the remaining quality and physical-device issues.
 
 ## v1.5.3 - Recording, Small Windows, and Runtime Recovery
 

@@ -66,10 +66,11 @@ base64 -i "$HOME/Downloads/NVBroadcast-Developer-ID-Installer.p12" |
     --repo Hkshoonya/nvidia-broadcast-linux --env macos-signing
 ```
 
-Set deployment branch/tag policies before adding secrets. For the current
-candidate work, allowed branches are `main` and `release/1.5.3-preparation`;
-allowed tags are `v*`. Temporary fix-branch policies have been removed after
-integration. Do not broaden this to all branches or expose
+Set deployment branch/tag policies before adding secrets. Release signing uses
+reviewed `v*` tags; manual development signing uses reviewed `main`. Check the
+configured environment restrictions before using another release-preparation
+branch, and remove temporary branch policies after integration. Do not broaden
+this to all branches or expose
 signing secrets to pull-request jobs. GitHub documents
 [environment restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 and [certificate handling on runners](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
@@ -207,11 +208,16 @@ it ready only after validation. Old runtime generations are retained. Unsafe
 or redirected package destinations require administrator review; Installer
 does not change ownership/ACLs or execute Homebrew/Python as root.
 
-The v1.5.4 candidate adds private, pinned Python 3.13 bindings when the current
+The v1.5.4 PKG adds private, pinned Python 3.13 bindings when the current
 Homebrew formula no longer supplies that ABI. This compile path requires
 Apple's Command Line Tools (`xcode-select --install` if missing), plus the
-`pkgconf` and `ninja` prerequisites above. Its fresh-Mac compilation and media
-checks must pass before the candidate PKG is released.
+`pkgconf` and `ninja` prerequisites above. The
+[exact-tag package run](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40792768856)
+passed private binding compilation/imports, CPU inference and synthetic media
+checks on Apple Silicon. The owner also confirmed M2 setup, camera/effects and
+spoken recording. These results do not qualify Intel or the separate M5/Tahoe
+report; the package remains in the unpublished v1.5.4 draft until release gates
+are complete.
 
 Use `/usr/local/bin/nvbroadcast` explicitly during acceptance so a previous
 source-install launcher does not shadow this package. Check:

@@ -1,8 +1,9 @@
 # NV Broadcast v1.5.4
 
-**Candidate in preparation on 28 October 2026; not published.** No v1.5.4 tag,
-public downloads or Store revisions are claimed by these notes. Public native
-packages and Snap stable remain on v1.5.3 while the new candidate is verified.
+**Tagged 29 October 2026; not published.** The v1.5.4 tag is frozen at
+`755ee61384583303cf0ab469d02600c85f1e2b3b`. Its GitHub release remains a draft.
+Public native downloads and Snap stable remain on v1.5.3; the separately built
+Store candidate still needs its own verification, delivery and acceptance.
 
 This maintenance update brings security-sensitive Python dependency updates,
 fresh Eye Contact tracking, Arch runtime compatibility and clearer installer
@@ -16,9 +17,10 @@ locked native and macOS development inputs are updated too. CI audits exact
 frozen Python versions alongside the ordinary resolved dependency audit.
 
 The October 26 input refresh selected certifi 2026.10.19, Pillow 13.0.0,
-filelock 4.2.1, setuptools 84.1.0 and pip 26.2.2. Actual v1.5.4 package contents
-must be inspected and audited before promotion; these source changes do not
-establish that every OS library, codec, model or system trust store is audited.
+filelock 4.2.1, setuptools 84.1.0 and pip 26.2.2. The actual tag-built Snaps
+passed supplier inspection and the recorded Python advisory checks. Those
+checks do not establish that every OS library, codec, driver, model or system
+trust store is audited.
 
 ## Eye Contact follows current camera frames
 
@@ -55,27 +57,65 @@ formula targets Python 3.14/3.15. It can build hash-pinned PyGObject and Pycairo
 for supported Python 3.13 inside the per-user runtime, using Homebrew's native
 GTK/GStreamer libraries. Existing working bindings for supported Python
 3.11–3.13 remain usable. This change retains the patched Python floor and
-macOS CPU ONNX Runtime constraint; actual fresh-Mac compilation and media
-qualification remain required before releasing the PKG.
+macOS CPU ONNX Runtime constraint. The exact tag-built PKG passed fresh
+binding compilation/imports, CPU inference and synthetic media checks on the
+Apple Silicon runner.
 
 ## Candidate verification and distribution scope
 
-The following gates remain pending for the actual v1.5.4 candidate:
+The following checks are complete within their recorded scope:
 
-- Complete current-head PR checks, version/metadata checks, dependency audits,
-  release smoke and both Snap architecture builds.
-- Independently inspect actual package/source identities and packaged supplier
-  versions. Bind checksums, signatures and provenance to the exact release
-  source and generated artifacts.
-- Verify the installed strict Snap's camera, microphone, controls, processing
-  modes, Eye Contact movement and complete spoken recording. Qualify the
-  changed runtime inputs on available CPU/CUDA hardware and record unavailable
-  combinations explicitly.
-- Tie candidate feedback and the affected-runtime observation period to its
-  exact source and Store revisions. Stable promotion follows review of the
-  results and accepted limitations.
-- Complete signing/notarization and affected native-package upgrade/install
-  checks before distributing the corresponding DEB/RPM/PKG artifacts.
+- Source tests, version metadata, release smoke and dependency audits passed.
+  Both strict Snap architectures passed dependency closure and confined
+  synthetic recording checks.
+- Default DEB/RPM installation, reinstall, upgrade, failure recovery and removal
+  passed **108 checks** on disposable Ubuntu 24.04 and Fedora 44 fixtures with
+  documented cached prerequisites. The final tag packages preserve those inputs.
+- The [tag package run](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40792768856)
+  passed project-key RPM signing and actual Apple Silicon installation, private
+  binding compilation, CPU inference and synthetic media decoding. The PKG
+  passed Developer ID Installer signing as **WeMakeSense LLC (T39RXSKKZ6)**,
+  notarization, stapling and Gatekeeper acceptance. Independent readback verified
+  package/source identities and the signatures' scoped evidence.
+- The native checksum manifest matches the DEB, signed RPM, upgrade helper,
+  project public key and PKG. All six subjects, including the manifest itself,
+  passed cryptographic verification against the exact tag, source, workflow,
+  hosted runner and original run/attempt.
+- The [tag Snap run](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40792768843)
+  passed source/bytecode, suppliers, closure, notices, RECORD, architecture,
+  bundled-certificate and provenance checks. Recorded Python advisory snapshots
+  checked 69 AMD64 and 60 ARM64 packages with zero vulnerabilities or lookup
+  errors. All **572 AMD64** and **479 ARM64** packaged ELF files match accepted
+  runtime inputs. Earlier AMD64 CPU/CUDA and fresh CuPy probes on the available
+  RTX 3080 and RTX 5070 transfer only through that verified byte comparison.
+- The owner confirmed the requested Linux CPU/DocZeus preview, Eye Contact
+  movement and spoken recording, plus signed M2 Mac setup, camera/effects and
+  spoken recording. Tag payload/native-binding evidence matches that Mac
+  candidate. Earlier unchanged controls, lighting and OBS/Meeting results retain
+  their original scope; no new measurement is inferred from that carry-forward.
+
+The draft ARM64 Snap asset matches its attested file. The AMD64 Snap exceeds
+GitHub's **2 GiB** release-asset limit and remains in the tag workflow's Actions
+artifact. Neither file identifies a later Store rebuild merely because its
+version is also 1.5.4.
+
+The remaining release gates are:
+
+- Complete Store review with valid authentication, then verify both actual Store
+  rebuilds, their own bytes/provenance and uploaded revision identities against
+  the accepted runtime inputs.
+- Verify candidate delivery and installation. Tie feedback and the affected
+  runtime observation period to those exact source/artifact/revision identities.
+- Review the observation evidence and accepted limitations before the explicit
+  stable/publication decision. A shorter urgent-security window requires a
+  documented decision; the brief owner test is not a completed 48–72-hour soak.
+- Publish the existing verified draft only after the applicable release gates,
+  then verify public assets/update discovery and update the website downloads.
+
+Numeric FPS, a second physical microphone, M5/Tahoe, physical Linux ARM devices,
+TensorRT coverage and a completed 48–72-hour observation window are outside the
+recorded acceptance. Synthetic media checks qualify their tested paths; they do
+not replace physical device acceptance or a complete security assessment.
 
 The regular Snap update can proceed independently of the experimental offline
 native-runtime and Flatpak distribution work. #60 still tracks the broader
