@@ -13,6 +13,7 @@ import importlib
 import os
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import numpy as np
@@ -32,40 +33,51 @@ _MEDIAPIPE_READY: bool | None = None
 _MIN_CENTER_TRACKING_ZOOM = 1.12
 
 
-def _probe_mediapipe_runtime() -> tuple[bool, str]:
+def _probe_mediapipe_runtime(model_path: Path) -> tuple[bool, str]:
     env = dict(os.environ)
     env.setdefault("MPLBACKEND", "Agg")
-    code = (
-        "import mediapipe as mp\n"
-        "from mediapipe.tasks import python as mp_python\n"
-        "from mediapipe.tasks.python import vision as mp_vision\n"
-        "print('ok')\n"
-    )
+    # Probe native model creation as well as imports before using it in the GUI.
+    code = textwrap.dedent("""\
+        import sys
+        from mediapipe.tasks.python import BaseOptions
+        from mediapipe.tasks.python.vision import (
+            FaceDetector, FaceDetectorOptions, RunningMode,
+        )
+
+        options = FaceDetectorOptions(
+            base_options=BaseOptions(model_asset_path=sys.argv[1]),
+            running_mode=RunningMode.VIDEO,
+            min_detection_confidence=0.5,
+        )
+        with FaceDetector.create_from_options(options):
+            pass
+        """)
     try:
         result = subprocess.run(
-            [sys.executable, "-c", code],
+            [sys.executable, "-I", "-c", code, str(model_path)],
             capture_output=True,
             text=True,
             timeout=15,
             env=env,
         )
-    except Exception as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)
     if result.returncode == 0:
         return True, ""
     detail = (result.stderr or result.stdout or "").strip()
-    return False, detail[:300] or f"exit code {result.returncode}"
+    message = f"MediaPipe face detector initialization exited {result.returncode}"
+    return False, f"{message}: {detail[:300]}" if detail else message
 
 
-def _load_mediapipe():
+def _load_mediapipe(model_path: Path):
     global _MEDIAPIPE_IMPORT_ERROR, _MEDIAPIPE_READY
     if _MEDIAPIPE_READY is False:
         raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR or "MediaPipe runtime unavailable")
     if _MEDIAPIPE_READY is None:
-        ok, detail = _probe_mediapipe_runtime()
+        ok, detail = _probe_mediapipe_runtime(model_path)
         if not ok:
             _MEDIAPIPE_READY = False
-            _MEDIAPIPE_IMPORT_ERROR = detail or "MediaPipe import probe failed"
+            _MEDIAPIPE_IMPORT_ERROR = detail or "MediaPipe model probe failed"
             raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR)
         _MEDIAPIPE_READY = True
     mp = importlib.import_module("mediapipe")
@@ -169,7 +181,7 @@ class AutoFrame:
             return False
 
         try:
-            self._mp, self._mp_python, self._mp_vision = _load_mediapipe()
+            self._mp, self._mp_python, self._mp_vision = _load_mediapipe(model_path)
             base_options = self._mp_python.BaseOptions(
                 model_asset_path=str(model_path),
             )
