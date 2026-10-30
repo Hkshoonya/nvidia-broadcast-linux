@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# NVIDIA Broadcast for Linux
+# Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
+# Licensed under GPL-3.0-or-later - see LICENSE file
+# Original author: doczeus | AI Powered
+#
 """Prepare explicit private binding wheel inputs; never run on a destination.
 
 Acquisition authenticates committed source/tool inputs. Compilation and native
