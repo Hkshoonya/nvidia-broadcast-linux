@@ -89,6 +89,13 @@ published without permission.
 Financial supporters are recognized separately in the README and application.
 Sponsorship supports maintenance but does not create or replace code authorship.
 
+### Mradul Kumar ([@Nirusaki-Malaal](https://github.com/Nirusaki-Malaal))
+
+- Reported the MediaPipe face-model startup kill on Arch Linux and extended
+  the isolated native probes to check model initialization before loading it
+  in the GUI, with regression tests for failures and timeouts
+  ([#180](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/180)).
+
 ## Updating This Record
 
 Every accepted external human contribution must update both
