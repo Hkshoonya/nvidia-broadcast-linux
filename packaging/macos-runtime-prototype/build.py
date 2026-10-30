@@ -78,16 +78,28 @@ def select_suppliers(python: Path, work: Path, inputs: Path, pins: dict, app_whe
     return json.loads(selection_result.stdout), supplier_lock_path, lock_sha256
 
 
-def build(work: Path, *, refresh_lock: bool = False, cache: Path | None = None, offline: bool = False):
+def build(work: Path, *, refresh_lock: bool = False, cache: Path | None = None, offline: bool = False,
+          native_bindings: Path | None = None, native_bindings_sha256: str | None = None):
     if refresh_lock and offline:
         raise ValueError("Refreshing the supplier lock requires explicit online resolution")
     if os.geteuid() == 0:
         raise RuntimeError("Build as an ordinary user")
-    native = runtime.native_probe()
+    if bool(native_bindings) != bool(native_bindings_sha256) or (not refresh_lock and not native_bindings):
+        raise ValueError("Build requires prepared native bindings and their explicit expected SHA-256")
+    native = runtime.base_probe()
     if runtime.run("git", "status", "--porcelain", cwd=ROOT, capture_output=True, text=True).stdout:
         raise RuntimeError("Build requires a committed clean source checkout")
     work.mkdir(parents=True, exist_ok=False)
-    (work / "native-build-inventory.json").write_text(json.dumps(native, indent=2) + "\n")
+    revision = runtime.run("git", "rev-parse", "HEAD", cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    bindings = None
+    if native_bindings:
+        bindings = runtime.validate_binding_inputs(native_bindings, native_bindings_sha256)
+        if (bindings["receipt"]["source_revision"] != revision
+                or bindings["receipt"]["source_inputs"]["sha256"] != runtime.digest(ROOT / "packaging/macos-runtime/inputs.json")):
+            raise ValueError("Prepared bindings must use this committed source and canonical inputs")
+        # This immutable preparation inventory is shared by both builds. Actual
+        # per-build private import paths are retained outside the package root.
+        native = bindings["inventory"]
     pins = json.loads((HERE / "inputs.json").read_text())
     if (pins["minimum_macos"] != runtime.MINIMUM_MACOS
             or pins["minimum_python"] != ".".join(map(str, runtime.MINIMUM_PYTHON))):
@@ -108,6 +120,15 @@ def build(work: Path, *, refresh_lock: bool = False, cache: Path | None = None, 
     runtime.run(sys.executable, "-m", "venv", work / "builder")
     python = work / "builder/bin/python"
     runtime.pip_install(python, bootstrap, bootstrap / "requirements.txt")
+    if bindings:
+        requirement = work / "binding-requirements.txt"
+        requirement.write_text(runtime.requirements(bindings["wheels"]))
+        runtime.pip_install(python, native_bindings, requirement)
+        runtime.run(python, "-I", HERE / "runtime.py", "probe", "--prefix", work / "builder",
+                    "--binding-inputs", native_bindings, "--binding-inputs-sha256", native_bindings_sha256,
+                    "--output", work / "native-build-inventory.json")
+    else:
+        (work / "native-build-inventory.json").write_text(json.dumps(native, indent=2) + "\n")
 
     # Build from git's committed bytes, excluding ambient egg-info/build files.
     source = work / "source"
@@ -118,7 +139,6 @@ def build(work: Path, *, refresh_lock: bool = False, cache: Path | None = None, 
         stream.extractall(source, filter=prepare.safe_member)
     wheels = work / "app-wheel"
     wheels.mkdir()
-    revision = runtime.run("git", "rev-parse", "HEAD", cwd=ROOT, capture_output=True, text=True).stdout.strip()
     epoch = runtime.run("git", "show", "-s", "--format=%ct", "HEAD", cwd=ROOT, capture_output=True, text=True).stdout.strip()
     runtime.run(python, "-m", "pip", "--isolated", "wheel", "--no-index", "--no-deps",
                 "--no-build-isolation", "--no-cache-dir", "--wheel-dir", wheels, source,
@@ -149,26 +169,45 @@ def build(work: Path, *, refresh_lock: bool = False, cache: Path | None = None, 
         print(f"Proposed supplier lock (no package built): {supplier_lock_path}")
         return
 
+    binding_closure = runtime.run(python, "-I", HERE / "prepare_bindings.py", "verify-closure",
+        "--directory", native_bindings, "--sha256", native_bindings_sha256,
+        "--supplier-wheels", supplier_wheels, "--app-wheel", app_wheel,
+        capture_output=True, text=True)
+    (work / "binding-closure.json").write_text(binding_closure.stdout)
+
     lock_path = work / "pylock.macos-arm64-cp313-cpu.toml"
     lock_path.write_text(supplier_lock_path.read_text() +
         '\n[[packages]]\nname = "nvbroadcast"\nversion = ' + json.dumps(runtime.wheel_record(app_wheel)["version"]) +
         '\narchive = { path = ' + json.dumps("app-wheel/" + app_wheel.name) +
         ', hashes = { sha256 = ' + json.dumps(runtime.digest(app_wheel)) + ' } }\n')
+    with lock_path.open("a") as stream:
+        for item in bindings["wheels"]:
+            stream.write('\n[[packages]]\nname = ' + json.dumps(item["name"]) +
+                         '\nversion = ' + json.dumps(item["version"]) +
+                         '\narchive = { path = ' + json.dumps("wheels/" + item["file"]) +
+                         ', hashes = { sha256 = ' + json.dumps(item["sha256"]) + ' } }\n')
     payload_root = work / "root"
     bundle = payload_root / "opt/nvbroadcast-offline-candidate"
     bundle.mkdir(parents=True)
     shutil.copytree(supplier_wheels, bundle / "wheels")
+    for item in bindings["wheels"]:
+        shutil.copyfile(native_bindings / "wheels" / item["file"], bundle / "wheels" / item["file"])
+    for name in (runtime.BINDING_MANIFEST_FILE, runtime.BINDING_INPUT_FILE, runtime.BINDING_INVENTORY_FILE):
+        shutil.copyfile(native_bindings / name, bundle / name)
     shutil.copyfile(app_wheel, bundle / "wheels" / app_wheel.name)
     packages = sorted((runtime.wheel_record(path) for path in (bundle / "wheels").iterdir()), key=lambda item: item["name"])
     if len({item["name"] for item in packages}) != len(packages):
         raise ValueError("Target lock has more than one wheel per distribution; select an exact target before packaging")
     (bundle / "requirements.txt").write_text(runtime.requirements(packages))
-    manifest = {"schema_version": 1, "target": runtime.TARGET, "minimum_macos": runtime.MINIMUM_MACOS,
+    manifest = {"schema_version": 2, "target": runtime.TARGET, "minimum_macos": runtime.MINIMUM_MACOS,
                 "source_revision": revision, "source_date_epoch": epoch, "packages": packages,
                 "minimum_python": pins["minimum_python"],
                 "resolver": pins["uv"], "native_build_inventory": native,
+                "native_bindings_manifest_sha256": native_bindings_sha256,
+                "native_bindings": bindings["receipt"],
                 "supplier_lock_sha256": lock_sha256, "dependency_resolution": "reviewed-fixed-inputs",
                 "limits": ["Homebrew native dependencies and CPython are external prerequisites",
+                           "Prepared private binding wheels are reused; native recompilation reproducibility is not claimed",
                            "Models are not bundled; first model acquisition still needs networking",
                            "Unsigned non-default candidate; no physical hardware qualification"]}
     (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -211,6 +250,10 @@ if __name__ == "__main__":
     parser.add_argument("--refresh-lock", action="store_true", help="propose a new supplier lock; do not build a package")
     parser.add_argument("--cache", type=Path, help="cache of verified build and supplier inputs")
     parser.add_argument("--offline", action="store_true", help="require all input archives in --cache; no downloads")
+    parser.add_argument("--native-bindings", type=Path, help="qualified private binding input directory")
+    parser.add_argument("--native-bindings-sha256", help="expected preparation manifest SHA-256, kept outside its cache")
     args = parser.parse_args()
     build(args.directory.absolute(), refresh_lock=args.refresh_lock,
-          cache=args.cache.absolute() if args.cache else None, offline=args.offline)
+          cache=args.cache.absolute() if args.cache else None, offline=args.offline,
+          native_bindings=args.native_bindings.absolute() if args.native_bindings else None,
+          native_bindings_sha256=args.native_bindings_sha256)
