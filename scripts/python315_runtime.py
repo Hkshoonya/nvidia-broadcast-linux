@@ -122,7 +122,12 @@ def build(build_dir: Path, wheelhouse: Path, jobs: int) -> None:
     if not environment.exists():
         venv.EnvBuilder(with_pip=True).create(environment)
     python = str(environment / "bin/python")
-    run(python, "-c", "import sys; assert sys.version_info[:2] == (3, 15)")
+    run(
+        python,
+        "-c",
+        "import sys, sysconfig; assert sys.version_info[:2] == (3, 15) "
+        "and not sysconfig.get_config_var('Py_GIL_DISABLED')",
+    )
     run(
         python,
         "-m",
@@ -219,13 +224,13 @@ import onnx
 import onnxruntime as ort
 from onnx import TensorProto, helper
 tensor = lambda name: helper.make_tensor_value_info(name, TensorProto.FLOAT, [1])
-graph = helper.make_graph([helper.make_node('Identity', ['x'], ['y'])],
+graph = helper.make_graph([helper.make_node('Add', ['x', 'x'], ['y'])],
                           'python315-smoke', [tensor('x')], [tensor('y')])
 model = helper.make_model(graph, opset_imports=[helper.make_opsetid('', 13)])
 model.ir_version = 8
 session = ort.InferenceSession(model.SerializeToString(), providers=['CPUExecutionProvider'])
 value = np.array([3.15], dtype=np.float32)
-np.testing.assert_array_equal(session.run(None, {'x': value})[0], value)
+np.testing.assert_array_equal(session.run(None, {'x': value})[0], value * 2)
 print('AV 16 import and ONNX Runtime CPU inference passed on Python 3.15')
 """,
     )

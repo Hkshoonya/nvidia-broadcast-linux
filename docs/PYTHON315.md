@@ -108,3 +108,22 @@ provider ABI, and qualify import, real model inference, GTK/GStreamer, audio,
 and camera flows on Fedora 45. CUDA needs separate ONNX Runtime GPU, CuPy,
 and nvimgcodec validation. See also the upstream
 [ONNX Runtime wheel request](https://github.com/microsoft/onnxruntime/issues/33271).
+
+## Validation performed
+
+On Linux x86_64 with CPython 3.15.2 and GCC 16:
+
+- Built AV 16.1.0 from the pinned source archive against private FFmpeg 8.0.1;
+  its `cp311-abi3` wheel imported successfully on 3.15, including `av.option`.
+- Initialized RNNoise and processed a native 480-sample audio frame.
+- Built ONNX Runtime 1.24.4 from the pinned commit, producing a
+  `cp315-cp315-linux_x86_64` wheel without source patches.
+- Passed the helper's arithmetic inference test and the project's actual
+  pinned-model `CPUExecutionProvider` probe, plus runtime ownership and the
+  complete CPU dependency-closure check.
+- Imported all core packages and GTK4/Libadwaita/GStreamer using bindings
+  compiled for Python 3.15; 218 targeted tests passed, with one skipped.
+
+These checks do not qualify Fedora 45 camera/microphone hardware flows,
+desktop launches, or CUDA/TensorRT. The FFmpeg recipe above uses a newer
+8.x maintenance release than the local validation build.
