@@ -6,11 +6,12 @@ Changes following the v1.5.4 candidate will be recorded here.
 
 ## v1.5.4 - Security and Runtime Reliability
 
-**Tagged 29 October 2026; the GitHub release is still a draft.** The exact
-native packages and tag-built Snaps passed the scoped verification recorded in
-[the release notes](docs/RELEASE_NOTES_1.5.4.md). Store candidate delivery,
-observation and stable/publication decisions remain pending. Public downloads
-and Snap stable remain on v1.5.3.
+**Published.** [v1.5.4 downloads](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4)
+are available. The exact native packages and tag-built Snaps passed the scoped
+verification in [the release notes](docs/RELEASE_NOTES_1.5.4.md). The published
+release record documents Store revision identities, the observation decision
+and accepted limitations. Snap channel availability is reported separately by
+[the Store](https://snapcraft.io/nvbroadcast).
 
 - **Refresh Security-Sensitive Python Inputs** - Update affected certificate
   bundles, image decoding, file locking and build/install tools. Audit actual
@@ -44,8 +45,8 @@ and Snap stable remain on v1.5.3.
 
 Exact-tag package contents, signatures and provenance are verified within the
 recorded scope; the owner also confirmed the requested Linux and M2 Mac checks.
-The separately built Store revisions still require their own verification and
-candidate acceptance. Experimental offline native adapters and Flatpak remain
+Separately built Store revisions use their own verification and candidate
+acceptance records; tag-built Snap checksums do not identify another build. Experimental offline native adapters and Flatpak remain
 separate work under #60 and #95; this release does not enable them as defaults
 or close the remaining quality and physical-device issues.
 

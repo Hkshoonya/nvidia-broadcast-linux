@@ -1,9 +1,10 @@
 # NV Broadcast v1.5.4
 
-**Tagged 29 October 2026; not published.** The v1.5.4 tag is frozen at
-`755ee61384583303cf0ab469d02600c85f1e2b3b`. Its GitHub release remains a draft.
-Public native downloads and Snap stable remain on v1.5.3; the separately built
-Store candidate still needs its own verification, delivery and acceptance.
+**Published.** [v1.5.4 native downloads](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4)
+are available. The tag remains frozen at
+`755ee61384583303cf0ab469d02600c85f1e2b3b`.
+[The Snap Store](https://snapcraft.io/nvbroadcast) reports available channels
+and revision identities separately from GitHub's tag-built files.
 
 This maintenance update brings security-sensitive Python dependency updates,
 fresh Eye Contact tracking, Arch runtime compatibility and clearer installer
@@ -94,28 +95,23 @@ The following checks are complete within their recorded scope:
   candidate. Earlier unchanged controls, lighting and OBS/Meeting results retain
   their original scope; no new measurement is inferred from that carry-forward.
 
-The draft ARM64 Snap asset matches its attested file. The AMD64 Snap exceeds
+The published ARM64 Snap asset matches its attested file. The AMD64 Snap exceeds
 GitHub's **2 GiB** release-asset limit and remains in the tag workflow's Actions
 artifact. Neither file identifies a later Store rebuild merely because its
 version is also 1.5.4.
 
-The remaining release gates are:
+Store delivery and publication were reviewed separately from the tag-built
+artifacts. The [published verification record](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4)
+records the actual Store files/revisions, their own provenance and comparison,
+candidate installation, the observation decision, stable/publication approval
+and accepted limitations. Use each build's own checksum and attestation; a
+shared version number does not make its bytes interchangeable.
 
-- Complete Store review with valid authentication, then verify both actual Store
-  rebuilds, their own bytes/provenance and uploaded revision identities against
-  the accepted runtime inputs.
-- Verify candidate delivery and installation. Tie feedback and the affected
-  runtime observation period to those exact source/artifact/revision identities.
-- Review the observation evidence and accepted limitations before the explicit
-  stable/publication decision. A shorter urgent-security window requires a
-  documented decision; the brief owner test is not a completed 48–72-hour soak.
-- Publish the existing verified draft only after the applicable release gates,
-  then verify public assets/update discovery and update the website downloads.
-
-Numeric FPS, a second physical microphone, M5/Tahoe, physical Linux ARM devices,
-TensorRT coverage and a completed 48–72-hour observation window are outside the
-recorded acceptance. Synthetic media checks qualify their tested paths; they do
-not replace physical device acceptance or a complete security assessment.
+Numeric FPS, a second physical microphone, M5/Tahoe, physical Linux ARM devices
+and TensorRT coverage remain outside the recorded acceptance. Observation is
+limited to the explicitly recorded window; no longer period is inferred.
+Synthetic media checks qualify their tested paths, rather than replacing
+physical device acceptance or a complete security assessment.
 
 The regular Snap update can proceed independently of the experimental offline
 native-runtime and Flatpak distribution work. #60 still tracks the broader
