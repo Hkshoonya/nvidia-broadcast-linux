@@ -9,6 +9,7 @@ on:
       - '.github/workflows/macos-offline-candidate.yml'
       - 'packaging/runtime-prototype/prepare.py'
       - 'scripts/validate_macos_runtime.py'
+      - 'packaging/macos-runtime/inputs.json'
       - 'src/nvbroadcast/runtime/**'
       - 'src/nvbroadcast/video/face_landmarks.py'
       - 'src/nvbroadcast/video/eye_contact.py'
@@ -44,7 +45,7 @@ jobs:
       - name: Provision external native prerequisites (online build stage)
         run: |
           test "$(uname -m)" = arm64
-          /opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
+          /opt/homebrew/bin/brew install python@3.13 cairo glib gobject-introspection libffi gtk4 libadwaita gstreamer pkgconf ninja
           # Refresh the interpreter security patch without replacing installed
           # CPython 3.13 bindings with current formulae targeting 3.14/3.15.
           # Actual native imports/media below remain mandatory ABI checks.
@@ -55,22 +56,43 @@ jobs:
             'import sys; assert (3, 13, 18) <= sys.version_info[:3] < (3, 14, 0), sys.version'
           /opt/homebrew/bin/brew list --versions
 
+      - name: Prepare authenticated private CPython 3.13 binding inputs
+        id: bindings
+        run: |
+          set -euo pipefail
+          /opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/prepare_bindings.py prepare \
+            --directory "$PWD/dist/macos-binding-inputs" --cache "$PWD/dist/macos-offline-inputs" \
+            --sha256-output "$RUNNER_TEMP/nvbroadcast-native-bindings.sha256"
+          /opt/homebrew/opt/python@3.13/bin/python3.13 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, re
+          from pathlib import Path
+          expected = (Path(os.environ['RUNNER_TEMP']) / 'nvbroadcast-native-bindings.sha256').read_text().strip()
+          assert re.fullmatch(r'[0-9a-f]{64}', expected), 'Invalid producer digest'
+          print('sha256=' + expected)
+          PY
+
       - name: Build unsigned isolated candidate and exact wheel manifest
+        env:
+          NATIVE_BINDINGS_SHA256: ${{ steps.bindings.outputs.sha256 }}
         run: |
           /opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/build.py \
-            --directory "$PWD/dist/macos-offline-candidate" --cache "$PWD/dist/macos-offline-inputs"
+            --directory "$PWD/dist/macos-offline-candidate" --cache "$PWD/dist/macos-offline-inputs" \
+            --native-bindings "$PWD/dist/macos-binding-inputs" --native-bindings-sha256 "$NATIVE_BINDINGS_SHA256"
 
       - name: Test inventory and target selection with pinned builder tools
         run: dist/macos-offline-candidate/builder/bin/python -m unittest -v tests.test_macos_offline_candidate
 
       - name: Rebuild fixed Python inputs with networking denied
+        env:
+          NATIVE_BINDINGS_SHA256: ${{ steps.bindings.outputs.sha256 }}
         run: |
           set -euo pipefail
           /usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network*)' \
             /opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/build.py \
-            --directory "$PWD/dist/macos-offline-rebuild" --cache "$PWD/dist/macos-offline-inputs" --offline
+            --directory "$PWD/dist/macos-offline-rebuild" --cache "$PWD/dist/macos-offline-inputs" --offline \
+            --native-bindings "$PWD/dist/macos-binding-inputs" --native-bindings-sha256 "$NATIVE_BINDINGS_SHA256"
           /opt/homebrew/opt/python@3.13/bin/python3.13 - <<'PYTHON'
-          import importlib.util, json
+          import importlib.util, json, os
           from pathlib import Path
           path = Path('packaging/macos-runtime-prototype/runtime.py')
           spec = importlib.util.spec_from_file_location('candidate_runtime', path)
@@ -86,7 +108,9 @@ jobs:
               identities[name] = pair[0]
           evidence = {'status': 'pass', 'content_identities': identities,
                       'network_denied_rebuild': True, 'same_native_host': True,
+                      'native_bindings_manifest_sha256': os.environ['NATIVE_BINDINGS_SHA256'],
                       'limits': ['Homebrew native stack remains external',
+                                 'Qualified prepared binding wheels are reused; native recompilation reproducibility is not claimed',
                                  'PKG archive byte reproducibility is not claimed']}
           (first / 'fixed-input-rebuild.json').write_text(json.dumps(evidence, indent=2) + '\n')
           PYTHON
@@ -140,11 +164,12 @@ jobs:
           runtime="$HOME/Library/Application Support/NVBroadcast Offline Candidate/$identity"
           "$runtime/.venv/bin/python" -I - <<'PY' 2>&1 | tee dist/macos-offline-candidate/face-effects-tests.log
           import pathlib, sys, unittest
+          import cairo, gi
           import nvbroadcast.video.face_landmarks as landmarks
           import nvbroadcast.video.eye_contact as eyes
           # Test the installed wheel, not a source checkout that could hide a
           # stale packaged copy. Only the tests are loaded from the checkout.
-          for module in (landmarks, eyes):
+          for module in (landmarks, eyes, cairo, gi):
               path = pathlib.Path(module.__file__).resolve()
               assert path.is_relative_to(pathlib.Path(sys.prefix).resolve()), path
               print(f'Installed module: {path}')
@@ -190,11 +215,23 @@ jobs:
               cp -R "$runtime/generated-media-diagnostics" dist/macos-offline-evidence/
             fi
           fi
-          for name in package.json native-build-inventory.json pylock.macos-arm64-cp313-cpu.toml supplier-lock.toml supplier-selection.json supplier-closure.json fixed-input-rebuild.json offline-install.log installer.log face-effects-tests.log; do
+          for name in package.json native-build-inventory.json binding-closure.json pylock.macos-arm64-cp313-cpu.toml supplier-lock.toml supplier-selection.json supplier-closure.json fixed-input-rebuild.json offline-install.log installer.log face-effects-tests.log; do
             if [[ -f "dist/macos-offline-candidate/$name" ]]; then
               cp "dist/macos-offline-candidate/$name" dist/macos-offline-evidence/
             fi
           done
+          if [[ -d dist/macos-binding-inputs ]]; then
+            mkdir -p dist/macos-offline-evidence/native-bindings/wheels
+            for name in native-bindings.json binding-source-inputs.json binding-tool-inputs.json binding-build-inventory.json; do
+              if [[ -f "dist/macos-binding-inputs/$name" ]]; then
+                cp "dist/macos-binding-inputs/$name" dist/macos-offline-evidence/native-bindings/
+              fi
+            done
+            if [[ -d dist/macos-binding-inputs/wheels ]]; then
+              find dist/macos-binding-inputs/wheels -maxdepth 1 -type f -name '*.whl' \
+                -exec cp {} dist/macos-offline-evidence/native-bindings/wheels/ \;
+            fi
+          fi
           if [[ -f dist/macos-offline-candidate/root/opt/nvbroadcast-offline-candidate/manifest.json ]]; then
             cp dist/macos-offline-candidate/root/opt/nvbroadcast-offline-candidate/manifest.json dist/macos-offline-evidence/
           fi
