@@ -6,9 +6,10 @@ set -u
 PACKAGE_MANAGER="unknown"
 PYTHON_REQUEST=""
 REQUIRE_DESKTOP_BINDINGS=false
+EXPERIMENTAL_PYTHON315=false
 
 usage() {
-    echo "Usage: $0 [--python /path/to/python] [--package-manager NAME] [--require-desktop-bindings]" >&2
+    echo "Usage: $0 [--python /path/to/python] [--package-manager NAME] [--require-desktop-bindings] [--experimental-python315]" >&2
 }
 
 while [ "$#" -gt 0 ]; do
@@ -28,6 +29,10 @@ while [ "$#" -gt 0 ]; do
             REQUIRE_DESKTOP_BINDINGS=true
             shift
             ;;
+        --experimental-python315)
+            EXPERIMENTAL_PYTHON315=true
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -39,6 +44,11 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+SUPPORTED_PYTHON_RANGE="3.11-3.14"
+if [ "$EXPERIMENTAL_PYTHON315" = true ]; then
+    SUPPORTED_PYTHON_RANGE="3.11-3.15 (3.15 experimental)"
+fi
 
 case "$PYTHON_REQUEST" in
     *$'\t'*|*$'\n'*)
@@ -103,9 +113,9 @@ inspect_python() {
         INSPECT_REASON="not-cpython"
         return 1
     fi
-    # Python 3.14 supports the desktop bindings, but their availability alone
-    # does not prove that the pinned ONNX/CUDA runtime has compatible wheels.
-    if [ "$INSPECT_MAJOR" -ne 3 ] || [ "$INSPECT_MINOR" -lt 11 ] || [ "$INSPECT_MINOR" -gt 14 ]; then
+    local maximum_minor=14
+    if [ "$EXPERIMENTAL_PYTHON315" = true ]; then maximum_minor=15; fi
+    if [ "$INSPECT_MAJOR" -ne 3 ] || [ "$INSPECT_MINOR" -lt 11 ] || [ "$INSPECT_MINOR" -gt "$maximum_minor" ]; then
         INSPECT_REASON="unsupported-version"
         return 1
     fi
@@ -208,6 +218,12 @@ print_install_guidance() {
     echo "The installer will create only this project's .venv and will not replace the system Python." >&2
 }
 
+print_python315_guidance() {
+    echo "Python 3.15 requires experimental source-built CPU dependencies: av>=16,<17 and onnxruntime>=1.24.4,<1.25." >&2
+    echo "The pinned CUDA dependencies also lack Python 3.15 wheels; CUDA and TensorRT are not enabled on 3.15." >&2
+    echo "See docs/PYTHON315.md to build wheels, then use --experimental-python315 --python /path/to/python3.15." >&2
+}
+
 print_desktop_binding_guidance() {
     echo "The installed desktop bindings do not support the selected interpreter." >&2
     case "$PACKAGE_MANAGER" in
@@ -235,7 +251,7 @@ if [ -n "$PYTHON_REQUEST" ]; then
     case "$INSPECT_REASON" in
         not-found) echo "ERROR: --python interpreter '$PYTHON_REQUEST' was not found or is not executable." >&2 ;;
         not-cpython) echo "ERROR: --python must select CPython; found ${INSPECT_IMPLEMENTATION:-an unknown implementation}." >&2 ;;
-        unsupported-version) echo "ERROR: --python must select CPython 3.11-3.14; found ${INSPECT_VERSION:-an unknown version}." >&2 ;;
+        unsupported-version) echo "ERROR: --python must select CPython $SUPPORTED_PYTHON_RANGE; found ${INSPECT_VERSION:-an unknown version}." >&2 ;;
         missing-venv) echo "ERROR: $PYTHON_REQUEST is CPython $INSPECT_VERSION but its venv module is unavailable." >&2 ;;
         missing-desktop-bindings)
             echo "ERROR: $PYTHON_REQUEST cannot import the required GTK4, Libadwaita, and GStreamer bindings." >&2
@@ -244,6 +260,9 @@ if [ -n "$PYTHON_REQUEST" ]; then
             ;;
         *) echo "ERROR: Could not validate --python interpreter '$PYTHON_REQUEST'." >&2 ;;
     esac
+    if [ "$INSPECT_VERSION" = "3.15" ] && [ "$INSPECT_REASON" = "unsupported-version" ]; then
+        print_python315_guidance
+    fi
     print_install_guidance
     exit 1
 fi
@@ -251,7 +270,11 @@ fi
 SAW_MISSING_DESKTOP_BINDINGS=false
 # Preserve the current broad-feature preference so an installer rerun does
 # not replace a working older environment just because 3.14 became available.
-for candidate in python3.13 python3.12 python3.11 python3.14 python3; do
+candidates=(python3.13 python3.12 python3.11 python3.14)
+if [ "$EXPERIMENTAL_PYTHON315" = true ]; then candidates+=(python3.15); fi
+candidates+=(python3)
+SAW_PYTHON315=false
+for candidate in "${candidates[@]}"; do
     if inspect_python "$candidate"; then
         emit_selection
         exit 0
@@ -259,14 +282,18 @@ for candidate in python3.13 python3.12 python3.11 python3.14 python3; do
     if [ "$INSPECT_REASON" = "missing-desktop-bindings" ]; then
         SAW_MISSING_DESKTOP_BINDINGS=true
     fi
+    if [ "$INSPECT_VERSION" = "3.15" ] && [ "$INSPECT_REASON" = "unsupported-version" ]; then
+        SAW_PYTHON315=true
+    fi
 done
 
 if [ "$REQUIRE_DESKTOP_BINDINGS" = true ] && [ "$SAW_MISSING_DESKTOP_BINDINGS" = true ]; then
-    echo "ERROR: No CPython 3.11-3.14 interpreter can import the required desktop bindings." >&2
+    echo "ERROR: No CPython $SUPPORTED_PYTHON_RANGE interpreter can import the required desktop bindings." >&2
     print_desktop_binding_guidance
     exit 1
 fi
 
 echo "ERROR: No fully supported CPython interpreter with venv support was found." >&2
+if [ "$SAW_PYTHON315" = true ]; then print_python315_guidance; fi
 print_install_guidance
 exit 1
