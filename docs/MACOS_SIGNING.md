@@ -163,10 +163,10 @@ keychain with stored credentials, run:
 ```bash
 python3 scripts/sign_macos_package.py \
   --resume-from /path/to/checkpoint \
-  --input /path/to/original/NVBroadcast-1.5.3-1.pkg \
+  --input /path/to/original/NVBroadcast-1.5.4-1.pkg \
   --source-sha256 UNSIGNED_PACKAGE_SHA256 \
   --signed-sha256 SIGNED_UPLOAD_SHA256 \
-  --output /path/to/new-output/NVBroadcast-1.5.3-1.pkg \
+  --output /path/to/new-output/NVBroadcast-1.5.4-1.pkg \
   --team-id YOUR_TEAM_ID --keychain /path/to/dedicated.keychain-db \
   --notary-profile YOUR_STORED_PROFILE --evidence-dir /path/to/new-evidence
 ```
@@ -185,9 +185,9 @@ Verify the downloaded
 package against the final evidence checksum, then run:
 
 ```bash
-pkgutil --check-signature "$HOME/Downloads/NVBroadcast-1.5.3-1.pkg"
-xcrun stapler validate "$HOME/Downloads/NVBroadcast-1.5.3-1.pkg"
-spctl --assess --type install --verbose=4 "$HOME/Downloads/NVBroadcast-1.5.3-1.pkg"
+pkgutil --check-signature "$HOME/Downloads/NVBroadcast-1.5.4-1.pkg"
+xcrun stapler validate "$HOME/Downloads/NVBroadcast-1.5.4-1.pkg"
+spctl --assess --type install --verbose=4 "$HOME/Downloads/NVBroadcast-1.5.4-1.pkg"
 ```
 
 Gatekeeper should accept the notarized Developer ID package. Open the package
@@ -216,8 +216,8 @@ Apple's Command Line Tools (`xcode-select --install` if missing), plus the
 passed private binding compilation/imports, CPU inference and synthetic media
 checks on Apple Silicon. The owner also confirmed M2 setup, camera/effects and
 spoken recording. These results do not qualify Intel or the separate M5/Tahoe
-report; the package remains in the unpublished v1.5.4 draft until release gates
-are complete.
+report. The verified v1.5.4 installer is available from the
+[release page](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4).
 
 Use `/usr/local/bin/nvbroadcast` explicitly during acceptance so a previous
 source-install launcher does not shadow this package. Check:
