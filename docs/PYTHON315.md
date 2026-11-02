@@ -30,7 +30,12 @@ Check `pkg-config --modversion libavcodec` returns `62.x`; FFmpeg 9 headers
 are incompatible with AV 16. Fedora 45's
 [`ffmpeg-free-devel`](https://packages.fedoraproject.org/pkgs/ffmpeg/ffmpeg-free-devel/)
 currently supplies FFmpeg 9, so its package alone is insufficient. Build a
-private FFmpeg 8 alongside the system libraries in that case:
+private FFmpeg 8 alongside the system libraries in that case.
+
+For this manual FFmpeg 8.1.3 recipe, choose a persistent installation prefix
+**without whitespace**: its generated pkg-config metadata is invalid when
+the prefix contains spaces. The example assumes `$HOME` has no whitespace;
+choose another persistent path if needed.
 
 ```bash
 mkdir -p build
@@ -38,7 +43,7 @@ curl --fail --location https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz \
   --output build/ffmpeg-8.1.3.tar.xz
 # Verify the release signature using the official instructions linked below.
 tar -xJf build/ffmpeg-8.1.3.tar.xz -C build
-FFMPEG_PREFIX="$PWD/build/ffmpeg8"
+FFMPEG_PREFIX="$HOME/.local/lib/nvbroadcast/ffmpeg8"
 (cd build/ffmpeg-8.1.3 && ./configure --prefix="$FFMPEG_PREFIX" \
   --enable-shared --disable-static --disable-programs --disable-doc \
   --disable-x86asm && make -j2 && make install)
@@ -48,13 +53,14 @@ export PKG_CONFIG_PATH="$FFMPEG_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CON
 [FFmpeg's release verification instructions](https://ffmpeg.org/download.html#releases)
 describe its signing keys and detached signatures. The wheel builder records
 the absolute library directories returned by pkg-config as ELF `DT_RPATH`
-entries, including the paths needed by FFmpeg's dependent libraries. It
-supports ordinary spaces in those directories, but rejects loader separators,
-dynamic loader tokens, and control characters. Do not move this private
-prefix. Broadcast does not require an exported `LD_LIBRARY_PATH` or preserve
-the build shell's environment in its launchers. The system FFmpeg installation
-stays intact. This extra native-library setup is one reason Python 3.15
-remains experimental.
+entries, including the paths needed by FFmpeg's dependent libraries. The AV
+builder supports ordinary spaces when the installed pkg-config metadata is
+already valid, but rejects loader separators, dynamic loader tokens, and
+control characters. Keep this private prefix in place even after deleting
+source/build intermediates. Broadcast does not require an exported
+`LD_LIBRARY_PATH` or preserve the build shell's environment in its launchers.
+The system FFmpeg installation stays intact. This extra native-library setup
+is one reason Python 3.15 remains experimental.
 
 ```bash
 python3.15 scripts/python315_runtime.py build --jobs 2
