@@ -213,6 +213,34 @@ exit 1
         self.assertIn("official repositories", result.stderr)
         self.assertIn("--python /path/to/python3", result.stderr)
 
+    def test_fedora_default_python_315_does_not_offer_interpreter_only_fix(self):
+        self._write_interpreter("python3", (3, 15))
+
+        result = self._run_selector("--package-manager", "dnf")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("default Python", result.stderr)
+        self.assertIn("matching desktop bindings", result.stderr)
+        self.assertNotIn("sudo dnf install python3.14", result.stderr)
+        self.assertIn("Snap", result.stderr)
+
+    def test_fedora_alternate_python_without_bindings_reports_exact_requirement(self):
+        requested = self._write_interpreter(
+            "python3.14", (3, 14), has_desktop_bindings=False
+        )
+
+        result = self._run_selector(
+            "--package-manager", "dnf", "--python", str(requested),
+            "--require-desktop-bindings",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot import the required GTK4", result.stderr)
+        self.assertIn("python3-gobject, python3-cairo", result.stderr)
+        self.assertIn("Installing an alternate Python does not", result.stderr)
+        self.assertNotIn("python3-gobject-cairo", result.stderr)
+        self.assertIn("will not add a third-party repository", result.stderr)
+
     def test_selector_rejects_empty_explicit_path(self):
         result = self._run_selector("--python", "")
 

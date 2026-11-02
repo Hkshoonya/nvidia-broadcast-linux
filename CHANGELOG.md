@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-Changes following the v1.5.4 candidate will be recorded here.
+- **Correct Fedora source-install dependencies and guidance** - Request the
+  available `python3-gobject` and `python3-cairo` packages, and explain why an
+  alternate Python alone does not provide matching desktop bindings. Normal
+  source installation still requires CPython 3.11–3.14; Python 3.15 support is
+  tracked separately in #184. Fixes #183.
 
 ## v1.5.4 - Security and Runtime Reliability
 

@@ -148,6 +148,16 @@ print_apt_guidance() {
     echo "Install a supported listed version and its matching -venv package." >&2
 }
 
+print_fedora_binding_guidance() {
+    echo "Fedora/RHEL family:" >&2
+    echo "Required distro packages: python3-gobject, python3-cairo, gtk4, libadwaita, and GStreamer typelibs." >&2
+    echo "These bindings normally target the distro's default Python, not every versioned interpreter." >&2
+    echo "Installing an alternate Python does not install matching desktop bindings for it." >&2
+    echo "Use a CPython 3.11-3.14 interpreter with matching desktop bindings and venv support:" >&2
+    echo "  ./install.sh --python /path/to/python3" >&2
+    echo "If no such interpreter is available, use the Snap package: https://snapcraft.io/nvbroadcast" >&2
+}
+
 print_install_guidance() {
     echo "Install CPython 3.11-3.14 from your distro's official repositories." >&2
     echo "Choose a Python with matching desktop bindings; TensorRT 10 libraries also support Python 3.14." >&2
@@ -156,21 +166,8 @@ print_install_guidance() {
             echo "Ubuntu/Debian family:" >&2
             print_apt_guidance
             ;;
-        dnf)
-            echo "Fedora/RHEL family:" >&2
-            echo "  dnf repoquery python3.14" >&2
-            echo "If that package is listed by an enabled official repository:" >&2
-            echo "  sudo dnf install python3.14" >&2
-            echo "  ./install.sh --python /usr/bin/python3.14" >&2
-            echo "Use python3.13, python3.12, or python3.11 if 3.14 is unavailable in the enabled official repositories." >&2
-            ;;
-        yum)
-            echo "RHEL/CentOS family:" >&2
-            echo "  yum list available python3.14" >&2
-            echo "If that package is listed by an enabled official repository:" >&2
-            echo "  sudo yum install python3.14" >&2
-            echo "  ./install.sh --python /usr/bin/python3.14" >&2
-            echo "Use python3.13, python3.12, or python3.11 if 3.14 is unavailable in the enabled official repositories." >&2
+        dnf|yum)
+            print_fedora_binding_guidance
             ;;
         zypper)
             echo "openSUSE family:" >&2
@@ -212,7 +209,7 @@ print_desktop_binding_guidance() {
     echo "The installed desktop bindings do not support the selected interpreter." >&2
     case "$PACKAGE_MANAGER" in
         apt) echo "Required distro packages: python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, and the GStreamer typelibs." >&2 ;;
-        dnf|yum) echo "Required distro packages: python3-gobject, python3-gobject-cairo, gtk4, libadwaita, and GStreamer typelibs." >&2 ;;
+        dnf|yum) print_fedora_binding_guidance ;;
         pacman) echo "Required distro packages: python-gobject, gtk4, libadwaita, and GStreamer." >&2 ;;
         zypper) echo "Required distro packages: python3-gobject, python3-gobject-cairo, GTK4/Libadwaita typelibs, and GStreamer." >&2 ;;
         *) echo "Install PyGObject plus the GTK4, Libadwaita, and GStreamer typelibs for this exact interpreter." >&2 ;;
