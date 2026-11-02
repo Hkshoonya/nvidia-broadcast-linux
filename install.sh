@@ -17,11 +17,13 @@ ROLLBACK_RUNTIME=false
 RUNTIME_REQUEST="auto"
 WITH_MEETING=false
 PYTHON_REQUEST=""
+EXPERIMENTAL_PYTHON315=false
+PYTHON315_WHEELHOUSE=""
 TENSORRT_REQUIREMENT="tensorrt-cu12-libs==10.16.0.72"
 TENSORRT_INDEX_URL="https://pypi.nvidia.com"
 
 usage() {
-    echo "Usage: $0 [--runtime auto|cpu|cuda] [--with-meeting] [--python /path/to/python] [--rollback-runtime]"
+    echo "Usage: $0 [--runtime auto|cpu|cuda] [--with-meeting] [--python /path/to/python] [--rollback-runtime] [--experimental-python315 --wheelhouse DIR]"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -42,6 +44,15 @@ while [ "$#" -gt 0 ]; do
         --with-meeting)
             WITH_MEETING=true
             shift
+            ;;
+        --experimental-python315)
+            EXPERIMENTAL_PYTHON315=true
+            shift
+            ;;
+        --wheelhouse)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "ERROR: --wheelhouse requires a directory."; exit 2; }
+            PYTHON315_WHEELHOUSE="$2"
+            shift 2
             ;;
         --python)
             [ "$#" -ge 2 ] || { echo "ERROR: --python requires an interpreter path."; exit 2; }
@@ -296,6 +307,9 @@ select_python_interpreter() {
     if [ -n "$PYTHON_REQUEST" ]; then
         selector_args+=(--python "$PYTHON_REQUEST")
     fi
+    if [ "$EXPERIMENTAL_PYTHON315" = true ]; then
+        selector_args+=(--experimental-python315)
+    fi
     if [ "$require_desktop_bindings" = true ]; then
         selector_args+=(--require-desktop-bindings)
     fi
@@ -312,6 +326,22 @@ select_python_interpreter() {
 if ! select_python_interpreter false; then
     exit 1
 fi
+
+check_experimental_python315() {
+    if [ "$PY_VER" != "3.15" ]; then return; fi
+    if [ -z "$PYTHON315_WHEELHOUSE" ]; then
+        echo "ERROR: Experimental Python 3.15 requires --wheelhouse DIR. See docs/PYTHON315.md."
+        exit 1
+    fi
+    if [ "$RUNTIME_REQUEST" = "cuda" ]; then
+        echo "ERROR: Experimental Python 3.15 supports the CPU runtime only. Use --runtime cpu."
+        exit 1
+    fi
+    "$PYTHON_BIN" "$SCRIPT_DIR/scripts/python315_runtime.py" check --wheelhouse "$PYTHON315_WHEELHOUSE"
+    RUNTIME_REQUEST="cpu"
+    echo "  Experimental Python 3.15: source-built CPU runtime (CUDA/TensorRT disabled)."
+}
+check_experimental_python315
 
 # Refuse before system or environment mutations while an existing source
 # process can still import code from the installer-owned environment.
@@ -331,7 +361,7 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     ERRORS+=("This installer only supports Linux")
 fi
 
-# The selector accepts CPython 3.11-3.14 and validates venv support.
+# The selector accepts CPython 3.11-3.14, or opt-in experimental 3.15.
 # Desktop-binding compatibility is checked after installing distro packages.
 echo "  Python $PY_VER ($PYTHON_BIN) ... OK"
 
@@ -463,6 +493,7 @@ INITIAL_PYTHON_VER="$PY_VER"
 if ! select_python_interpreter true; then
     exit 1
 fi
+check_experimental_python315
 if [ "$PYTHON_BIN" != "$INITIAL_PYTHON_BIN" ]; then
     echo "  Python $INITIAL_PYTHON_VER lacks compatible desktop bindings; using Python $PY_VER ($PYTHON_BIN)."
 else
@@ -671,9 +702,13 @@ prepare_virtual_environment
 
 install_runtime_variant() {
     local meeting_backends="$MEETING_BACKENDS"
+    local experimental_args=()
+    if [ "$PY_VER" = "3.15" ]; then
+        experimental_args+=(--python315-wheelhouse "$PYTHON315_WHEELHOUSE")
+    fi
     "$VENV_DIR/bin/python" "$SCRIPT_DIR/scripts/install_runtime_variant.py" \
         --project "$SCRIPT_DIR" --variant "$1" \
-        --meeting-backends "$meeting_backends"
+        --meeting-backends "$meeting_backends" "${experimental_args[@]}"
 }
 
 CUDA_EXTRA_INSTALLED=false

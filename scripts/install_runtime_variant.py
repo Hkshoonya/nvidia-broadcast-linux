@@ -213,7 +213,27 @@ def install(
     development: bool = False,
     editable: bool = False,
     source_venv: Path | None = None,
+    python315_wheelhouse: Path | None = None,
 ) -> None:
+    runtime_wheels: list[Path] = []
+    if sys.version_info[:2] == (3, 15):
+        if __package__:
+            from .python315_runtime import (
+                check_wheelhouse, clean_native_environment, require_python315,
+                verify_native_runtime,
+            )
+        else:
+            from python315_runtime import (
+                check_wheelhouse, clean_native_environment, require_python315,
+                verify_native_runtime,
+            )
+
+        require_python315()
+        if variant != "cpu" or python315_wheelhouse is None:
+            raise RuntimeError("Python 3.15 requires the experimental CPU wheelhouse; see docs/PYTHON315.md.")
+        runtime_wheels = check_wheelhouse(python315_wheelhouse)
+    elif python315_wheelhouse is not None:
+        raise RuntimeError("--python315-wheelhouse requires CPython 3.15.")
     preflight_runtime_install(project, variant, source_venv)
     prepare_virtualenv_namespaces()
 
@@ -226,6 +246,8 @@ def install(
 
     selected_extras = ",".join(extras)
     install_arguments = ["install", "--upgrade"]
+    if runtime_wheels:
+        install_arguments.extend(["--only-binary=av,onnxruntime", *(str(path) for path in runtime_wheels)])
     if editable:
         install_arguments.append("--editable")
     install_arguments.append(f"{project}[{selected_extras}]")
@@ -238,9 +260,14 @@ def install(
         run_pip("install", "--no-deps", FASTER_WHISPER_REQUIREMENT)
     validate_selected_owner(project, variant)
     validate_meeting_dependencies(variant, meeting_backends, development=development)
+    probe_options = {}
+    if runtime_wheels:
+        verify_native_runtime(sys.executable, meeting_backends)
+        probe_options["env"] = clean_native_environment()
     subprocess.run(
         [sys.executable, "-m", "nvbroadcast.runtime", "--variant", variant],
         check=True,
+        **probe_options,
     )
 
 
@@ -252,6 +279,7 @@ def main() -> int:
     parser.add_argument("--editable", action="store_true")
     parser.add_argument("--source-venv", type=Path)
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--python315-wheelhouse", type=Path)
     parser.add_argument(
         "--meeting-backends",
         choices=("none", "faster", "all"),
@@ -274,6 +302,7 @@ def main() -> int:
                 development=arguments.development,
                 editable=arguments.editable,
                 source_venv=source_venv,
+                python315_wheelhouse=arguments.python315_wheelhouse,
             )
     except RuntimeError as error:
         print(f"ERROR: {error}", file=sys.stderr)

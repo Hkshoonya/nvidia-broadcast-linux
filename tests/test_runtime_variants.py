@@ -22,6 +22,11 @@ from nvbroadcast.runtime.variants import (
 
 class RuntimeVariantTests(unittest.TestCase):
     def setUp(self):
+        # These tests cover normal CPU/CUDA installs. Experimental 3.15's
+        # explicit wheelhouse contract is exercised in test_python315_runtime.
+        version = mock.patch.object(install_runtime_variant.sys, "version_info", (3, 14))
+        version.start()
+        self.addCleanup(version.stop)
         patcher = mock.patch.object(
             install_runtime_variant, "prepare_virtualenv_namespaces"
         )
@@ -840,6 +845,9 @@ class RuntimeVariantTests(unittest.TestCase):
 
 class RuntimeDependencyClosureTests(unittest.TestCase):
     def setUp(self):
+        version = mock.patch.object(install_runtime_variant.sys, "version_info", (3, 14))
+        version.start()
+        self.addCleanup(version.stop)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
