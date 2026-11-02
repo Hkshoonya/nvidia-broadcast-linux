@@ -16,7 +16,9 @@ support claim changes. Updating AV to 17+ is not a workaround: `pyrnnoise`'s
 
 Use the same Python, distro, architecture, and FFmpeg libraries for building
 and installing. These are local wheels; they do not bundle FFmpeg and are not
-portable release artifacts. Keep the FFmpeg shared libraries installed.
+portable release artifacts. Keep the FFmpeg shared libraries installed at
+their build-time locations; moving or deleting that prefix invalidates the
+local AV wheel and any runtime using it.
 
 Required tools: Git, CMake 3.28+, Make, a C/C++ compiler, pkg-config,
 Python 3.15 development headers and venv/ensurepip, and **FFmpeg 8 development
@@ -41,15 +43,18 @@ FFMPEG_PREFIX="$PWD/build/ffmpeg8"
   --enable-shared --disable-static --disable-programs --disable-doc \
   --disable-x86asm && make -j2 && make install)
 export PKG_CONFIG_PATH="$FFMPEG_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-export LD_LIBRARY_PATH="$FFMPEG_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
 [FFmpeg's release verification instructions](https://ffmpeg.org/download.html#releases)
-describe its signing keys and detached signatures. Keep this private prefix
-and export `LD_LIBRARY_PATH` when installing and running Broadcast. Launch
-from this terminal; desktop launches also need that environment. The system
-FFmpeg installation stays intact. This extra native-library setup is one
-reason Python 3.15 remains experimental.
+describe its signing keys and detached signatures. The wheel builder records
+the absolute library directories returned by pkg-config as ELF `DT_RPATH`
+entries, including the paths needed by FFmpeg's dependent libraries. It
+supports ordinary spaces in those directories, but rejects loader separators,
+dynamic loader tokens, and control characters. Do not move this private
+prefix. Broadcast does not require an exported `LD_LIBRARY_PATH` or preserve
+the build shell's environment in its launchers. The system FFmpeg installation
+stays intact. This extra native-library setup is one reason Python 3.15
+remains experimental.
 
 ```bash
 python3.15 scripts/python315_runtime.py build --jobs 2
@@ -60,7 +65,10 @@ hash-verified AV 16.1.0 source archive and ONNX Runtime 1.24.4 at commit
 `2d924974ef147392ced8409d36bd6d2e7fcc8a74`, and writes wheels under
 `build/python315-wheels`. Existing dependency pins stay intact. It checks
 native imports, `av.option`, and CPU provider availability after building.
-It also runs a small ONNX model to check actual CPU inference.
+It also runs a small ONNX model to check actual CPU inference. These checks
+run without `LD_*`, `PYTHONPATH`, or `PYTHONHOME` overrides. AV is rebuilt in
+fresh staging with pip's cache disabled so an older local wheel cannot retain
+the missing library paths; ONNX Runtime's existing build can still be resumed.
 Compilation can take a long time and needs several GB of free disk and RAM;
 `--jobs 2` limits memory use. Build dependencies and CMake's upstream source
 dependencies require network access. Failed builds never activate a runtime.
@@ -84,8 +92,13 @@ python3.15 -I -c 'import gi; gi.require_version("Gtk", "4.0"); gi.require_versio
 Stop Broadcast and its services before running the installer. Both the
 experimental flag and a wheelhouse are required for Python 3.15. The installer
 checks wheel metadata before changing system packages, installs the exact
-local wheels into a new candidate environment, then runs its existing import,
-dependency-closure, and actual CPU inference checks before activation. A
+local wheels into a new candidate environment, then runs native AV/RNNoise,
+dependency-closure, and actual CPU inference checks before activation. Native
+checks process a real RNNoise audio frame and check the selected meeting
+backend's native CPU availability without downloading a transcription model.
+Python 3.15 activation and rollback repeat these checks without the exported
+build environment, along with the existing desktop imports and real model
+probe. A
 failed candidate leaves the active runtime unchanged. With Python 3.15,
 `--runtime auto` selects CPU and `--runtime cuda` fails explicitly.
 
@@ -93,6 +106,15 @@ The build helper alone does not qualify the GUI, camera, microphone, or model
 inference. After installation, launch Broadcast and test those on the target
 system. The optional `--with-meeting` uses faster-whisper; openai-whisper
 remains excluded on Python 3.14 and newer by its existing dependency marker.
+
+To repeat the native checks in an installed candidate, use its interpreter:
+
+```bash
+/path/to/generation/bin/python -I scripts/python315_runtime.py verify --meeting-backends faster
+```
+
+Use `--meeting-backends none` when no transcription backend was selected.
+This does not replace the installer's actual model inference or hardware tests.
 
 To return to a previously verified generation:
 
@@ -109,7 +131,11 @@ and camera flows on Fedora 45. CUDA needs separate ONNX Runtime GPU, CuPy,
 and nvimgcodec validation. See also the upstream
 [ONNX Runtime wheel request](https://github.com/microsoft/onnxruntime/issues/33271).
 
-## Validation performed
+## Initial source-build validation
+
+These are the initial implementation's source-build checks, preceding the
+clean-environment launch repair. They do not establish native or hardware
+qualification of that repair.
 
 On Linux x86_64 with CPython 3.15.2 and GCC 16:
 

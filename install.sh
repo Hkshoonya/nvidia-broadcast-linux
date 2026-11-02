@@ -188,7 +188,7 @@ get_packages() {
             PKGS_VIRTUAL_CAM="v4l-utils v4l2loopback"
             PKGS_GTK="gtk4-devel libadwaita-devel"
             PKGS_GST="gstreamer1-devel gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free"
-            PKGS_PYTHON="python3-gobject python3-gobject-cairo"
+            PKGS_PYTHON="python3-gobject python3-cairo"
             PKGS_TRAY="libayatana-appindicator-gtk3"
             PKGS_TOOLS="psmisc"
             PKGS_PULSE="pulseaudio-utils"

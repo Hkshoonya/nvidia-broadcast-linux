@@ -218,9 +218,15 @@ def install(
     runtime_wheels: list[Path] = []
     if sys.version_info[:2] == (3, 15):
         if __package__:
-            from .python315_runtime import check_wheelhouse, require_python315
+            from .python315_runtime import (
+                check_wheelhouse, clean_native_environment, require_python315,
+                verify_native_runtime,
+            )
         else:
-            from python315_runtime import check_wheelhouse, require_python315
+            from python315_runtime import (
+                check_wheelhouse, clean_native_environment, require_python315,
+                verify_native_runtime,
+            )
 
         require_python315()
         if variant != "cpu" or python315_wheelhouse is None:
@@ -254,9 +260,14 @@ def install(
         run_pip("install", "--no-deps", FASTER_WHISPER_REQUIREMENT)
     validate_selected_owner(project, variant)
     validate_meeting_dependencies(variant, meeting_backends, development=development)
+    probe_options = {}
+    if runtime_wheels:
+        verify_native_runtime(sys.executable, meeting_backends)
+        probe_options["env"] = clean_native_environment()
     subprocess.run(
         [sys.executable, "-m", "nvbroadcast.runtime", "--variant", variant],
         check=True,
+        **probe_options,
     )
 
 
