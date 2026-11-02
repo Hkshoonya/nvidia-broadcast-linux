@@ -100,6 +100,44 @@ class PackagingMetadataTests(unittest.TestCase):
                 self.assertIn("CORE_INSTALL_CONTINUES", result.stdout)
                 self.assertEqual("CODEC_TRANSACTION" in result.stdout, available)
 
+    def test_fedora_binding_packages_do_not_cancel_core_dependency_transaction(self):
+        source = (REPO_ROOT / "install.sh").read_text()
+        functions = source.split("get_packages() {", 1)[1].split(
+            "\ninstall_optional_recording_codecs() {", 1
+        )[0]
+        functions = "get_packages() {" + functions
+        for manager in ("dnf", "yum"):
+            with self.subTest(package_manager=manager):
+                # DNF rejects the complete transaction when any requested name
+                # is absent. Model the obsolete name without changing the host.
+                script = "set -e\n" + functions
+                script += """
+sudo() { "$@"; }
+repo_install() {
+    for arg in "$@"; do
+        if [ "$arg" = "python3-gobject-cairo" ]; then
+            echo "No match for argument: $arg" >&2
+            return 1
+        fi
+    done
+    printf 'INSTALLED %s\\n' "$@"
+}
+dnf() { repo_install "$@"; }
+yum() { repo_install "$@"; }
+"""
+                script += f"PKG_MANAGER={manager}\nget_packages\n"
+                script += 'install_packages "$PKGS_PYTHON $PKGS_GTK $PKGS_GST"\n'
+                script += "echo CORE_DEPENDENCIES_INSTALLED\n"
+                result = subprocess.run(
+                    ["bash", "-c", script], capture_output=True, text=True
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("INSTALLED python3-gobject", result.stdout)
+                self.assertIn("INSTALLED python3-cairo", result.stdout)
+                self.assertIn("INSTALLED gtk4-devel", result.stdout)
+                self.assertIn("INSTALLED gstreamer1-devel", result.stdout)
+                self.assertIn("CORE_DEPENDENCIES_INSTALLED", result.stdout)
+
     def test_published_native_downloads_protect_legacy_upgrades(self):
         website = (REPO_ROOT / "docs" / "index.html").read_text()
         commands = website.split("const commands = {", 1)[1].split("};", 1)[0]
