@@ -292,6 +292,21 @@ pinned TensorRT 10 libraries after the provider execution probe succeeds.
 Newer Python versions need runtime-wheel validation before the source installer
 accepts them.
 
+Fedora's `python3-gobject` and `python3-cairo` packages target its default Python.
+Installing an alternate `python3.14` package does not supply desktop bindings
+for that interpreter. Fedora 45's default Python 3.15 is outside the normal
+source installer's supported range. Use the [Snap package](https://snapcraft.io/nvbroadcast)
+or an independently provisioned compatible interpreter with matching desktop
+bindings; the installer does not copy bindings between Python versions.
+
+Python 3.15 on Linux x86_64 has an opt-in **experimental source-built CPU**
+path for distros whose desktop bindings require it. Build the missing pinned
+dependencies, then install with `--experimental-python315 --python /usr/bin/python3.15
+--wheelhouse /path/to/wheels --runtime cpu`. See [Python 3.15 instructions](docs/PYTHON315.md)
+for build prerequisites, validation, and limitations. CUDA/TensorRT and 3.15t
+are not supported by this experimental path. Its local AV wheel retains the
+FFmpeg library locations selected at build time; keep that prefix in place.
+
 If no compatible interpreter with `venv` support is installed, the installer
 stops before changing the system and prints guidance for the detected distro.
 
@@ -502,7 +517,7 @@ build.
 | Distro | Package Manager | Status |
 |--------|----------------|--------|
 | Ubuntu, Debian, Pop!_OS, Mint | apt | Full auto-install |
-| Fedora, RHEL, CentOS, Rocky | dnf/yum | Full auto-install |
+| Fedora, RHEL, CentOS, Rocky | dnf/yum | Auto-install with matching Python/desktop bindings |
 | Arch, Manjaro, EndeavourOS | pacman | Full auto-install |
 | openSUSE | zypper | Full auto-install |
 | NixOS | nix | Interim repository flake (CPU inference only) |
@@ -742,7 +757,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.5.2)
+│   ├── __init__.py              # Package version
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── __main__.py              # CLI entry point
@@ -814,7 +829,7 @@ nvidia-broadcast-linux/
 ├── install_macos.sh             # macOS installer
 ├── uninstall.sh                 # Clean removal
 ├── build-packages.sh            # Debian/RPM/macOS package builder
-├── pyproject.toml               # Package config (v1.5.2)
+├── pyproject.toml               # Package config
 └── README.md
 ```
 

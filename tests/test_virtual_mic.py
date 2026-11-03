@@ -1,4 +1,10 @@
 import signal
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -211,6 +217,64 @@ class VirtualMicTests(unittest.TestCase):
 
     def test_virtual_mic_sink_name_is_stable(self):
         self.assertEqual(virtual_mic.virtual_mic_sink_name(), "nvbroadcast_sink")
+
+
+@unittest.skipUnless(
+    shutil.which("pulseaudio") and shutil.which("pactl"),
+    "A private PulseAudio server and pactl are required",
+)
+class PulseVirtualMicIntegrationTests(unittest.TestCase):
+    def test_real_pulse_module_parser_preserves_description_and_reconnects(self):
+        # A private server with no hardware modules cannot change the user's
+        # microphone, speakers, default sources, or running audio session.
+        with tempfile.TemporaryDirectory(prefix="nvb-pulse-") as directory:
+            root = Path(directory)
+            env = {
+                **os.environ,
+                "XDG_RUNTIME_DIR": str(root),
+                "XDG_CONFIG_HOME": str(root / "config"),
+                "XDG_CACHE_HOME": str(root / "cache"),
+                "PULSE_RUNTIME_PATH": str(root),
+                "PULSE_SERVER": f"unix:{root}/native",
+                "LC_ALL": "C",
+            }
+            with (root / "server.log").open("w+") as log:
+                server = subprocess.Popen(
+                    ["pulseaudio", "-n", "--daemonize=no", "--exit-idle-time=-1",
+                     "--use-pid-file=no", "--disable-shm=yes", "-L",
+                     f"module-native-protocol-unix socket={root}/native auth-anonymous=1"],
+                    env=env, stdout=log, stderr=subprocess.STDOUT,
+                )
+                try:
+                    deadline = time.monotonic() + 5
+                    while not (root / "native").exists():
+                        if server.poll() is not None or time.monotonic() >= deadline:
+                            log.seek(0)
+                            self.fail(f"Private PulseAudio failed to start: {log.read()}")
+                        time.sleep(.02)
+                    with mock.patch.dict(os.environ, env, clear=True):
+                        for _ in range(2):
+                            self.assertTrue(virtual_mic.create_virtual_mic())
+                            sinks = virtual_mic._run_pactl(["list", "sinks"])
+                            self.assertEqual(sinks.returncode, 0, sinks.stderr)
+                            self.assertIn(
+                                f"Description: {virtual_mic.VIRTUAL_MIC_INPUT_DESCRIPTION}",
+                                sinks.stdout,
+                            )
+                            sources, _ = virtual_mic._pulse_named_nodes()
+                            self.assertEqual(sources, [virtual_mic.VIRTUAL_MIC_SOURCE_NAME])
+                            self.assertTrue(virtual_mic.create_virtual_mic())
+                            self.assertEqual(
+                                tuple(map(len, virtual_mic._list_pulse_virtual_modules())),
+                                (1, 1),
+                            )
+                            virtual_mic.destroy_virtual_mic()
+                            self.assertEqual(virtual_mic._pulse_named_nodes(), ([], []))
+                finally:
+                    server.terminate()
+                    server.wait(timeout=5)
+                    virtual_mic._pulse_sink_module_id = None
+                    virtual_mic._pulse_source_module_id = None
 
 
 if __name__ == "__main__":

@@ -35,7 +35,59 @@
 }:
 
 let
-  av = python313Packages.buildPythonPackage {
+  qualification = lib.importJSON ./security-inputs.json;
+  securityInputs = qualification.packages;
+  python = python313Packages.python.override {
+    self = python;
+    sourceVersion = { major = "3"; minor = "13"; patch = "18"; suffix = ""; };
+    inherit (qualification.python) hash;
+  };
+  pinnedSource = name: fetchurl {
+    inherit (securityInputs.${name}) url hash;
+  };
+
+  # Bootstrap this pure-Python wheel without changing the interpreter ABI.
+  # The same selected version is used by build backends and runtime consumers.
+  secureSetuptools = python.pkgs.buildPythonPackage {
+    pname = "setuptools";
+    inherit (securityInputs.setuptools) version;
+    format = "wheel";
+    src = pinnedSource "setuptools";
+    pythonImportsCheck = [ "setuptools" ];
+    meta.license = lib.licenses.mit;
+  };
+
+  pythonPackages = python.pkgs.overrideScope (_final: previous: {
+    setuptools = secureSetuptools;
+    pillow = previous.pillow.overridePythonAttrs (old: {
+      inherit (securityInputs.pillow) version;
+      src = pinnedSource "pillow";
+      meta = old.meta // {
+        changelog = "https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html";
+      };
+    });
+    certifi = previous.certifi.overridePythonAttrs (_old: {
+      inherit (securityInputs.certifi) version;
+      src = pinnedSource "certifi";
+      # Keep upstream's fresh bundle and default lookup semantics. External
+      # trust configuration is handled explicitly by the application wrapper.
+      patches = [ ];
+      postPatch = "";
+    });
+    filelock = previous.filelock.overridePythonAttrs (_old: {
+      inherit (securityInputs.filelock) version;
+      src = pinnedSource "filelock";
+    });
+    urllib3 = previous.urllib3.overridePythonAttrs (old: {
+      inherit (securityInputs.urllib3) version;
+      src = pinnedSource "urllib3";
+      meta = old.meta // {
+        changelog = "https://github.com/urllib3/urllib3/blob/2.8.0/CHANGES.rst";
+      };
+    });
+  });
+
+  av = pythonPackages.buildPythonPackage {
     pname = "av";
     version = "16.0.1";
 
@@ -63,7 +115,7 @@ let
     };
   };
 
-  audiolab = python313Packages.buildPythonPackage {
+  audiolab = pythonPackages.buildPythonPackage {
     pname = "audiolab";
     version = "0.5.1";
     format = "wheel";
@@ -73,7 +125,7 @@ let
       hash = "sha256-ieBUkIOqeEI/n4yhaWNZX3kjtRUR/3fTLutrSOw4hjM=";
     };
 
-    dependencies = with python313Packages; [
+    dependencies = with pythonPackages; [
       av
       click
       humanize
@@ -94,7 +146,7 @@ let
     };
   };
 
-  mediapipe = python313Packages.buildPythonPackage {
+  mediapipe = pythonPackages.buildPythonPackage {
     pname = "mediapipe";
     version = "1.0.1";
     format = "wheel";
@@ -111,7 +163,7 @@ let
       stdenv.cc.cc.lib
     ];
 
-    dependencies = with python313Packages; [
+    dependencies = with pythonPackages; [
       absl-py
       certifi
       flatbuffers
@@ -132,7 +184,7 @@ let
     };
   };
 
-  pyrnnoise = python313Packages.buildPythonPackage {
+  pyrnnoise = pythonPackages.buildPythonPackage {
     pname = "pyrnnoise";
     version = "0.4.3";
     format = "wheel";
@@ -145,7 +197,7 @@ let
     nativeBuildInputs = [ autoPatchelfHook ];
     buildInputs = [ stdenv.cc.cc.lib ];
 
-    dependencies = with python313Packages; [
+    dependencies = with pythonPackages; [
       audiolab
       click
       matplotlib
@@ -167,7 +219,7 @@ let
     };
   };
 
-  onnxruntime = python313Packages.onnxruntime.overridePythonAttrs (oldAttrs: rec {
+  onnxruntime = pythonPackages.onnxruntime.overridePythonAttrs (oldAttrs: rec {
     version = "1.24.4";
     src = fetchurl {
       url = "https://files.pythonhosted.org/packages/7f/72/105ec27a78c5aa0154a7c0cd8c41c19a97799c3b12fc30392928997e3be3/onnxruntime-${version}-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl";
@@ -183,7 +235,7 @@ let
     };
   });
 
-  onnxPythonPackages = python313Packages.overrideScope (_final: previous: {
+  onnxPythonPackages = pythonPackages.overrideScope (_final: previous: {
     protobuf = previous.protobuf6;
   });
 
@@ -211,17 +263,19 @@ let
     '';
   });
 
-  pythonOnnx = (python313Packages.onnx.override {
+  pythonOnnx = (pythonPackages.onnx.override {
     onnx = onnx_1_22;
-    protobuf = python313Packages.protobuf6;
+    protobuf = pythonPackages.protobuf6;
   }).overridePythonAttrs (_: {
     enabledTestPaths = [ "onnx/test" ];
   });
 
   pythonDeps =
-    (with python313Packages; [
+    (with pythonPackages; [
       av
+      certifi
       click
+      filelock
       mediapipe
       numpy
       packaging
@@ -231,13 +285,28 @@ let
       pyrnnoise
       protobuf6
       scipy
+      setuptools
+      urllib3
     ])
     ++ [
       onnxruntime
       pythonOnnx
     ];
 
-  pythonPath = python313Packages.makePythonPath pythonDeps;
+  pythonPath = pythonPackages.makePythonPath pythonDeps;
+  # Isolated child probes ignore PYTHONPATH. Give their interpreter a genuine
+  # Nix-owned dependency prefix instead of weakening the application's -I flag.
+  runtimePython = pythonPackages.python.withPackages (_: pythonDeps);
+  caBundle = "${pythonPackages.certifi}/${pythonPackages.python.sitePackages}/certifi/cacert.pem";
+  emptyCaDirectory = runCommand "nvbroadcast-empty-ca-directory" { } ''mkdir -p "$out"'';
+  tlsFixture = fetchurl {
+    inherit (qualification.tlsFixture) url;
+    sha256 = qualification.tlsFixture.sha256;
+  };
+  faceModel = fetchurl {
+    inherit (qualification.faceModel) url;
+    sha256 = qualification.faceModel.sha256;
+  };
 
   v4l-utils-headless = v4l-utils.override {
     withBPF = false;
@@ -266,9 +335,9 @@ let
     fi
   '';
 in
-python313Packages.buildPythonApplication (finalAttrs: {
+pythonPackages.buildPythonApplication (finalAttrs: {
   pname = "nvbroadcast";
-  version = "1.5.3";
+  version = "1.5.4";
   pyproject = true;
   __structuredAttrs = true;
 
@@ -278,25 +347,30 @@ python313Packages.buildPythonApplication (finalAttrs: {
     # where gitTracked cannot inspect Git's index. Keep an explicit list so
     # local, untracked files cannot enter the package source in that case.
     fileset = lib.fileset.unions (
-      map (path: ../. + "/${path}") (
+      (map (path: ../. + "/${path}") (
         lib.splitString "\n" (lib.removeSuffix "\n" (builtins.readFile ./source-files.txt))
-      )
+      )) ++ [
+        # Explicit build-test inputs; never installed into the app package.
+        ./bootstrap_ci.sh ./hosted_check.py ./qualify_runtime.py
+        ./security-inputs.json ./source_files.py
+      ]
     );
   };
 
-  build-system = with python313Packages; [
+  build-system = with pythonPackages; [
     setuptools
     wheel
   ];
 
-  pythonRemoveDeps = [
-    # mediapipe already propagates opencv-contrib-python, which provides cv2.
-    "opencv-python-headless"
-  ];
-
-  pythonRelaxDeps = [ "av" ];
-
   dependencies = pythonDeps;
+
+  postInstall = ''
+    install -Dm644 LICENSE "$out/share/doc/nvbroadcast/LICENSE"
+    for program in nvbroadcast nvbroadcast-vcam; do
+      substituteInPlace "$out/bin/$program" \
+        --replace-fail '#!${pythonPackages.python.interpreter}' '#!${runtimePython.interpreter}'
+    done
+  '';
 
   nativeBuildInputs = [
     gobject-introspection
@@ -313,6 +387,8 @@ python313Packages.buildPythonApplication (finalAttrs: {
     gst_all_1.gst-plugins-bad
     gst_all_1.gst-plugins-base
     gst_all_1.gst-plugins-good
+    gst_all_1.gst-plugins-ugly
+    gst_all_1.gst-libav
     gtk4
     libadwaita
     pango
@@ -323,13 +399,20 @@ python313Packages.buildPythonApplication (finalAttrs: {
     pipewire
     psmisc
     pulseaudio
-    python313Packages.pytestCheckHook
+    pythonPackages.pytestCheckHook
+    pythonPackages.jsonschema
     v4l-utils-headless
     writableTmpDirAsHomeHook
   ];
 
   preCheck = ''
     export MPLCONFIGDIR=$TMPDIR/matplotlib
+    ${pythonPackages.python.interpreter} -c '
+    from importlib.metadata import version
+    from packaging.version import Version
+    assert version("jsonschema") == "4.26.0"
+    assert Version(version("pytest")) >= Version("9.0.3")
+    '
   '';
 
   # Requires real GPU, camera, and v4l2loopback devices.
@@ -351,7 +434,7 @@ python313Packages.buildPythonApplication (finalAttrs: {
         '"#!${stdenv.shell}\nexec "'
     substituteInPlace tests/test_release_checksums.py \
       --replace-fail '"#!/usr/bin/env python3\n"' \
-        '"#!${python313Packages.python.interpreter}\n"'
+        '"#!${pythonPackages.python.interpreter}\n"'
 
     # New installer fixtures also need declared tools in the hermetic sandbox.
     substituteInPlace tests/test_macos_package_install.py \
@@ -389,6 +472,8 @@ python313Packages.buildPythonApplication (finalAttrs: {
       gst_all_1.gst-plugins-bad
       gst_all_1.gst-plugins-base
       gst_all_1.gst-plugins-good
+      gst_all_1.gst-plugins-ugly
+      gst_all_1.gst-libav
     ])
     "--prefix"
     "LD_LIBRARY_PATH"
@@ -416,7 +501,13 @@ python313Packages.buildPythonApplication (finalAttrs: {
     "--prefix"
     "PYTHONPATH"
     ":"
-    "${placeholder "out"}/${python313Packages.python.sitePackages}:${pythonPath}"
+    "${placeholder "out"}/${pythonPackages.python.sitePackages}:${pythonPath}"
+    # Explicit external trust settings remain user configuration. A clean
+    # environment uses exactly the current upstream certifi roots, with no
+    # implicit older Nix/system capath added by OpenSSL.
+    "--set-default" "NIX_SSL_CERT_FILE" caBundle
+    "--set-default" "SSL_CERT_FILE" caBundle
+    "--set-default" "SSL_CERT_DIR" "${emptyCaDirectory}"
   ];
 
   postFixup = ''
@@ -427,6 +518,33 @@ python313Packages.buildPythonApplication (finalAttrs: {
 
   passthru = {
     tests = {
+      runtime = runCommand "${finalAttrs.pname}-finished-cpu-runtime-check" { } ''
+        mkdir -p "$out" "$TMPDIR/home"
+        env -i HOME="$TMPDIR/home" PATH="${lib.makeBinPath [ coreutils ]}" \
+          NVBROADCAST_SKIP_REQUIREMENTS_CHECK=1 \
+          ${finalAttrs.finalPackage}/bin/nvbroadcast --help > "$out/wrapper-help.txt"
+        env -i HOME="$TMPDIR/home" PATH="${lib.makeBinPath [ coreutils ]}" \
+          NVBROADCAST_SKIP_REQUIREMENTS_CHECK=1 \
+          ${finalAttrs.finalPackage}/bin/nvbroadcast --recording-smoke > "$out/recording.json"
+        # Deliberately exclude pytest/check/build environments. These are the
+        # finished app's interpreter and its app-only dependency path.
+        env -i HOME="$TMPDIR/home" PATH="${lib.makeBinPath [ coreutils ]}" \
+          PYTHONNOUSERSITE=1 MPLBACKEND=Agg MPLCONFIGDIR="$TMPDIR/matplotlib" \
+          PYTHONPATH="${finalAttrs.finalPackage}/${pythonPackages.python.sitePackages}:${pythonPath}" \
+          NIX_SSL_CERT_FILE="${caBundle}" SSL_CERT_FILE="${caBundle}" SSL_CERT_DIR="${emptyCaDirectory}" \
+          ${runtimePython.interpreter} ${./qualify_runtime.py} \
+          ${finalAttrs.finalPackage} ${finalAttrs.src} ${./security-inputs.json} \
+          ${tlsFixture} ${faceModel} "$out/runtime.json" \
+          '${builtins.toJSON {
+            av = toString av.src;
+            audiolab = toString audiolab.src;
+            mediapipe = toString mediapipe.src;
+            pyrnnoise = toString pyrnnoise.src;
+            onnxruntime = toString onnxruntime.src;
+            setuptools = toString secureSetuptools.src;
+          }}'
+      '';
+
       help = runCommand "${finalAttrs.pname}-help-test" { } ''
         export MPLCONFIGDIR=$TMPDIR/matplotlib
         export NVBROADCAST_SKIP_REQUIREMENTS_CHECK=1
@@ -435,9 +553,9 @@ python313Packages.buildPythonApplication (finalAttrs: {
         grep -F "Show help options" help.txt
         grep -F "Virtual Camera Service" vcam-help.txt
         grep -F 'getattr(b, "_MAX_INFER_HEIGHT", "?")' \
-          ${finalAttrs.finalPackage}/${python313Packages.python.sitePackages}/nvbroadcast/app.py
-        PYTHONPATH=${finalAttrs.finalPackage}/${python313Packages.python.sitePackages}:${pythonPath} \
-          ${python313Packages.python.interpreter} -c '
+          ${finalAttrs.finalPackage}/${pythonPackages.python.sitePackages}/nvbroadcast/app.py
+        PYTHONPATH=${finalAttrs.finalPackage}/${pythonPackages.python.sitePackages}:${pythonPath} \
+          ${pythonPackages.python.interpreter} -c '
         import audiolab
         import av
         import mediapipe

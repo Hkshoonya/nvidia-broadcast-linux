@@ -19,7 +19,7 @@ gi.require_version("Pango", "1.0")
 from gi.repository import Gtk, Adw, Gio, GLib, Gdk, Pango
 
 from nvbroadcast.contributors import app_contributor_credits
-from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
+from nvbroadcast.core.constants import APP_ID, APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
 from nvbroadcast.core.config import save_config
 from nvbroadcast.core.gpu import detect_gpus, select_compute_gpu
 from nvbroadcast.ui.video_preview import VideoPreview
@@ -3465,7 +3465,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _show_about(self, button):
         # Load app icon from installed assets or source tree.
         icon_path = find_app_icon()
-        icon_name = "com.doczeus.NVBroadcast"
+        icon_name = APP_ID
         if icon_path is not None and icon_path.exists():
             # Register the icon with GTK's icon theme so AboutWindow can find it
             display = self.get_display()

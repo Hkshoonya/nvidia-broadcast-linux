@@ -62,7 +62,7 @@ exit 1
         )
 
     def _shadow_all_candidates(self, version: tuple[int, int] = (3, 10)) -> None:
-        for name in ("python3.14", "python3.13", "python3.12", "python3.11", "python3"):
+        for name in ("python3.15", "python3.14", "python3.13", "python3.12", "python3.11", "python3"):
             self._write_interpreter(name, version)
 
     def test_preserves_broad_feature_preference_before_python_314(self):
@@ -181,6 +181,41 @@ exit 1
 
         self.assertEqual(result.returncode, 1)
         self.assertIn("must select CPython 3.11-3.14; found 3.15", result.stderr)
+        self.assertIn("experimental source-built CPU dependencies", result.stderr)
+        self.assertIn("onnxruntime>=1.24.4,<1.25", result.stderr)
+
+    def test_accepts_explicit_python315_only_with_opt_in(self):
+        requested = self._write_interpreter("python3.15", (3, 15))
+        result = self._run_selector("--experimental-python315", "--python", str(requested))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip().split("\t")[1], "3.15")
+
+    def test_fedora315_bindings_can_win_after_older_bindings_fail(self):
+        for minor in (11, 12, 13, 14):
+            self._write_interpreter(f"python3.{minor}", (3, minor), has_desktop_bindings=False)
+        self._write_interpreter("python3.15", (3, 15))
+        self._write_interpreter("python3", (3, 15))
+        result = self._run_selector("--experimental-python315", "--require-desktop-bindings")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(result.stdout.split("\t")[0]), self.bin_dir / "python3.15")
+
+    def test_experimental_flag_does_not_admit_python316(self):
+        requested = self._write_interpreter("python3.16", (3, 16))
+        result = self._run_selector("--experimental-python315", "--python", str(requested))
+        self.assertEqual(result.returncode, 1)
+
+    def test_experimental_flag_keeps_existing_interpreter_preference(self):
+        self._write_interpreter("python3.13", (3, 13))
+        self._write_interpreter("python3.15", (3, 15))
+        result = self._run_selector("--experimental-python315")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip().split("\t")[1], "3.13")
+
+    def test_generic_python315_reports_blockers_without_opt_in(self):
+        self._write_interpreter("python3", (3, 15))
+        result = self._run_selector()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("experimental source-built CPU dependencies", result.stderr)
 
     def test_rejects_non_cpython_interpreter(self):
         requested = self._write_interpreter("pypy3", (3, 11), implementation="PyPy")
@@ -212,6 +247,34 @@ exit 1
         self.assertIn("No fully supported CPython interpreter", result.stderr)
         self.assertIn("official repositories", result.stderr)
         self.assertIn("--python /path/to/python3", result.stderr)
+
+    def test_fedora_default_python_315_does_not_offer_interpreter_only_fix(self):
+        self._write_interpreter("python3", (3, 15))
+
+        result = self._run_selector("--package-manager", "dnf")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("default Python", result.stderr)
+        self.assertIn("matching desktop bindings", result.stderr)
+        self.assertNotIn("sudo dnf install python3.14", result.stderr)
+        self.assertIn("Snap", result.stderr)
+
+    def test_fedora_alternate_python_without_bindings_reports_exact_requirement(self):
+        requested = self._write_interpreter(
+            "python3.14", (3, 14), has_desktop_bindings=False
+        )
+
+        result = self._run_selector(
+            "--package-manager", "dnf", "--python", str(requested),
+            "--require-desktop-bindings",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot import the required GTK4", result.stderr)
+        self.assertIn("python3-gobject, python3-cairo", result.stderr)
+        self.assertIn("Installing an alternate Python does not", result.stderr)
+        self.assertNotIn("python3-gobject-cairo", result.stderr)
+        self.assertIn("will not add a third-party repository", result.stderr)
 
     def test_selector_rejects_empty_explicit_path(self):
         result = self._run_selector("--python", "")

@@ -71,6 +71,15 @@ diminish authorship of any contribution.
   actual GTK4/Libadwaita/GStreamer binding availability
   ([#103](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/103)).
 
+### Mauricio Zaffari ([@mauriciozaffari](https://github.com/mauriciozaffari))
+
+- Fixed CUDA runtime detection for distributions that ship
+  `CUDAExecutionProvider` under the plain `onnxruntime` name (e.g. Arch's
+  `python-onnxruntime-opt-cuda`), which the variant check previously
+  misclassified as CPU, blocking CUDA modes with source-installer guidance
+  that does not apply to system packages
+  ([#156](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/156)).
+
 ## Other Community Contributions
 
 Bug reports, reproduction details, hardware testing, review comments,
@@ -81,6 +90,13 @@ published without permission.
 
 Financial supporters are recognized separately in the README and application.
 Sponsorship supports maintenance but does not create or replace code authorship.
+
+### Mradul Kumar ([@Nirusaki-Malaal](https://github.com/Nirusaki-Malaal))
+
+- Reported the MediaPipe face-model startup kill on Arch Linux and extended
+  the isolated native probes to check model initialization before loading it
+  in the GUI, with regression tests for failures and timeouts
+  ([#180](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/180)).
 
 ## Updating This Record
 

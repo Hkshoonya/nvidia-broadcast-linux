@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-26",
+  "status": "automated-candidate-qualification-pass",
+  "public_distribution_qualified": false,
+  "implementation_pr": {
+    "number": 171,
+    "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/171",
+    "reviewed_head": "5d78452f1768907f264c60dfbddfe66f1ceacc06"
+  },
+  "source": {
+    "tested_merge": "961d25a0972dc985069cfd577df04830aeb0fc35",
+    "reviewed_head_and_tested_merge_tree": "f26f85ebe053371d2950d8e1c45ee33f6ac422f0",
+    "identity_scope": "CI test merge and reviewed PR head; this record does not assert a final integration merge."
+  },
+  "workflow": {
+    "run": 40398088336,
+    "attempt": 1,
+    "job": 121836376429,
+    "conclusion": "success",
+    "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40398088336"
+  },
+  "artifact": {
+    "id": 12688066559,
+    "name": "macos-offline-candidate",
+    "digest": "sha256:079456b614c7835f092c1dbf44ed3e76b128fc0f85dc9c83f11e78bec0512cd0",
+    "size_in_bytes": 211228570,
+    "expires_at": "2027-01-24T20:42:53Z",
+    "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40398088336/artifacts/12688066559"
+  },
+  "package": {
+    "file": "NVBroadcast-offline-candidate-arm64.pkg",
+    "sha256": "041523a5c15ca318d9252074d89712093b2b812bb78994940876024c4e27c5a4",
+    "source_revision": "961d25a0972dc985069cfd577df04830aeb0fc35",
+    "runtime_id": "64aeef87213d1a1801961c9871d69a6e792cb7c3d49df977623a312dcf8e7235",
+    "signed": false,
+    "bytes": 211125269
+  },
+  "inputs": {
+    "target": "macos-arm64-cp313-cpu",
+    "minimum_macos": "14.0",
+    "minimum_python": "3.13.18",
+    "inputs_json_sha256": "e1b822aa8aa4fd8599e8f2ef0a4d75ce6ef1039b58d980fec26a06466fdfe5b6",
+    "supplier_lock_sha256": "ac26cc807c7989b6985be816f71ba8393a76ecd0c2d7b4109ba1bc60930d801f",
+    "supplier_count": 54,
+    "installed_distribution_count": 55,
+    "application_wheel_sha256": "89ff6d45271b3f9424dc517377d7a59e9c6bfe31bdfa4fdce316be4fee0ddcc1",
+    "refreshed_pins": {
+      "certifi": "2026.10.19",
+      "filelock": "4.2.1",
+      "pillow": "13.0.0",
+      "pip": "26.2.2",
+      "setuptools": "84.1.0"
+    }
+  },
+  "verification": {
+    "bounded_ZIP_XAR_CPIO_readback": "pass",
+    "ZIP_member_count": 15,
+    "application_code_executed_by_local_reader": false,
+    "full_payload_and_installer_script_identities": {
+      "root": "51e1ffde67e1e0e9fa32f07378cde11c4f24fcf8f9531aaa4af5a31a16d0616d",
+      "installer-scripts": "f336240722aea779cbc18fc2c864932e4d2b8b3a6f83064162fe68eda3986e77"
+    },
+    "same_host_build_with_network_denied_matches": true,
+    "fresh_and_repeat_offline_install": "pass",
+    "offline_policy_probe": "Local and external TCP connections rejected with permission errors before setup",
+    "actual_packaged_supplier_metadata_closure": "pass",
+    "all_installed_distribution_versions_and_locations_bound_to_private_prefix": true,
+    "application_source_and_data_files_match_reviewed_Git": 64,
+    "application_Python_files": 62,
+    "installed_module_imports": 15,
+    "portable_tests": 32,
+    "installed_face_effect_tests": 25,
+    "platform": "macOS 15.7.9 arm64",
+    "executed_Homebrew_CPython": "3.13.18",
+    "CPU_provider": [
+      "CPUExecutionProvider"
+    ],
+    "CPU_result": [
+      1.0,
+      4.0,
+      9.0,
+      16.0
+    ],
+    "generated_media": {
+      "encoders": {
+        "video": "x264enc",
+        "audio": "avenc_aac"
+      },
+      "decoded_buffers": {
+        "video": 24,
+        "audio": 49
+      },
+      "sha256": "4f4dd10bd6924fa205c0f3a2f86ba798dfbf6445d50865e27b8e84a78b02e282"
+    },
+    "physical_devices_started": false
+  },
+  "known_advisory_audit": {
+    "status": "pass",
+    "api": "https://docs.pypi.org/api/json/",
+    "checked_at_utc": "2026-10-26T20:40:39.869355+00:00",
+    "receipt": "dist/security-prototype-repro/exact-pin-audit.json",
+    "receipt_sha256": "d4b578848312098c3f794622f13149f7da7ef34af31274b5c31e8d0bda1df779",
+    "complete_source_inventory_counts": {
+      "error": 0,
+      "pass": 108,
+      "vulnerable": 0
+    },
+    "all_source_inventory_input_hashes_match_reviewed_head": true,
+    "actual_Mac_supplier_versions_covered": 54,
+    "Mac_supplier_active_advisories": 0,
+    "Mac_supplier_lookup_errors": 0,
+    "scope": "Exact-version PyPI advisory coverage; no complete native, interpreter, model or application security claim."
+  },
+  "independent_readback": {
+    "receipt": "dist/security-macos-run-40398088336/review.json",
+    "receipt_sha256": "fba29332bf45473c2ede040f4c33b5564b51a70944c091c8d1bf27cd282517f1",
+    "reader_sha256": "9a4e77fb4daaf5c62a05b647b0d50b71894cf746e302730347fb86ca3126d801",
+    "helper_adaptation_receipt_sha256": "c825c245e55c52b8baa5ebdb3a270c4310d6b04029f4bc7baec33ef2fc326614",
+    "source_difference_receipt_sha256": "529da2a56d79b06ae335b7e25bca5f1c93e6e74c0f974e2683b6fda5559da05d",
+    "completed_utc": "2026-10-26T20:49:46.055850+00:00",
+    "parser_validation": "Unchanged parser from the previous successful reader with 18 positive/rejection cases; only explicit artifact/run/source constants changed."
+  },
+  "retained_artifact_evidence_sha256": {
+    "face-effects-tests.log": "fbdf42e3632d85b44fa014091bd81b85a28aac7e34e8469c10d05e94b114a403",
+    "fixed-input-rebuild.json": "d08e7525f97821bf56954aa99ddeffa556b7b2c8779264cf4d8f613a60c2c17b",
+    "generated-media.json": "5db01a4c9d8d6e10d2c5a688f980c0e457c4601f46975db75bc2087b4d75496a",
+    "installer.log": "1d69055054ab52513e0314681627fbf13f2772f009463f3eb6b1e091178e5a4b",
+    "manifest.json": "ccc33805c78ffb47718a2b90f5fe9062619dcda31d3d82fc7d30c238a2aee008",
+    "native-build-inventory.json": "28ff83aac94a0c98296c0b0247d20182273703a441031e9c48840a3b030adbcf",
+    "offline-install.log": "05cc6e1084ea18045ac17e40ca63802925022acfacbb11bf325622a092ae06ad",
+    "package.json": "0420cbe0ecff9fcb2108990b6022bf3e6c6ecf42a2596c17292ed5f102969585",
+    "pylock.macos-arm64-cp313-cpu.toml": "11c8f08ada6e896b529951a499e1bc3a1de284be7e35ea11c9b1aadccbc9d44b",
+    "qualification.json": "9ff02092514ba9b0d5cd3eac8ab30a4ce337fa67c6a2c9c12798d4bccfc572cc",
+    "runtime-ready": "f253c9819f7d46712aa09e070f9be93d859a1a529387cb1dac3db585671b4f03",
+    "supplier-closure.json": "0f108f08b1d1295441bbd6dbb10a3c1740055caf502804baadd71d0fb757d291",
+    "supplier-lock.toml": "ac26cc807c7989b6985be816f71ba8393a76ecd0c2d7b4109ba1bc60930d801f",
+    "supplier-selection.json": "39939a2f196003641f2c2e719e141fc3bee525abf96617542fd9617666421256"
+  },
+  "retained_workflow_evidence_sha256": {
+    "run.json": "3e3324df5b9c030216a2e2e84bedacbd3d42edb73204493b24c182b6ac472aac",
+    "jobs.json": "81ccc366c67e0f3a6fa68076b6e7e0cae4e14ec42458d26485af9d478441c706",
+    "artifacts.json": "489288e639fab93711426996b2ff53517d49e882094a6cd53b8d4bf415cb5778",
+    "source-identity.json": "9698b8eca2aae6195ad822ee3777c78e9f5c4c1174bf414b0d6c4121a189c619",
+    "job.log": "9a12879f26b6983e7f476c7feb250cf03b6fb504efadac7fecffd79e47430281"
+  },
+  "historical_record": {
+    "path": "2026-10-26-fixed-python-inputs.json",
+    "relationship": "Supersedes the old supplier inputs for this automated candidate only. The original record and release hold remain valid for its old affected bytes."
+  },
+  "limits": [
+    "Unsigned, nondefault candidate; no signing, notarization, Store/release promotion or issue #60 closure.",
+    "Homebrew native stack remains external and incompletely security-audited. Inventory still includes external certifi 2026.7.22 and older CPython 3.13.15; the selected private distributions and executed CPython 3.13.18 were verified.",
+    "Minimum macOS 14 behavior and final signed-package acceptance remain untested by this runner result.",
+    "No physical camera/microphone, OBS virtual output, live effects, CoreML, FPS, meeting-model acquisition or long-running acceptance.",
+    "Same-host payload/script reproducibility is verified; independent Homebrew reproducibility and identical PKG archive bytes are not claimed.",
+    "A passing known-PyPI-advisory audit is not complete public-release security qualification."
+  ]
+}

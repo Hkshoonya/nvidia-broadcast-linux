@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — NV Broadcast for Mac</title>
+<meta name="description" content="NV Broadcast for Mac processes your camera, microphone and meetings locally. Learn about permissions, storage and Apple subscriptions.">
+<style>
+  :root {
+    --bg: #fafafa; --surface: #ffffff; --text: #111111; --text-secondary: #555555;
+    --border: #e8e8e8; --accent: #76b900; --accent-text: #4a7400; --accent-surface: #76b90012;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e0e0e; --surface: #181818; --text: #f2f2f2; --text-secondary: #b0b0b0;
+      --border: #2a2a2a; --accent-text: #8ad400; --accent-surface: #76b9001f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 14px 20px;
+    border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  header a { color: var(--text); text-decoration: none; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  .logo { width: 28px; height: 28px; border-radius: 7px; background: #111; display: grid; place-items: center; }
+  .logo span { width: 12px; height: 12px; border-radius: 50%; border: 3px solid var(--accent); }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 80px; }
+  h1 { font-size: clamp(2rem, 5vw, 2.6rem); line-height: 1.15; margin: 0 0 8px; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .updated { color: var(--text-secondary); margin: 0 0 28px; }
+  .summary {
+    background: var(--accent-surface); border: 1px solid var(--accent); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 32px;
+  }
+  .summary strong { color: var(--accent-text); }
+  .summary ul { margin: 8px 0 0; padding-left: 20px; }
+  h2 { font-size: 1.25rem; margin: 36px 0 8px; }
+  p, li { color: var(--text); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  a { color: var(--accent-text); }
+  footer { color: var(--text-secondary); font-size: 0.9rem; border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <a href="https://nvbroadcast.com"><span class="logo"><span></span></span>NV Broadcast</a>
+</header>
+<main>
+  <h1>Privacy <em>Policy</em></h1>
+  <p class="updated">Policy draft updated October 9, 2026 · Native Mac App Store edition</p>
+
+  <div class="summary">
+    <strong>The short version</strong>
+    <ul>
+      <li>Your video, audio, transcripts and recordings are processed <strong>on your Mac</strong>. We do not upload them to our servers. Virtual-camera video goes to the apps and services you choose.</li>
+      <li>The app contains no analytics, advertising or tracking SDKs. If you contact us, we receive the information you choose to send.</li>
+      <li>Subscriptions are handled entirely by Apple. We never see your payment details.</li>
+    </ul>
+  </div>
+
+  <p>This policy covers the native NV Broadcast app prepared for Apple's Mac App Store. It describes the first macOS release. iPhone and iPad apps are planned for later; their data practices will be documented before release. Apple Continuity Camera can supply a camera input on supported devices. The first Mac App Store release does not provide NV Broadcast mobile pairing or meeting-window descriptions.</p>
+
+  <h2>Who we are</h2>
+  <p>NV Broadcast is developed by WeMakeSense LLC (“we”, “us”). This policy explains what happens to your information when you use the NV Broadcast apps. NV Broadcast is an independent product and is not affiliated with or endorsed by NVIDIA Corporation.</p>
+
+  <h2>Information processed on your device</h2>
+  <p>To provide its features, the app processes the following locally. We do not operate a backend that receives your camera video, microphone or meeting audio, transcripts or AI notes.</p>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Data</th><th>Why</th><th>Where it goes</th></tr>
+    <tr><td>Camera video</td><td>Background blur, replacement, relighting, enhancement, auto framing, and the virtual camera</td><td>Processed in memory. Sent to apps you select (for example Zoom or OBS) through NV Broadcast Camera. Those apps manage any subsequent transmission. Saved when you choose to record or explicitly capture Test Lab diagnostics.</td></tr>
+    <tr><td>Microphone audio</td><td>Noise removal, Voice Studio effects, recording, meeting transcription</td><td>Processed in memory on your device. Saved only if you record.</td></tr>
+    <tr><td>Mac system audio (optional)</td><td>Transcribe voices from meeting apps alongside your microphone</td><td>Captures sounds playing on your Mac, excluding NV Broadcast audio, after system permission and when requested for a transcription session. Stopping transcription detaches audio processing and requests capture shutdown; the app displays a warning if macOS does not confirm shutdown. Audio is processed in memory; no screen video is stored. Other apps’ sounds may also be included.</td></tr>
+    <tr><td>Speech, transcripts and AI notes</td><td>Meeting transcription, summaries and action items</td><td>Transcribed with Apple's on-device speech recognition. AI notes use Apple's on-device Foundation Models framework on supported Macs with Apple Intelligence enabled. Held in memory until cleared, replaced by a new transcription session, or the app process ends. Sharing does not erase the transcript; exported copies follow the storage and retention rules of the destination you choose.</td></tr>
+    <tr><td>Recordings and Test Lab files</td><td>Recording and explicit effect-quality checks</td><td>Saved in the app's Movies storage on your Mac when you request them. Test Lab files can include camera stills, reconstructed and processed images, person-mask images, numeric mask and history-weight planes, frame metadata, dimensions and timings. Shared copies go to the destination you choose.</td></tr>
+    <tr><td>Background images you add</td><td>Background replacement</td><td>Copied into the app's private storage on your device.</td></tr>
+    <tr><td>Settings</td><td>Remembering your effects and profiles</td><td>Stored on your device.</td></tr>
+  </table>
+  </div>
+
+  <h2>Settings and local retention</h2>
+  <p>Your current effect settings, preview preferences, power preferences, and named video/audio presets are saved locally on your Mac. Presets do not contain subscription credentials or start recording or transcription. Presets are not synchronized between devices. Settings, presets, imported backgrounds and saved diagnostic files have no automatic deletion schedule; they remain until you remove them or clear the relevant app storage.</p>
+
+  <p>Camera effects process face rectangles and person masks for lighting, framing and background effects without identifying people. These are normally held in memory. Person masks can also be saved when you explicitly request Test Lab diagnostics, as described above.</p>
+
+  <h2>Permissions we ask for</h2>
+  <ul>
+    <li><strong>Camera</strong> and <strong>Microphone</strong>: to apply effects, record, and transcribe.</li>
+    <li><strong>Screen &amp; System Audio Recording (Mac)</strong>: optional permission for system-audio transcription. You choose this source explicitly and can stop capture in the Meeting tab.</li>
+    <li><strong>Speech Recognition</strong>: for on-device meeting transcription.</li>
+    <li><strong>Camera Extension</strong>, Mac: to install the NV Broadcast Camera that video apps can select.</li>
+  </ul>
+  <p>You can change these at any time in System Settings on your Mac. NV Broadcast mobile discovery is disabled in this release.</p>
+
+  <h2>Purchases and subscriptions</h2>
+  <p>NV Broadcast Pro is sold through Apple's App Store. Apple processes your payment and manages your subscription under its own <a href="https://www.apple.com/legal/privacy/">privacy policy</a>. The app receives signed transaction and subscription information from Apple to verify your access. We don't receive your name, email address or payment information. Manage or cancel at any time in your Apple Account subscription settings.</p>
+
+  <h2>Apple services and downloads</h2>
+  <p>Speech recognition and Apple Intelligence may need supported devices, enabled system features, and downloaded models. The app can ask Apple to download speech models when needed. App Store product loading, purchases and restoration also contact Apple. These connections do not send your camera video, meeting audio or transcripts to our servers. On-device transcription is not available when the required on-device recognizer or models are unavailable.</p>
+
+  <h2>Data from Apple</h2>
+  <p>Depending on your Apple privacy settings, Apple may provide us with crash diagnostics and app usage information under Apple's privacy policy. The app does not include an additional analytics or crash-reporting SDK.</p>
+
+  <h2>Support correspondence</h2>
+  <p>You can email <a href="mailto:support@nvbroadcast.com">support@nvbroadcast.com</a> for private support or <a href="mailto:hello@nvbroadcast.com">hello@nvbroadcast.com</a> for general and privacy questions. We receive your email address and the text or files you choose to send, and use them to respond and investigate your request. Email is handled by our email service providers. We retain correspondence while needed for support and any applicable recordkeeping obligations. Contact us to request access or deletion; do not include passwords, payment details, private meeting content or unnecessary personal information.</p>
+  <p>Automatic in-app public problem reporting is being prepared and is not enabled in this release. Email messages are not automatically published as public issues. If public reporting is enabled later, the form and policy will explain its destination, service providers, retention and public visibility before you submit.</p>
+
+  <h2>What we don't do</h2>
+  <ul>
+    <li>We don't create app accounts. The app does not send names, emails, contacts, location or device identifiers to us. Voluntary support correspondence and diagnostics that Apple provides under your Apple privacy settings are handled as described above and below.</li>
+    <li>We don't include third-party analytics, advertising or tracking code.</li>
+    <li>We don't sell or share personal data, and we don't track you across other companies' apps or websites.</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>NV Broadcast is not directed to children under 13 (or the equivalent minimum age in your region). If you believe a child has sent personal information to our support service, contact us so we can address it.</p>
+
+  <h2>Your rights</h2>
+  <p>You can remove imported backgrounds, recordings and diagnostic files from your Mac. Deleting the app may leave exported files, backups or macOS app data behind; remove those separately if you want to erase them. Shared or exported copies remain at their destinations until you delete them. If you contact us for support, we may receive the information you choose to include; use the contact link below for requests about that correspondence.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>If we change how the app handles data, we'll update this page and its date before the change ships.</p>
+
+  <h2>Contact</h2>
+  <p>For privacy and general questions, email <a href="mailto:hello@nvbroadcast.com">hello@nvbroadcast.com</a>. For app problems, email <a href="mailto:support@nvbroadcast.com">support@nvbroadcast.com</a>. Visit <a href="https://nvbroadcast.com">nvbroadcast.com</a> for product information.</p>
+
+  <footer>© 2026 WeMakeSense LLC. NVIDIA is a trademark of NVIDIA Corporation. NV Broadcast is not affiliated with NVIDIA.</footer>
+</main>
+</body>
+</html>

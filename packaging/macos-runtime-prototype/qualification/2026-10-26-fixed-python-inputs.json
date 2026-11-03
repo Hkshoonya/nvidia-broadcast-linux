@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-26",
+  "status": "functional-qualification-only-release-blocked",
+  "implementation_pr": 170,
+  "implementation_merge": "c7de2c8a78a128c427f215406f786ec6851df5d7",
+  "reviewed_head": "295d66c6df00781043ba394b900a958bf509f3a6",
+  "qualified_source": "5791b410ccf09df268fd4d9bf03e087df0942601",
+  "qualified_tree": "46bca72251e11b5ba29537e1fd1abf773fd32209",
+  "workflow_run": 40386251353,
+  "workflow_attempt": 1,
+  "artifact": {
+    "id": 12680622031,
+    "name": "macos-offline-candidate",
+    "digest": "sha256:4a7c6e5c8e906e3a68efaee7150570efe7d1295159bb6450f8fc6eb3a7670705",
+    "size_in_bytes": 211115485,
+    "expires_at": "2027-01-24T19:23:06Z"
+  },
+  "package": {
+    "file": "NVBroadcast-offline-candidate-arm64.pkg",
+    "sha256": "2ca58def63a4786193ea62428181004ebcd0fa75e458e6173af426f5864b424b",
+    "source_revision": "5791b410ccf09df268fd4d9bf03e087df0942601",
+    "runtime_id": "772527263fd23f1e15eeb43f5b2e82abba9519cb7965a38845538491dbf64aa0",
+    "signed": false,
+    "bytes": 211012644
+  },
+  "verification": {
+    "archive_members": 15,
+    "pkg_xar_and_cpio_checked": true,
+    "independently_recomputed_full_payload_and_script_identities": {
+      "root": "186e29acb25a36e16156c804b45f45f47d95c0de1ba4832efa867a4be0c51cbd",
+      "installer-scripts": "f336240722aea779cbc18fc2c864932e4d2b8b3a6f83064162fe68eda3986e77"
+    },
+    "extracted_package": {
+      "root": {
+        "members_including_trailer": 89,
+        "regular_file_bytes": 213513210
+      },
+      "installer-scripts": {
+        "members_including_trailer": 3,
+        "regular_file_bytes": 2071
+      }
+    },
+    "supplier_count": 54,
+    "installed_wheel_count": 55,
+    "exact_supplier_lock_matches_reviewed_source": true,
+    "actual_packaged_app_and_supplier_dependency_closure": {
+      "status": "pass",
+      "target": "macos-arm64-cp313-cpu",
+      "minimum_macos": "14.0",
+      "supplier_count": 54,
+      "application_sha256": "26c198633de4cea70121ef5bbb5996410b36b13409edd5b7f049a7ccf0a56ae7",
+      "application_version": "1.5.3",
+      "dependency_closure": "pass"
+    },
+    "installed_native_module_import_count": 15,
+    "portable_tests_passed_on_mac": 30,
+    "installed_face_effects_tests_passed": 25,
+    "offline_network_policy_checked": true,
+    "generated_media": {
+      "platform": "macOS-15.7.9-arm64-arm-64bit-Mach-O",
+      "architecture": "arm64",
+      "python": "3.13.15 (main, Aug  5 2026, 12:25:43) [Clang 17.0.0 (clang-1700.6.4.2)]",
+      "interpreter": "$RUNNER_HOME/Library/Application Support/NVBroadcast Offline Candidate/772527263fd23f1e15eeb43f5b2e82abba9519cb7965a38845538491dbf64aa0/.venv/bin/python",
+      "application_source": "$RUNNER_HOME/Library/Application Support/NVBroadcast Offline Candidate/772527263fd23f1e15eeb43f5b2e82abba9519cb7965a38845538491dbf64aa0/.venv/lib/python3.13/site-packages/nvbroadcast/__init__.py",
+      "gtk": 4,
+      "adwaita": 1,
+      "gstreamer": "GStreamer 1.28.6",
+      "onnxruntime": "1.23.2",
+      "providers": [
+        "CPUExecutionProvider"
+      ],
+      "cpu_result": [
+        1.0,
+        4.0,
+        9.0,
+        16.0
+      ],
+      "obs_api": "BGR",
+      "encoders": {
+        "video": "x264enc",
+        "audio": "avenc_aac"
+      },
+      "generated_recording": {
+        "decoded_buffers": {
+          "video": 24,
+          "audio": 49
+        },
+        "sha256": "ae2b9e801981fc65d86376606df5b4eb3329013aee4e336ed65423a3ecdb76ae"
+      },
+      "physical_devices_started": false,
+      "limits": [
+        "No camera/microphone permission or physical capture test",
+        "No OBS virtual output, live effects, CoreML execution or app FPS test"
+      ],
+      "path_normalization": "Runner home prefix normalized to $RUNNER_HOME; retained raw evidence hashes are unchanged."
+    }
+  },
+  "retained_evidence": {
+    "extracted/macos-offline-candidate/NVBroadcast-offline-candidate-arm64.pkg": {
+      "sha256": "2ca58def63a4786193ea62428181004ebcd0fa75e458e6173af426f5864b424b",
+      "bytes": 211012644
+    },
+    "extracted/macos-offline-evidence/face-effects-tests.log": {
+      "sha256": "020b55557e9e33504694af22a9a17f403fd35543b37378cc9322a4712261dbd6",
+      "bytes": 4410
+    },
+    "extracted/macos-offline-evidence/fixed-input-rebuild.json": {
+      "sha256": "7c598b68d0269e318bee1f4bf8bc329f0b0347d2b99e5a3192656528fbe792e4",
+      "bytes": 407
+    },
+    "extracted/macos-offline-evidence/generated-media.json": {
+      "sha256": "d27d242ef08ec1f8dc9bc1b2ae452a4b20a4680ec0ef9aab99c993f54e766e0a",
+      "bytes": 1233
+    },
+    "extracted/macos-offline-evidence/installer.log": {
+      "sha256": "1d69055054ab52513e0314681627fbf13f2772f009463f3eb6b1e091178e5a4b",
+      "bytes": 139
+    },
+    "extracted/macos-offline-evidence/manifest.json": {
+      "sha256": "1264392ca535e63bdf6297c42a1fc1e765b7bf22939dc72ed70e103a37544c8f",
+      "bytes": 19522
+    },
+    "extracted/macos-offline-evidence/native-build-inventory.json": {
+      "sha256": "0184fe41ab7784486b94ca5159091f8fcbe8f1bf4feb9317d6669d7ebe8cef68",
+      "bytes": 6748
+    },
+    "extracted/macos-offline-evidence/offline-install.log": {
+      "sha256": "66e063fdb1eaa500fae2ea4b8c75feda03af8144f64ebb0cb3088ba6c144f53e",
+      "bytes": 16065
+    },
+    "extracted/macos-offline-evidence/package.json": {
+      "sha256": "dd7ebe2db3a169cc3be87890bf155eb7cc1c33d81ca92cf35bf5f7084e3073c7",
+      "bytes": 304
+    },
+    "extracted/macos-offline-evidence/pylock.macos-arm64-cp313-cpu.toml": {
+      "sha256": "b9db895096f09c9e0e2aaf934df406b31e2f8fdbcf3d1e3e7f9368d71d1b315a",
+      "bytes": 18024
+    },
+    "extracted/macos-offline-evidence/qualification.json": {
+      "sha256": "0b8a745ca5420ec0e83599b1a8c0851f1e480895fe0fe5ddf62c802af86bd005",
+      "bytes": 24077
+    },
+    "extracted/macos-offline-evidence/runtime-ready": {
+      "sha256": "530806ab7131adb42220de0034c3fbc8b29d8e0d7beb27b2ec863a89a9e2c994",
+      "bytes": 65
+    },
+    "extracted/macos-offline-evidence/supplier-closure.json": {
+      "sha256": "28bd6b5238583a6ae0775f1fd8fa88e18309a1adacb10a88dd3ee6a220a6bb11",
+      "bytes": 269
+    },
+    "extracted/macos-offline-evidence/supplier-lock.toml": {
+      "sha256": "fe37104a8bf997de4c3557d2238284d975eb5820dd28ddb40231321f5246cc3e",
+      "bytes": 17813
+    },
+    "extracted/macos-offline-evidence/supplier-selection.json": {
+      "sha256": "baf6b02f8f96ae1d6f1e86383684a5f138abc8a15ed86051348a93cbda801259",
+      "bytes": 20370
+    }
+  },
+  "independent_review_sha256": "ac841ca7cc7d5fd32c999c6f2cda09c481788e9f5be930deefdf3931a7985cfa",
+  "code_review_sha256": "57c250655441b615e2a4c8e8584586e8a356e060f40e3f55870f6c30298a0d51",
+  "ci": {
+    "run": 40386251275,
+    "head": "295d66c6df00781043ba394b900a958bf509f3a6",
+    "all_six_pr_checks": "pass",
+    "linux": {
+      "passed": 1468,
+      "skipped": 38,
+      "subtests": 1599
+    },
+    "responsive_gtk": {
+      "passed": 20,
+      "subtests": 25
+    },
+    "python_3_11": {
+      "passed": 290,
+      "subtests": 68
+    },
+    "python_3_14": {
+      "passed": 290,
+      "subtests": 68
+    },
+    "dependency_audit": "The workflow audit reported no known findings in its narrower scope. A subsequent audit of all 54 exact supplier inputs found active advisories; the earlier green workflow is not security acceptance for this candidate."
+  },
+  "limits": [
+    "Functional/reproducibility evidence only. Known supplier advisories block release promotion; refreshed inputs need independent rebuild, audit and requalification.",
+    "Reviewed Python supplier wheels and same-host complete payload/Installer-script reproduction only.",
+    "Homebrew CPython, GI, GTK and GStreamer remain external; independently reproduced native dependencies and minimum-macOS-14 execution are not established.",
+    "The PKG is unsigned and non-default; byte-identical PKG archive reproduction is not claimed.",
+    "No physical camera/microphone, OBS virtual output, live effects/FPS or long-running device acceptance.",
+    "Does not close issue #60 or replace frozen v1.5.3 release assets."
+  ],
+  "release_hold": {
+    "release_promotion_eligible": false,
+    "reason": "Known dependency advisories require affected inputs to be replaced, rebuilt, audited and requalified. Passing functional checks does not establish security acceptance. No replacement inputs are qualified by this record.",
+    "audit_completed_utc": "2026-10-26T19:36:29.134076+00:00",
+    "audit_receipt_sha256": "460f98652c78887ebee0f83d6ee2cfe7443b067c964e504299fe494e5560dbdd",
+    "primary_sources": [
+      "https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2",
+      "https://github.com/advisories/GHSA-5x8w-8jj5-q52h"
+    ],
+    "audit_scope": "All 54 exact supplier inputs; 46 active advisory entries including aliases across four packages. No full native/model supply-chain audit is claimed.",
+    "affected_supplier_versions": [
+      {
+        "package": "certifi",
+        "version": "2026.7.22"
+      },
+      {
+        "package": "filelock",
+        "version": "4.1.0"
+      },
+      {
+        "package": "pillow",
+        "version": "12.3.0"
+      },
+      {
+        "package": "setuptools",
+        "version": "84.0.0"
+      }
+    ]
+  }
+}

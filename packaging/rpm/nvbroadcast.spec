@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.5.3
+Version:        1.5.4
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -148,10 +148,11 @@ case "$(uname -m)" in
 esac
 
 install_runtime() {
-  rm -rf -- /opt/nvbroadcast/.venv
-  python3 -m venv /opt/nvbroadcast/.venv --system-site-packages
-  /opt/nvbroadcast/.venv/bin/pip install --upgrade \
-    "pip>=26.2" "setuptools>=83.0.0" wheel -q
+  rm -rf -- /opt/nvbroadcast/.venv || return
+  python3 -m venv /opt/nvbroadcast/.venv --system-site-packages || return
+  # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+  /opt/nvbroadcast/.venv/bin/pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" -q || return
+  /opt/nvbroadcast/.venv/bin/pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel -q || return
   /opt/nvbroadcast/.venv/bin/python /opt/nvbroadcast/scripts/install_runtime_variant.py \
     --project /opt/nvbroadcast --variant "$1" --meeting-backends faster
 }
@@ -202,6 +203,12 @@ fi
 %doc README.md CONTRIBUTORS.md
 
 %changelog
+* Wed Oct 28 2026 doczeus <harshit@kshoonya.com> - 1.5.4-1
+- Refresh affected Python dependencies and certificate bundles.
+- Keep Eye Contact tracking fresh and recognize live Arch CUDA runtimes.
+- Stop runtime setup on prerequisite or CPU fallback failure.
+- Keep managed protobuf visible with Fedora’s legacy google namespace hook.
+
 * Sat Oct 10 2026 doczeus <harshit@kshoonya.com> - 1.5.3-1
 - Keep Camera, Audio, and preview controls usable in small windows
 - Preserve MP4 video and audio across capture changes and expose saved recordings

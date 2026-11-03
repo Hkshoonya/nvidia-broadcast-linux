@@ -1,0 +1,322 @@
+{
+  "adapter_revision": "16d49c5d521683eee5f1b0158c821b34638f19bb",
+  "application_revision": "0295b190b3eebf62a29cd0a92b013714a72b1184",
+  "bootstrap_source_sha256": "2c2dfe1690e5bcefaccb88391fbe92e86712ed8060b1f9bf581eacc011f9935d",
+  "date": "2026-10-11",
+  "driver": {
+    "path": "dist/issue60-recovery/qualify_bootstrap_recovery.py",
+    "sha256": "848e6a97bfdeeac0f0bdfa75ee6751d8727df5163df7b107201c92723e4afc07"
+  },
+  "fixture_image": "sha256:c5cb226d51d0bc9e3c13861649a7ba73b06d0b09d9f866501a1569b48c562ab5",
+  "independent": {
+    "actual_rpm_scriptlets": {
+      "path": "dist/independent-review/rpm3-scriptlet-identity.json",
+      "sha256": "93c4123e00f3f17e22840f6b7f8b83091143fdf6ec59869d685b5260de626ead"
+    },
+    "bootstrap_source_review": {
+      "path": "dist/independent-review/bootstrap-source-review-16d49c5.json",
+      "sha256": "87ce8672d7e8fdf4fcac1659552181df8d2b59dee5253aae6c0193c4ec5116aa"
+    },
+    "final_review": {
+      "path": "dist/independent-review/bootstrap-final-independent-review-16d49c5.json",
+      "sha256": "f09845e9e59a359b0bd2abbd700129c2b605be263d4d7d56d354bad9d12c6f3d"
+    },
+    "initial_source_review": {
+      "path": "dist/independent-review/source-review-42f0725.json",
+      "sha256": "ab344f0fcf2f0d8b44939faf1eaaadb2dff7fb98b40b19603b963fc166c01e8c"
+    },
+    "lifecycle": {
+      "all_step_log_hashes_verified": true,
+      "container_removed": true,
+      "coverage": [
+        "Actual installed launcher FD9 blocks upgrade; raw private Python blocks upgrade and erase; a shared launch-lock holder blocks erase",
+        "Signed revision2 to revision3 upgrade, reinstall, signed revision2 rollback and upgrade again",
+        "Full installed validation, exact helper bytes, bootstrap cleanup, successful normal erase",
+        "User configuration/recording sentinels and system Python bytes preserved"
+      ],
+      "driver_sha256": "508de7bfb400f29bc2f64e3e598be479200ea1e39f7cdf81eb795cde741a8802",
+      "result": {
+        "path": "dist/independent-review/lifecycle-16d49c5-corrected/result.json",
+        "sha256": "d3ff769bbdc94a363b13454d0850321136a4fe7c31fb0e0b51257050ba5e1dfb"
+      },
+      "signed_inputs_unchanged": true,
+      "status": "pass",
+      "steps_completed": 38
+    }
+  },
+  "limits": [
+    "CPU-only local signed candidate. CUDA payload/variant switching and real GPU qualification remain separate.",
+    "Disposable offline Fedora RPM lifecycle with preinstalled OS dependencies; no physical camera, microphone, display, user home or host package state used.",
+    "RPM4 and RPM6 signing/verification passed. End-to-end installation/recovery here is Fedora RPM6; additional native platforms need separate acceptance.",
+    "Recovery requires system Python3.11+, the exact project-signed target RPM, and an independently authenticated previous RPM when removed old paths require it.",
+    "Only same-transaction recognized fragments with exact target-prefix bytes are preserved. Unknown or unsafe paths require manual review.",
+    "No automatic package replay, atomic multi-file rollback or power-loss guarantee. Audits/failed-transaction copies are retained for review.",
+    "This record covers application0295b190 and adapter16d49c5, not a rebuilt future merge or hosted candidate.",
+    "Existing public v1.5.3 all/noarch artifacts and Snap are unchanged. Native runtime release defaults and issue60 closure remain gated by remaining delivery/acceptance work."
+  ],
+  "previous": {
+    "adapter_revision": "42f07256f4275dc6420ccd9574c4c4b2fb56dd8a",
+    "artifact": "nvbroadcast-1.5.3-2.cpu.x86_64.rpm",
+    "signed_sha256": "c3e42fd4e228c6e8ac159d06a2e6dc7ec9158364142059a18e8d585655b56e2f"
+  },
+  "publisher": {
+    "fingerprint": "A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1",
+    "public_key_sha256": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+    "signing_subkey_fingerprint": "C2EF93F80C95F85BF878A8475E1E5602DBACBCB5"
+  },
+  "recovery_and_preflight": {
+    "fresh": {
+      "all_step_log_hashes_verified": true,
+      "container_removed": true,
+      "interruption": {
+        "fresh_install": true,
+        "manager_exit": 9,
+        "minimum_bytes": 1048576,
+        "observed_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13;6acbfa00"
+      },
+      "manager_log": {
+        "path": "dist/issue60-recovery/bootstrap-fresh-16d49c5/interrupted-manager.log",
+        "sha256": "84b0daed89a0bd852977c78fccb3789e01ac135f3d7670bc5650e8db030a5118"
+      },
+      "preservation_report": {
+        "path": "dist/issue60-recovery/bootstrap-fresh-16d49c5/preservation.json",
+        "sha256": "7c9f7d8be016c0c4553e4d89c847ce49a7f1cbc309d68cf2850d18d0ee90c5d1"
+      },
+      "preserved_fragment_count": 45,
+      "recovery_interface": "System Python executes the content-addressed copy embedded in authenticated RPM %pre; no source or build staging is mounted.",
+      "result": {
+        "path": "dist/issue60-recovery/bootstrap-fresh-16d49c5/result.json",
+        "sha256": "32383ecfc79b5535f6d9006011990c44b068d355adc88c7fb8b2a86f1607b922"
+      },
+      "signed_inputs_unchanged": true,
+      "status": "pass",
+      "steps": [
+        "confirm-clean-fixture",
+        "system-python",
+        "import-project-public-key",
+        "verify-signed-target",
+        "kill-interrupted-manager",
+        "interrupted-bin-layout",
+        "bootstrap-helper-identity",
+        "bootstrap-independent-of-runtime",
+        "fresh-install-launcher-not-yet-committed",
+        "inspect-signed-fragments",
+        "preserve-signed-fragments",
+        "saved-package-identity",
+        "audit-and-preserved-fragment-bytes",
+        "import-saved-public-key",
+        "replay-exact-saved-package",
+        "configured-marker-cleared",
+        "bootstrap-copy-cleaned-after-validation",
+        "installed-helper-identity",
+        "native-package-state",
+        "complete-installed-integrity",
+        "launcher-after-repair"
+      ],
+      "steps_completed": 21
+    },
+    "hardlink": {
+      "all_step_log_hashes_verified": true,
+      "container_removed": true,
+      "result": {
+        "path": "dist/issue60-recovery/bootstrap-hardlink-16d49c5/result.json",
+        "sha256": "a82d51ffad7ae5f6abff40e3e449d6291bec3d8891f1f218bb50b051573f9b7a"
+      },
+      "signed_inputs_unchanged": true,
+      "status": "pass",
+      "steps": [
+        "confirm-clean-fixture",
+        "system-python",
+        "import-project-public-key",
+        "verify-signed-target",
+        "prepare-state-directory",
+        "hardlinked-bootstrap-file",
+        "reject-before-unpack",
+        "no-marker-or-payload-created",
+        "package-remains-uninstalled",
+        "hardlinked-evidence-preserved"
+      ],
+      "steps_completed": 10
+    },
+    "missing-python": {
+      "all_step_log_hashes_verified": true,
+      "container_removed": true,
+      "result": {
+        "path": "dist/issue60-recovery/bootstrap-missing-python-16d49c5/result.json",
+        "sha256": "bc9bfc096777256dbc993e15fdfd25b0c09555cfff72ae7721ab47b3cfeb0bb1"
+      },
+      "signed_inputs_unchanged": true,
+      "status": "pass",
+      "steps": [
+        "confirm-clean-fixture",
+        "system-python",
+        "import-project-public-key",
+        "verify-signed-target",
+        "make-python-unavailable",
+        "reject-before-unpack",
+        "no-marker-or-payload-created",
+        "package-remains-uninstalled"
+      ],
+      "steps_completed": 8
+    },
+    "symlink": {
+      "all_step_log_hashes_verified": true,
+      "container_removed": true,
+      "result": {
+        "path": "dist/issue60-recovery/bootstrap-symlink-16d49c5/result.json",
+        "sha256": "52d15c19e7c2f4e56100a41a8e90cd4271f45b066b018d4fc0614d1c9f226a63"
+      },
+      "signed_inputs_unchanged": true,
+      "status": "pass",
+      "steps": [
+        "confirm-clean-fixture",
+        "system-python",
+        "import-project-public-key",
+        "verify-signed-target",
+        "prepare-state-directory",
+        "redirect-bootstrap-directory",
+        "reject-before-unpack",
+        "no-marker-or-payload-created",
+        "package-remains-uninstalled"
+      ],
+      "steps_completed": 9
+    },
+    "upgrade": {
+      "all_step_log_hashes_verified": true,
+      "container_removed": true,
+      "interruption": {
+        "fresh_install": false,
+        "manager_exit": 9,
+        "minimum_bytes": 1048576,
+        "observed_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13;6acbfa1a"
+      },
+      "manager_log": {
+        "path": "dist/issue60-recovery/bootstrap-upgrade-16d49c5/interrupted-manager.log",
+        "sha256": "ee0e93f8437e6e4936fc201fff6de985776a462b8dad6f2d79d0385c85909a1a"
+      },
+      "preservation_report": {
+        "path": "dist/issue60-recovery/bootstrap-upgrade-16d49c5/preservation.json",
+        "sha256": "a23f53ca5f0e6c13de24d1f72fce4cfd59a35f06d17e05d06c9310a521faaeed"
+      },
+      "preserved_fragment_count": 45,
+      "recovery_interface": "System Python executes the content-addressed copy embedded in authenticated RPM %pre; no source or build staging is mounted.",
+      "result": {
+        "path": "dist/issue60-recovery/bootstrap-upgrade-16d49c5/result.json",
+        "sha256": "5894c1842e4bb7b24aa192c6f25d2a810e97abfa97b45be1a89e327cef65915f"
+      },
+      "signed_inputs_unchanged": true,
+      "status": "pass",
+      "steps": [
+        "confirm-clean-fixture",
+        "system-python",
+        "import-project-public-key",
+        "verify-signed-target",
+        "install-signed-previous-package",
+        "previous-installed-identity",
+        "kill-interrupted-manager",
+        "interrupted-bin-layout",
+        "bootstrap-helper-identity",
+        "bootstrap-independent-of-runtime",
+        "interrupted-upgrade-launch-blocked",
+        "inspect-signed-fragments",
+        "preserve-signed-fragments",
+        "saved-package-identity",
+        "audit-and-preserved-fragment-bytes",
+        "import-saved-public-key",
+        "replay-exact-saved-package",
+        "configured-marker-cleared",
+        "bootstrap-copy-cleaned-after-validation",
+        "installed-helper-identity",
+        "native-package-state",
+        "complete-installed-integrity",
+        "launcher-after-repair"
+      ],
+      "steps_completed": 23
+    },
+    "writable": {
+      "all_step_log_hashes_verified": true,
+      "container_removed": true,
+      "result": {
+        "path": "dist/issue60-recovery/bootstrap-writable-16d49c5/result.json",
+        "sha256": "e590b74ac083439aef112f156beeed2dd8f7d252c3b2bec8ca5ff941ca3747e2"
+      },
+      "signed_inputs_unchanged": true,
+      "status": "pass",
+      "steps": [
+        "confirm-clean-fixture",
+        "system-python",
+        "import-project-public-key",
+        "verify-signed-target",
+        "prepare-state-directory",
+        "writable-bootstrap-directory",
+        "reject-before-unpack",
+        "no-marker-or-payload-created",
+        "package-remains-uninstalled"
+      ],
+      "steps_completed": 9
+    }
+  },
+  "recovery_source_sha256": "67cef65abaa04e49ccb1f1276a498b38080ddacfb6b1a7bc5f86a62cb25971b5",
+  "rendered_recovery_helper_sha256": "4c7cb21c6389d83c5ce051e039aa9e36dcc53077c9896f73f13773eab6d536cc",
+  "retained_failures": [
+    {
+      "meaning": "Real initial fresh-install test exposed canonical /usr/bin helper absence during RPM staging; fixed by authenticated pre-install bootstrap.",
+      "result": {
+        "path": "dist/issue60-recovery/fresh-install-42f0725/result.json",
+        "sha256": "a1b45b0b99a9ac154692a7fe59591779758a6491026962154eeb67eb3b2ef521"
+      }
+    },
+    {
+      "meaning": "Confirmed launcher and recovery helper were both temporary semicolon-suffixed staged files; preserved before fix.",
+      "result": {
+        "path": "dist/issue60-recovery/fresh-install-layout-diagnosis/result.json",
+        "sha256": "1394c78ace31321c0cb6945f8d9f8d7355a1b1474008824629b9bda60a0b6f37"
+      }
+    },
+    {
+      "meaning": "Initial reviewer harness stopped before install on signature output capitalization assertion; corrected harness verifies actual approved fingerprint.",
+      "result": {
+        "path": "dist/independent-review/lifecycle-16d49c5/result.json",
+        "sha256": "65c578ad1b9f74d5aab43871836d28e1212614cf2d30630b6d81bc4ffada3225"
+      }
+    }
+  ],
+  "runtime_manifest_sha256": "5642f88b02d53706cbf71ad2f474bd245b2642bd0d1f140dbf7912b510fe3ce0",
+  "schema_version": 1,
+  "scope": "Authenticated shipped recovery for interrupted x86_64 CPU native RPMs; signed local candidate qualification, not release/default recipe promotion.",
+  "signing": {
+    "immutable_header_and_payload_unchanged": true,
+    "native_versions": [
+      "RPM version 4.18.2",
+      "RPM version 6.0.2"
+    ],
+    "payload_comparison_scope": "Each RPM implementation compares its own unsigned and signed decoded payload. Cross-version cpio output can differ in trailing zero padding.",
+    "receipt": {
+      "path": "qualification.json",
+      "sha256": "97735ac8cbb24c91c4cbb0f124adffc5004cbfe9a0e705e04b9eea08c6ba8c38"
+    },
+    "source_artifacts_unchanged": true,
+    "status": "verified",
+    "verification_images": {
+      "fedora": "sha256:04889d6f71525c2ad4fe22de365ad5281cd03afddb9df7b8d9ad95eeccdcf8f2",
+      "ubuntu": "sha256:da6878b518a6e4425ac8c42479626306a1004334deb4694116aae02cded7311f"
+    }
+  },
+  "target": {
+    "artifact": "nvbroadcast-1.5.3-3.cpu.x86_64.rpm",
+    "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+    "bytes": 389973630,
+    "content_manifest_sha256": "d25412a35abc8e45a5dc329ee895dc9a9c35a45ed3323bfc9b3d6ba6df0f1969",
+    "signed_sha256": "bd29ccaf15b9679629812ab52e0910c184fb69689deb8ca0598b76df3a82f574",
+    "unsigned_sha256": "39a458c7cd16f3314e2b6de92b13f1e4a35b2b8ea3e13626d8888aa8aa18d4e8"
+  },
+  "targeted_unit_tests": {
+    "host_passed": 72,
+    "host_skip_reason": "Native RPM tools unavailable on host; the actual transaction-lock test passes in pinned Fedora.",
+    "host_skipped": 1,
+    "host_subtests_passed": 44,
+    "independent_fedora_bootstrap_and_recovery_passed": 35,
+    "independent_surrounding_passed": 62,
+    "independent_surrounding_skipped": 1
+  }
+}

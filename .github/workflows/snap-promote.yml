@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Promote reviewed revisions to candidate, or promote the tested candidate build set to stable.
+        description: Promote reviewed revisions to candidate, or promote the tested candidate build set to edge or stable.
         required: true
         type: choice
         options:
           - candidate
+          - edge
           - stable
       amd64_revision:
         description: Unpublished amd64 revision to release when operation is candidate.
@@ -36,7 +37,31 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: ${{ github.ref }}
           persist-credentials: false
+
+      - name: Verify promotion release source
+        run: |
+          set -euo pipefail
+
+          PACKAGE_VERSION="$(sed -n "s/^version:[[:space:]]*['\"]\([^'\"]*\)['\"]/\1/p" snap/snapcraft.yaml | head -n1)"
+          if [[ ! "$PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Could not read a release version from snap/snapcraft.yaml."
+            exit 1
+          fi
+          EXPECTED_REF="refs/tags/v$PACKAGE_VERSION"
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ] || [ "${GITHUB_REF:-}" != "$EXPECTED_REF" ]; then
+            echo "::error::Snap promotion must run from $EXPECTED_REF."
+            echo "Dispatch candidate, edge, or stable promotion with --ref v$PACKAGE_VERSION."
+            exit 1
+          fi
+
+          TAG_COMMIT="$(git --no-replace-objects rev-parse --verify "$EXPECTED_REF^{commit}")"
+          CHECKED_OUT_COMMIT="$(git --no-replace-objects rev-parse --verify "HEAD^{commit}")"
+          if [ "$CHECKED_OUT_COMMIT" != "$TAG_COMMIT" ] || [ "$CHECKED_OUT_COMMIT" != "${GITHUB_SHA:-}" ]; then
+            echo "::error::Checked-out commit, release tag commit, and workflow source SHA must match."
+            exit 1
+          fi
 
       - name: Install Snapcraft
         run: |
@@ -96,7 +121,12 @@ jobs:
           current_revision() {
             local table="$1"
             local channel="$2"
-            awk -v current="latest/$channel*" 'index($5, current) { print $1; exit }' <<<"$table"
+            awk -v current="latest/$channel*" '{
+              count = split($5, channels, ",")
+              for (i = 1; i <= count; i++) {
+                if (channels[i] == current) { print $1; exit }
+              }
+            }' <<<"$table"
           }
 
           validate_revision amd64 "$AMD64_REVISION" "$AMD64_TABLE"
@@ -147,13 +177,15 @@ jobs:
           printf 'Candidate now uses amd64 revision %s and arm64 revision %s.\n' \
             "$AMD64_REVISION" "$ARM64_REVISION"
 
-      - name: Promote tested candidate build set to stable
-        if: inputs.operation == 'stable'
+      - name: Promote tested candidate build set to edge or stable
+        if: inputs.operation == 'edge' || inputs.operation == 'stable'
         env:
+          TARGET_CHANNEL: ${{ inputs.operation }}
+          EDGE_PROMOTION_ENABLED: ${{ vars.SNAP_EDGE_PROMOTION_ENABLED }}
           AMD64_REVISION: ${{ inputs.amd64_revision }}
           ARM64_REVISION: ${{ inputs.arm64_revision }}
           GH_TOKEN: ${{ github.token }}
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ (inputs.operation == 'edge' && vars.SNAP_EDGE_PROMOTION_ENABLED == 'true' && secrets.SNAP_EDGE_TOKEN) || (inputs.operation == 'stable' && secrets.SNAP_TOKEN) || '' }}
         run: |
           set -euo pipefail
 
@@ -163,15 +195,32 @@ jobs:
             echo "::error::Could not read the Snap name and version."
             exit 1
           fi
+          if [ "$TARGET_CHANNEL" != "edge" ] && [ "$TARGET_CHANNEL" != "stable" ]; then
+            echo "::error::Candidate build-set promotion requires edge or stable."
+            exit 1
+          fi
+          if [ "$TARGET_CHANNEL" = "edge" ] && [ "${EDGE_PROMOTION_ENABLED:-}" != "true" ]; then
+            echo "::error::Edge promotion is disabled. Complete docs/SNAP_EDGE_PROMOTION.md before enabling it."
+            exit 1
+          fi
+          if [ -z "${SNAPCRAFT_STORE_CREDENTIALS:-}" ]; then
+            echo "::error::A channel-scoped Snap Store credential is required for $TARGET_CHANNEL promotion."
+            exit 1
+          fi
           if [ -n "$AMD64_REVISION" ] || [ -n "$ARM64_REVISION" ]; then
-            echo "::error::Stable promotion uses the complete candidate build set; leave revision inputs empty."
+            echo "::error::$TARGET_CHANNEL promotion uses the complete candidate build set; leave revision inputs empty."
             exit 1
           fi
 
           current_revision() {
             local table="$1"
             local channel="$2"
-            awk -v current="latest/$channel*" 'index($5, current) { print $1; exit }' <<<"$table"
+            awk -v current="latest/$channel*" '{
+              count = split($5, channels, ",")
+              for (i = 1; i <= count; i++) {
+                if (channels[i] == current) { print $1; exit }
+              }
+            }' <<<"$table"
           }
 
           validate_candidate() {
@@ -180,7 +229,7 @@ jobs:
             local revision line found_revision _uploaded found_architecture found_version channels
             revision="$(current_revision "$table" candidate)"
             line="$(awk -v revision="$revision" '$1 == revision { print; exit }' <<<"$table")"
-            if [ -z "$revision" ] || [ -z "$line" ]; then
+            if ! [[ "$revision" =~ ^[1-9][0-9]*$ ]] || [ -z "$line" ]; then
               echo "::error::Current $architecture candidate revision could not be identified." >&2
               return 1
             fi
@@ -201,9 +250,9 @@ jobs:
           CANDIDATE_ARM64="$(validate_candidate arm64 "$ARM64_TABLE")"
 
           RELEASE_TAG="v$EXPECTED_VERSION"
-          git fetch --no-tags origin \
-            "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
-          RELEASE_COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          # The unconditional source preflight already bound this workflow and
+          # checkout to the release tag. Do not resolve a moving remote tag again.
+          RELEASE_COMMIT="$GITHUB_SHA"
 
           download_and_verify_candidate() {
             local architecture="$1"
@@ -240,20 +289,79 @@ jobs:
             download_and_verify_candidate arm64 "$CANDIDATE_ARM64"
           )"
 
-          snapcraft promote "$SNAP_NAME" \
-            --from-channel=candidate \
-            --to-channel=stable \
-            --yes
-
+          # Recheck the tested set after downloads/attestation verification.
+          # Publish captured revision IDs, never a fresh channel-based build set.
           AMD64_TABLE="$(snapcraft revisions "$SNAP_NAME" --arch amd64)"
           ARM64_TABLE="$(snapcraft revisions "$SNAP_NAME" --arch arm64)"
-          if [ "$(current_revision "$AMD64_TABLE" stable)" != "$CANDIDATE_AMD64" ] || \
-             [ "$(current_revision "$ARM64_TABLE" stable)" != "$CANDIDATE_ARM64" ]; then
-            echo "::error::Stable channel verification does not match the tested candidate build set."
+          if [ "$(validate_candidate amd64 "$AMD64_TABLE")" != "$CANDIDATE_AMD64" ] || \
+             [ "$(validate_candidate arm64 "$ARM64_TABLE")" != "$CANDIDATE_ARM64" ]; then
+            echo "::error::Candidate changed during verification; no revisions were released."
             exit 1
           fi
 
-          snapcraft upload-metadata "$CANDIDATE_ARM64_SNAP" --force
+          OLD_AMD64_REVISION="$(current_revision "$AMD64_TABLE" "$TARGET_CHANNEL")"
+          OLD_ARM64_REVISION="$(current_revision "$ARM64_TABLE" "$TARGET_CHANNEL")"
+          if ! [[ "$OLD_AMD64_REVISION" =~ ^[1-9][0-9]*$ ]] || \
+             ! [[ "$OLD_ARM64_REVISION" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Both current $TARGET_CHANNEL revisions are required for rollback."
+            exit 1
+          fi
 
-          printf 'Stable now matches candidate: amd64 revision %s, arm64 revision %s.\n' \
-            "$CANDIDATE_AMD64" "$CANDIDATE_ARM64"
+          RELEASED_AMD64=false
+          RELEASED_ARM64=false
+          restore_revision() {
+            local architecture="$1" published="$2" previous="$3" table current
+            if ! table="$(snapcraft revisions "$SNAP_NAME" --arch "$architecture")"; then
+              echo "::warning::Could not read $architecture $TARGET_CHANNEL for rollback."
+              return
+            fi
+            current="$(current_revision "$table" "$TARGET_CHANNEL")"
+            if [ "$current" = "$published" ]; then
+              snapcraft release "$SNAP_NAME" "$previous" "$TARGET_CHANNEL" || \
+                echo "::warning::Could not restore $architecture $TARGET_CHANNEL revision $previous."
+            elif [ "$current" != "$previous" ]; then
+              echo "::warning::Another publisher changed $architecture $TARGET_CHANNEL; leaving its revision unchanged."
+            fi
+          }
+          rollback_promotion() {
+            local status="$?"
+            trap - EXIT
+            if [ "$status" -ne 0 ]; then
+              echo "::warning::Promotion failed; restoring revisions still owned by this operation."
+              if [ "$RELEASED_AMD64" = true ]; then
+                restore_revision amd64 "$CANDIDATE_AMD64" "$OLD_AMD64_REVISION"
+              fi
+              if [ "$RELEASED_ARM64" = true ]; then
+                restore_revision arm64 "$CANDIDATE_ARM64" "$OLD_ARM64_REVISION"
+              fi
+            fi
+            exit "$status"
+          }
+          trap rollback_promotion EXIT
+
+          if [ "$CANDIDATE_ARM64" != "$OLD_ARM64_REVISION" ]; then
+            # Mark before the request: a lost response may follow a Store commit.
+            RELEASED_ARM64=true
+            snapcraft release "$SNAP_NAME" "$CANDIDATE_ARM64" "$TARGET_CHANNEL"
+          fi
+          if [ "$CANDIDATE_AMD64" != "$OLD_AMD64_REVISION" ]; then
+            RELEASED_AMD64=true
+            snapcraft release "$SNAP_NAME" "$CANDIDATE_AMD64" "$TARGET_CHANNEL"
+          fi
+
+          AMD64_TABLE="$(snapcraft revisions "$SNAP_NAME" --arch amd64)"
+          ARM64_TABLE="$(snapcraft revisions "$SNAP_NAME" --arch arm64)"
+          if [ "$(current_revision "$AMD64_TABLE" "$TARGET_CHANNEL")" != "$CANDIDATE_AMD64" ] || \
+             [ "$(current_revision "$ARM64_TABLE" "$TARGET_CHANNEL")" != "$CANDIDATE_ARM64" ]; then
+            echo "::error::$TARGET_CHANNEL channel verification does not match the tested candidate build set."
+            exit 1
+          fi
+
+          trap - EXIT
+
+          if [ "$TARGET_CHANNEL" = "stable" ]; then
+            snapcraft upload-metadata "$CANDIDATE_ARM64_SNAP" --force
+          fi
+
+          printf '%s now uses the verified candidate set: amd64 revision %s, arm64 revision %s.\n' \
+            "$TARGET_CHANNEL" "$CANDIDATE_AMD64" "$CANDIDATE_ARM64"

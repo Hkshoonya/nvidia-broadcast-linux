@@ -66,7 +66,7 @@ class UpdateTests(unittest.TestCase):
             target = resolve_update_target(release)
 
         self.assertEqual(target.button_label, "Open Release Notes")
-        self.assertIn("configured remote", target.tooltip)
+        self.assertIn("Flatpak updates depend on your installation source", target.tooltip)
         self.assertEqual(target.url, release.html_url)
 
     @mock.patch("sys.platform", "darwin")

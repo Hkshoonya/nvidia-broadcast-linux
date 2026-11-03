@@ -1,0 +1,1281 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-26",
+  "status": "functional-qualification-only-release-blocked",
+  "scope": "Functional-only fresh final-artifact clean-cloud-VM install/reboot/removal; synthetic display/audio, no physical media/GPU or upgrade acceptance.",
+  "version": "1.5.3-7.cuda",
+  "variant": "cuda",
+  "application_revision": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+  "adapter_revision": "e765a951e1dd30aaa10476ca31c1bb19f1be3ac5",
+  "release_hold": {
+    "release_promotion_eligible": false,
+    "reason": "Known dependency advisories require affected inputs to be replaced, rebuilt, audited and requalified. Passing functional checks does not establish security acceptance. No replacement inputs are qualified by this record.",
+    "audit_completed_utc": "2026-10-26T19:36:29.134076+00:00",
+    "audit_receipt_sha256": "460f98652c78887ebee0f83d6ee2cfe7443b067c964e504299fe494e5560dbdd",
+    "primary_sources": [
+      "https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2",
+      "https://github.com/advisories/GHSA-5x8w-8jj5-q52h"
+    ],
+    "known_exact_native_pin_matches": [
+      {
+        "advisory": "GHSA-6q48-6c7w-9gw2",
+        "package": "certifi",
+        "version": "2026.7.22"
+      },
+      {
+        "advisory": "GHSA-5x8w-8jj5-q52h",
+        "package": "pillow",
+        "version": "12.3.0"
+      }
+    ],
+    "audit_scope": "Mac54 exact-input audit cross-matched against these native source locks for certifi/Pillow. This is not a complete audit of the native70 distributions."
+  },
+  "upstream_qualification_record": {
+    "path": "2026-10-25-hosted-cuda.json",
+    "sha256": "7fb956ac41b74336b6fdd46da296baa84a32bfc92a03e80a371461005341e626"
+  },
+  "candidate": {
+    "producer_run": 40240561476,
+    "finalization_run": 40241470218,
+    "artifact_id": 12617194457,
+    "artifact_digest": "sha256:b9b13de541fe159f74b011a01c078b131a64e3e0a7b6fc5f823500d058c8680a",
+    "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40241470218/artifacts/12617194457",
+    "project_rpm_fingerprint": "A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1"
+  },
+  "vm_contract": {
+    "acceleration": "KVM",
+    "vcpus": 2,
+    "ram_mib": 4096,
+    "fresh_overlay_virtual_gib": 32,
+    "base_images": "Vendor-signature/checksum authenticated official cloud images, unchanged after execution.",
+    "network": "Online OS dependency prefetch only; complete shutdown and restart with QEMU usernet restrict=on and IPv6 off before installation. Both online endpoint connections succeed and both offline connections fail. SSH is loopback-only with an ephemeral pinned Ed25519 host key.",
+    "input_transport": "Read-only ISO of exact packages and hash-bound probes; no host device, display/audio socket or user-home passthrough. KVM provides acceleration only.",
+    "baseline": "Pristine native inventories captured before download. Declared application dependencies installed and checked before separately inventoried synthetic test tools. OS repository packages are inventoried, not an independently reproduced repository snapshot.",
+    "qualification_log_count": 104,
+    "physical_device_or_gpu_acceptance": false,
+    "upgrade_or_power_loss_acceptance": false
+  },
+  "platforms": {
+    "deb": {
+      "base_image": {
+        "distribution": "Ubuntu Server 24.04 LTS",
+        "release": "20261017",
+        "architecture": "amd64",
+        "filename": "ubuntu-24.04-server-cloudimg-amd64.img",
+        "sha256": "04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94",
+        "url": "https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img",
+        "signer_fingerprint": "D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81",
+        "status": "authenticated-and-qcow2-checked"
+      },
+      "base_image_verification_script_sha256": "3c69ed0863cccf5c75cb629f401084448a59e094dc4d90626ce74ad7c68c7007",
+      "package": {
+        "bytes": 2070585242,
+        "path": "deb/nvbroadcast_1.5.3-7.cuda_amd64.deb",
+        "sha256": "b16c3195bcd01e4536ca3a59feb474dcbda3ca39c1c6f2da3d36829a0c0ad539"
+      },
+      "steps_passed": 50,
+      "local_harness_sha256": "17634fb93ca258443ceeb7a409119de16f6508017d6c8ac9f212674b650a6a48",
+      "local_result_sha256": "e48ce03998ccb7dbc2e12b44631ea397249c39fbfcf96b8922bd71420b2c7320",
+      "local_result_path": "Broadcast-native-vm-20261026/dist/vm-deb/result.json",
+      "input_iso_sha256": "a1e643d12aa26586b4226765b8cca969751a825a7d52a3ddba2833e8acf6d242",
+      "probe_sha256": {
+        "app_probe.py": "9a2d60e283d05aba41d635e595f58a72a98db6337fad853e76ed3ce3a1025d68",
+        "desktop_probe.sh": "46c103991ebe25eb95ef6e7f7509f2445c53cc395ef010a331e7ff31532146b4",
+        "expected.json": "5034cca6d95a7d760f76eb0761eb59ee0e9a1dec7d82c3a88020b735e3eac245",
+        "probe.py": "0bdf5843e76ad4cc15a6a5caf7e1f258e8e44b1c9f3fbd433854b385c438aac7",
+        "public.asc": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+        "recording_probe.py": "ba619eca3f49548a9f0937d2dd9d0ad3e57925e16251df228b5a0df1e279a7fa"
+      },
+      "application_python_files_verified": 62,
+      "inventory_counts": {
+        "app_only": 897,
+        "downloaded": 664,
+        "pristine": 664,
+        "removed": 929,
+        "with_tools": 930
+      },
+      "owned_files_removed": 17688,
+      "boot_ids": [
+        "74a3e015-496b-4980-91ab-1f21fa2c5327",
+        "9923a3cf-ef14-407d-98a4-693cf489b2d1",
+        "c708f100-db2e-4520-97d5-242fe4bff223"
+      ],
+      "all_three_boots_shut_down_cleanly": true,
+      "source_package_base_image_and_input_iso_unchanged": true,
+      "user_sentinels_system_python_and_runtime_lock_preserved": true,
+      "runtime_probes": {
+        "first-boot": {
+          "status": "pass",
+          "variant": "cuda",
+          "os": "ubuntu",
+          "os_version": "24.04",
+          "python": "3.13.16",
+          "gtk": "4.14.5",
+          "adwaita": "1.5.0",
+          "gstreamer": "GStreamer 1.24.2",
+          "cpu_execution": {
+            "available_providers": [
+              "TensorrtExecutionProvider",
+              "CUDAExecutionProvider",
+              "CPUExecutionProvider"
+            ],
+            "error": "",
+            "executed_providers": [
+              "CPUExecutionProvider"
+            ],
+            "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+            "output": [
+              1.0,
+              4.0,
+              9.0,
+              16.0
+            ],
+            "output_shape": [
+              1,
+              4
+            ],
+            "provider": "cpu",
+            "registered_providers": [
+              "CPUExecutionProvider"
+            ],
+            "success": true
+          },
+          "cuda_execution": {
+            "available_providers": [
+              "TensorrtExecutionProvider",
+              "CUDAExecutionProvider",
+              "CPUExecutionProvider"
+            ],
+            "error": "RuntimeError: /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=nvb-clean-deb ; file=/onnxruntime_src/onnxruntime",
+            "executed_providers": [],
+            "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+            "output": [],
+            "output_shape": [],
+            "provider": "cuda",
+            "registered_providers": [],
+            "success": false
+          },
+          "cuda_unavailable_expected": true,
+          "cupy_execution": null,
+          "gtk_window_mapped": true,
+          "video_and_audio_pipelines": "eos",
+          "distribution_count": 70,
+          "distribution_versions_canonical_sha256": "2d8f131de161d17ea639f337511b7d49a8e36f1c8182f11abf100d5b41136554"
+        },
+        "after-reboot": {
+          "status": "pass",
+          "variant": "cuda",
+          "os": "ubuntu",
+          "os_version": "24.04",
+          "python": "3.13.16",
+          "gtk": "4.14.5",
+          "adwaita": "1.5.0",
+          "gstreamer": "GStreamer 1.24.2",
+          "cpu_execution": {
+            "available_providers": [
+              "TensorrtExecutionProvider",
+              "CUDAExecutionProvider",
+              "CPUExecutionProvider"
+            ],
+            "error": "",
+            "executed_providers": [
+              "CPUExecutionProvider"
+            ],
+            "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+            "output": [
+              1.0,
+              4.0,
+              9.0,
+              16.0
+            ],
+            "output_shape": [
+              1,
+              4
+            ],
+            "provider": "cpu",
+            "registered_providers": [
+              "CPUExecutionProvider"
+            ],
+            "success": true
+          },
+          "cuda_execution": {
+            "available_providers": [
+              "TensorrtExecutionProvider",
+              "CUDAExecutionProvider",
+              "CPUExecutionProvider"
+            ],
+            "error": "RuntimeError: /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=nvb-clean-deb ; file=/onnxruntime_src/onnxruntime",
+            "executed_providers": [],
+            "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+            "output": [],
+            "output_shape": [],
+            "provider": "cuda",
+            "registered_providers": [],
+            "success": false
+          },
+          "cuda_unavailable_expected": true,
+          "cupy_execution": null,
+          "gtk_window_mapped": true,
+          "video_and_audio_pipelines": "eos",
+          "distribution_count": 70,
+          "distribution_versions_canonical_sha256": "2d8f131de161d17ea639f337511b7d49a8e36f1c8182f11abf100d5b41136554"
+        }
+      },
+      "application_window_probes": {
+        "first-boot": {
+          "actual_broadcast_window_mapped": true,
+          "height": 890,
+          "status": "pass",
+          "title": "NV Broadcast",
+          "type": "NVBroadcastWindow",
+          "width": 1270
+        },
+        "after-reboot": {
+          "actual_broadcast_window_mapped": true,
+          "height": 890,
+          "status": "pass",
+          "title": "NV Broadcast",
+          "type": "NVBroadcastWindow",
+          "width": 1270
+        }
+      },
+      "generated_recordings": {
+        "first-boot": {
+          "audio_encoder": "voaacenc",
+          "audio_peak": 0.8085297346115112,
+          "audio_samples": 49152,
+          "file_bytes": 215054,
+          "status": "pass",
+          "video_encoder": "x264enc",
+          "video_frames": 24
+        },
+        "after-reboot": {
+          "audio_encoder": "voaacenc",
+          "audio_peak": 0.8085297346115112,
+          "audio_samples": 49152,
+          "file_bytes": 215054,
+          "status": "pass",
+          "video_encoder": "x264enc",
+          "video_frames": 24
+        }
+      },
+      "retained_logs": [
+        {
+          "name": "seed-iso",
+          "path": "vm-deb/logs/00-seed-iso.log",
+          "sha256": "97544a0d9729a4ae7c7314cb04b31aea0ff32acac95cc6a29ffeaf3db779a861",
+          "exit_code": 0
+        },
+        {
+          "name": "create-overlay",
+          "path": "vm-deb/logs/01-create-overlay.log",
+          "sha256": "0e392ac337462c2b5fec0043119d0cba882dbc2346f861094c24abc9d9e5700b",
+          "exit_code": 0
+        },
+        {
+          "name": "input-iso",
+          "path": "vm-deb/logs/02-input-iso.log",
+          "sha256": "97544a0d9729a4ae7c7314cb04b31aea0ff32acac95cc6a29ffeaf3db779a861",
+          "exit_code": 0
+        },
+        {
+          "name": "cloud-init-0",
+          "path": "vm-deb/logs/03-cloud-init-0.log",
+          "sha256": "819d6e0ba44201e8f5b4ec9c0df7a9fdc98a688d9f7122f945c05513a3a90ae8",
+          "exit_code": 0
+        },
+        {
+          "name": "boot-identity-0",
+          "path": "vm-deb/logs/04-boot-identity-0.log",
+          "sha256": "b86a5653d51a8ddfc81c98acc23cd1fa2193fa9bc36327dea2c82877077f7125",
+          "exit_code": 0
+        },
+        {
+          "name": "mount-inputs-0",
+          "path": "vm-deb/logs/05-mount-inputs-0.log",
+          "sha256": "b4e26707381e322fcc091514a601361a0cd0303bb0a1671d742ef7d7d62860d7",
+          "exit_code": 0
+        },
+        {
+          "name": "guest-probe-hashes-0",
+          "path": "vm-deb/logs/06-guest-probe-hashes-0.log",
+          "sha256": "f8f6004ed809c9061e76d258c049eceff07b72879ffaaa3341446b911ff11897",
+          "exit_code": 0
+        },
+        {
+          "name": "network-boundary-0",
+          "path": "vm-deb/logs/07-network-boundary-0.log",
+          "sha256": "a709d003ec6004f2e4a0e37969465e301453dbba11c07bd5e6f1f58e31ae905e",
+          "exit_code": 0
+        },
+        {
+          "name": "pristine-native-inventory",
+          "path": "vm-deb/logs/08-pristine-native-inventory.log",
+          "sha256": "3822de4b468032f9a0442edecb219e0300ec6a0e2d650c838cc4ed59d7c233d9",
+          "exit_code": 0
+        },
+        {
+          "name": "pristine-package-absent",
+          "path": "vm-deb/logs/09-pristine-package-absent.log",
+          "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7",
+          "exit_code": 0
+        },
+        {
+          "name": "download-declared-app-closure",
+          "path": "vm-deb/logs/10-download-declared-app-closure.log",
+          "sha256": "0e2849b8cf7a9976f09912f1ebe1e558640c2c5a11c94464e86badcfc33e79cd",
+          "exit_code": 0
+        },
+        {
+          "name": "download-test-tools-separately",
+          "path": "vm-deb/logs/11-download-test-tools-separately.log",
+          "sha256": "90ca9dd1813092f64d324dff610b75d0578d619adf2560ebd5a22f1e8e638928",
+          "exit_code": 0
+        },
+        {
+          "name": "after-download-before-install-inventory",
+          "path": "vm-deb/logs/12-after-download-before-install-inventory.log",
+          "sha256": "3822de4b468032f9a0442edecb219e0300ec6a0e2d650c838cc4ed59d7c233d9",
+          "exit_code": 0
+        },
+        {
+          "name": "download-cache-inventory",
+          "path": "vm-deb/logs/13-download-cache-inventory.log",
+          "sha256": "f2891269c65ef191ee64d1372daf0271afc589c5a3ded866440b339f580b9a17",
+          "exit_code": 0
+        },
+        {
+          "name": "cloud-init-1",
+          "path": "vm-deb/logs/14-cloud-init-1.log",
+          "sha256": "a2c9a7f4d00ef458c07241366d6420d6f53d55b97dbac87865dbf02784acc344",
+          "exit_code": 0
+        },
+        {
+          "name": "boot-identity-1",
+          "path": "vm-deb/logs/15-boot-identity-1.log",
+          "sha256": "6fb7484ad95cf7f7fe5fa50e55948f96b99cc7a7782e2b90d83cc0e1157517ed",
+          "exit_code": 0
+        },
+        {
+          "name": "mount-inputs-1",
+          "path": "vm-deb/logs/16-mount-inputs-1.log",
+          "sha256": "b4e26707381e322fcc091514a601361a0cd0303bb0a1671d742ef7d7d62860d7",
+          "exit_code": 0
+        },
+        {
+          "name": "guest-probe-hashes-1",
+          "path": "vm-deb/logs/17-guest-probe-hashes-1.log",
+          "sha256": "f8f6004ed809c9061e76d258c049eceff07b72879ffaaa3341446b911ff11897",
+          "exit_code": 0
+        },
+        {
+          "name": "network-boundary-1",
+          "path": "vm-deb/logs/18-network-boundary-1.log",
+          "sha256": "d1c57d55f8db90a2cfad091a86ec68f71fbc58ebf746bdbd42eed3dce3da2243",
+          "exit_code": 0
+        },
+        {
+          "name": "persistent-sentinels",
+          "path": "vm-deb/logs/19-persistent-sentinels.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "exit_code": 0
+        },
+        {
+          "name": "offline-install-app-with-declared-dependencies",
+          "path": "vm-deb/logs/20-offline-install-app-with-declared-dependencies.log",
+          "sha256": "18653586702de68f3c95011fdba73c56fc97d074aff2ff4a7d316db6fbcbafb7",
+          "exit_code": 0
+        },
+        {
+          "name": "app-only-installed-inventory",
+          "path": "vm-deb/logs/21-app-only-installed-inventory.log",
+          "sha256": "8466af7f8b527e4558b84052b2f61cafd41f0878fb230fd6ad21467031c89351",
+          "exit_code": 0
+        },
+        {
+          "name": "capture-complete-package-owned-file-set",
+          "path": "vm-deb/logs/22-capture-complete-package-owned-file-set.log",
+          "sha256": "0a67690bd6ed548583bc0abedf6e0673f11ebc1f6d95d605044ed1bdf9aa5c75",
+          "exit_code": 0
+        },
+        {
+          "name": "installed-source-adapter-identity",
+          "path": "vm-deb/logs/23-installed-source-adapter-identity.log",
+          "sha256": "7d8b202a426660dff357736a083705909a561483751782648115060d9902a4be",
+          "exit_code": 0
+        },
+        {
+          "name": "complete-integrity-app-only",
+          "path": "vm-deb/logs/24-complete-integrity-app-only.log",
+          "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+          "exit_code": 0
+        },
+        {
+          "name": "native-state-app-only",
+          "path": "vm-deb/logs/25-native-state-app-only.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "exit_code": 0
+        },
+        {
+          "name": "ordinary-launcher-app-only",
+          "path": "vm-deb/logs/26-ordinary-launcher-app-only.log",
+          "sha256": "7b20f74b4c3ed0b5c5968df0950b25d65a3c8ebc186b0b9e11a5d73832472255",
+          "exit_code": 0
+        },
+        {
+          "name": "offline-install-test-tools",
+          "path": "vm-deb/logs/27-offline-install-test-tools.log",
+          "sha256": "51fc1a763616918bf5d64288ea2ed079ed17779a27c27e5c15bd3c4b4117fed9",
+          "exit_code": 0
+        },
+        {
+          "name": "with-test-tools-inventory",
+          "path": "vm-deb/logs/28-with-test-tools-inventory.log",
+          "sha256": "53708aece3971a1337fbee9c3035242d16e8396e5ebb5b1f1af5cd62dddae07d",
+          "exit_code": 0
+        },
+        {
+          "name": "complete-integrity-first-boot",
+          "path": "vm-deb/logs/29-complete-integrity-first-boot.log",
+          "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+          "exit_code": 0
+        },
+        {
+          "name": "native-state-first-boot",
+          "path": "vm-deb/logs/30-native-state-first-boot.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "exit_code": 0
+        },
+        {
+          "name": "ordinary-launcher-first-boot",
+          "path": "vm-deb/logs/31-ordinary-launcher-first-boot.log",
+          "sha256": "7b20f74b4c3ed0b5c5968df0950b25d65a3c8ebc186b0b9e11a5d73832472255",
+          "exit_code": 0
+        },
+        {
+          "name": "runtime-media-gtk-first-boot",
+          "path": "vm-deb/logs/32-runtime-media-gtk-first-boot.log",
+          "sha256": "877e668561fcc3dd7c4d1074380cd570dd4a395b1087ef2c9368d20e2d00e953",
+          "exit_code": 0
+        },
+        {
+          "name": "actual-broadcast-window-first-boot",
+          "path": "vm-deb/logs/33-actual-broadcast-window-first-boot.log",
+          "sha256": "fd603dd40cd3579dacead57ab2686edfa6c86fe3e8526800eb0a8b4a184e4969",
+          "exit_code": 0
+        },
+        {
+          "name": "generated-recording-first-boot",
+          "path": "vm-deb/logs/34-generated-recording-first-boot.log",
+          "sha256": "3bfdba0e9189e1c7bc1b5fc632a5a8a79c97d0c9f14be1ac050c6a5e8296a5a1",
+          "exit_code": 0
+        },
+        {
+          "name": "cloud-init-2",
+          "path": "vm-deb/logs/35-cloud-init-2.log",
+          "sha256": "a2c9a7f4d00ef458c07241366d6420d6f53d55b97dbac87865dbf02784acc344",
+          "exit_code": 0
+        },
+        {
+          "name": "boot-identity-2",
+          "path": "vm-deb/logs/36-boot-identity-2.log",
+          "sha256": "453677c0b4125adfb1d367ee0a8c553c7849c0fa9d4a7ae02e2d171d0995daea",
+          "exit_code": 0
+        },
+        {
+          "name": "mount-inputs-2",
+          "path": "vm-deb/logs/37-mount-inputs-2.log",
+          "sha256": "b4e26707381e322fcc091514a601361a0cd0303bb0a1671d742ef7d7d62860d7",
+          "exit_code": 0
+        },
+        {
+          "name": "guest-probe-hashes-2",
+          "path": "vm-deb/logs/38-guest-probe-hashes-2.log",
+          "sha256": "f8f6004ed809c9061e76d258c049eceff07b72879ffaaa3341446b911ff11897",
+          "exit_code": 0
+        },
+        {
+          "name": "network-boundary-2",
+          "path": "vm-deb/logs/39-network-boundary-2.log",
+          "sha256": "d1c57d55f8db90a2cfad091a86ec68f71fbc58ebf746bdbd42eed3dce3da2243",
+          "exit_code": 0
+        },
+        {
+          "name": "complete-integrity-after-reboot",
+          "path": "vm-deb/logs/40-complete-integrity-after-reboot.log",
+          "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+          "exit_code": 0
+        },
+        {
+          "name": "native-state-after-reboot",
+          "path": "vm-deb/logs/41-native-state-after-reboot.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "exit_code": 0
+        },
+        {
+          "name": "ordinary-launcher-after-reboot",
+          "path": "vm-deb/logs/42-ordinary-launcher-after-reboot.log",
+          "sha256": "7b20f74b4c3ed0b5c5968df0950b25d65a3c8ebc186b0b9e11a5d73832472255",
+          "exit_code": 0
+        },
+        {
+          "name": "runtime-media-gtk-after-reboot",
+          "path": "vm-deb/logs/43-runtime-media-gtk-after-reboot.log",
+          "sha256": "3eeb0aec194fea94110c750abdd6fcf697307dc6f60d678525a7521f5d9d046b",
+          "exit_code": 0
+        },
+        {
+          "name": "actual-broadcast-window-after-reboot",
+          "path": "vm-deb/logs/44-actual-broadcast-window-after-reboot.log",
+          "sha256": "962ff14cfff0fdcc9824b1164337618c990e3a96ed6cdf55f50026c5b8a85fc2",
+          "exit_code": 0
+        },
+        {
+          "name": "generated-recording-after-reboot",
+          "path": "vm-deb/logs/45-generated-recording-after-reboot.log",
+          "sha256": "3bfdba0e9189e1c7bc1b5fc632a5a8a79c97d0c9f14be1ac050c6a5e8296a5a1",
+          "exit_code": 0
+        },
+        {
+          "name": "offline-remove-app",
+          "path": "vm-deb/logs/46-offline-remove-app.log",
+          "sha256": "654261567482ae4a354c13d0b0eb667229768792cb72b961cc70f37c2afbbee1",
+          "exit_code": 0
+        },
+        {
+          "name": "removal-preserves-user-system-lock",
+          "path": "vm-deb/logs/47-removal-preserves-user-system-lock.log",
+          "sha256": "8de3aad6d79d0c4932ed3dc77c3f1e8b2461a51917a6eeeb2bfea859db43807e",
+          "exit_code": 0
+        },
+        {
+          "name": "complete-package-owned-files-removed",
+          "path": "vm-deb/logs/48-complete-package-owned-files-removed.log",
+          "sha256": "23d58bc10b7739a75c331d0ff8ae743316108cf75015749ff4f96c8da03b13c1",
+          "exit_code": 0
+        },
+        {
+          "name": "after-removal-inventory",
+          "path": "vm-deb/logs/49-after-removal-inventory.log",
+          "sha256": "677a9638dbfe7574cfe4fe45a2bb50253f1899a6f2d11887d18c179ab0a830b8",
+          "exit_code": 0
+        }
+      ],
+      "dependency_policy": "DEB no Recommends (no DKMS); local-file APT acquisition in empty guest network namespace plus QEMU restricted egress. RPM default weak dependencies/cacheonly. Test tools installed separately after app-only checks."
+    },
+    "rpm": {
+      "base_image": {
+        "distribution": "Fedora Cloud Base 44",
+        "release": "44-1.7",
+        "architecture": "x86_64",
+        "filename": "Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2",
+        "sha256": "28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f",
+        "url": "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2",
+        "signer_fingerprint": "36F612DCF27F7D1A48A835E4DBFCF71C6D9F90A6",
+        "status": "authenticated-and-qcow2-checked"
+      },
+      "base_image_verification_script_sha256": "3c69ed0863cccf5c75cb629f401084448a59e094dc4d90626ce74ad7c68c7007",
+      "package": {
+        "bytes": 2058428352,
+        "path": "rpm/nvbroadcast-1.5.3-7.cuda.x86_64.rpm",
+        "sha256": "1575edf2be669f02357e73dcb5886ed31bbeb9aff480d8b11de38d4ca7c58eea"
+      },
+      "steps_passed": 54,
+      "local_harness_sha256": "7d9f378a7468855109841a6b6e50bccaecc1074300ec40d65ab9727dc1de0928",
+      "local_result_sha256": "70aefb97e2a2521a74b4fdbed61e248b43005929a54c01d7f250af3f20199b96",
+      "local_result_path": "Broadcast-native-vm-20261026/dist/vm-rpm/result.json",
+      "input_iso_sha256": "a10b9d2e6db0f3952784fb627cf9a43fe26f926b59f0735df4b99ee6943cfc1c",
+      "probe_sha256": {
+        "app_probe.py": "9a2d60e283d05aba41d635e595f58a72a98db6337fad853e76ed3ce3a1025d68",
+        "desktop_probe.sh": "46c103991ebe25eb95ef6e7f7509f2445c53cc395ef010a331e7ff31532146b4",
+        "expected.json": "ff9b75bbc2860972685450895a9fdbca4a43017153f84721c6bb669612a40941",
+        "lock_probe.py": "0af949c11cf9d4e88f09044b061d83c9764a897b39a8757f30a31e656625618e",
+        "probe.py": "0bdf5843e76ad4cc15a6a5caf7e1f258e8e44b1c9f3fbd433854b385c438aac7",
+        "public.asc": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+        "recording_probe.py": "ba619eca3f49548a9f0937d2dd9d0ad3e57925e16251df228b5a0df1e279a7fa"
+      },
+      "application_python_files_verified": 62,
+      "inventory_counts": {
+        "app_only": 710,
+        "downloaded": 428,
+        "pristine": 427,
+        "removed": 725,
+        "with_tools": 726
+      },
+      "owned_files_removed": 17689,
+      "boot_ids": [
+        "c4b33c0f-931d-4473-8967-9230e7085374",
+        "e6768982-7a8c-4fac-915e-5492e799d070",
+        "a3b05e18-0f4f-4e03-8779-5ae120489557"
+      ],
+      "all_three_boots_shut_down_cleanly": true,
+      "source_package_base_image_and_input_iso_unchanged": true,
+      "user_sentinels_system_python_and_runtime_lock_preserved": true,
+      "runtime_probes": {
+        "first-boot": {
+          "status": "pass",
+          "variant": "cuda",
+          "os": "fedora",
+          "os_version": "44",
+          "python": "3.13.16",
+          "gtk": "4.22.5",
+          "adwaita": "1.9.4",
+          "gstreamer": "GStreamer 1.28.8",
+          "cpu_execution": {
+            "available_providers": [
+              "TensorrtExecutionProvider",
+              "CUDAExecutionProvider",
+              "CPUExecutionProvider"
+            ],
+            "error": "",
+            "executed_providers": [
+              "CPUExecutionProvider"
+            ],
+            "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+            "output": [
+              1.0,
+              4.0,
+              9.0,
+              16.0
+            ],
+            "output_shape": [
+              1,
+              4
+            ],
+            "provider": "cpu",
+            "registered_providers": [
+              "CPUExecutionProvider"
+            ],
+            "success": true
+          },
+          "cuda_execution": {
+            "available_providers": [
+              "TensorrtExecutionProvider",
+              "CUDAExecutionProvider",
+              "CPUExecutionProvider"
+            ],
+            "error": "RuntimeError: /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=localhost.localdomain ; file=/onnxruntime_src/onn",
+            "executed_providers": [],
+            "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+            "output": [],
+            "output_shape": [],
+            "provider": "cuda",
+            "registered_providers": [],
+            "success": false
+          },
+          "cuda_unavailable_expected": true,
+          "cupy_execution": null,
+          "gtk_window_mapped": true,
+          "video_and_audio_pipelines": "eos",
+          "distribution_count": 70,
+          "distribution_versions_canonical_sha256": "2d8f131de161d17ea639f337511b7d49a8e36f1c8182f11abf100d5b41136554"
+        },
+        "after-reboot": {
+          "status": "pass",
+          "variant": "cuda",
+          "os": "fedora",
+          "os_version": "44",
+          "python": "3.13.16",
+          "gtk": "4.22.5",
+          "adwaita": "1.9.4",
+          "gstreamer": "GStreamer 1.28.8",
+          "cpu_execution": {
+            "available_providers": [
+              "TensorrtExecutionProvider",
+              "CUDAExecutionProvider",
+              "CPUExecutionProvider"
+            ],
+            "error": "",
+            "executed_providers": [
+              "CPUExecutionProvider"
+            ],
+            "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+            "output": [
+              1.0,
+              4.0,
+              9.0,
+              16.0
+            ],
+            "output_shape": [
+              1,
+              4
+            ],
+            "provider": "cpu",
+            "registered_providers": [
+              "CPUExecutionProvider"
+            ],
+            "success": true
+          },
+          "cuda_execution": {
+            "available_providers": [
+              "TensorrtExecutionProvider",
+              "CUDAExecutionProvider",
+              "CPUExecutionProvider"
+            ],
+            "error": "RuntimeError: /onnxruntime_src/onnxruntime/core/providers/cuda/cuda_execution_provider_info.cc:60 static onnxruntime::CUDAExecutionProviderInfo onnxruntime::CUDAExecutionProviderInfo::FromProviderOptions(const onnxruntime::ProviderOptions&) [ONNXRuntimeError] : 1 : FAIL : provider_options_utils.h:187 Parse Failed to parse provider option \"device_id\": CUDA failure 35: CUDA driver version is insufficient for CUDA runtime version ; GPU=-1 ; hostname=localhost.localdomain ; file=/onnxruntime_src/onn",
+            "executed_providers": [],
+            "model_sha256": "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527",
+            "output": [],
+            "output_shape": [],
+            "provider": "cuda",
+            "registered_providers": [],
+            "success": false
+          },
+          "cuda_unavailable_expected": true,
+          "cupy_execution": null,
+          "gtk_window_mapped": true,
+          "video_and_audio_pipelines": "eos",
+          "distribution_count": 70,
+          "distribution_versions_canonical_sha256": "2d8f131de161d17ea639f337511b7d49a8e36f1c8182f11abf100d5b41136554"
+        }
+      },
+      "application_window_probes": {
+        "first-boot": {
+          "actual_broadcast_window_mapped": true,
+          "height": 530,
+          "status": "pass",
+          "title": "NV Broadcast",
+          "type": "NVBroadcastWindow",
+          "width": 630
+        },
+        "after-reboot": {
+          "actual_broadcast_window_mapped": true,
+          "height": 530,
+          "status": "pass",
+          "title": "NV Broadcast",
+          "type": "NVBroadcastWindow",
+          "width": 630
+        }
+      },
+      "generated_recordings": {
+        "first-boot": {
+          "audio_encoder": "fdkaacenc",
+          "audio_peak": 0.8150238394737244,
+          "audio_samples": 51200,
+          "file_bytes": 143537,
+          "status": "pass",
+          "video_encoder": "openh264enc",
+          "video_frames": 24
+        },
+        "after-reboot": {
+          "audio_encoder": "fdkaacenc",
+          "audio_peak": 0.8150238394737244,
+          "audio_samples": 51200,
+          "file_bytes": 143537,
+          "status": "pass",
+          "video_encoder": "openh264enc",
+          "video_frames": 24
+        }
+      },
+      "retained_logs": [
+        {
+          "name": "seed-iso",
+          "path": "vm-rpm/logs/00-seed-iso.log",
+          "sha256": "97544a0d9729a4ae7c7314cb04b31aea0ff32acac95cc6a29ffeaf3db779a861",
+          "exit_code": 0
+        },
+        {
+          "name": "create-overlay",
+          "path": "vm-rpm/logs/01-create-overlay.log",
+          "sha256": "e93285ad408fec7b69f12459846f6704d7680ddf6229e8e72178e9c009a5be6f",
+          "exit_code": 0
+        },
+        {
+          "name": "input-iso",
+          "path": "vm-rpm/logs/02-input-iso.log",
+          "sha256": "97544a0d9729a4ae7c7314cb04b31aea0ff32acac95cc6a29ffeaf3db779a861",
+          "exit_code": 0
+        },
+        {
+          "name": "cloud-init-0",
+          "path": "vm-rpm/logs/03-cloud-init-0.log",
+          "sha256": "a2c9a7f4d00ef458c07241366d6420d6f53d55b97dbac87865dbf02784acc344",
+          "exit_code": 0
+        },
+        {
+          "name": "boot-identity-0",
+          "path": "vm-rpm/logs/04-boot-identity-0.log",
+          "sha256": "76b9bda3d8b1425fbd9e1b34763e2d39288538b0b23d9c5648c65e8c70ba1aa6",
+          "exit_code": 0
+        },
+        {
+          "name": "mount-inputs-0",
+          "path": "vm-rpm/logs/05-mount-inputs-0.log",
+          "sha256": "17a538fae8dad270e848f53a2c3f274afaadaa2d3d554946fd70681ef8803d8f",
+          "exit_code": 0
+        },
+        {
+          "name": "guest-probe-hashes-0",
+          "path": "vm-rpm/logs/06-guest-probe-hashes-0.log",
+          "sha256": "6b992c29ce5fa4ad8fcd2915d698e0e647f0b7c1ebd212cf3b12c773b0458d76",
+          "exit_code": 0
+        },
+        {
+          "name": "network-boundary-0",
+          "path": "vm-rpm/logs/07-network-boundary-0.log",
+          "sha256": "a709d003ec6004f2e4a0e37969465e301453dbba11c07bd5e6f1f58e31ae905e",
+          "exit_code": 0
+        },
+        {
+          "name": "pristine-native-inventory",
+          "path": "vm-rpm/logs/08-pristine-native-inventory.log",
+          "sha256": "ff9f1f9d5c85c993ac394c1479264c1de2f4a13d8415a95055ae65077119def0",
+          "exit_code": 0
+        },
+        {
+          "name": "pristine-package-absent",
+          "path": "vm-rpm/logs/09-pristine-package-absent.log",
+          "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432",
+          "exit_code": 0
+        },
+        {
+          "name": "authenticate-project-rpm",
+          "path": "vm-rpm/logs/10-authenticate-project-rpm.log",
+          "sha256": "aff42db7ad0242459cb4b88ca479ec63c722cd89817614dd6e1dc464777cbd57",
+          "exit_code": 0
+        },
+        {
+          "name": "download-declared-app-closure",
+          "path": "vm-rpm/logs/11-download-declared-app-closure.log",
+          "sha256": "1e7a2a1ec605670a1ba109c9c051307d37f622c37c0a4481d6c596b3749af5b9",
+          "exit_code": 0
+        },
+        {
+          "name": "download-test-tools-separately",
+          "path": "vm-rpm/logs/12-download-test-tools-separately.log",
+          "sha256": "57c170b040e28ee5a6981eed69e9e8e910aacce6e3004a6a11d39d4be3de1c17",
+          "exit_code": 0
+        },
+        {
+          "name": "after-download-before-install-inventory",
+          "path": "vm-rpm/logs/13-after-download-before-install-inventory.log",
+          "sha256": "d35354762ad72fb1a2abcf794574056b2f2168025439e61c62585adb431c9bca",
+          "exit_code": 0
+        },
+        {
+          "name": "download-cache-inventory",
+          "path": "vm-rpm/logs/14-download-cache-inventory.log",
+          "sha256": "f24b64dba078a79440993bb836a1faf72a8759cb66b36d569179248d97fd5048",
+          "exit_code": 0
+        },
+        {
+          "name": "cloud-init-1",
+          "path": "vm-rpm/logs/15-cloud-init-1.log",
+          "sha256": "a2c9a7f4d00ef458c07241366d6420d6f53d55b97dbac87865dbf02784acc344",
+          "exit_code": 0
+        },
+        {
+          "name": "boot-identity-1",
+          "path": "vm-rpm/logs/16-boot-identity-1.log",
+          "sha256": "048c5a4eac2672c32b1a6707750aa820c9543c048c028edfe5cb97ac6bd9bcaf",
+          "exit_code": 0
+        },
+        {
+          "name": "mount-inputs-1",
+          "path": "vm-rpm/logs/17-mount-inputs-1.log",
+          "sha256": "17a538fae8dad270e848f53a2c3f274afaadaa2d3d554946fd70681ef8803d8f",
+          "exit_code": 0
+        },
+        {
+          "name": "guest-probe-hashes-1",
+          "path": "vm-rpm/logs/18-guest-probe-hashes-1.log",
+          "sha256": "6b992c29ce5fa4ad8fcd2915d698e0e647f0b7c1ebd212cf3b12c773b0458d76",
+          "exit_code": 0
+        },
+        {
+          "name": "network-boundary-1",
+          "path": "vm-rpm/logs/19-network-boundary-1.log",
+          "sha256": "d1c57d55f8db90a2cfad091a86ec68f71fbc58ebf746bdbd42eed3dce3da2243",
+          "exit_code": 0
+        },
+        {
+          "name": "persistent-sentinels",
+          "path": "vm-rpm/logs/20-persistent-sentinels.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "exit_code": 0
+        },
+        {
+          "name": "offline-install-app-with-declared-dependencies",
+          "path": "vm-rpm/logs/21-offline-install-app-with-declared-dependencies.log",
+          "sha256": "0ae3e8f505ad0fb7432305b16dd9b4a370329ef99b32a765091cbe7692156aee",
+          "exit_code": 0
+        },
+        {
+          "name": "app-only-installed-inventory",
+          "path": "vm-rpm/logs/22-app-only-installed-inventory.log",
+          "sha256": "55b7f6b8c7f8cd9ae05a662faa088635ef114327c12a9f88a8eeab73e246d7e5",
+          "exit_code": 0
+        },
+        {
+          "name": "capture-complete-package-owned-file-set",
+          "path": "vm-rpm/logs/23-capture-complete-package-owned-file-set.log",
+          "sha256": "b14c94b1d439bc9148ee6b95ba1a9fe67e55c167f371dd7f7e38e279c7bf8b11",
+          "exit_code": 0
+        },
+        {
+          "name": "installed-source-adapter-identity",
+          "path": "vm-rpm/logs/24-installed-source-adapter-identity.log",
+          "sha256": "004f3b6fd25903701dfebb06fc801a5c234ea55bfe20ef7d242465e30051aa55",
+          "exit_code": 0
+        },
+        {
+          "name": "capture-filesystem-lock-identity",
+          "path": "vm-rpm/logs/25-capture-filesystem-lock-identity.log",
+          "sha256": "0313eb9e592c18d277f9e85df69363f1320687da7dc718a498c67c1f01934fa4",
+          "exit_code": 0
+        },
+        {
+          "name": "complete-integrity-app-only",
+          "path": "vm-rpm/logs/26-complete-integrity-app-only.log",
+          "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+          "exit_code": 0
+        },
+        {
+          "name": "native-state-app-only",
+          "path": "vm-rpm/logs/27-native-state-app-only.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "exit_code": 0
+        },
+        {
+          "name": "ordinary-launcher-app-only",
+          "path": "vm-rpm/logs/28-ordinary-launcher-app-only.log",
+          "sha256": "50516d7b1c8417e5f74a7839b1f13a1094458b21f28da3774dc82a82d982e053",
+          "exit_code": 0
+        },
+        {
+          "name": "offline-install-test-tools",
+          "path": "vm-rpm/logs/29-offline-install-test-tools.log",
+          "sha256": "9b360d6abe30aa716d8b9d101b6b9ab908819318baf6c57ed3213a7548db7e2b",
+          "exit_code": 0
+        },
+        {
+          "name": "with-test-tools-inventory",
+          "path": "vm-rpm/logs/30-with-test-tools-inventory.log",
+          "sha256": "839b03b8da7843e79bf957984ff717e104723611b9995a752c9842993476d29c",
+          "exit_code": 0
+        },
+        {
+          "name": "complete-integrity-first-boot",
+          "path": "vm-rpm/logs/31-complete-integrity-first-boot.log",
+          "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+          "exit_code": 0
+        },
+        {
+          "name": "native-state-first-boot",
+          "path": "vm-rpm/logs/32-native-state-first-boot.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "exit_code": 0
+        },
+        {
+          "name": "ordinary-launcher-first-boot",
+          "path": "vm-rpm/logs/33-ordinary-launcher-first-boot.log",
+          "sha256": "50516d7b1c8417e5f74a7839b1f13a1094458b21f28da3774dc82a82d982e053",
+          "exit_code": 0
+        },
+        {
+          "name": "runtime-media-gtk-first-boot",
+          "path": "vm-rpm/logs/34-runtime-media-gtk-first-boot.log",
+          "sha256": "32a324d0a280567e00b91303bc9a3189dd50a76ade41ea2c6f785cca856d5286",
+          "exit_code": 0
+        },
+        {
+          "name": "actual-broadcast-window-first-boot",
+          "path": "vm-rpm/logs/35-actual-broadcast-window-first-boot.log",
+          "sha256": "05d29b3a9bd952907315372f641519afc0a3b43aa75d2b8bf04a9f2884fbef3e",
+          "exit_code": 0
+        },
+        {
+          "name": "generated-recording-first-boot",
+          "path": "vm-rpm/logs/36-generated-recording-first-boot.log",
+          "sha256": "eaa18fa4fa49cb2c953a2552b2e4d83a656fd614c85c8f71be29812330853a61",
+          "exit_code": 0
+        },
+        {
+          "name": "cloud-init-2",
+          "path": "vm-rpm/logs/37-cloud-init-2.log",
+          "sha256": "a2c9a7f4d00ef458c07241366d6420d6f53d55b97dbac87865dbf02784acc344",
+          "exit_code": 0
+        },
+        {
+          "name": "boot-identity-2",
+          "path": "vm-rpm/logs/38-boot-identity-2.log",
+          "sha256": "f12a074b25bbfa2ba500457322fd61d53a4f91223edbee4d3c8a3ded35e106d4",
+          "exit_code": 0
+        },
+        {
+          "name": "mount-inputs-2",
+          "path": "vm-rpm/logs/39-mount-inputs-2.log",
+          "sha256": "17a538fae8dad270e848f53a2c3f274afaadaa2d3d554946fd70681ef8803d8f",
+          "exit_code": 0
+        },
+        {
+          "name": "guest-probe-hashes-2",
+          "path": "vm-rpm/logs/40-guest-probe-hashes-2.log",
+          "sha256": "6b992c29ce5fa4ad8fcd2915d698e0e647f0b7c1ebd212cf3b12c773b0458d76",
+          "exit_code": 0
+        },
+        {
+          "name": "network-boundary-2",
+          "path": "vm-rpm/logs/41-network-boundary-2.log",
+          "sha256": "d1c57d55f8db90a2cfad091a86ec68f71fbc58ebf746bdbd42eed3dce3da2243",
+          "exit_code": 0
+        },
+        {
+          "name": "verify-rebooted-filesystem-lock-identity",
+          "path": "vm-rpm/logs/42-verify-rebooted-filesystem-lock-identity.log",
+          "sha256": "26b608afb89871b3895537710ea05820d97943547d1c76fb5a8fc5a327bc1c30",
+          "exit_code": 0
+        },
+        {
+          "name": "complete-integrity-after-reboot",
+          "path": "vm-rpm/logs/43-complete-integrity-after-reboot.log",
+          "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+          "exit_code": 0
+        },
+        {
+          "name": "native-state-after-reboot",
+          "path": "vm-rpm/logs/44-native-state-after-reboot.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "exit_code": 0
+        },
+        {
+          "name": "ordinary-launcher-after-reboot",
+          "path": "vm-rpm/logs/45-ordinary-launcher-after-reboot.log",
+          "sha256": "50516d7b1c8417e5f74a7839b1f13a1094458b21f28da3774dc82a82d982e053",
+          "exit_code": 0
+        },
+        {
+          "name": "runtime-media-gtk-after-reboot",
+          "path": "vm-rpm/logs/46-runtime-media-gtk-after-reboot.log",
+          "sha256": "ef2e74075b5599de089cd5debaad87794f282d709d5ffb5f822860c6c266040d",
+          "exit_code": 0
+        },
+        {
+          "name": "actual-broadcast-window-after-reboot",
+          "path": "vm-rpm/logs/47-actual-broadcast-window-after-reboot.log",
+          "sha256": "cf48447450a6d10bf74866973825a61d00bb183235d4c5d77e5e9ee24d0d0117",
+          "exit_code": 0
+        },
+        {
+          "name": "generated-recording-after-reboot",
+          "path": "vm-rpm/logs/48-generated-recording-after-reboot.log",
+          "sha256": "eaa18fa4fa49cb2c953a2552b2e4d83a656fd614c85c8f71be29812330853a61",
+          "exit_code": 0
+        },
+        {
+          "name": "offline-remove-app",
+          "path": "vm-rpm/logs/49-offline-remove-app.log",
+          "sha256": "00775317f5417e960649e17124e4bfe003be8bb50594b6670807b941873f20cf",
+          "exit_code": 0
+        },
+        {
+          "name": "removal-preserves-user-system-lock",
+          "path": "vm-rpm/logs/50-removal-preserves-user-system-lock.log",
+          "sha256": "fd30b248c427fb4d50f38eb492ae998e696fd11c8b3c28236962977170b4cc61",
+          "exit_code": 0
+        },
+        {
+          "name": "complete-package-owned-files-removed",
+          "path": "vm-rpm/logs/51-complete-package-owned-files-removed.log",
+          "sha256": "711176b4fa9712c874fff4f595ddc2d77f01e00fc3c78a4dd6874ba2193a974b",
+          "exit_code": 0
+        },
+        {
+          "name": "verify-preserved-filesystem-lock-identity",
+          "path": "vm-rpm/logs/52-verify-preserved-filesystem-lock-identity.log",
+          "sha256": "8a801e70e1783ab2e2f680faa8815def3ed4dfa14d0161d49e7fbf9f03710105",
+          "exit_code": 0
+        },
+        {
+          "name": "after-removal-inventory",
+          "path": "vm-rpm/logs/53-after-removal-inventory.log",
+          "sha256": "f30579bd2da4de6ace38a247b02549904d3b7096f4b7c137eb0460332838e00e",
+          "exit_code": 0
+        }
+      ],
+      "dependency_policy": "DEB no Recommends (no DKMS); local-file APT acquisition in empty guest network namespace plus QEMU restricted egress. RPM default weak dependencies/cacheonly for app-only checks, then explicit private PulseAudio test fixture replaces only pipewire-pulseaudio. This does not qualify default PipeWire desktop audio. Test tools installed separately after app-only checks.",
+      "synthetic_audio_fixture": {
+        "backend": "Private PulseAudio daemon after app-only dependency/launcher checks with default PipeWire packages.",
+        "default_pipewire_desktop_acceptance": false,
+        "native_version_changes": [],
+        "removed_packages": [
+          [
+            "pipewire-pulseaudio",
+            "x86_64"
+          ]
+        ]
+      },
+      "persistent_runtime_lock_identity": {
+        "filesystem": {
+          "fsroot": "/var",
+          "fstype": "btrfs",
+          "uuid": "15c26993-ac30-424a-9c4b-faec4434d234"
+        },
+        "gid": 0,
+        "inode": 2864,
+        "mode": 420,
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "uid": 0
+      }
+    }
+  },
+  "independent_readback": {
+    "path": "Broadcast-native-vm-20261026/dist/tools/vm-execution-review/final-readback.json",
+    "sha256": "0348f8011b5f3f4ee9ee03d3348622e74a6366e1f027ec4a7ecef5f25ea18837",
+    "reviewer_sha256": "a311312284fb6b9c28a1f7cb7827c3f868f973537f0927749798a5eeacc7c05b",
+    "process_cleanup_receipt_sha256": "cf9487e3a2d441e5de397eda6709c46d51f875173c75a5fb9e8716b1c8bf6812",
+    "status": "functional-pass"
+  },
+  "limits": [
+    "Known dependency advisories block release promotion; no refreshed package is qualified by these results.",
+    "This milestone covers the finalized x86_64 CUDA packages using CPU execution with expected CUDA rejection. CPU-variant VM, GPU, physical camera/microphone, interactive desktop/controls, actual human speech, full effects/FPS/soak, upgrade/downgrade and power-loss acceptance are separate.",
+    "Fedora media checks use a private PulseAudio fixture after app-only dependency/launcher checks with default PipeWire packages. Default PipeWire desktop/audio acceptance is not claimed.",
+    "The Ubuntu and Fedora local harness hashes differ because Fedora exposed additional fixture issues; the existing successful Ubuntu run was retained unchanged.",
+    "No host package installation, user device capture, installed Snap change, release asset replacement or promotion occurred.",
+    "Local VM seeds, private SSH keys, disk overlays and raw cloud-init payloads are excluded from this public record."
+  ],
+  "retained_fixture_failures": [
+    {
+      "directory": "vm-deb-attempt1-ssh-path",
+      "result_sha256": "9aff44ab37e9dfa65cb7383c71292b3089273dfca326a56fa71e5025a9394280",
+      "status": "fail",
+      "error": "QEMU exited before SSH; see qemu log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "cf307d78421094cbe01595f78c7824dfea1eddcb9b04ada1bce06642aa395419"
+    },
+    {
+      "directory": "vm-deb-attempt2-cloud-schema",
+      "result_sha256": "9108df7d0f7b8e8fcf5d742e5d858b948b4724616c889c2f33466278b0f0fe91",
+      "status": "fail",
+      "error": "cloud-init-0 exited 2: vm-deb/logs/03-cloud-init-0.log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "abe6ee1526c390de814c0e3863d00be93b98f7c8f31ddce0c3633d3a023bff8e"
+    },
+    {
+      "directory": "vm-deb-attempt3-local-apt",
+      "result_sha256": "d27d1940879ff0e04a28fa3f1bed008eeb74a91c4234143902f03cc2d10db143",
+      "status": "fail",
+      "error": "offline-install-app-with-declared-dependencies exited 100: vm-deb/logs/20-offline-install-app-with-declared-dependencies.log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "07cf7221b004247d83b653d1792d5d7d7df1be568392b283b6f36906894074b2"
+    },
+    {
+      "directory": "vm-rpm-attempt1-ssh-path",
+      "result_sha256": "3d81c197ec9543ed665979d22405d379e4a8f8e9bdbc31820d7059e9a2b75f66",
+      "status": "fail",
+      "error": "QEMU exited before SSH; see qemu log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "cf307d78421094cbe01595f78c7824dfea1eddcb9b04ada1bce06642aa395419"
+    },
+    {
+      "directory": "vm-rpm-attempt2-cloud-schema",
+      "result_sha256": "670a3b4b5ef92fe0d04dc2e604922f2ebcc19e9efb940b8c1fb95c6754ee6d7d",
+      "status": "fail",
+      "error": "cloud-init-0 exited 2: vm-rpm/logs/03-cloud-init-0.log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "abe6ee1526c390de814c0e3863d00be93b98f7c8f31ddce0c3633d3a023bff8e"
+    },
+    {
+      "directory": "vm-rpm-attempt3-runcmd-schema",
+      "result_sha256": "f29964a782ffa95a7411caaef6eaeb71ad3d7cddecb6bf6682e7fb0aa50a7c8c",
+      "status": "fail",
+      "error": "cloud-init-0 exited 2: vm-rpm/logs/03-cloud-init-0.log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "07cf7221b004247d83b653d1792d5d7d7df1be568392b283b6f36906894074b2"
+    },
+    {
+      "directory": "vm-rpm-attempt4-signature-case",
+      "result_sha256": "43993e9bd7d4880aa3ebeb148e03712e6111a91602fe80a8219267ddfe82c3c0",
+      "status": "fail",
+      "error": "authenticate-project-rpm exited 1: vm-rpm/logs/10-authenticate-project-rpm.log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "959f0dd6fd43de0bd34471a885a08caf0430a77e9e366dfd69dcc214f18243e6"
+    },
+    {
+      "directory": "vm-rpm-attempt5-test-backend",
+      "result_sha256": "705a84b3459e14099d13711f560b292b83b56166667958110cab46bdb1c74d6c",
+      "status": "fail",
+      "error": "offline-install-test-tools exited 1: vm-rpm/logs/28-offline-install-test-tools.log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "17634fb93ca258443ceeb7a409119de16f6508017d6c8ac9f212674b650a6a48"
+    },
+    {
+      "directory": "vm-rpm-attempt6-cloud-hostname",
+      "result_sha256": "7f45753b3a3cc4547f2eb02b0c78cf7eab810a6d687fd8dbb4ca7b1dca1a2b5c",
+      "status": "fail",
+      "error": "cloud-init-0 exited 2: vm-rpm/logs/03-cloud-init-0.log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "dcfab7a9fe40cabea0c5afd380eddcf9283019bf4f957e49469354de00628b68"
+    },
+    {
+      "directory": "vm-rpm-attempt7-btrfs-lock-identity",
+      "result_sha256": "0f726933f6ee8c7c4c744b956533accf9575cd31f81848f0601737b14954e2ef",
+      "status": "fail",
+      "error": "removal-preserves-user-system-lock exited 1: vm-rpm/logs/48-removal-preserves-user-system-lock.log",
+      "qemu_stopped": true,
+      "source_harness_sha256": "1b32e6fe53812d7e6b4f4ef37979d41c60f702a8f2c3123195b2415174f3faaa"
+    }
+  ],
+  "fixture_corrections": [
+    {
+      "finding": "OpenSSH option parser split known-hosts filename containing workspace spaces",
+      "fix": "Quote UserKnownHostsFile argument; strict pinned Ed25519 host identity unchanged",
+      "prior_review": "tools/independent-review-before-ssh-path-fix.json"
+    },
+    {
+      "finding": "Actual cloud-init schema rejects ssh_genkeytypes: [] as too short",
+      "fix": "Select only ed25519; supplied pinned private host key unchanged",
+      "diagnostic_log": "vm-deb-attempt2-cloud-schema/diagnostic-schema.log",
+      "diagnostic_sha256": "0b957645388551ca192ba995d05fbc7c78c6b48c643fe16d198cdc267f007804"
+    },
+    {
+      "finding": "Actual Fedora cloud-init schema rejects runcmd: [] as nonempty required",
+      "fix": "Omit runcmd entirely for Fedora; Ubuntu timer command retained",
+      "diagnostic_log": "vm-rpm-attempt3-runcmd-schema/diagnostic-schema.log",
+      "diagnostic_sha256": "acf1aad22bd57d3b7a2415f3e6eeab70fdac69d3c804a67b365897ae8dbc55cb"
+    },
+    {
+      "finding": "APT --no-download local DEB handling stops before unpack with relative-path internal error",
+      "fix": "Permit local-file APT acquisition inside empty guest network namespace, with hypervisor restricted egress retained; native archives prefetched before offline boot",
+      "diagnostic_log": "vm-deb-attempt3-local-apt/diagnostic-local-acquisition.log",
+      "diagnostic_result": "Exact package install and 70-distribution full integrity validation exited0; diagnostic QEMU exited0. This altered failed-attempt overlay is not used as final fresh acceptance.",
+      "diagnostic_sha256": "447550acb18f72b6411b4fb263cc2783613225b9f35f912008b811bc0f2c0bdb"
+    },
+    {
+      "finding": "RPM6 prints lowercase signature while local harness matched uppercase",
+      "fix": "Case-insensitive signature-success match, retaining rpmkeys exit/pipefail, pinned fresh key database and failed-signature rejection",
+      "diagnostic_log": "vm-rpm-attempt4-signature-case/logs/10-authenticate-project-rpm.log",
+      "diagnostic_sha256": "767e8c23d33c7a1f29e876358f141d8a34ab8ed8417bfee4e72639ce778be47b"
+    },
+    {
+      "finding": "Fedora test daemon conflicts with default PipeWire Pulse backend",
+      "fix": "Only after default application dependency/launcher checks, replace pipewire-pulseaudio with private PulseAudio fixture via offline DNF; assert this is the only removed package name and record all version changes. Default PipeWire desktop/audio acceptance is excluded.",
+      "diagnostic_log": "vm-rpm-attempt5-test-backend/diagnostic-tools-result.json",
+      "diagnostic_result": "Full synthetic runtime/UI/media checks pass; original option-position error is retained separately.",
+      "diagnostic_sha256": "410cbe76bb9800f425d98fc8770b7d9c781a1175c7a0ebde04004f629c6b1936"
+    },
+    {
+      "finding": "Fedora optional first-boot hostname warning",
+      "fix": "Preserve cloud-image hostname and omit custom Fedora hostname metadata; continue requiring cloud-init exit0.",
+      "diagnostic_log": "vm-rpm-attempt6-cloud-hostname/diagnostic-hostname-result.json",
+      "diagnostic_sha256": "44266741f234d920243a4c8ef82c28cc548f904f2c43467cb8a719ab59e88bed"
+    },
+    {
+      "finding": "Btrfs transient device number differs across reboot",
+      "fix": "Bind filesystem UUID/subvolume/type, inode, mode, owner, link count and content across reboot. Refresh device/inode baseline only after persistent identity passes, retaining exact same-boot uninstall comparison.",
+      "diagnostic_log": "vm-rpm-attempt7-btrfs-lock-identity/diagnostic-lock-reboots-result.json",
+      "diagnostic_result": "Unchanged lock observed as52:2864 and50:2864 across boots with same Btrfs UUID/subvolume/inode; package absent, every owned file absent, user/system state preserved.",
+      "diagnostic_sha256": "a5332f430d8664fb120297b37be8d158732150c31f4611f9d37cc27aa9e16f9d"
+    }
+  ],
+  "operational_fix_index_sha256": "4cb8afe4d5f8ae5db214f4e3ee41fe08edb3c5c8df8ba7e17b6fcded3e7f5f9e",
+  "btrfs_lock_review": {
+    "helper_sha256": "0af949c11cf9d4e88f09044b061d83c9764a897b39a8757f30a31e656625618e",
+    "review_sha256": "a38227b35d2d56d953048494573006430c0da152d60c07ec25cb04b826800d97",
+    "observed_device_change_readback_sha256": "6ae51683ffd6a8178f3b27fe9149fde019d3a4cba1a81c10c6864a7ebe2bdc16",
+    "independent_cases_passed": 13,
+    "contract": "UUID/subvolume/type/inode/ownership/mode/link-count/content stay unchanged across reboot; Linux device number is refreshed only after that check and remains exact through same-boot uninstall."
+  }
+}

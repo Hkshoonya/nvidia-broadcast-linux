@@ -1,7 +1,7 @@
 {
   description = "NV Broadcast for Linux";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/0bb2eedc20e4739f29e8045034f2828ad7054f8f";
 
   outputs =
     { self, nixpkgs }:
@@ -19,6 +19,8 @@
       checks.${system} = {
         inherit nvbroadcast;
         inherit (nvbroadcast.passthru.tests) help;
+        inherit (nvbroadcast.passthru.tests) runtime;
+        module = import ./nix/check_module.nix { inherit self nixpkgs pkgs; };
       };
 
       formatter.${system} = pkgs.nixfmt-tree;

@@ -149,12 +149,52 @@ then continue through Snap's own verification chain.
 
 ## Remaining Supply-Chain Work
 
-This is the provenance foundation tracked by issue #60, not completion of that
-issue. The current native installers still resolve parts of their Python
-environment online during installation, so the complete installed environment
-is not yet hermetic or independently reproducible. Target-specific dependency
-locks, offline wheelhouses, complete SBOMs, independent rebuild comparison, RPM
-signing, and macOS signing/notarization remain separate acceptance work.
+Issue #60 remains open. Published native installers still resolve parts of
+their Python environment online, so the complete installed environment
+is not yet hermetic or independently reproducible. The
+[offline Linux development candidates](../packaging/native-runtime/README.md)
+have scoped lock, assembly and lifecycle evidence. Production integration,
+complete SBOMs, independent native/toolchain rebuilds and remaining platform
+acceptance are separate gates.
+
+The v1.5.4 tag RPM passed project-key signing and independent native signature
+and digest verification with project primary fingerprint
+`A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1`. The release includes the matching
+`RPM-GPG-KEY-nvbroadcast.asc` public key. See
+[RPM signing and verification](RPM_SIGNING.md).
+
+The v1.5.4 tag PKG passed actual Developer ID Installer signing, notarization,
+ticket stapling and Gatekeeper acceptance. Both packages have verified GitHub
+attestations for the exact release tag and commit. These package qualifications
+do not make their online-provisioned Python
+runtimes hermetic. Destination trust-policy configuration and broader platform
+coverage remain separate. See
+[macOS signing and acceptance](MACOS_SIGNING.md).
+
+Post-v1.5.4 changes apply to future builds and separate development paths:
+
+- [PR #90](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/90) verifies
+  captured Snap revision pairs before promotion; optional edge publication is
+  disabled by default. Use a future tag containing the
+  [reviewed workflow](SNAP_EDGE_PROMOTION.md), with its matching accepted pair.
+- [PR #181](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/181) prepares
+  private CPython 3.13 bindings for the unsigned macOS offline candidate. It
+  retains external Homebrew and minimum-OS/final-package/device acceptance gates.
+- [PR #185](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/185) adds an
+  [opt-in Python 3.15 CPU source route](PYTHON315.md). It does not change the
+  normal Python 3.11–3.14 installer range or packaged-runtime support contract.
+- [PR #176](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/176) adds
+  authenticated runtime preparation and private CPython for the CPU/x86_64
+  [Flatpak development candidate](../packaging/flatpak/README.md). Its scoped
+  trust/import/media checks are not a complete GNOME/OS audit. Issue #95's
+  Wayland/physical-device and authenticated public-distribution gates remain open.
+
+[PR #187](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/187) adds an
+opt-in [Python metadata inventory](PYTHON_SUPPLIER_INVENTORY.md) in SPDX 2.3
+format. It records installed distribution metadata and archive/input hashes;
+source and lock context remain caller-provided. This partial inventory does not
+complete native/interpreter/library/model/license coverage or automatically
+include an SBOM in released artifacts.
 
 Official references:
 

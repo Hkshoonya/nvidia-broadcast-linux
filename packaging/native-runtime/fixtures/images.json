@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "platform": "linux/amd64",
+  "scope": "Disposable qualification fixtures; OS dependencies use current distribution repositories, not a reproduced OS snapshot. Record each built image ID and its packages.tsv inventory. Candidate installation and tests run with network disabled.",
+  "deb": {
+    "distribution": "Ubuntu 24.04",
+    "base": "ubuntu@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc",
+    "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.deb"
+  },
+  "rpm": {
+    "distribution": "Fedora 44",
+    "base": "fedora@sha256:be9d65e2344d805cc11114319c685ecaa96b6d9b4350a0a6460cdb931babbd19",
+    "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.rpm"
+  }
+}

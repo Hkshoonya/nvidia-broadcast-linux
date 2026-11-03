@@ -18,7 +18,7 @@ replacement, auto-framing, video enhancement, and noise cancellation.
 Created by doczeus (https://github.com/Hkshoonya)
 """
 
-__version__ = "1.5.3"
+__version__ = "1.5.4"
 __author__ = "doczeus"
 __license__ = "GPL-3.0-or-later"
 __url__ = "https://nvbroadcast.com"

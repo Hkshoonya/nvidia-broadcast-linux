@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      sign_rpm:
+        description: 'Sign and verify the RPM with the configured project key (rpm-signing environment)'
+        type: boolean
+        default: false
       sign_macos:
         description: 'Sign, notarize and staple the macOS installer (requires macos-signing environment secrets)'
         type: boolean
@@ -100,6 +104,77 @@ jobs:
             dist/rpm/*.rpm
             dist/nvbroadcast-native-upgrade
 
+  # Only this job receives RPM signing credentials. Release checksums and the
+  # native upgrader must bind the signed RPM, whose bytes differ from the build.
+  sign-linux:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.sign_rpm && inputs.macos_recovery_operation == 'none')
+    needs: [build-linux, test-linux, test-python]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: rpm-signing
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install RPM signing tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm gnupg2 python3
+
+      - name: Download this run's unsigned Linux packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: linux-packages
+          path: dist/linux-unsigned
+
+      - name: Sign RPM and verify publisher and unchanged payload
+        env:
+          NVB_RPM_PRIVATE_KEY: ${{ secrets.RPM_SIGNING_PRIVATE_KEY }}
+          NVB_RPM_KEY_PASSPHRASE: ${{ secrets.RPM_SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(dist/linux-unsigned/rpm/*.rpm)
+          (( ${#packages[@]} == 1 ))
+          test -f packaging/keys/RPM-GPG-KEY-nvbroadcast.asc
+          test -f packaging/keys/RPM-GPG-KEY-nvbroadcast.fingerprint
+          python3 scripts/sign_rpm_package.py \
+            --rpm "${packages[0]}" \
+            --public-key packaging/keys/RPM-GPG-KEY-nvbroadcast.asc \
+            --fingerprint "$(cat packaging/keys/RPM-GPG-KEY-nvbroadcast.fingerprint)" \
+            --output dist/linux-signed/rpm
+          mv dist/linux-signed/rpm/RPM-GPG-KEY-nvbroadcast.asc dist/linux-signed/
+          mv dist/linux-signed/rpm/rpm-signing.json dist/linux-signed/
+
+      - name: Bind native upgrader to the signed package
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debs=(dist/linux-unsigned/deb/*.deb)
+          rpms=(dist/linux-signed/rpm/*.rpm)
+          (( ${#debs[@]} == 1 && ${#rpms[@]} == 1 ))
+          mkdir -p dist/linux-signed/deb
+          cp "${debs[0]}" dist/linux-signed/deb/
+          package_version="$(dpkg-deb -f "${debs[0]}" Version)"
+          python3 scripts/render_native_upgrade_helper.py \
+            --template scripts/native_package_upgrade.sh.in \
+            --deb "${debs[0]}" --rpm "${rpms[0]}" \
+            --version "${package_version%-*}" --revision "${package_version##*-}" \
+            --output dist/linux-signed/nvbroadcast-native-upgrade
+
+      - name: Upload verified signed Linux packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-signed-packages
+          if-no-files-found: error
+          path: |
+            dist/linux-signed/deb/*.deb
+            dist/linux-signed/rpm/*.rpm
+            dist/linux-signed/nvbroadcast-native-upgrade
+            dist/linux-signed/RPM-GPG-KEY-nvbroadcast.asc
+            dist/linux-signed/rpm-signing.json
+
   # ─── macOS: .pkg ───────────────────────────────────────────────────────────
   build-macos:
     if: github.event_name != 'workflow_dispatch' || inputs.macos_recovery_operation == 'none'
@@ -130,6 +205,9 @@ jobs:
           test -n "$(find /tmp/nvbroadcast-pkg-expanded -path '*/usr/local/bin/nvbroadcast' -print -quit)"
           runtime_installer="$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/scripts/install_runtime_variant.py' -print -quit)"
           test -x "$runtime_installer"
+          binding_inputs="$(find /tmp/nvbroadcast-pkg-expanded -path '*/opt/nvbroadcast/scripts/macos-bindings-inputs.json' -print -quit)"
+          test -f "$binding_inputs"
+          cmp packaging/macos-runtime/inputs.json "$binding_inputs"
           distribution="$(find /tmp/nvbroadcast-pkg-expanded -name Distribution -type f -print -quit)"
           test -n "$distribution"
           grep -q 'hostArchitectures="arm64"' "$distribution"
@@ -158,7 +236,15 @@ jobs:
           persist-credentials: false
 
       - name: Install user runtime prerequisites
-        run: brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
+        run: |
+          set -euo pipefail
+          /opt/homebrew/bin/brew update
+          /opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer pkgconf ninja
+          # Exercise current binding formulae, rather than relying on CP313
+          # extensions retained on an older runner image.
+          /opt/homebrew/bin/brew upgrade python@3.13 pygobject3 py3cairo
+          /opt/homebrew/opt/python@3.13/bin/python3.13 -c \
+            'import sys; assert (3, 13, 18) <= sys.version_info[:3] < (3, 14, 0), sys.version'
 
       - name: Download this run's package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -198,7 +284,7 @@ jobs:
             > dist/macos-runtime/destination-access.txt 2>&1 || true
           sudo /usr/sbin/installer -verboseR -dumplog -pkg "${packages[0]}" -target / \
             2>&1 | tee dist/macos-runtime/installer.log
-          /opt/nvbroadcast/scripts/setup_macos_runtime.sh
+          /opt/nvbroadcast/scripts/setup_macos_runtime.sh 2>&1 | tee dist/macos-runtime/runtime-setup.log
           package_id="$(cat /opt/nvbroadcast/macos-package-version)"
           runtime_id="$(cat /opt/nvbroadcast/macos-runtime-id)"
           runtime_python="$HOME/Library/Application Support/NVBroadcast/$package_id-$runtime_id/.venv/bin/python"
@@ -206,6 +292,27 @@ jobs:
           printf 'MACOS_RUNTIME_PYTHON=%s\n' "$runtime_python" >> "$GITHUB_ENV"
           /usr/local/bin/nvbroadcast --help
           "$runtime_python" -m pip check
+          # A retained compatible system binding must not hide a broken fresh
+          # Homebrew fallback. Verify actual modules/extensions in this venv.
+          "$runtime_python" - <<'PY'
+          import hashlib, importlib, importlib.metadata, json, pathlib, sys
+          prefix = pathlib.Path(sys.prefix).resolve()
+          assert (3, 13, 18) <= sys.version_info[:3] < (3, 14, 0), sys.version
+          inputs_path = pathlib.Path('/opt/nvbroadcast/scripts/macos-bindings-inputs.json')
+          inputs = json.loads(inputs_path.read_text())
+          bindings = {}
+          for name in ('gi', 'gi._gi', 'cairo', 'cairo._cairo'):
+              path = pathlib.Path(importlib.import_module(name).__file__).resolve()
+              path.relative_to(prefix)
+              bindings[name] = {'file': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+          versions = {item['name']: importlib.metadata.version(item['name']) for item in inputs['bindings']}
+          assert versions == {item['name']: item['version'] for item in inputs['bindings']}, versions
+          evidence = {'python': sys.version, 'executable': sys.executable, 'prefix': str(prefix),
+                      'private_binding_fallback_exercised': True, 'bindings': bindings, 'versions': versions,
+                      'manifest_sha256': hashlib.sha256(inputs_path.read_bytes()).hexdigest()}
+          pathlib.Path('dist/macos-runtime/native-bindings.json').write_text(json.dumps(evidence, indent=2) + '\n')
+          print(json.dumps(evidence, indent=2))
+          PY
 
       - name: Validate actual imports, CPU inference and generated recording
         run: |
@@ -421,7 +528,9 @@ jobs:
 
       - name: Install project and test dependencies
         run: |
-          python3 -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel
+          # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+          python3 -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          python3 -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel
           python3 -m pip install ".[dev,cpu]"
           python3 -m pip install "pip-audit>=2.9"
           python3 -m pip check
@@ -522,7 +631,9 @@ jobs:
       - name: Create release-smoke venv
         run: |
           /usr/bin/python3 -m venv --system-site-packages .venv
-          .venv/bin/python -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel
+          # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+          .venv/bin/python -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          .venv/bin/python -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel
 
       - name: Validate arm64 Python wheel availability
         if: matrix.name == 'arm64'
@@ -536,7 +647,7 @@ jobs:
             --python-version 312 \
             --implementation cp \
             --abi cp312 \
-            numpy "opencv-contrib-python>=4.8.1.78,<5" "mediapipe==1.0.0" "protobuf>=6.33.5,<7" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy "Pillow>=12.3.0" requests psutil pyrnnoise "av>=16,<17" faster-whisper==1.2.1 ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm packaging "setuptools>=83.0.0"
+            numpy "opencv-contrib-python>=4.8.1.78,<5" "mediapipe==1.0.0" "protobuf>=6.33.5,<7" onnxruntime==1.24.4 "onnx>=1.22.0" "click>=8.3.3" scipy "Pillow>=13.0.0" requests psutil pyrnnoise "av>=16,<17" faster-whisper==1.2.1 ctranslate2 huggingface-hub httpx tokenizers soundfile tqdm packaging "setuptools>=84.1.0"
 
       - name: Install Linux project dependencies
         run: |
@@ -588,7 +699,9 @@ jobs:
 
       - name: Install project and test dependencies
         run: |
-          python -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel
+          # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+          python -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          python -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel
           python -m pip install ".[dev,cpu]"
           python -m pip check
 
@@ -610,7 +723,7 @@ jobs:
   # ─── Attest: sign exact artifacts after every release gate passes ──────────
   attest-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-macos]
+    needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-linux, sign-macos]
     runs-on: ubuntu-latest
     permissions:
       attestations: write
@@ -630,18 +743,20 @@ jobs:
         run: |
           python3 scripts/generate_release_checksums.py \
             --output artifacts/SHA256SUMS.packages \
-            artifacts/linux-packages/deb/*.deb \
-            artifacts/linux-packages/rpm/*.rpm \
-            artifacts/linux-packages/nvbroadcast-native-upgrade \
+            artifacts/linux-signed-packages/deb/*.deb \
+            artifacts/linux-signed-packages/rpm/*.rpm \
+            artifacts/linux-signed-packages/nvbroadcast-native-upgrade \
+            artifacts/linux-signed-packages/RPM-GPG-KEY-nvbroadcast.asc \
             artifacts/macos-signed-packages/*.pkg
 
       - name: Attest release package provenance
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-path: |
-            artifacts/linux-packages/deb/*.deb
-            artifacts/linux-packages/rpm/*.rpm
-            artifacts/linux-packages/nvbroadcast-native-upgrade
+            artifacts/linux-signed-packages/deb/*.deb
+            artifacts/linux-signed-packages/rpm/*.rpm
+            artifacts/linux-signed-packages/nvbroadcast-native-upgrade
+            artifacts/linux-signed-packages/RPM-GPG-KEY-nvbroadcast.asc
             artifacts/macos-signed-packages/*.pkg
             artifacts/SHA256SUMS.packages
 
@@ -682,9 +797,10 @@ jobs:
           draft: true
           generate_release_notes: true
           files: |
-            artifacts/linux-packages/deb/*.deb
-            artifacts/linux-packages/rpm/*.rpm
-            artifacts/linux-packages/nvbroadcast-native-upgrade
+            artifacts/linux-signed-packages/deb/*.deb
+            artifacts/linux-signed-packages/rpm/*.rpm
+            artifacts/linux-signed-packages/nvbroadcast-native-upgrade
+            artifacts/linux-signed-packages/RPM-GPG-KEY-nvbroadcast.asc
             artifacts/macos-signed-packages/*.pkg
             artifacts/release-metadata/SHA256SUMS.packages
           fail_on_unmatched_files: true

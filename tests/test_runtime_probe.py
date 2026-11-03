@@ -465,6 +465,36 @@ class RuntimeProbeTests(unittest.TestCase):
         self.assertIn("CUDA session creation failed", stderr.getvalue())
         self.assertIn("libcudnn.so.9", stderr.getvalue())
 
+    def test_cpu_named_cuda_still_requires_successful_execution(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = [
+            "CPUExecutionProvider", "CUDAExecutionProvider"
+        ]
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA, "CUDA session creation failed"
+        )
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.29.0",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+            mock.patch.object(
+                runtime_main, "probe_execution_provider", return_value=failed
+            ) as execute,
+            mock.patch.object(sys, "argv", ["nvbroadcast.runtime", "--variant", "cuda"]),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            return_code = runtime_main.main()
+
+        execute.assert_called_once_with(ProbeProvider.CUDA, use_cache=False)
+        self.assertEqual(return_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("CUDA session creation failed", stderr.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,60 @@
+# Development manifest. See README.md before distributing this build.
+id: com.nvbroadcast.NVBroadcast
+runtime: org.gnome.Platform
+runtime-version: "50"
+sdk: org.gnome.Sdk
+command: nvbroadcast
+
+build-options:
+  env:
+    PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    PYTHONNOUSERSITE: "1"
+    PYTHONPATH: /app/lib/python3.13/site-packages:/usr/lib/python3.13/site-packages
+    SSL_CERT_FILE: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+    SSL_CERT_DIR: /etc/pki/tls/certs
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  # Follow the desktop Videos location without exposing the rest of home.
+  - --filesystem=xdg-videos:create
+  # Direct V4L2 camera capture and v4l2loopback output are not portal APIs.
+  - --device=all
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --env=PYTHONNOUSERSITE=1
+  # App packages precede the qualified shared CP313 GI/cairo bindings.
+  - --env=PYTHONPATH=/app/lib/python3.13/site-packages:/usr/lib/python3.13/site-packages
+  - --env=SSL_CERT_FILE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+  - --env=SSL_CERT_DIR=/etc/pki/tls/certs
+
+modules:
+  # Generated from canonical interpreter/build-lock pins and inputs.json.
+  - python3-private-runtime.yml
+
+  - python3-flatpak-requirements.yaml
+
+  - name: nvbroadcast
+    buildsystem: simple
+    build-commands:
+      # SoundFile cannot use ldconfig in the sandbox and falls back to this name.
+      - ln -s /usr/lib/x86_64-linux-gnu/libsndfile.so.1 ${FLATPAK_DEST}/lib/libsndfile.so
+      - >-
+        pip3 install --verbose --exists-action=i --no-index --no-deps
+        --no-build-isolation --prefix=${FLATPAK_DEST} .
+      # The Flatpak identity belongs to the project's nvbroadcast.com domain.
+      # Native packages retain their existing desktop and application identity.
+      - rm ${FLATPAK_DEST}/share/applications/com.doczeus.NVBroadcast.desktop
+      - rm ${FLATPAK_DEST}/share/metainfo/com.doczeus.NVBroadcast.metainfo.xml
+      - rm ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/com.doczeus.NVBroadcast.svg
+      - rm ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/com.doczeus.NVBroadcast.png
+      - install -Dm644 packaging/flatpak/com.nvbroadcast.NVBroadcast.desktop ${FLATPAK_DEST}/share/applications/com.nvbroadcast.NVBroadcast.desktop
+      - install -Dm644 packaging/flatpak/com.nvbroadcast.NVBroadcast.metainfo.xml ${FLATPAK_DEST}/share/metainfo/com.nvbroadcast.NVBroadcast.metainfo.xml
+      - install -Dm644 packaging/flatpak/com.nvbroadcast.NVBroadcast.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/com.nvbroadcast.NVBroadcast.svg
+      - install -Dm644 packaging/flatpak/com.nvbroadcast.NVBroadcast.png ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/com.nvbroadcast.NVBroadcast.png
+      - python3 -m compileall -q ${FLATPAK_DEST}/lib/python3.13/site-packages/nvbroadcast
+    sources:
+      - type: dir
+        path: ../..

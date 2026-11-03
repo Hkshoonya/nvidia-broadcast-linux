@@ -73,10 +73,33 @@ def current_distribution_inventory() -> dict[str, tuple[str, ...]]:
     return {name: tuple(versions) for name, versions in installed.items()}
 
 
+def _live_available_providers() -> frozenset[str]:
+    # GUI probe must never crash; fall back to CPU when providers are unknown.
+    try:
+        import onnxruntime
+
+        return frozenset(onnxruntime.get_available_providers())
+    except Exception:
+        return frozenset()
+
+
+def _is_cuda_build_with_cpu_dist_name(
+    installed: Mapping[str, tuple[str, ...]],
+    providers: Iterable[str] | None,
+) -> bool:
+    """CUDA build sold under the plain onnxruntime name (e.g. Arch opt-cuda)."""
+    # Reuse the owner count so aliases cannot hide duplicate distributions;
+    # unrelated packages in a complete inventory do not own the runtime.
+    if _runtime_distribution_problems(RuntimeVariant.CPU, installed):
+        return False
+    return "CUDAExecutionProvider" in set(providers or ())
+
+
 def detect_runtime_variant(
     installed: Mapping[str, tuple[str, ...]] | None = None,
+    providers: Iterable[str] | None = None,
 ) -> RuntimeVariant | None:
-    """Return variant only when exactly one runtime distribution owns environment."""
+    """Single owner wins; onnxruntime with CUDA provider counts as CUDA."""
     inventory = installed if installed is not None else current_distribution_inventory()
     owners = [
         _canonicalize_name(name)
@@ -87,6 +110,12 @@ def detect_runtime_variant(
     if len(owners) != 1:
         return None
     owner = owners.pop()
+    if owner == _canonicalize_name(RUNTIME_CONTRACTS[RuntimeVariant.CPU].distribution):
+        live_providers = providers
+        if live_providers is None and installed is None:
+            live_providers = _live_available_providers()
+        if _is_cuda_build_with_cpu_dist_name(inventory, live_providers):
+            return RuntimeVariant.CUDA
     for variant, contract in RUNTIME_CONTRACTS.items():
         if owner == _canonicalize_name(contract.distribution):
             return variant
@@ -125,12 +154,25 @@ def runtime_ownership_problems(
     variant: RuntimeVariant,
     installed: Mapping[str, tuple[str, ...]],
     providers: Iterable[str],
+    *,
+    allow_cpu_named_cuda: bool = False,
 ) -> list[str]:
-    """Return violations of selected runtime's ownership/provider contract."""
-    contract = RUNTIME_CONTRACTS[variant]
-    problems = _runtime_distribution_problems(variant, installed)
+    """Check ownership strictly unless a live distro CUDA build is allowed.
 
-    available_providers = set(providers)
+    Artifact validators require the selected distribution name; only live
+    runtime validation opts into distro builds such as Arch's plain-name CUDA.
+    """
+    contract = RUNTIME_CONTRACTS[variant]
+    available_providers = frozenset(providers)
+    if (
+        allow_cpu_named_cuda
+        and variant is RuntimeVariant.CUDA
+        and _is_cuda_build_with_cpu_dist_name(installed, available_providers)
+    ):
+        problems = []
+    else:
+        problems = _runtime_distribution_problems(variant, installed)
+
     missing = sorted(contract.required_providers - available_providers)
     if missing:
         problems.append("missing execution provider(s): " + ", ".join(missing))
@@ -143,9 +185,14 @@ def runtime_ownership_problems(
 def validate_current_runtime(variant: RuntimeVariant) -> list[str]:
     """Validate current interpreter against selected runtime contract."""
     inventory = current_distribution_inventory()
-    ownership_problems = _runtime_distribution_problems(variant, inventory)
-    if ownership_problems:
-        return ownership_problems
+    possible_cpu_named_cuda = (
+        variant is RuntimeVariant.CUDA
+        and not _runtime_distribution_problems(RuntimeVariant.CPU, inventory)
+    )
+    if not possible_cpu_named_cuda:
+        ownership_problems = _runtime_distribution_problems(variant, inventory)
+        if ownership_problems:
+            return ownership_problems
 
     try:
         import onnxruntime
@@ -164,4 +211,5 @@ def validate_current_runtime(variant: RuntimeVariant) -> list[str]:
         variant,
         inventory,
         providers,
+        allow_cpu_named_cuda=True,
     )

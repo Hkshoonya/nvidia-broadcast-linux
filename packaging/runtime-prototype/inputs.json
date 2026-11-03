@@ -7,15 +7,15 @@
     "version": "1.5.2"
   },
   "python": {
-    "version": "3.13.16",
-    "release": "20261003",
-    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.13.16%2B20261003-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst",
-    "sha256": "1785cc77a638c5e1e0c86baffd395a49b784535136c00e2aac203116057f13b7"
+    "version": "3.13.18",
+    "release": "20261026",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.13.18%2B20261026-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst",
+    "sha256": "f003449a05408c2e4b184f2a7abd1ea277081ff1a9100289075243ab5ed81207"
   },
   "uv": {
-    "version": "0.11.7",
-    "url": "https://github.com/astral-sh/uv/releases/download/0.11.7/uv-x86_64-unknown-linux-gnu.tar.gz",
-    "sha256": "6681d691eb7f9c00ac6a3af54252f7ab29ae72f0c8f95bdc7f9d1401c23ea868"
+    "version": "0.13.4",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.13.4/uv-x86_64-unknown-linux-gnu.tar.gz",
+    "sha256": "2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f"
   },
   "bindings": [
     {

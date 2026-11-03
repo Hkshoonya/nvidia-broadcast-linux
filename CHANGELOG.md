@@ -2,9 +2,98 @@
 
 ## Unreleased
 
+These changes apply to source installs, development candidates and future
+release workflows. Published v1.5.4 artifacts retain their recorded identities.
+
+- **Correct Fedora source-install dependencies and guidance** - Request the
+  available `python3-gobject` and `python3-cairo` packages, and explain why an
+  alternate Python alone does not provide matching desktop bindings. Normal
+  source installation retains CPython 3.11–3.14; the explicitly opted-in
+  [Python 3.15 CPU route](docs/PYTHON315.md) remains separate under #184.
+  Fixes #183.
+- **Experimental Python 3.15 CPU source installs** - Add a Linux x86_64 route
+  that builds the pinned AV and ONNX Runtime wheels and verifies native audio,
+  dependency closure and CPU inference before activation. GPU and Fedora 45
+  physical camera/microphone acceptance remain separate. Contributed by
+  [@Nirusaki-Malaal](https://github.com/Nirusaki-Malaal)
+  ([PR #185](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/185)).
+- **Private bindings for the offline macOS prototype** - Prepare matching
+  CPython 3.13 PyGObject/Cairo wheels and install them privately without
+  destination dependency resolution. The unsigned arm64 candidate retains its
+  external Homebrew and final package/platform acceptance requirements
+  ([PR #181](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/181)).
+- **Verified Snap revision promotion** - Verify both candidate architectures
+  against the release tag and hosted provenance, then promote the captured
+  revision IDs. Optional edge publication remains disabled by default and
+  requires its own activation and credential checks. The workflow applies to
+  future tags containing it
+  ([PR #90](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/90),
+  [promotion policy](docs/SNAP_EDGE_PROMOTION.md)).
+- **Authenticated Flatpak development runtime** - Authenticate pinned GNOME 50
+  runtime refs, use app-private CPython 3.13.18, and check the actual runtime's
+  trust, imports and generated media. This remains a CPU/x86_64 development
+  candidate; Wayland/physical-device acceptance and public distribution remain
+  open under #95
+  ([PR #176](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/176)).
+- **Partial Python supplier inventory** - Export installed app-owned Python
+  distribution metadata and input/archive hashes as deterministic SPDX 2.3 JSON.
+  The opt-in tool labels source/lock context as caller-provided and runs no
+  artifact code. Complete native/interpreter/library/model/license coverage and
+  automatic release generation remain further work under #60
+  ([PR #187](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/187),
+  [inventory scope](docs/PYTHON_SUPPLIER_INVENTORY.md)).
+
+## v1.5.4 - Security and Runtime Reliability
+
+**Published.** [v1.5.4 downloads](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4)
+are available. The exact native packages and tag-built Snaps passed the scoped
+verification in [the release notes](docs/RELEASE_NOTES_1.5.4.md). The published
+release record documents Store revision identities, the observation decision
+and accepted limitations. Snap channel availability is reported separately by
+[the Store](https://snapcraft.io/nvbroadcast).
+
+- **Refresh Security-Sensitive Python Inputs** - Update affected certificate
+  bundles, image decoding, file locking and build/install tools. Audit actual
+  frozen Python versions in CI as well as the resolved project environment
+  ([PR #171](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/171)).
+- **Keep Eye Contact Tracking Fresh** - Prevent the shared face tracker from
+  freezing on an earlier frame when Python reuses a released camera frame's
+  object ID. Eye Contact can follow changing eye positions while preserving
+  its existing blink and occlusion limits
+  ([PR #151](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/151)).
+- **Recognize Arch CUDA Runtime Packages** - Recognize a live CUDA-enabled ONNX
+  build distributed under the plain `onnxruntime` name, while retaining strict
+  packaged-runtime checks, duplicate-owner rejection and inference validation.
+  Thanks to [@mauriciozaffari](https://github.com/mauriciozaffari) for the
+  contribution and Arch/RTX 2070 SUPER verification
+  ([PR #156](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/156)).
+- **Keep Fedora Virtualenv Protobuf Visible** - Keep the managed runtime’s
+  protobuf discoverable when Fedora’s legacy `google` namespace hook would
+  otherwise hide it, while retaining distro-only namespace modules
+  ([PR #159](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/159)).
+- **Report Native Runtime Setup Failures** - Stop when required environment
+  cleanup, creation or bootstrap setup fails. Report failure when CUDA setup
+  and its clean CPU fallback both fail
+  ([PR #142](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/142),
+  [PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143)).
+- **Handle Fresh Homebrew Python Bindings** - The macOS PKG setup can build
+  pinned GTK/Cairo Python bindings in its per-user runtime when current
+  Homebrew bindings target a newer Python ABI. Working supported system
+  bindings remain available. The tag-built PKG passed fresh binding compilation,
+  CPU inference and synthetic media checks on the Apple Silicon runner.
+
+Exact-tag package contents, signatures and provenance are verified within the
+recorded scope; the owner also confirmed the requested Linux and M2 Mac checks.
+Separately built Store revisions use their own verification and candidate
+acceptance records; tag-built Snap checksums do not identify another build. Experimental offline native adapters and Flatpak remain
+separate work under #60 and #95; this release does not enable them as defaults
+or close the remaining quality and physical-device issues.
+
 ## v1.5.3 - Recording, Small Windows, and Runtime Recovery
 
-Release candidate; publication and final package acceptance are pending.
+[Published 9 October 2026](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.3).
+See the [verified release notes](docs/RELEASE_NOTES_1.5.3.md) for downloads,
+completed checks, and remaining limitations.
 
 - **Usable Small Windows** - Camera and Audio controls remain readable in
   narrow windows. Show Preview restores the camera picture at the minimum
@@ -41,8 +130,8 @@ Release candidate; publication and final package acceptance are pending.
   encoding when available, and falls back through tested software encoders
   without blocking the window during codec preparation or MP4 finalization.
   Package CI creates, discovers, and fully decodes a synthetic MP4 with one
-  video and one audio stream; Debian installs the x264 plugin, while the Snap
-  candidate carries a narrowly validated OpenH264 and VisualOn codec payload
+  video and one audio stream; Debian installs the x264 plugin, while the released
+  Snap carries a narrowly validated OpenH264 and VisualOn codec payload
   for strict confinement ([Issue #112](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/112)).
 - **Visible TensorRT Downloads** - Source and in-app installs resolve the pinned
   TensorRT 10 library wheel directly from NVIDIA's package index and refuse the

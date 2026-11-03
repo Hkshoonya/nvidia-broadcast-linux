@@ -92,8 +92,10 @@ echo -e "  GStreamer, GTK4, Libadwaita installed"
 check_desktop_stack() {
     "$1" - <<'PY'
 import sys
-if not ((3, 11) <= sys.version_info[:2] <= (3, 13)):
-    raise SystemExit("Python 3.11-3.13 required")
+# PSF's October 2026 certificate incident mitigation; check before imports.
+minimum_patch = {(3, 11): 18, (3, 12): 16, (3, 13): 18}.get(sys.version_info[:2])
+if minimum_patch is None or sys.version_info[2] < minimum_patch:
+    raise SystemExit("Python 3.11.18+, 3.12.16+, or 3.13.18+ required; update Homebrew Python")
 import ensurepip
 import venv
 import cairo
@@ -156,7 +158,9 @@ rm -rf -- "$INSTALL_DIR/venv"
 "$PYTHON" -m venv "$INSTALL_DIR/venv" --system-site-packages
 RUNTIME_PYTHON="$INSTALL_DIR/venv/bin/python"
 
-"$RUNTIME_PYTHON" -m pip install --upgrade "pip>=26.2" "setuptools>=83.0.0" wheel -q
+# Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+"$RUNTIME_PYTHON" -m pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" -q
+"$RUNTIME_PYTHON" -m pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel -q
 
 # ── Step 4: Install pip dependencies ─────────────────────────────────────────
 

@@ -97,6 +97,17 @@ def state_digest(state: dict | None) -> str:
     return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
 
 
+def candidate_python315(python: str) -> bool:
+    result = subprocess.run(
+        [python, "-I", "-S", "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
+        check=True, capture_output=True, text=True, timeout=15,
+    )
+    version = result.stdout.strip()
+    if not re.fullmatch(r"[0-9]+\.[0-9]+", version):
+        raise SourceRuntimeError("Cannot identify candidate Python version")
+    return version == "3.15"
+
+
 def verify_runtime(path: Path, variant: str | None, meeting: str) -> str:
     """Use the candidate interpreter, never inference imported by the installer."""
     verification = r"""
@@ -144,6 +155,17 @@ if problems:
 print("NVB_RUNTIME=" + variant.value)
 """
     python = str(path / "bin/python")
+    probe_options = {}
+    if candidate_python315(python):
+        # Check both activation and rollback outside the installer's exported
+        # library paths, without changing other supported interpreters.
+        if __package__:
+            from .python315_runtime import clean_native_environment, verify_native_runtime
+        else:
+            from python315_runtime import clean_native_environment, verify_native_runtime
+
+        verify_native_runtime(python, meeting)
+        probe_options["env"] = clean_native_environment()
     checker = Path(__file__).resolve().parents[1] / "src/nvbroadcast/runtime/artifact.py"
     result = subprocess.run(
         [python, "-I", "-c", verification, variant or "", meeting, str(checker)],
@@ -151,6 +173,7 @@ print("NVB_RUNTIME=" + variant.value)
         capture_output=True,
         text=True,
         timeout=180,
+        **probe_options,
     )
     selected = next(
         (
@@ -167,6 +190,7 @@ print("NVB_RUNTIME=" + variant.value)
         check=True,
         stdout=sys.stderr,
         timeout=300,
+        **probe_options,
     )
     return selected
 

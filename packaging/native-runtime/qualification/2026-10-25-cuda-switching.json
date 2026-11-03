@@ -1,0 +1,2598 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-25",
+  "status": "pass",
+  "scope": "Local unsigned x86_64 CPU/CUDA native development packages, disconnected Ubuntu/Fedora switching and selected physical GPU execution.",
+  "application_and_adapter_source": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+  "source_tree": "5ee59e8d2ab17a7b012fd7833194ba1862c5d831",
+  "package_revision": 5,
+  "qualification_tool_source": "e1d06b12fe417eace1f410358f5eac4c5ad608f9",
+  "build": {
+    "preparation": {
+      "path": "Broadcast-native-cuda-20261025/dist/build-receipts/preparation.json",
+      "bytes": 52323,
+      "sha256": "77438296c5194274c3216f3e3cb83dd23997d0e1c98a716e85465aecc7d4b609"
+    },
+    "post_build_verification": {
+      "path": "Broadcast-native-cuda-20261025/dist/build-receipts/post-build-verification.json",
+      "bytes": 20261,
+      "sha256": "0f5b41a87fdbd0bc7aeaa5082d027c18572a105c87fa8433724f273f28bb328d"
+    },
+    "cache_files": 85,
+    "cache_bytes": 2732854902,
+    "downloads": [],
+    "original_inputs_unchanged": true,
+    "builders": {
+      "bindings": {
+        "architecture": "amd64",
+        "image": "sha256:7295102d8391699de28d86df555bddae343c5540c32bb21cbd5af10f92fc07ad",
+        "os": "linux"
+      },
+      "deb": {
+        "architecture": "amd64",
+        "image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+        "os": "linux"
+      },
+      "rpm": {
+        "architecture": "amd64",
+        "image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+        "os": "linux"
+      }
+    },
+    "variants": {
+      "cpu": {
+        "adapter": {
+          "files": {
+            "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+            "packaging/native-prototype/build.py": "ed731871ee8a3bc400d629b983f335fde9fb36e1ffcebb3dc7f0a8a5771d626b",
+            "packaging/native-runtime/build.py": "055a843d7410f2f09cc6ff7e0f5ded8338da5f7c28187547fa69398dc83a6dea",
+            "packaging/native-runtime/builders.json": "ab0df4d7ae6cc6d4a85091f3d92a4fcf8912175e31564fc5ee3bf8ec198216a5",
+            "packaging/native-runtime/package-hooks.sh": "e0b8611fbffe4e0f715ecdd9dc9f912415128274f1093479a7aa987cfa75f96d",
+            "packaging/native-runtime/pylock.linux-x86_64-cp313-cpu.toml": "4b46de7218ade2ae66735a3e08dc1caf1378e1a73ccebd8eca40c606beaa99ca",
+            "packaging/native-runtime/pylock.linux-x86_64-cp313-cuda.toml": "4a87cfd44591717018dd6037a782334092dea13ac39569d88430aa11e356774d",
+            "packaging/native-runtime/recovery_bootstrap.py": "2c2dfe1690e5bcefaccb88391fbe92e86712ed8060b1f9bf581eacc011f9935d",
+            "packaging/native-runtime/validate_install.py": "27d7b9bfcfc4bcee38b7654b3155c75f3ee9b80bbdabc3a305ce5b15e96fa368",
+            "packaging/runtime-prototype/assemble.py": "3f8e1b1c1dac75579c804f3f34ccdbfb486f6ebc4e9addbba523701acdaa54bc",
+            "packaging/runtime-prototype/build-bindings.sh": "1f6711b113481375cc4ce38b6fab21d4d84dff79c69fc9119aaccf8d9390ffa1",
+            "packaging/runtime-prototype/inputs.json": "4b78c88ef667c94237a774a1349a630f1e5fb0d1f76229eb5bec165ab55590b7",
+            "packaging/runtime-prototype/prepare.py": "83947e129b8b259e0e565b005a427e53081dc20f7617a2ee13b4c64556d8d651",
+            "packaging/runtime-prototype/pylock.build.toml": "7a5bf5ed999ab8d77c48fd4244a2623df86c6686df1de716508a18bc21420990",
+            "scripts/recover_native_rpm.py": "67cef65abaa04e49ccb1f1276a498b38080ddacfb6b1a7bc5f86a62cb25971b5"
+          },
+          "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+          "tree": "5ee59e8d2ab17a7b012fd7833194ba1862c5d831"
+        },
+        "fresh_wheels": {
+          "nvbroadcast-1.5.3-py3-none-any.whl": {
+            "bytes": 477221,
+            "sha256": "6c9102565add144dc3b393c025a51e73354c3addb1ee710b5a986d49e20f3bd4"
+          },
+          "pycairo-1.29.0-cp313-cp313-linux_x86_64.whl": {
+            "bytes": 128852,
+            "sha256": "bb12333fbd4c047ee8f88b5ae091a4d495bf8730e7526fa35f6605326176fea1"
+          },
+          "pygobject-3.48.2-cp313-cp313-linux_x86_64.whl": {
+            "bytes": 255558,
+            "sha256": "ebfbcb4a688e59766018f1431c533d68e060b4a4128ee1f74cd18c3185d0e588"
+          }
+        },
+        "logs": {
+          "assembly/assemble.log": {
+            "bytes": 8736,
+            "sha256": "f005157d45795218680b418738de6b41e59b32f966678767ff56a20d3995c0a3"
+          },
+          "assembly/wheel-build.log": {
+            "bytes": 3307,
+            "sha256": "091452b51c6cc59fa21391261664c6e4525e756b7e1ff584863d11be7b4b290e"
+          },
+          "deb/build.log": {
+            "bytes": 87,
+            "sha256": "cd41a10d73264cd2266c4b388d4a5e8b5565b9f358ab3e721a0cc9a38605f707"
+          },
+          "rpm/build.log": {
+            "bytes": 5890,
+            "sha256": "2214af2f38159fb842c6e12473ef0719419311f4d38b716ba7a4e3ccf0fbc28b"
+          }
+        },
+        "packages": [
+          {
+            "adapter": {
+              "files": {
+                "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+                "packaging/native-prototype/build.py": "ed731871ee8a3bc400d629b983f335fde9fb36e1ffcebb3dc7f0a8a5771d626b",
+                "packaging/native-runtime/build.py": "055a843d7410f2f09cc6ff7e0f5ded8338da5f7c28187547fa69398dc83a6dea",
+                "packaging/native-runtime/builders.json": "ab0df4d7ae6cc6d4a85091f3d92a4fcf8912175e31564fc5ee3bf8ec198216a5",
+                "packaging/native-runtime/package-hooks.sh": "e0b8611fbffe4e0f715ecdd9dc9f912415128274f1093479a7aa987cfa75f96d",
+                "packaging/native-runtime/pylock.linux-x86_64-cp313-cpu.toml": "4b46de7218ade2ae66735a3e08dc1caf1378e1a73ccebd8eca40c606beaa99ca",
+                "packaging/native-runtime/pylock.linux-x86_64-cp313-cuda.toml": "4a87cfd44591717018dd6037a782334092dea13ac39569d88430aa11e356774d",
+                "packaging/native-runtime/recovery_bootstrap.py": "2c2dfe1690e5bcefaccb88391fbe92e86712ed8060b1f9bf581eacc011f9935d",
+                "packaging/native-runtime/validate_install.py": "27d7b9bfcfc4bcee38b7654b3155c75f3ee9b80bbdabc3a305ce5b15e96fa368",
+                "packaging/runtime-prototype/assemble.py": "3f8e1b1c1dac75579c804f3f34ccdbfb486f6ebc4e9addbba523701acdaa54bc",
+                "packaging/runtime-prototype/build-bindings.sh": "1f6711b113481375cc4ce38b6fab21d4d84dff79c69fc9119aaccf8d9390ffa1",
+                "packaging/runtime-prototype/inputs.json": "4b78c88ef667c94237a774a1349a630f1e5fb0d1f76229eb5bec165ab55590b7",
+                "packaging/runtime-prototype/prepare.py": "83947e129b8b259e0e565b005a427e53081dc20f7617a2ee13b4c64556d8d651",
+                "packaging/runtime-prototype/pylock.build.toml": "7a5bf5ed999ab8d77c48fd4244a2623df86c6686df1de716508a18bc21420990",
+                "scripts/recover_native_rpm.py": "67cef65abaa04e49ccb1f1276a498b38080ddacfb6b1a7bc5f86a62cb25971b5"
+              },
+              "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+              "tree": "5ee59e8d2ab17a7b012fd7833194ba1862c5d831"
+            },
+            "artifact": "deb/nvbroadcast_1.5.3-5.cpu_amd64.deb",
+            "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+            "bytes": 390316140,
+            "content": "deb/content.json",
+            "content_sha256": "4d0972b271725c6fd68ec0e4efe79255ed8d1369fb47aba020b466575e65975a",
+            "family": "deb",
+            "runtime_manifest_sha256": "c67588e834a29ae8bda788856cc8344aa9d9dda5ab21bcf9a81f9a8a4e4fef3f",
+            "sha256": "5176d34a8a88e97d8dd4f48fea7623f504f68c109b9ef57de02e1720f73b4431",
+            "source": {
+              "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+              "source_date_epoch": 1792719503,
+              "version": "1.5.3"
+            },
+            "variant": "cpu",
+            "verified_native_entries": 16585,
+            "version": "1.5.3-5.cpu"
+          },
+          {
+            "adapter": {
+              "files": {
+                "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+                "packaging/native-prototype/build.py": "ed731871ee8a3bc400d629b983f335fde9fb36e1ffcebb3dc7f0a8a5771d626b",
+                "packaging/native-runtime/build.py": "055a843d7410f2f09cc6ff7e0f5ded8338da5f7c28187547fa69398dc83a6dea",
+                "packaging/native-runtime/builders.json": "ab0df4d7ae6cc6d4a85091f3d92a4fcf8912175e31564fc5ee3bf8ec198216a5",
+                "packaging/native-runtime/package-hooks.sh": "e0b8611fbffe4e0f715ecdd9dc9f912415128274f1093479a7aa987cfa75f96d",
+                "packaging/native-runtime/pylock.linux-x86_64-cp313-cpu.toml": "4b46de7218ade2ae66735a3e08dc1caf1378e1a73ccebd8eca40c606beaa99ca",
+                "packaging/native-runtime/pylock.linux-x86_64-cp313-cuda.toml": "4a87cfd44591717018dd6037a782334092dea13ac39569d88430aa11e356774d",
+                "packaging/native-runtime/recovery_bootstrap.py": "2c2dfe1690e5bcefaccb88391fbe92e86712ed8060b1f9bf581eacc011f9935d",
+                "packaging/native-runtime/validate_install.py": "27d7b9bfcfc4bcee38b7654b3155c75f3ee9b80bbdabc3a305ce5b15e96fa368",
+                "packaging/runtime-prototype/assemble.py": "3f8e1b1c1dac75579c804f3f34ccdbfb486f6ebc4e9addbba523701acdaa54bc",
+                "packaging/runtime-prototype/build-bindings.sh": "1f6711b113481375cc4ce38b6fab21d4d84dff79c69fc9119aaccf8d9390ffa1",
+                "packaging/runtime-prototype/inputs.json": "4b78c88ef667c94237a774a1349a630f1e5fb0d1f76229eb5bec165ab55590b7",
+                "packaging/runtime-prototype/prepare.py": "83947e129b8b259e0e565b005a427e53081dc20f7617a2ee13b4c64556d8d651",
+                "packaging/runtime-prototype/pylock.build.toml": "7a5bf5ed999ab8d77c48fd4244a2623df86c6686df1de716508a18bc21420990",
+                "scripts/recover_native_rpm.py": "67cef65abaa04e49ccb1f1276a498b38080ddacfb6b1a7bc5f86a62cb25971b5"
+              },
+              "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+              "tree": "5ee59e8d2ab17a7b012fd7833194ba1862c5d831"
+            },
+            "artifact": "rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-5.cpu.x86_64.rpm",
+            "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+            "bytes": 389969019,
+            "content": "rpm/content.json",
+            "content_sha256": "5a451cff53490431282a0183b575558369e4fa8cb7a9b010bfc0943553304a4f",
+            "family": "rpm",
+            "runtime_manifest_sha256": "c67588e834a29ae8bda788856cc8344aa9d9dda5ab21bcf9a81f9a8a4e4fef3f",
+            "sha256": "10ff8a4e5a226c84cabb2cb9fd85c84c841c74210217035d825aef31db6b7597",
+            "source": {
+              "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+              "source_date_epoch": 1792719503,
+              "version": "1.5.3"
+            },
+            "variant": "cpu",
+            "verified_native_entries": 16586,
+            "version": "1.5.3-5.cpu"
+          }
+        ],
+        "runtime_entries": 16557,
+        "runtime_manifest": {
+          "bytes": 2795637,
+          "sha256": "c67588e834a29ae8bda788856cc8344aa9d9dda5ab21bcf9a81f9a8a4e4fef3f"
+        },
+        "runtime_regular_file_bytes": 1382801863,
+        "source": {
+          "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+          "source_date_epoch": 1792719503,
+          "version": "1.5.3"
+        },
+        "execution": {
+          "command": [
+            "/usr/bin/python3",
+            "-I",
+            "-S",
+            "packaging/native-runtime/build.py",
+            "--variant",
+            "cpu",
+            "--source",
+            "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+            "--package-revision",
+            "5",
+            "--cache",
+            "/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/build-cache",
+            "--output",
+            "/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/build-cpu",
+            "--offline",
+            "--bindings-image",
+            "sha256:7295102d8391699de28d86df555bddae343c5540c32bb21cbd5af10f92fc07ad",
+            "--deb-image",
+            "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+            "--rpm-image",
+            "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c"
+          ],
+          "started_at": "2026-10-25T19:26:33.895682+00:00",
+          "finished_at": "2026-10-25T19:28:37.956738+00:00",
+          "offline": true,
+          "reuse_runtime": false,
+          "status": "pass",
+          "exit_code": 0,
+          "output_disk_bytes": 5905514496,
+          "application_python_files_verified": 62,
+          "receipt": {
+            "path": "Broadcast-native-cuda-20261025/dist/build-receipts/cpu-execution.json",
+            "bytes": 8001,
+            "sha256": "ba9bf4049103a91820a7f8742bd62b309fef5bcd99ef3214a49fc766bdcfd453"
+          }
+        }
+      },
+      "cuda": {
+        "adapter": {
+          "files": {
+            "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+            "packaging/native-prototype/build.py": "ed731871ee8a3bc400d629b983f335fde9fb36e1ffcebb3dc7f0a8a5771d626b",
+            "packaging/native-runtime/build.py": "055a843d7410f2f09cc6ff7e0f5ded8338da5f7c28187547fa69398dc83a6dea",
+            "packaging/native-runtime/builders.json": "ab0df4d7ae6cc6d4a85091f3d92a4fcf8912175e31564fc5ee3bf8ec198216a5",
+            "packaging/native-runtime/package-hooks.sh": "e0b8611fbffe4e0f715ecdd9dc9f912415128274f1093479a7aa987cfa75f96d",
+            "packaging/native-runtime/pylock.linux-x86_64-cp313-cpu.toml": "4b46de7218ade2ae66735a3e08dc1caf1378e1a73ccebd8eca40c606beaa99ca",
+            "packaging/native-runtime/pylock.linux-x86_64-cp313-cuda.toml": "4a87cfd44591717018dd6037a782334092dea13ac39569d88430aa11e356774d",
+            "packaging/native-runtime/recovery_bootstrap.py": "2c2dfe1690e5bcefaccb88391fbe92e86712ed8060b1f9bf581eacc011f9935d",
+            "packaging/native-runtime/validate_install.py": "27d7b9bfcfc4bcee38b7654b3155c75f3ee9b80bbdabc3a305ce5b15e96fa368",
+            "packaging/runtime-prototype/assemble.py": "3f8e1b1c1dac75579c804f3f34ccdbfb486f6ebc4e9addbba523701acdaa54bc",
+            "packaging/runtime-prototype/build-bindings.sh": "1f6711b113481375cc4ce38b6fab21d4d84dff79c69fc9119aaccf8d9390ffa1",
+            "packaging/runtime-prototype/inputs.json": "4b78c88ef667c94237a774a1349a630f1e5fb0d1f76229eb5bec165ab55590b7",
+            "packaging/runtime-prototype/prepare.py": "83947e129b8b259e0e565b005a427e53081dc20f7617a2ee13b4c64556d8d651",
+            "packaging/runtime-prototype/pylock.build.toml": "7a5bf5ed999ab8d77c48fd4244a2623df86c6686df1de716508a18bc21420990",
+            "scripts/recover_native_rpm.py": "67cef65abaa04e49ccb1f1276a498b38080ddacfb6b1a7bc5f86a62cb25971b5"
+          },
+          "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+          "tree": "5ee59e8d2ab17a7b012fd7833194ba1862c5d831"
+        },
+        "fresh_wheels": {
+          "nvbroadcast-1.5.3-py3-none-any.whl": {
+            "bytes": 477221,
+            "sha256": "6c9102565add144dc3b393c025a51e73354c3addb1ee710b5a986d49e20f3bd4"
+          },
+          "pycairo-1.29.0-cp313-cp313-linux_x86_64.whl": {
+            "bytes": 128852,
+            "sha256": "bb12333fbd4c047ee8f88b5ae091a4d495bf8730e7526fa35f6605326176fea1"
+          },
+          "pygobject-3.48.2-cp313-cp313-linux_x86_64.whl": {
+            "bytes": 255558,
+            "sha256": "ebfbcb4a688e59766018f1431c533d68e060b4a4128ee1f74cd18c3185d0e588"
+          }
+        },
+        "logs": {
+          "assembly/assemble.log": {
+            "bytes": 10862,
+            "sha256": "874da88bcf57a9911300e1fcf5513a20e7b136404a4db5347f0726f25ba7de11"
+          },
+          "assembly/wheel-build.log": {
+            "bytes": 3307,
+            "sha256": "0221b1f71cc56da22f44eb0fe3a92731fc9762dca1582a667a0750eceafbadb2"
+          },
+          "deb/build.log": {
+            "bytes": 88,
+            "sha256": "528b271d82fd136798b7bdab82aada7e4dc79536f52ae3d3b15a8bc47c493dbc"
+          },
+          "rpm/build.log": {
+            "bytes": 5894,
+            "sha256": "e0c12d1817a7d9961265f4c334f3ac31b6c45d7843cfa240725604eb4d8be098"
+          }
+        },
+        "packages": [
+          {
+            "adapter": {
+              "files": {
+                "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+                "packaging/native-prototype/build.py": "ed731871ee8a3bc400d629b983f335fde9fb36e1ffcebb3dc7f0a8a5771d626b",
+                "packaging/native-runtime/build.py": "055a843d7410f2f09cc6ff7e0f5ded8338da5f7c28187547fa69398dc83a6dea",
+                "packaging/native-runtime/builders.json": "ab0df4d7ae6cc6d4a85091f3d92a4fcf8912175e31564fc5ee3bf8ec198216a5",
+                "packaging/native-runtime/package-hooks.sh": "e0b8611fbffe4e0f715ecdd9dc9f912415128274f1093479a7aa987cfa75f96d",
+                "packaging/native-runtime/pylock.linux-x86_64-cp313-cpu.toml": "4b46de7218ade2ae66735a3e08dc1caf1378e1a73ccebd8eca40c606beaa99ca",
+                "packaging/native-runtime/pylock.linux-x86_64-cp313-cuda.toml": "4a87cfd44591717018dd6037a782334092dea13ac39569d88430aa11e356774d",
+                "packaging/native-runtime/recovery_bootstrap.py": "2c2dfe1690e5bcefaccb88391fbe92e86712ed8060b1f9bf581eacc011f9935d",
+                "packaging/native-runtime/validate_install.py": "27d7b9bfcfc4bcee38b7654b3155c75f3ee9b80bbdabc3a305ce5b15e96fa368",
+                "packaging/runtime-prototype/assemble.py": "3f8e1b1c1dac75579c804f3f34ccdbfb486f6ebc4e9addbba523701acdaa54bc",
+                "packaging/runtime-prototype/build-bindings.sh": "1f6711b113481375cc4ce38b6fab21d4d84dff79c69fc9119aaccf8d9390ffa1",
+                "packaging/runtime-prototype/inputs.json": "4b78c88ef667c94237a774a1349a630f1e5fb0d1f76229eb5bec165ab55590b7",
+                "packaging/runtime-prototype/prepare.py": "83947e129b8b259e0e565b005a427e53081dc20f7617a2ee13b4c64556d8d651",
+                "packaging/runtime-prototype/pylock.build.toml": "7a5bf5ed999ab8d77c48fd4244a2623df86c6686df1de716508a18bc21420990",
+                "scripts/recover_native_rpm.py": "67cef65abaa04e49ccb1f1276a498b38080ddacfb6b1a7bc5f86a62cb25971b5"
+              },
+              "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+              "tree": "5ee59e8d2ab17a7b012fd7833194ba1862c5d831"
+            },
+            "artifact": "deb/nvbroadcast_1.5.3-5.cuda_amd64.deb",
+            "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+            "bytes": 2155699754,
+            "content": "deb/content.json",
+            "content_sha256": "42fa08469a0442ac760b58c80796fc6745ec00c53804e0f1d6f1ae1a5cbf50dc",
+            "family": "deb",
+            "runtime_manifest_sha256": "4682b07dc427bef2edbe202c6839284a93d47f526816e138fa81ba80850f63d5",
+            "sha256": "0c84b5edb3dd1b02fc65fafdaef9e8aa72f5fb40873346ad8c92272ec2a024cc",
+            "source": {
+              "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+              "source_date_epoch": 1792719503,
+              "version": "1.5.3"
+            },
+            "variant": "cuda",
+            "verified_native_entries": 19599,
+            "version": "1.5.3-5.cuda"
+          },
+          {
+            "adapter": {
+              "files": {
+                "packaging/keys/RPM-GPG-KEY-nvbroadcast.asc": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+                "packaging/native-prototype/build.py": "ed731871ee8a3bc400d629b983f335fde9fb36e1ffcebb3dc7f0a8a5771d626b",
+                "packaging/native-runtime/build.py": "055a843d7410f2f09cc6ff7e0f5ded8338da5f7c28187547fa69398dc83a6dea",
+                "packaging/native-runtime/builders.json": "ab0df4d7ae6cc6d4a85091f3d92a4fcf8912175e31564fc5ee3bf8ec198216a5",
+                "packaging/native-runtime/package-hooks.sh": "e0b8611fbffe4e0f715ecdd9dc9f912415128274f1093479a7aa987cfa75f96d",
+                "packaging/native-runtime/pylock.linux-x86_64-cp313-cpu.toml": "4b46de7218ade2ae66735a3e08dc1caf1378e1a73ccebd8eca40c606beaa99ca",
+                "packaging/native-runtime/pylock.linux-x86_64-cp313-cuda.toml": "4a87cfd44591717018dd6037a782334092dea13ac39569d88430aa11e356774d",
+                "packaging/native-runtime/recovery_bootstrap.py": "2c2dfe1690e5bcefaccb88391fbe92e86712ed8060b1f9bf581eacc011f9935d",
+                "packaging/native-runtime/validate_install.py": "27d7b9bfcfc4bcee38b7654b3155c75f3ee9b80bbdabc3a305ce5b15e96fa368",
+                "packaging/runtime-prototype/assemble.py": "3f8e1b1c1dac75579c804f3f34ccdbfb486f6ebc4e9addbba523701acdaa54bc",
+                "packaging/runtime-prototype/build-bindings.sh": "1f6711b113481375cc4ce38b6fab21d4d84dff79c69fc9119aaccf8d9390ffa1",
+                "packaging/runtime-prototype/inputs.json": "4b78c88ef667c94237a774a1349a630f1e5fb0d1f76229eb5bec165ab55590b7",
+                "packaging/runtime-prototype/prepare.py": "83947e129b8b259e0e565b005a427e53081dc20f7617a2ee13b4c64556d8d651",
+                "packaging/runtime-prototype/pylock.build.toml": "7a5bf5ed999ab8d77c48fd4244a2623df86c6686df1de716508a18bc21420990",
+                "scripts/recover_native_rpm.py": "67cef65abaa04e49ccb1f1276a498b38080ddacfb6b1a7bc5f86a62cb25971b5"
+              },
+              "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+              "tree": "5ee59e8d2ab17a7b012fd7833194ba1862c5d831"
+            },
+            "artifact": "rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-5.cuda.x86_64.rpm",
+            "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+            "bytes": 2144767854,
+            "content": "rpm/content.json",
+            "content_sha256": "4735a3637e23a28727fb545c9dfd58b64ed92df700d6bef8b8272f04b1ab56a6",
+            "family": "rpm",
+            "runtime_manifest_sha256": "4682b07dc427bef2edbe202c6839284a93d47f526816e138fa81ba80850f63d5",
+            "sha256": "f543e1b925ea85ded4f6e35789bf3ae21eb7228e00d428d2f58e6b09df137db1",
+            "source": {
+              "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+              "source_date_epoch": 1792719503,
+              "version": "1.5.3"
+            },
+            "variant": "cuda",
+            "verified_native_entries": 19600,
+            "version": "1.5.3-5.cuda"
+          }
+        ],
+        "runtime_entries": 19571,
+        "runtime_manifest": {
+          "bytes": 3426677,
+          "sha256": "4682b07dc427bef2edbe202c6839284a93d47f526816e138fa81ba80850f63d5"
+        },
+        "runtime_regular_file_bytes": 5003906349,
+        "source": {
+          "revision": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+          "source_date_epoch": 1792719503,
+          "version": "1.5.3"
+        },
+        "execution": {
+          "command": [
+            "/usr/bin/python3",
+            "-I",
+            "-S",
+            "packaging/native-runtime/build.py",
+            "--variant",
+            "cuda",
+            "--source",
+            "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+            "--package-revision",
+            "5",
+            "--cache",
+            "/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/build-cache",
+            "--output",
+            "/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/build-cuda",
+            "--offline",
+            "--bindings-image",
+            "sha256:7295102d8391699de28d86df555bddae343c5540c32bb21cbd5af10f92fc07ad",
+            "--deb-image",
+            "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+            "--rpm-image",
+            "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c"
+          ],
+          "started_at": "2026-10-25T19:28:39.973607+00:00",
+          "finished_at": "2026-10-25T19:34:29.059869+00:00",
+          "offline": true,
+          "reuse_runtime": false,
+          "status": "pass",
+          "exit_code": 0,
+          "output_disk_bytes": 22471917568,
+          "application_python_files_verified": 62,
+          "receipt": {
+            "path": "Broadcast-native-cuda-20261025/dist/build-receipts/cuda-execution.json",
+            "bytes": 8013,
+            "sha256": "0e404812cebd342bb65bfce02004dd7cfb507209fd7f55dec13d32557c5fa53d"
+          }
+        }
+      }
+    }
+  },
+  "fixtures": {
+    "deb": {
+      "base": "ubuntu@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc",
+      "distribution": "Ubuntu 24.04",
+      "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.deb",
+      "dockerfile_sha256": "55f692ffffb82e9867fd487015fcffa5869bffbf5f9dc2179fc07b3491cd2672",
+      "driver_sha256": "05735cfb5faa146b40044e8d0563cc1f98b8efac107736856c43c3e8b15f0b39",
+      "family": "deb",
+      "files": {
+        "build.log": "df739ebdb61c71dc24f7d22a9122f55dea60ce6d687361655da975f469157439",
+        "fixture-packages.txt": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78",
+        "image.id": "54608d395216d57e7e53fb962565fb5fd6e22b94550111c3cd14eaf3a5578cb8",
+        "os-release": "87458b3b1f1ca0e5c693ade771de7007c3783bdc692fa6b39eb6414bf2af2763"
+      },
+      "image": "sha256:80aba83f5fbbd2dbad1be79634f2b59386d95346af9553ed0004815964b85c94",
+      "inventory_container_removed": true,
+      "inventory_sha256": "fc624e7df1fcdf2e74afb8479b347fc424d3385ff15385249464791cc917cb78",
+      "manifest_sha256": "92d80df6531ca985525b9aec8d625c1b3b289453ff51b957a0a231a9f19ea356",
+      "os_release": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+      "platform": "linux/amd64",
+      "scope": "Disposable qualification fixtures; OS dependencies use current distribution repositories, not a reproduced OS snapshot. Record each built image ID and its packages.tsv inventory. Candidate installation and tests run with network disabled.",
+      "status": "pass",
+      "receipt": {
+        "path": "Broadcast-native-cuda-20261025/dist/fixture-deb/fixture.json",
+        "bytes": 1817,
+        "sha256": "c10c98afa77a13ff781d212dae24bed093f9893123d67bdf7061bea1e2dc85d1"
+      }
+    },
+    "rpm": {
+      "base": "fedora@sha256:be9d65e2344d805cc11114319c685ecaa96b6d9b4350a0a6460cdb931babbd19",
+      "distribution": "Fedora 44",
+      "dockerfile": "packaging/native-runtime/fixtures/Dockerfile.rpm",
+      "dockerfile_sha256": "f1176d5aa13f0e1462ef03b92966bb621f7c65a3075e0f75f23a1ea91c0c302a",
+      "driver_sha256": "05735cfb5faa146b40044e8d0563cc1f98b8efac107736856c43c3e8b15f0b39",
+      "family": "rpm",
+      "files": {
+        "build.log": "a7dd22f2ee57265da9a1193692e711274bb83b45a8cb608b68c0a59e9713af9c",
+        "fixture-packages.txt": "f7da01cd7b0cbcfa0ea379da717f15a4f6c55c41da7bbe3284bd1ef368f354bf",
+        "image.id": "3fbc1f10fa3005a2de5f145e50d70ae24417edbb2321386337f5211f2f280130",
+        "os-release": "2f6bf1f4e47d29ad351269e1fe4f56a9667f2f0c87dd0365c752948ee9dc1d8b"
+      },
+      "image": "sha256:fb2daa7eb39488d8f6da9f893d044f33b1e768b9d5dc16d7a15f8860726c2b66",
+      "inventory_container_removed": true,
+      "inventory_sha256": "f7da01cd7b0cbcfa0ea379da717f15a4f6c55c41da7bbe3284bd1ef368f354bf",
+      "manifest_sha256": "92d80df6531ca985525b9aec8d625c1b3b289453ff51b957a0a231a9f19ea356",
+      "os_release": "NAME=\"Fedora Linux\"\nVERSION=\"44 (Container Image)\"\nRELEASE_TYPE=stable\nID=fedora\nVERSION_ID=44\nVERSION_CODENAME=\"\"\nPRETTY_NAME=\"Fedora Linux 44 (Container Image)\"\nANSI_COLOR=\"0;38;2;60;110;180\"\nLOGO=fedora-logo-icon\nCPE_NAME=\"cpe:/o:fedoraproject:fedora:44\"\nDEFAULT_HOSTNAME=\"fedora\"\nHOME_URL=\"https://fedoraproject.org/\"\nDOCUMENTATION_URL=\"https://docs.fedoraproject.org/en-US/fedora/f44/\"\nSUPPORT_URL=\"https://ask.fedoraproject.org/\"\nBUG_REPORT_URL=\"https://bugzilla.redhat.com/\"\nREDHAT_BUGZILLA_PRODUCT=\"Fedora\"\nREDHAT_BUGZILLA_PRODUCT_VERSION=44\nREDHAT_SUPPORT_PRODUCT=\"Fedora\"\nREDHAT_SUPPORT_PRODUCT_VERSION=44\nSUPPORT_END=2027-05-19\nVARIANT=\"Container Image\"\nVARIANT_ID=container\n",
+      "platform": "linux/amd64",
+      "scope": "Disposable qualification fixtures; OS dependencies use current distribution repositories, not a reproduced OS snapshot. Record each built image ID and its packages.tsv inventory. Candidate installation and tests run with network disabled.",
+      "status": "pass",
+      "receipt": {
+        "path": "Broadcast-native-cuda-20261025/dist/fixture-rpm/fixture.json",
+        "bytes": 2121,
+        "sha256": "2ec2656e15a819e3c754579cd8f7a28b3a73e9c93b6aeae2be458651cfbd199e"
+      }
+    }
+  },
+  "matrix": {
+    "status": "pass",
+    "reviewed_at": "2026-10-25T19:57:35.719377+00:00",
+    "scope": "Read-only inspection of completed local unsigned CPU/CUDA package switching matrix; no reviewer Docker/GPU/package execution or release acceptance.",
+    "source": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+    "tool_commit": "e1d06b12fe417eace1f410358f5eac4c5ad608f9",
+    "driver_sha256": "10f98e3a7eee8511965ab69759e0196d7fd941654f424a3c842a37a81a0e5676",
+    "cases": {
+      "deb-none": {
+        "status": "pass",
+        "family": "deb",
+        "gpu_device": null,
+        "image": "sha256:80aba83f5fbbd2dbad1be79634f2b59386d95346af9553ed0004815964b85c94",
+        "steps": 46,
+        "runtime_reports": {
+          "installed-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "preserved-cpu-after-refusal": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "installed-cuda": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 70
+          },
+          "preserved-cuda-after-refusal": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 70
+          },
+          "rolled-back-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          }
+        },
+        "recordings": {
+          "installed-cpu": {
+            "audio_encoder": "voaacenc",
+            "audio_peak": 0.8085297346115112,
+            "audio_samples": 49152,
+            "file_bytes": 211661,
+            "status": "pass",
+            "video_encoder": "x264enc",
+            "video_frames": 24
+          },
+          "installed-cuda": {
+            "audio_encoder": "voaacenc",
+            "audio_peak": 0.8085297346115112,
+            "audio_samples": 49152,
+            "file_bytes": 211661,
+            "status": "pass",
+            "video_encoder": "x264enc",
+            "video_frames": 24
+          },
+          "rolled-back-cpu": {
+            "audio_encoder": "voaacenc",
+            "audio_peak": 0.8085297346115112,
+            "audio_samples": 49152,
+            "file_bytes": 211392,
+            "status": "pass",
+            "video_encoder": "x264enc",
+            "video_frames": 24
+          }
+        },
+        "runtime_lock_identity": "166:58106186",
+        "files": {
+          "00-confirm-clean-fixture.log": {
+            "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7",
+            "bytes": 51
+          },
+          "01-sentinels.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "02-capture-system-python.log": {
+            "sha256": "9592687fa235a018a8927968dd916f248fc1d49bb8992f931448c597b49c5629",
+            "bytes": 21
+          },
+          "03-install-cpu.log": {
+            "sha256": "a5cffb98c20fc6ceb6d3c6719cd34c2615a002a5120a2e5be6cf57681f3f92fb",
+            "bytes": 360
+          },
+          "04-installed-cpu-identity.log": {
+            "sha256": "009c205d864d2d23e5bfc35c81f898762110e62a7a9b946aeb03d3b9d81fc220",
+            "bytes": 2199
+          },
+          "05-installed-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "06-installed-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "07-installed-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "08-installed-cpu-runtime-media-gtk.log": {
+            "sha256": "7ced728623a5a1918f0c4056d4864c921de5e734e1a54dfe8c230420edc98503",
+            "bytes": 12578
+          },
+          "09-installed-cpu-generated-recording.log": {
+            "sha256": "bb3c0d8124d4a41346f3c9632cffcc59e61d35a7381d97a22e94d067d3437865",
+            "bytes": 1463
+          },
+          "10-cpu-to-cuda-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "11-cpu-to-cuda-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "12-cpu-to-cuda-switch-refused.log": {
+            "sha256": "b5dba9675558f913d3ef7cd7f8dab77a6bb7eedc4d6c328a20cc0f4ce2b40d7d",
+            "bytes": 410
+          },
+          "13-cpu-to-cuda-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "14-preserved-cpu-after-refusal-identity.log": {
+            "sha256": "009c205d864d2d23e5bfc35c81f898762110e62a7a9b946aeb03d3b9d81fc220",
+            "bytes": 2199
+          },
+          "15-preserved-cpu-after-refusal-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "16-preserved-cpu-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "17-preserved-cpu-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "18-preserved-cpu-after-refusal-runtime-media-gtk.log": {
+            "sha256": "a04c07668109478dfbb1835b801a310ab93824601285096a5799e36e950202ce",
+            "bytes": 12561
+          },
+          "19-switch-to-cuda.log": {
+            "sha256": "0c66b1c4e7a765d962f778e18d50b9f7e6efd3fc9469bf5904fc1c18d7e7402b",
+            "bytes": 330
+          },
+          "20-installed-cuda-identity.log": {
+            "sha256": "9236850819261c9e6efb9924466218b1196ac2094ab82a2b524e4c75c5964d33",
+            "bytes": 2201
+          },
+          "21-installed-cuda-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "22-installed-cuda-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "23-installed-cuda-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "24-installed-cuda-runtime-media-gtk.log": {
+            "sha256": "9fc5be7485a14d2641c26ff919ce0a651466d447594b74db3bc7a8e787a68bc9",
+            "bytes": 18047
+          },
+          "25-installed-cuda-generated-recording.log": {
+            "sha256": "bb3c0d8124d4a41346f3c9632cffcc59e61d35a7381d97a22e94d067d3437865",
+            "bytes": 1463
+          },
+          "26-cuda-to-cpu-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "27-cuda-to-cpu-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "28-cuda-to-cpu-switch-refused.log": {
+            "sha256": "27f054dc2dcb8dc162174aff0899aa2a9718cbf6a66d041c298cce92d4ed536a",
+            "bytes": 479
+          },
+          "29-cuda-to-cpu-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "30-preserved-cuda-after-refusal-identity.log": {
+            "sha256": "9236850819261c9e6efb9924466218b1196ac2094ab82a2b524e4c75c5964d33",
+            "bytes": 2201
+          },
+          "31-preserved-cuda-after-refusal-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "32-preserved-cuda-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "33-preserved-cuda-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "34-preserved-cuda-after-refusal-runtime-media-gtk.log": {
+            "sha256": "dc28cd203e4639fe6ccd6707428c302da0054462e48e3af8fad61636e1714c94",
+            "bytes": 18047
+          },
+          "35-rollback-to-cpu.log": {
+            "sha256": "4f064ba34a2430ccb8f39ae9b1acae713ba24d4014312ef5410fdafc05a59c44",
+            "bytes": 399
+          },
+          "36-rolled-back-cpu-identity.log": {
+            "sha256": "009c205d864d2d23e5bfc35c81f898762110e62a7a9b946aeb03d3b9d81fc220",
+            "bytes": 2199
+          },
+          "37-rolled-back-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "38-rolled-back-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "39-rolled-back-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "40-rolled-back-cpu-runtime-media-gtk.log": {
+            "sha256": "cca452402bb797d19b787ac6a13703ae49059450ab0acb11a5425179d6d19413",
+            "bytes": 12562
+          },
+          "41-rolled-back-cpu-generated-recording.log": {
+            "sha256": "373c92bc924483adce6d4e60fb24847489ea0ac0e5dbd48fd410804a2ba83c3e",
+            "bytes": 1463
+          },
+          "42-remove-package.log": {
+            "sha256": "8e1b68e7929a0847b860bbdf31ef272dac77b4669d8b45550f844db8f238ea93",
+            "bytes": 229
+          },
+          "43-package-uninstalled.log": {
+            "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7",
+            "bytes": 51
+          },
+          "44-preservation.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "45-preserve-system-python.log": {
+            "sha256": "958afdb4a5264cfe39ead4d69856bbe2464c3ca88317d6eed9ed7b2e43c5ae20",
+            "bytes": 29
+          },
+          "switching-deb-none/result.json": {
+            "sha256": "10dd446c04ef702d61ade2a99c39a154a86de9122466619a1abd0f6035dae3d9",
+            "bytes": 88572
+          },
+          "switching-deb-none-command.json": {
+            "sha256": "efe4d04e31dbed8c6773cc5775563a9d50a43bc9b48ecc1630b29206bb9e1d9e",
+            "bytes": 974
+          },
+          "switching-deb-none-driver.log": {
+            "sha256": "62fcbcb24d632d81aec820d436569aeae81271bfa3526b3ed9593d79e4065e99",
+            "bytes": 151
+          },
+          "switching-deb-none-plan.json": {
+            "sha256": "76f2f2c435ca9d55d18bdc93d67476e0d22ecfff2d1710556e0902ffdf1f60f3",
+            "bytes": 7593
+          }
+        },
+        "result_sha256": "10dd446c04ef702d61ade2a99c39a154a86de9122466619a1abd0f6035dae3d9",
+        "command_receipt_sha256": "efe4d04e31dbed8c6773cc5775563a9d50a43bc9b48ecc1630b29206bb9e1d9e",
+        "cleanup": {
+          "container_removed": true,
+          "inputs_unchanged": true,
+          "snapshots_unchanged": true,
+          "probes_unchanged": true
+        },
+        "receipt_path": "Broadcast-native-cuda-20261025/dist/switching-deb-none/result.json",
+        "command_receipt_path": "Broadcast-native-cuda-20261025/dist/switching-deb-none-command.json"
+      },
+      "deb-3080": {
+        "status": "pass",
+        "family": "deb",
+        "gpu_device": "GPU-1c6cff52-f9a0-d675-67ef-0474224bb868",
+        "image": "sha256:80aba83f5fbbd2dbad1be79634f2b59386d95346af9553ed0004815964b85c94",
+        "steps": 46,
+        "runtime_reports": {
+          "installed-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "preserved-cpu-after-refusal": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "installed-cuda": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": true,
+            "cupy_device": "NVIDIA GeForce RTX 3080",
+            "source_files": 62,
+            "distributions": 70
+          },
+          "preserved-cuda-after-refusal": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": true,
+            "cupy_device": "NVIDIA GeForce RTX 3080",
+            "source_files": 62,
+            "distributions": 70
+          },
+          "rolled-back-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          }
+        },
+        "recordings": {
+          "installed-cpu": {
+            "audio_encoder": "voaacenc",
+            "audio_peak": 0.8085297346115112,
+            "audio_samples": 49152,
+            "file_bytes": 200346,
+            "status": "pass",
+            "video_encoder": "nvautogpuh264enc",
+            "video_frames": 24
+          },
+          "installed-cuda": {
+            "audio_encoder": "voaacenc",
+            "audio_peak": 0.8085297346115112,
+            "audio_samples": 49152,
+            "file_bytes": 200346,
+            "status": "pass",
+            "video_encoder": "nvautogpuh264enc",
+            "video_frames": 24
+          },
+          "rolled-back-cpu": {
+            "audio_encoder": "voaacenc",
+            "audio_peak": 0.8085297346115112,
+            "audio_samples": 49152,
+            "file_bytes": 200346,
+            "status": "pass",
+            "video_encoder": "nvautogpuh264enc",
+            "video_frames": 24
+          }
+        },
+        "runtime_lock_identity": "157:58106377",
+        "files": {
+          "00-confirm-clean-fixture.log": {
+            "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7",
+            "bytes": 51
+          },
+          "01-sentinels.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "02-capture-system-python.log": {
+            "sha256": "9592687fa235a018a8927968dd916f248fc1d49bb8992f931448c597b49c5629",
+            "bytes": 21
+          },
+          "03-install-cpu.log": {
+            "sha256": "a5cffb98c20fc6ceb6d3c6719cd34c2615a002a5120a2e5be6cf57681f3f92fb",
+            "bytes": 360
+          },
+          "04-installed-cpu-identity.log": {
+            "sha256": "608817c3c0349baafb483ac21502cfa74e86aaf967a0e4c664ca023af7942c8c",
+            "bytes": 2199
+          },
+          "05-installed-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "06-installed-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "07-installed-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "08-installed-cpu-runtime-media-gtk.log": {
+            "sha256": "e26520059a313a2a75b63869baac7d210428989210908d98c71b06c521d93844",
+            "bytes": 12974
+          },
+          "09-installed-cpu-generated-recording.log": {
+            "sha256": "c0ec0c7e7678ef61aa6988ba36f3d4711f15a42238d25229ee0180412f1c5838",
+            "bytes": 1679
+          },
+          "10-cpu-to-cuda-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "11-cpu-to-cuda-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "12-cpu-to-cuda-switch-refused.log": {
+            "sha256": "b5dba9675558f913d3ef7cd7f8dab77a6bb7eedc4d6c328a20cc0f4ce2b40d7d",
+            "bytes": 410
+          },
+          "13-cpu-to-cuda-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "14-preserved-cpu-after-refusal-identity.log": {
+            "sha256": "608817c3c0349baafb483ac21502cfa74e86aaf967a0e4c664ca023af7942c8c",
+            "bytes": 2199
+          },
+          "15-preserved-cpu-after-refusal-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "16-preserved-cpu-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "17-preserved-cpu-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "18-preserved-cpu-after-refusal-runtime-media-gtk.log": {
+            "sha256": "da22b2385e9653f6e79ade93c9ae4426f51557f67d7d8d956f8f203c634d04f0",
+            "bytes": 12957
+          },
+          "19-switch-to-cuda.log": {
+            "sha256": "0c66b1c4e7a765d962f778e18d50b9f7e6efd3fc9469bf5904fc1c18d7e7402b",
+            "bytes": 330
+          },
+          "20-installed-cuda-identity.log": {
+            "sha256": "7fd6b81a35be6716da59ee99faaa9e206a23078cb314e8a661d4af998264826d",
+            "bytes": 2201
+          },
+          "21-installed-cuda-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "22-installed-cuda-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "23-installed-cuda-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "24-installed-cuda-runtime-media-gtk.log": {
+            "sha256": "75e4fe5c38fa52d71f4361f1803570caee89010d171cee3a993c54c0514bb2ab",
+            "bytes": 13906
+          },
+          "25-installed-cuda-generated-recording.log": {
+            "sha256": "c0ec0c7e7678ef61aa6988ba36f3d4711f15a42238d25229ee0180412f1c5838",
+            "bytes": 1679
+          },
+          "26-cuda-to-cpu-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "27-cuda-to-cpu-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "28-cuda-to-cpu-switch-refused.log": {
+            "sha256": "27f054dc2dcb8dc162174aff0899aa2a9718cbf6a66d041c298cce92d4ed536a",
+            "bytes": 479
+          },
+          "29-cuda-to-cpu-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "30-preserved-cuda-after-refusal-identity.log": {
+            "sha256": "7fd6b81a35be6716da59ee99faaa9e206a23078cb314e8a661d4af998264826d",
+            "bytes": 2201
+          },
+          "31-preserved-cuda-after-refusal-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "32-preserved-cuda-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "33-preserved-cuda-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "34-preserved-cuda-after-refusal-runtime-media-gtk.log": {
+            "sha256": "1f5fd7782c779a376d7a053c817c0c9da1a5c6c3d670f2c2df8bb10ed0f95cb7",
+            "bytes": 13906
+          },
+          "35-rollback-to-cpu.log": {
+            "sha256": "4f064ba34a2430ccb8f39ae9b1acae713ba24d4014312ef5410fdafc05a59c44",
+            "bytes": 399
+          },
+          "36-rolled-back-cpu-identity.log": {
+            "sha256": "608817c3c0349baafb483ac21502cfa74e86aaf967a0e4c664ca023af7942c8c",
+            "bytes": 2199
+          },
+          "37-rolled-back-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "38-rolled-back-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "39-rolled-back-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "40-rolled-back-cpu-runtime-media-gtk.log": {
+            "sha256": "d9cd942b6f39b532f931324b56590f3c40748ad9ee376260edb7cb092cb8e5e4",
+            "bytes": 12958
+          },
+          "41-rolled-back-cpu-generated-recording.log": {
+            "sha256": "c0ec0c7e7678ef61aa6988ba36f3d4711f15a42238d25229ee0180412f1c5838",
+            "bytes": 1679
+          },
+          "42-remove-package.log": {
+            "sha256": "8e1b68e7929a0847b860bbdf31ef272dac77b4669d8b45550f844db8f238ea93",
+            "bytes": 229
+          },
+          "43-package-uninstalled.log": {
+            "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7",
+            "bytes": 51
+          },
+          "44-preservation.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "45-preserve-system-python.log": {
+            "sha256": "958afdb4a5264cfe39ead4d69856bbe2464c3ca88317d6eed9ed7b2e43c5ae20",
+            "bytes": 29
+          },
+          "switching-deb-3080/result.json": {
+            "sha256": "2192d24cc23c0501158596c51f80677ff38c0c1901f3b19304c5a148788b3542",
+            "bytes": 80211
+          },
+          "switching-deb-3080-command.json": {
+            "sha256": "31646cee923ab7ac568314e4811c161487ad63e63580ba1f0decd06bddf65f80",
+            "bytes": 1042
+          },
+          "switching-deb-3080-driver.log": {
+            "sha256": "4d72d3b37428e8fd92c2e6933073836f270dbd7d9478aae37ab5b25c1c35d3b9",
+            "bytes": 151
+          },
+          "switching-deb-3080-plan.json": {
+            "sha256": "ba110ed856d71be02c2e982c90ce3f69c6333e7c2596721d751d504d2a74a73b",
+            "bytes": 7631
+          }
+        },
+        "result_sha256": "2192d24cc23c0501158596c51f80677ff38c0c1901f3b19304c5a148788b3542",
+        "command_receipt_sha256": "31646cee923ab7ac568314e4811c161487ad63e63580ba1f0decd06bddf65f80",
+        "cleanup": {
+          "container_removed": true,
+          "inputs_unchanged": true,
+          "snapshots_unchanged": true,
+          "probes_unchanged": true
+        },
+        "receipt_path": "Broadcast-native-cuda-20261025/dist/switching-deb-3080/result.json",
+        "command_receipt_path": "Broadcast-native-cuda-20261025/dist/switching-deb-3080-command.json"
+      },
+      "deb-5070": {
+        "status": "pass",
+        "family": "deb",
+        "gpu_device": "GPU-d2d063b8-c31f-1cd0-6f19-57d7f2e06991",
+        "image": "sha256:80aba83f5fbbd2dbad1be79634f2b59386d95346af9553ed0004815964b85c94",
+        "steps": 46,
+        "runtime_reports": {
+          "installed-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "preserved-cpu-after-refusal": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "installed-cuda": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": true,
+            "cupy_device": "NVIDIA GeForce RTX 5070",
+            "source_files": 62,
+            "distributions": 70
+          },
+          "preserved-cuda-after-refusal": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": true,
+            "cupy_device": "NVIDIA GeForce RTX 5070",
+            "source_files": 62,
+            "distributions": 70
+          },
+          "rolled-back-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          }
+        },
+        "recordings": {
+          "installed-cpu": {
+            "audio_encoder": "voaacenc",
+            "audio_peak": 0.8085297346115112,
+            "audio_samples": 49152,
+            "file_bytes": 211661,
+            "status": "pass",
+            "video_encoder": "x264enc",
+            "video_frames": 24
+          },
+          "installed-cuda": {
+            "audio_encoder": "voaacenc",
+            "audio_peak": 0.8085297346115112,
+            "audio_samples": 49152,
+            "file_bytes": 211661,
+            "status": "pass",
+            "video_encoder": "x264enc",
+            "video_frames": 24
+          },
+          "rolled-back-cpu": {
+            "audio_encoder": "voaacenc",
+            "audio_peak": 0.8085297346115112,
+            "audio_samples": 49152,
+            "file_bytes": 211392,
+            "status": "pass",
+            "video_encoder": "x264enc",
+            "video_frames": 24
+          }
+        },
+        "runtime_lock_identity": "152:59639175",
+        "files": {
+          "00-confirm-clean-fixture.log": {
+            "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7",
+            "bytes": 51
+          },
+          "01-sentinels.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "02-capture-system-python.log": {
+            "sha256": "9592687fa235a018a8927968dd916f248fc1d49bb8992f931448c597b49c5629",
+            "bytes": 21
+          },
+          "03-install-cpu.log": {
+            "sha256": "a5cffb98c20fc6ceb6d3c6719cd34c2615a002a5120a2e5be6cf57681f3f92fb",
+            "bytes": 360
+          },
+          "04-installed-cpu-identity.log": {
+            "sha256": "5a1a1102590ef11b5c33be57669157a9388a6255baf93c38adc6d012dba83b0a",
+            "bytes": 2199
+          },
+          "05-installed-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "06-installed-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "07-installed-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "08-installed-cpu-runtime-media-gtk.log": {
+            "sha256": "6144e16103d472e211e9ce690df1284afeca9378b04bb70821574ee3444aef5c",
+            "bytes": 12974
+          },
+          "09-installed-cpu-generated-recording.log": {
+            "sha256": "f1c0a7ee1b953caef27c2f20c0d0e0efb7bc15efed3c95dd34157333aacdf4a3",
+            "bytes": 1661
+          },
+          "10-cpu-to-cuda-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "11-cpu-to-cuda-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "12-cpu-to-cuda-switch-refused.log": {
+            "sha256": "b5dba9675558f913d3ef7cd7f8dab77a6bb7eedc4d6c328a20cc0f4ce2b40d7d",
+            "bytes": 410
+          },
+          "13-cpu-to-cuda-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "14-preserved-cpu-after-refusal-identity.log": {
+            "sha256": "5a1a1102590ef11b5c33be57669157a9388a6255baf93c38adc6d012dba83b0a",
+            "bytes": 2199
+          },
+          "15-preserved-cpu-after-refusal-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "16-preserved-cpu-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "17-preserved-cpu-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "18-preserved-cpu-after-refusal-runtime-media-gtk.log": {
+            "sha256": "bb9a9a33660d0282e3fc42de3e3b66c56faea6d0ad57fd8ed996cbb5172ca493",
+            "bytes": 12957
+          },
+          "19-switch-to-cuda.log": {
+            "sha256": "0c66b1c4e7a765d962f778e18d50b9f7e6efd3fc9469bf5904fc1c18d7e7402b",
+            "bytes": 330
+          },
+          "20-installed-cuda-identity.log": {
+            "sha256": "ecd6dea71412694a7adb373b4b8705d094962f5f87f84ad951bbdee876bb45a1",
+            "bytes": 2201
+          },
+          "21-installed-cuda-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "22-installed-cuda-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "23-installed-cuda-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "24-installed-cuda-runtime-media-gtk.log": {
+            "sha256": "5d2afbc90f04832aa35e52485d46dc1f51c24119d78349caf1cf4bb9cfea78fa",
+            "bytes": 13906
+          },
+          "25-installed-cuda-generated-recording.log": {
+            "sha256": "f1c0a7ee1b953caef27c2f20c0d0e0efb7bc15efed3c95dd34157333aacdf4a3",
+            "bytes": 1661
+          },
+          "26-cuda-to-cpu-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "27-cuda-to-cpu-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "28-cuda-to-cpu-switch-refused.log": {
+            "sha256": "27f054dc2dcb8dc162174aff0899aa2a9718cbf6a66d041c298cce92d4ed536a",
+            "bytes": 479
+          },
+          "29-cuda-to-cpu-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "30-preserved-cuda-after-refusal-identity.log": {
+            "sha256": "ecd6dea71412694a7adb373b4b8705d094962f5f87f84ad951bbdee876bb45a1",
+            "bytes": 2201
+          },
+          "31-preserved-cuda-after-refusal-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "32-preserved-cuda-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "33-preserved-cuda-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "34-preserved-cuda-after-refusal-runtime-media-gtk.log": {
+            "sha256": "55cdad23cd6ceac30de79115fcfb6832bb75b455c4cc68ee3cf09e9de85426f4",
+            "bytes": 13906
+          },
+          "35-rollback-to-cpu.log": {
+            "sha256": "4f064ba34a2430ccb8f39ae9b1acae713ba24d4014312ef5410fdafc05a59c44",
+            "bytes": 399
+          },
+          "36-rolled-back-cpu-identity.log": {
+            "sha256": "5a1a1102590ef11b5c33be57669157a9388a6255baf93c38adc6d012dba83b0a",
+            "bytes": 2199
+          },
+          "37-rolled-back-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "38-rolled-back-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "39-rolled-back-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "40-rolled-back-cpu-runtime-media-gtk.log": {
+            "sha256": "d08953a158b16afd2c81e55510611bc2a9d910c877bfd5752f1b0a2a152d61cf",
+            "bytes": 12958
+          },
+          "41-rolled-back-cpu-generated-recording.log": {
+            "sha256": "9dfde9cbc70a92caae27dcf7d6ef7bb6dc0a1fe248b2f9f234fb9f69adf411c7",
+            "bytes": 1661
+          },
+          "42-remove-package.log": {
+            "sha256": "8e1b68e7929a0847b860bbdf31ef272dac77b4669d8b45550f844db8f238ea93",
+            "bytes": 229
+          },
+          "43-package-uninstalled.log": {
+            "sha256": "6d9641576a669a7bd7f2f69572fd9fe01aabb2003f4b67d81425aee0000befe7",
+            "bytes": 51
+          },
+          "44-preservation.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "45-preserve-system-python.log": {
+            "sha256": "958afdb4a5264cfe39ead4d69856bbe2464c3ca88317d6eed9ed7b2e43c5ae20",
+            "bytes": 29
+          },
+          "switching-deb-5070/result.json": {
+            "sha256": "db0909ebb676046400bce4c0c484aaaf5c3b34d30ec55443b0ee64965b16347a",
+            "bytes": 80184
+          },
+          "switching-deb-5070-command.json": {
+            "sha256": "2ac8660e9d72bfd583bc6d57f8a36f496ecba3f14801fd3e52a63fee9b8cdfa3",
+            "bytes": 1042
+          },
+          "switching-deb-5070-driver.log": {
+            "sha256": "b6b1533436a42540fb792d2f796d91683f3e27e5e2902be67b73eb73f9e1654e",
+            "bytes": 151
+          },
+          "switching-deb-5070-plan.json": {
+            "sha256": "0a754a8ee7f4b05316ec6d1c356eb2886f9049ee8352ffbf3462bf8b143a1a1e",
+            "bytes": 7631
+          }
+        },
+        "result_sha256": "db0909ebb676046400bce4c0c484aaaf5c3b34d30ec55443b0ee64965b16347a",
+        "command_receipt_sha256": "2ac8660e9d72bfd583bc6d57f8a36f496ecba3f14801fd3e52a63fee9b8cdfa3",
+        "cleanup": {
+          "container_removed": true,
+          "inputs_unchanged": true,
+          "snapshots_unchanged": true,
+          "probes_unchanged": true
+        },
+        "receipt_path": "Broadcast-native-cuda-20261025/dist/switching-deb-5070/result.json",
+        "command_receipt_path": "Broadcast-native-cuda-20261025/dist/switching-deb-5070-command.json"
+      },
+      "rpm-none": {
+        "status": "pass",
+        "family": "rpm",
+        "gpu_device": null,
+        "image": "sha256:fb2daa7eb39488d8f6da9f893d044f33b1e768b9d5dc16d7a15f8860726c2b66",
+        "steps": 46,
+        "runtime_reports": {
+          "installed-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "preserved-cpu-after-refusal": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "installed-cuda": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 70
+          },
+          "preserved-cuda-after-refusal": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 70
+          },
+          "rolled-back-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          }
+        },
+        "recordings": {
+          "installed-cpu": {
+            "audio_encoder": "fdkaacenc",
+            "audio_peak": 0.8150238394737244,
+            "audio_samples": 51200,
+            "file_bytes": 143537,
+            "status": "pass",
+            "video_encoder": "openh264enc",
+            "video_frames": 24
+          },
+          "installed-cuda": {
+            "audio_encoder": "fdkaacenc",
+            "audio_peak": 0.8150238394737244,
+            "audio_samples": 51200,
+            "file_bytes": 143537,
+            "status": "pass",
+            "video_encoder": "openh264enc",
+            "video_frames": 24
+          },
+          "rolled-back-cpu": {
+            "audio_encoder": "fdkaacenc",
+            "audio_peak": 0.8150238394737244,
+            "audio_samples": 51200,
+            "file_bytes": 143537,
+            "status": "pass",
+            "video_encoder": "openh264enc",
+            "video_frames": 24
+          }
+        },
+        "runtime_lock_identity": "152:59639589",
+        "files": {
+          "00-confirm-clean-fixture.log": {
+            "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432",
+            "bytes": 37
+          },
+          "01-sentinels.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "02-capture-system-python.log": {
+            "sha256": "f66edb4339f8ffb9b881bf7782ee1d9240d508007cfc10dc6244da9f5c198694",
+            "bytes": 83
+          },
+          "03-install-cpu.log": {
+            "sha256": "4fd1d83acdf1ee6f55b41c8011137d3c80feb0777734bf120f382358da888ba4",
+            "bytes": 338
+          },
+          "04-installed-cpu-identity.log": {
+            "sha256": "aec66f9f2dca647a6a481cf84256bf52de942f83bfd27fee6b4e6bd6c44f55a8",
+            "bytes": 2199
+          },
+          "05-installed-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "06-installed-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "07-installed-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "08-installed-cpu-runtime-media-gtk.log": {
+            "sha256": "ba41102c3b27c6e9694fb1ad30bbb032bd29002d83ff321de576124f3152e993",
+            "bytes": 12335
+          },
+          "09-installed-cpu-generated-recording.log": {
+            "sha256": "f8a1127a1908b1625e8002eb25716ba3317257caff540cb44311a39eb8c0daec",
+            "bytes": 766
+          },
+          "10-cpu-to-cuda-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "11-cpu-to-cuda-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "12-cpu-to-cuda-switch-refused.log": {
+            "sha256": "f8d6fc1e36b45b34a055f9c0a2959d326b97f6057794486a22600f603b4c1045",
+            "bytes": 274
+          },
+          "13-cpu-to-cuda-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "14-preserved-cpu-after-refusal-identity.log": {
+            "sha256": "aec66f9f2dca647a6a481cf84256bf52de942f83bfd27fee6b4e6bd6c44f55a8",
+            "bytes": 2199
+          },
+          "15-preserved-cpu-after-refusal-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "16-preserved-cpu-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "17-preserved-cpu-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "18-preserved-cpu-after-refusal-runtime-media-gtk.log": {
+            "sha256": "583ab5895302f8c76f6c884306f7294e8e08b118363cd2fca3cb7d1b89a64ee2",
+            "bytes": 12331
+          },
+          "19-switch-to-cuda.log": {
+            "sha256": "8a9da6fd9a363279240db4f4ac3e01fb8430f1e054494bbfdc9362e945e34dda",
+            "bytes": 339
+          },
+          "20-installed-cuda-identity.log": {
+            "sha256": "637081bdf2938f1fb7ede88be534fe8530b7f5ec7b9c2d4bfa9c4dcab91acab4",
+            "bytes": 2201
+          },
+          "21-installed-cuda-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "22-installed-cuda-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "23-installed-cuda-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "24-installed-cuda-runtime-media-gtk.log": {
+            "sha256": "1df7c6c8cf38f216464f7cb3ee1d5a8576e97dc5d5572183ba057edec3f93dc0",
+            "bytes": 17816
+          },
+          "25-installed-cuda-generated-recording.log": {
+            "sha256": "f8a1127a1908b1625e8002eb25716ba3317257caff540cb44311a39eb8c0daec",
+            "bytes": 766
+          },
+          "26-cuda-to-cpu-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "27-cuda-to-cpu-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "28-cuda-to-cpu-switch-refused.log": {
+            "sha256": "d05eb21bddf34cb5cef510d63f0e13e0439c74c3d43fd2235658a381b4856be5",
+            "bytes": 273
+          },
+          "29-cuda-to-cpu-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "30-preserved-cuda-after-refusal-identity.log": {
+            "sha256": "637081bdf2938f1fb7ede88be534fe8530b7f5ec7b9c2d4bfa9c4dcab91acab4",
+            "bytes": 2201
+          },
+          "31-preserved-cuda-after-refusal-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "32-preserved-cuda-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "33-preserved-cuda-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "34-preserved-cuda-after-refusal-runtime-media-gtk.log": {
+            "sha256": "5942493b8f7da82729fbab401d28d94022a1921c0152aa884483efc9fd615359",
+            "bytes": 17816
+          },
+          "35-rollback-to-cpu.log": {
+            "sha256": "4fd1d83acdf1ee6f55b41c8011137d3c80feb0777734bf120f382358da888ba4",
+            "bytes": 338
+          },
+          "36-rolled-back-cpu-identity.log": {
+            "sha256": "aec66f9f2dca647a6a481cf84256bf52de942f83bfd27fee6b4e6bd6c44f55a8",
+            "bytes": 2199
+          },
+          "37-rolled-back-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "38-rolled-back-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "39-rolled-back-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "40-rolled-back-cpu-runtime-media-gtk.log": {
+            "sha256": "3e6c3898f7ad8d1db957ad8ffec1b8563d2e98d4f19a76a8d5815d42fca0f884",
+            "bytes": 12331
+          },
+          "41-rolled-back-cpu-generated-recording.log": {
+            "sha256": "f8a1127a1908b1625e8002eb25716ba3317257caff540cb44311a39eb8c0daec",
+            "bytes": 766
+          },
+          "42-remove-package.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "43-package-uninstalled.log": {
+            "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432",
+            "bytes": 37
+          },
+          "44-preservation.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "45-preserve-system-python.log": {
+            "sha256": "3a409f2d6007ac08025114543781cbb6ec0cb1c96fb860e4434cc463ea2cbae9",
+            "bytes": 21
+          },
+          "switching-rpm-none/result.json": {
+            "sha256": "4ed98c1b9ecbe4040a2d7b92d1d7ef100bbaca3bb5df67ab58aaa60b7b4b9b24",
+            "bytes": 88648
+          },
+          "switching-rpm-none-command.json": {
+            "sha256": "962317a7302c5d095365ca609c9266b47f88ceb84a01de80e2c0b34e87ced0b9",
+            "bytes": 974
+          },
+          "switching-rpm-none-driver.log": {
+            "sha256": "0c3c05face89d0725ae1011e624b286b477c888611ab6aa7adab35e241c01dad",
+            "bytes": 151
+          },
+          "switching-rpm-none-plan.json": {
+            "sha256": "a7ab1ecb4686008e02387305e9a9334e3902ff6c834d477c1d94e9be7bf51c7b",
+            "bytes": 7669
+          }
+        },
+        "result_sha256": "4ed98c1b9ecbe4040a2d7b92d1d7ef100bbaca3bb5df67ab58aaa60b7b4b9b24",
+        "command_receipt_sha256": "962317a7302c5d095365ca609c9266b47f88ceb84a01de80e2c0b34e87ced0b9",
+        "cleanup": {
+          "container_removed": true,
+          "inputs_unchanged": true,
+          "snapshots_unchanged": true,
+          "probes_unchanged": true
+        },
+        "receipt_path": "Broadcast-native-cuda-20261025/dist/switching-rpm-none/result.json",
+        "command_receipt_path": "Broadcast-native-cuda-20261025/dist/switching-rpm-none-command.json"
+      },
+      "rpm-3080": {
+        "status": "pass",
+        "family": "rpm",
+        "gpu_device": "GPU-1c6cff52-f9a0-d675-67ef-0474224bb868",
+        "image": "sha256:fb2daa7eb39488d8f6da9f893d044f33b1e768b9d5dc16d7a15f8860726c2b66",
+        "steps": 46,
+        "runtime_reports": {
+          "installed-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "preserved-cpu-after-refusal": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "installed-cuda": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": true,
+            "cupy_device": "NVIDIA GeForce RTX 3080",
+            "source_files": 62,
+            "distributions": 70
+          },
+          "preserved-cuda-after-refusal": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": true,
+            "cupy_device": "NVIDIA GeForce RTX 3080",
+            "source_files": 62,
+            "distributions": 70
+          },
+          "rolled-back-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          }
+        },
+        "recordings": {
+          "installed-cpu": {
+            "audio_encoder": "fdkaacenc",
+            "audio_peak": 0.8150238394737244,
+            "audio_samples": 51200,
+            "file_bytes": 201401,
+            "status": "pass",
+            "video_encoder": "nvautogpuh264enc",
+            "video_frames": 24
+          },
+          "installed-cuda": {
+            "audio_encoder": "fdkaacenc",
+            "audio_peak": 0.8150238394737244,
+            "audio_samples": 51200,
+            "file_bytes": 201401,
+            "status": "pass",
+            "video_encoder": "nvautogpuh264enc",
+            "video_frames": 24
+          },
+          "rolled-back-cpu": {
+            "audio_encoder": "fdkaacenc",
+            "audio_peak": 0.8150238394737244,
+            "audio_samples": 51200,
+            "file_bytes": 201401,
+            "status": "pass",
+            "video_encoder": "nvautogpuh264enc",
+            "video_frames": 24
+          }
+        },
+        "runtime_lock_identity": "156:59638929",
+        "files": {
+          "00-confirm-clean-fixture.log": {
+            "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432",
+            "bytes": 37
+          },
+          "01-sentinels.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "02-capture-system-python.log": {
+            "sha256": "f66edb4339f8ffb9b881bf7782ee1d9240d508007cfc10dc6244da9f5c198694",
+            "bytes": 83
+          },
+          "03-install-cpu.log": {
+            "sha256": "4fd1d83acdf1ee6f55b41c8011137d3c80feb0777734bf120f382358da888ba4",
+            "bytes": 338
+          },
+          "04-installed-cpu-identity.log": {
+            "sha256": "f6fe8269c4dc4508fb2808c76da03f3ce08c74a8f5ebff0d67157ca6aced3bc0",
+            "bytes": 2199
+          },
+          "05-installed-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "06-installed-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "07-installed-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "08-installed-cpu-runtime-media-gtk.log": {
+            "sha256": "e0d546c46b5c291857a6661e2b71aa13f5a3ce971d5fc07a2c07e88868b60a71",
+            "bytes": 11358
+          },
+          "09-installed-cpu-generated-recording.log": {
+            "sha256": "b745e3a6abc63ca24be65b92015a8625e00011368278e8ce9cdcb7b24c693365",
+            "bytes": 980
+          },
+          "10-cpu-to-cuda-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "11-cpu-to-cuda-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "12-cpu-to-cuda-switch-refused.log": {
+            "sha256": "f8d6fc1e36b45b34a055f9c0a2959d326b97f6057794486a22600f603b4c1045",
+            "bytes": 274
+          },
+          "13-cpu-to-cuda-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "14-preserved-cpu-after-refusal-identity.log": {
+            "sha256": "f6fe8269c4dc4508fb2808c76da03f3ce08c74a8f5ebff0d67157ca6aced3bc0",
+            "bytes": 2199
+          },
+          "15-preserved-cpu-after-refusal-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "16-preserved-cpu-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "17-preserved-cpu-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "18-preserved-cpu-after-refusal-runtime-media-gtk.log": {
+            "sha256": "1984ffc3da2c8af73374cffb1a84d127f58c7727b8156b5faa5381462dd5534d",
+            "bytes": 11224
+          },
+          "19-switch-to-cuda.log": {
+            "sha256": "8a9da6fd9a363279240db4f4ac3e01fb8430f1e054494bbfdc9362e945e34dda",
+            "bytes": 339
+          },
+          "20-installed-cuda-identity.log": {
+            "sha256": "c752df829d04232cab8e9be3e7f8ffce7aa678a60b93ecfd12a8b8cb90d52df5",
+            "bytes": 2201
+          },
+          "21-installed-cuda-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "22-installed-cuda-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "23-installed-cuda-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "24-installed-cuda-runtime-media-gtk.log": {
+            "sha256": "823405f9aa586a94482fc4ff28f468573e24ae58afe53b9228d5967bff92dca7",
+            "bytes": 12844
+          },
+          "25-installed-cuda-generated-recording.log": {
+            "sha256": "b745e3a6abc63ca24be65b92015a8625e00011368278e8ce9cdcb7b24c693365",
+            "bytes": 980
+          },
+          "26-cuda-to-cpu-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "27-cuda-to-cpu-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "28-cuda-to-cpu-switch-refused.log": {
+            "sha256": "d05eb21bddf34cb5cef510d63f0e13e0439c74c3d43fd2235658a381b4856be5",
+            "bytes": 273
+          },
+          "29-cuda-to-cpu-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "30-preserved-cuda-after-refusal-identity.log": {
+            "sha256": "c752df829d04232cab8e9be3e7f8ffce7aa678a60b93ecfd12a8b8cb90d52df5",
+            "bytes": 2201
+          },
+          "31-preserved-cuda-after-refusal-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "32-preserved-cuda-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "33-preserved-cuda-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "34-preserved-cuda-after-refusal-runtime-media-gtk.log": {
+            "sha256": "24048157afd2642d0b77f999c8bd493e59e68ce754ae4de1f16e4568cf05c914",
+            "bytes": 12844
+          },
+          "35-rollback-to-cpu.log": {
+            "sha256": "4fd1d83acdf1ee6f55b41c8011137d3c80feb0777734bf120f382358da888ba4",
+            "bytes": 338
+          },
+          "36-rolled-back-cpu-identity.log": {
+            "sha256": "f6fe8269c4dc4508fb2808c76da03f3ce08c74a8f5ebff0d67157ca6aced3bc0",
+            "bytes": 2199
+          },
+          "37-rolled-back-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "38-rolled-back-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "39-rolled-back-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "40-rolled-back-cpu-runtime-media-gtk.log": {
+            "sha256": "5d9659a154f92e4ef3cde47e27f185d0a314085be9d463d467bdd99737891034",
+            "bytes": 11224
+          },
+          "41-rolled-back-cpu-generated-recording.log": {
+            "sha256": "b745e3a6abc63ca24be65b92015a8625e00011368278e8ce9cdcb7b24c693365",
+            "bytes": 980
+          },
+          "42-remove-package.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "43-package-uninstalled.log": {
+            "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432",
+            "bytes": 37
+          },
+          "44-preservation.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "45-preserve-system-python.log": {
+            "sha256": "3a409f2d6007ac08025114543781cbb6ec0cb1c96fb860e4434cc463ea2cbae9",
+            "bytes": 21
+          },
+          "switching-rpm-3080/result.json": {
+            "sha256": "b636275fc641fd00397003c126ab510cfe38d461c99eb1fb50c5d31238ef3d89",
+            "bytes": 80275
+          },
+          "switching-rpm-3080-command.json": {
+            "sha256": "3743659e61d97e234843cab6699fd0de6dcf50f2c3222126a35098aa9fb79b8f",
+            "bytes": 1042
+          },
+          "switching-rpm-3080-driver.log": {
+            "sha256": "94e8043af3ebe0b36ca085f5f9aa8ce58ca136ea419ddb0920e8855bbfe0cdc9",
+            "bytes": 151
+          },
+          "switching-rpm-3080-plan.json": {
+            "sha256": "df6e267778a00c1e90b42729322f17ccfd14f82df892be3652bbd8190eda8901",
+            "bytes": 7707
+          }
+        },
+        "result_sha256": "b636275fc641fd00397003c126ab510cfe38d461c99eb1fb50c5d31238ef3d89",
+        "command_receipt_sha256": "3743659e61d97e234843cab6699fd0de6dcf50f2c3222126a35098aa9fb79b8f",
+        "cleanup": {
+          "container_removed": true,
+          "inputs_unchanged": true,
+          "snapshots_unchanged": true,
+          "probes_unchanged": true
+        },
+        "receipt_path": "Broadcast-native-cuda-20261025/dist/switching-rpm-3080/result.json",
+        "command_receipt_path": "Broadcast-native-cuda-20261025/dist/switching-rpm-3080-command.json"
+      },
+      "rpm-5070": {
+        "status": "pass",
+        "family": "rpm",
+        "gpu_device": "GPU-d2d063b8-c31f-1cd0-6f19-57d7f2e06991",
+        "image": "sha256:fb2daa7eb39488d8f6da9f893d044f33b1e768b9d5dc16d7a15f8860726c2b66",
+        "steps": 46,
+        "runtime_reports": {
+          "installed-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "preserved-cpu-after-refusal": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          },
+          "installed-cuda": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": true,
+            "cupy_device": "NVIDIA GeForce RTX 5070",
+            "source_files": 62,
+            "distributions": 70
+          },
+          "preserved-cuda-after-refusal": {
+            "variant": "cuda",
+            "cpu_executed": true,
+            "cuda_executed": true,
+            "cupy_device": "NVIDIA GeForce RTX 5070",
+            "source_files": 62,
+            "distributions": 70
+          },
+          "rolled-back-cpu": {
+            "variant": "cpu",
+            "cpu_executed": true,
+            "cuda_executed": false,
+            "cupy_device": null,
+            "source_files": 62,
+            "distributions": 59
+          }
+        },
+        "recordings": {
+          "installed-cpu": {
+            "audio_encoder": "fdkaacenc",
+            "audio_peak": 0.8150238394737244,
+            "audio_samples": 51200,
+            "file_bytes": 143537,
+            "status": "pass",
+            "video_encoder": "openh264enc",
+            "video_frames": 24
+          },
+          "installed-cuda": {
+            "audio_encoder": "fdkaacenc",
+            "audio_peak": 0.8150238394737244,
+            "audio_samples": 51200,
+            "file_bytes": 143537,
+            "status": "pass",
+            "video_encoder": "openh264enc",
+            "video_frames": 24
+          },
+          "rolled-back-cpu": {
+            "audio_encoder": "fdkaacenc",
+            "audio_peak": 0.8150238394737244,
+            "audio_samples": 51200,
+            "file_bytes": 143537,
+            "status": "pass",
+            "video_encoder": "openh264enc",
+            "video_frames": 24
+          }
+        },
+        "runtime_lock_identity": "152:59638569",
+        "files": {
+          "00-confirm-clean-fixture.log": {
+            "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432",
+            "bytes": 37
+          },
+          "01-sentinels.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "02-capture-system-python.log": {
+            "sha256": "f66edb4339f8ffb9b881bf7782ee1d9240d508007cfc10dc6244da9f5c198694",
+            "bytes": 83
+          },
+          "03-install-cpu.log": {
+            "sha256": "4fd1d83acdf1ee6f55b41c8011137d3c80feb0777734bf120f382358da888ba4",
+            "bytes": 338
+          },
+          "04-installed-cpu-identity.log": {
+            "sha256": "36918b41be71eebe823cfc54ead5ea4d6356237ed721f2c0e0a27027fbe84449",
+            "bytes": 2199
+          },
+          "05-installed-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "06-installed-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "07-installed-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "08-installed-cpu-runtime-media-gtk.log": {
+            "sha256": "7ca95dfad921591624cfaa785705f1cf0acc542b03a5e1ba249de22d664f2b88",
+            "bytes": 11358
+          },
+          "09-installed-cpu-generated-recording.log": {
+            "sha256": "9acb81ccab43cc1649e818249c539127f0d1bc6012ddab1bbb84ee2fab054a73",
+            "bytes": 970
+          },
+          "10-cpu-to-cuda-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "11-cpu-to-cuda-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "12-cpu-to-cuda-switch-refused.log": {
+            "sha256": "f8d6fc1e36b45b34a055f9c0a2959d326b97f6057794486a22600f603b4c1045",
+            "bytes": 274
+          },
+          "13-cpu-to-cuda-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "14-preserved-cpu-after-refusal-identity.log": {
+            "sha256": "36918b41be71eebe823cfc54ead5ea4d6356237ed721f2c0e0a27027fbe84449",
+            "bytes": 2199
+          },
+          "15-preserved-cpu-after-refusal-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "16-preserved-cpu-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "17-preserved-cpu-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "18-preserved-cpu-after-refusal-runtime-media-gtk.log": {
+            "sha256": "2fa2fc4f8d2311ab1c7204171dfcc84fafd768ec4d9d3deff809a133def185f0",
+            "bytes": 11224
+          },
+          "19-switch-to-cuda.log": {
+            "sha256": "8a9da6fd9a363279240db4f4ac3e01fb8430f1e054494bbfdc9362e945e34dda",
+            "bytes": 339
+          },
+          "20-installed-cuda-identity.log": {
+            "sha256": "0ef7e6c7e1450f9de456ec957092232d4c794b73a2287495392eb9782e094e1f",
+            "bytes": 2201
+          },
+          "21-installed-cuda-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "22-installed-cuda-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "23-installed-cuda-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "24-installed-cuda-runtime-media-gtk.log": {
+            "sha256": "d4dc93578ccc87d2a307772f63c8fa1f5ada08aa70995c0e70f53a7b31061af0",
+            "bytes": 13672
+          },
+          "25-installed-cuda-generated-recording.log": {
+            "sha256": "9acb81ccab43cc1649e818249c539127f0d1bc6012ddab1bbb84ee2fab054a73",
+            "bytes": 970
+          },
+          "26-cuda-to-cpu-start-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "27-cuda-to-cpu-verify-launcher-lock.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "28-cuda-to-cpu-switch-refused.log": {
+            "sha256": "d05eb21bddf34cb5cef510d63f0e13e0439c74c3d43fd2235658a381b4856be5",
+            "bytes": 273
+          },
+          "29-cuda-to-cpu-stop-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "30-preserved-cuda-after-refusal-identity.log": {
+            "sha256": "0ef7e6c7e1450f9de456ec957092232d4c794b73a2287495392eb9782e094e1f",
+            "bytes": 2201
+          },
+          "31-preserved-cuda-after-refusal-integrity.log": {
+            "sha256": "3039cf8203055274552891cd8d449067985c429e84897c8bb08e78b554318757",
+            "bytes": 59
+          },
+          "32-preserved-cuda-after-refusal-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "33-preserved-cuda-after-refusal-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "34-preserved-cuda-after-refusal-runtime-media-gtk.log": {
+            "sha256": "546c067ef00613b007b59186d7eeb076a968c4ac052ff489c3b26419ed20380f",
+            "bytes": 12844
+          },
+          "35-rollback-to-cpu.log": {
+            "sha256": "4fd1d83acdf1ee6f55b41c8011137d3c80feb0777734bf120f382358da888ba4",
+            "bytes": 338
+          },
+          "36-rolled-back-cpu-identity.log": {
+            "sha256": "36918b41be71eebe823cfc54ead5ea4d6356237ed721f2c0e0a27027fbe84449",
+            "bytes": 2199
+          },
+          "37-rolled-back-cpu-integrity.log": {
+            "sha256": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+            "bytes": 58
+          },
+          "38-rolled-back-cpu-native-package-state.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "39-rolled-back-cpu-launcher.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "40-rolled-back-cpu-runtime-media-gtk.log": {
+            "sha256": "7b77e2562f7a981d242e258aef0cd375a151e85bf47181e3dfa26e2144c2b083",
+            "bytes": 11224
+          },
+          "41-rolled-back-cpu-generated-recording.log": {
+            "sha256": "9acb81ccab43cc1649e818249c539127f0d1bc6012ddab1bbb84ee2fab054a73",
+            "bytes": 970
+          },
+          "42-remove-package.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "43-package-uninstalled.log": {
+            "sha256": "596524bba1948affa7483604cf402347b6bc2900b90c119fd9df0a0ee5052432",
+            "bytes": 37
+          },
+          "44-preservation.log": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "45-preserve-system-python.log": {
+            "sha256": "3a409f2d6007ac08025114543781cbb6ec0cb1c96fb860e4434cc463ea2cbae9",
+            "bytes": 21
+          },
+          "switching-rpm-5070/result.json": {
+            "sha256": "737d3902898ea0a581b85ff8fd35eaa04a9198427a4e546a847e1a057a602862",
+            "bytes": 80260
+          },
+          "switching-rpm-5070-command.json": {
+            "sha256": "cea7035deecebda9c0804860d571cb5190769c03392ca4c775b905d9693c93d9",
+            "bytes": 1042
+          },
+          "switching-rpm-5070-driver.log": {
+            "sha256": "1f9aa870facf8eba951e65bcaeae496f8a328fbc72ccba4a446fa2498a48cfa4",
+            "bytes": 151
+          },
+          "switching-rpm-5070-plan.json": {
+            "sha256": "8fdcff000950a8af6557c86b155eb88852a4440ec7f3546c6480ca557eb86589",
+            "bytes": 7707
+          }
+        },
+        "result_sha256": "737d3902898ea0a581b85ff8fd35eaa04a9198427a4e546a847e1a057a602862",
+        "command_receipt_sha256": "cea7035deecebda9c0804860d571cb5190769c03392ca4c775b905d9693c93d9",
+        "cleanup": {
+          "container_removed": true,
+          "inputs_unchanged": true,
+          "snapshots_unchanged": true,
+          "probes_unchanged": true
+        },
+        "receipt_path": "Broadcast-native-cuda-20261025/dist/switching-rpm-5070/result.json",
+        "command_receipt_path": "Broadcast-native-cuda-20261025/dist/switching-rpm-5070-command.json"
+      }
+    },
+    "execution_logs": 276,
+    "runtime_reports": 30,
+    "recordings": 18,
+    "approval_sha256": "32e904d5a664a812911b7dca7c0748964cb47955badef14763b568bd60a1cbf7"
+  },
+  "matrix_review": {
+    "path": "Broadcast-native-cuda-20261025/dist/independent-results-review.json",
+    "bytes": 67282,
+    "sha256": "850d79ebdf05f570d9457ef355eac6717b3584f21d0f083e6a2a3e89d9ecf504"
+  },
+  "execution_approval": {
+    "path": "Broadcast-native-cuda-20261025/dist/independent-switching-review/review.json",
+    "bytes": 5308,
+    "sha256": "32e904d5a664a812911b7dca7c0748964cb47955badef14763b568bd60a1cbf7"
+  },
+  "result_verifier_review": {
+    "path": "Broadcast-native-cuda-20261025/dist/independent-switching-review/results-verifier-review.json",
+    "bytes": 795,
+    "sha256": "4a24c24c1dcc303e3e53ba584689471f25b8b46a09fb8dccd349f6996b70852d"
+  },
+  "reproducibility": {
+    "all_identical": true,
+    "driver_sha256": "bfde1396d61c5102900708637976e30a0b3c85126e2fec899731226852eecd5d",
+    "files": [
+      {
+        "first_bytes": 2155699754,
+        "first_sha256": "0c84b5edb3dd1b02fc65fafdaef9e8aa72f5fb40873346ad8c92272ec2a024cc",
+        "identical_bytes": true,
+        "path": "deb/nvbroadcast_1.5.3-5.cuda_amd64.deb",
+        "second_bytes": 2155699754,
+        "second_sha256": "0c84b5edb3dd1b02fc65fafdaef9e8aa72f5fb40873346ad8c92272ec2a024cc"
+      },
+      {
+        "first_bytes": 2144767854,
+        "first_sha256": "f543e1b925ea85ded4f6e35789bf3ae21eb7228e00d428d2f58e6b09df137db1",
+        "identical_bytes": true,
+        "path": "rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-5.cuda.x86_64.rpm",
+        "second_bytes": 2144767854,
+        "second_sha256": "f543e1b925ea85ded4f6e35789bf3ae21eb7228e00d428d2f58e6b09df137db1"
+      },
+      {
+        "first_bytes": 5458,
+        "first_sha256": "8b150336b7ed199055448662e9ef3af398060c8f44030314daaa384044f833c8",
+        "identical_bytes": true,
+        "path": "packages.json",
+        "second_bytes": 5458,
+        "second_sha256": "8b150336b7ed199055448662e9ef3af398060c8f44030314daaa384044f833c8"
+      },
+      {
+        "first_bytes": 2106,
+        "first_sha256": "16d6cf7b552806046c7bc9da6ed348145c3946c63ea9404580aa1f6d8ffa5377",
+        "identical_bytes": true,
+        "path": "build-provenance.json",
+        "second_bytes": 2106,
+        "second_sha256": "16d6cf7b552806046c7bc9da6ed348145c3946c63ea9404580aa1f6d8ffa5377"
+      },
+      {
+        "first_bytes": 28715,
+        "first_sha256": "afec7a1e20c27617c68c7a29fb874e0f14e32b502741f1847e6dcb550fad0eb5",
+        "identical_bytes": true,
+        "path": "assembly/pylock.toml",
+        "second_bytes": 28715,
+        "second_sha256": "afec7a1e20c27617c68c7a29fb874e0f14e32b502741f1847e6dcb550fad0eb5"
+      },
+      {
+        "first_bytes": 3426677,
+        "first_sha256": "4682b07dc427bef2edbe202c6839284a93d47f526816e138fa81ba80850f63d5",
+        "identical_bytes": true,
+        "path": "payload/manifest.json",
+        "second_bytes": 3426677,
+        "second_sha256": "4682b07dc427bef2edbe202c6839284a93d47f526816e138fa81ba80850f63d5"
+      },
+      {
+        "first_bytes": 3707787,
+        "first_sha256": "42fa08469a0442ac760b58c80796fc6745ec00c53804e0f1d6f1ae1a5cbf50dc",
+        "identical_bytes": true,
+        "path": "deb/content.json",
+        "second_bytes": 3707787,
+        "second_sha256": "42fa08469a0442ac760b58c80796fc6745ec00c53804e0f1d6f1ae1a5cbf50dc"
+      },
+      {
+        "first_bytes": 3707932,
+        "first_sha256": "4735a3637e23a28727fb545c9dfd58b64ed92df700d6bef8b8272f04b1ab56a6",
+        "identical_bytes": true,
+        "path": "rpm/content.json",
+        "second_bytes": 3707932,
+        "second_sha256": "4735a3637e23a28727fb545c9dfd58b64ed92df700d6bef8b8272f04b1ab56a6"
+      }
+    ],
+    "finished_at": "2026-10-25T19:49:05.150366+00:00",
+    "first_build": "/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/build-cuda",
+    "fresh_wheels": {
+      "nvbroadcast-1.5.3-py3-none-any.whl": {
+        "bytes": 477221,
+        "sha256": "6c9102565add144dc3b393c025a51e73354c3addb1ee710b5a986d49e20f3bd4"
+      },
+      "pycairo-1.29.0-cp313-cp313-linux_x86_64.whl": {
+        "bytes": 128852,
+        "sha256": "bb12333fbd4c047ee8f88b5ae091a4d495bf8730e7526fa35f6605326176fea1"
+      },
+      "pygobject-3.48.2-cp313-cp313-linux_x86_64.whl": {
+        "bytes": 255558,
+        "sha256": "ebfbcb4a688e59766018f1431c533d68e060b4a4128ee1f74cd18c3185d0e588"
+      }
+    },
+    "limits": [
+      "Same recorded historical builder images; no independent OS-image or dependency source reconstruction.",
+      "Unsigned CUDA package reproducibility only; no deterministic signing, physical-device, installed lifecycle or publication claim."
+    ],
+    "logs": {
+      "assembly/assemble.log": {
+        "bytes": 10862,
+        "sha256": "874da88bcf57a9911300e1fcf5513a20e7b136404a4db5347f0726f25ba7de11"
+      },
+      "assembly/wheel-build.log": {
+        "bytes": 3307,
+        "sha256": "dbfc5f5ecd74f5e211fc828bf7b2506e7bd2f79995b0567470cc454a7a48dacb"
+      },
+      "deb/build.log": {
+        "bytes": 88,
+        "sha256": "528b271d82fd136798b7bdab82aada7e4dc79536f52ae3d3b15a8bc47c493dbc"
+      },
+      "rpm/build.log": {
+        "bytes": 5894,
+        "sha256": "4d73489ccd3593d69201eff841977ee205e8f27f95a927ba33d98885ba8bfcc3"
+      }
+    },
+    "method": "Read and compare both complete byte streams directly in 8 MiB chunks, also compute SHA256; no normalization or excluded bytes.",
+    "native_payload_entries": {
+      "deb": 19599,
+      "rpm": 19600
+    },
+    "original_input_files_unchanged": true,
+    "package_version": "1.5.3-5.cuda",
+    "receipts": {
+      "build-driver.log": {
+        "bytes": 4993,
+        "sha256": "70d13dfb809bdbf79ed8b4fbd35d151e49e2820eb997449d765e8f5318ed3344"
+      },
+      "execution.json": {
+        "bytes": 1516,
+        "sha256": "5bb5842171d7aba0cf25e96b9f9569dc9fe1e3ad93b8ac7a3222de5e3613cc63"
+      },
+      "preparation.json": {
+        "bytes": 48904,
+        "sha256": "42a83653bee119aca4c8a30a6b94c5cb09f9b6c7ed22b53a636273195a58f540"
+      }
+    },
+    "runtime_entries": 19571,
+    "second_build": "/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-repro-20261025/dist/reproducibility/build",
+    "source": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+    "source_tree": "5ee59e8d2ab17a7b012fd7833194ba1862c5d831",
+    "started_at": "2026-10-25T19:48:42.975988+00:00",
+    "status": "pass",
+    "tracked_source_unchanged": true
+  },
+  "reproducibility_receipt": {
+    "path": "Broadcast-native-cuda-repro-20261025/dist/reproducibility/comparison.json",
+    "bytes": 5359,
+    "sha256": "ab5d943dc01bc43dc73e06c44b8b523f4a070fe5cd54f10f2e9469ae9630fa54"
+  },
+  "reproducibility_independent_readback": {
+    "status": "pass",
+    "finished_at": "2026-10-25T19:51:03.632611+00:00",
+    "comparison_sha256": "ab5d943dc01bc43dc73e06c44b8b523f4a070fe5cd54f10f2e9469ae9630fa54",
+    "source": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+    "method": "Independent direct byte-stream and SHA256/size comparison of all eight output files; seven receipt/log files rehashed; detached tracked source verified clean.",
+    "files_compared": 8,
+    "metadata_receipts_rehashed": 7,
+    "scope": "Same recorded builders, unsigned CUDA only; installation/GPU acceptance is separate.",
+    "receipt": {
+      "path": "Broadcast-native-cuda-20261025/dist/reproducibility-independent-readback.json",
+      "bytes": 554,
+      "sha256": "91f8985282e9b5cdc37d90ae7c4e26ba99b6ea785c6e1e80913ea48cd0afbe8b"
+    }
+  },
+  "validation": {
+    "targeted_tests": 38,
+    "targeted_subtests": 46,
+    "implementation_ci_run": 40227084962,
+    "implementation_ci_url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40227084962",
+    "implementation_ci_head": "e1d06b12fe417eace1f410358f5eac4c5ad608f9",
+    "linux_tests": 1402,
+    "linux_subtests": 1423,
+    "linux_skipped": 38,
+    "gtk_tests": 20,
+    "gtk_subtests": 25,
+    "python_311_tests": 290,
+    "python_314_tests": 290,
+    "python_subtests_each": 68,
+    "scoped_audit": "No known dependency/source findings in the scoped CI audit; not a general native dependency or public launch security assessment."
+  },
+  "distribution_size": {
+    "github_release_asset_limit_bytes": 2147483648,
+    "github_policy": "https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases",
+    "policy_checked_on": "2026-10-25",
+    "cuda_deb_bytes": 2155699754,
+    "cuda_deb_over_limit_bytes": 8216106,
+    "cuda_rpm_bytes": 2144767854,
+    "cuda_rpm_below_limit_bytes": 2715794,
+    "status": "Current CUDA DEB exceeds GitHub release-asset limit; compression/public distribution remains separate.",
+    "compression_experiment": {
+      "receipt_path": "Broadcast-native-cuda-20261025/dist/compression-feasibility/attempt2/result.json",
+      "receipt_sha256": "c54fc72e8b680fa3a916c6faa6901220add0a34f19bce6aa1d1f1ba27446d585",
+      "result": {
+        "status": "pass",
+        "source": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+        "image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+        "source_date_epoch": 1792719503,
+        "scope": "Compression feasibility only; same reviewed staging, no candidate installation/execution or release qualification.",
+        "limit_bytes_exclusive": 2147483648,
+        "stage_before_sha256": "ccee1bfd45d7816b4355554ebfaa61e9038cd90d46cfa7ea68c6ce603af4fe46",
+        "original": {
+          "bytes": 2155699754,
+          "sha256": "0c84b5edb3dd1b02fc65fafdaef9e8aa72f5fb40873346ad8c92272ec2a024cc"
+        },
+        "command": [
+          "docker",
+          "run",
+          "--name",
+          "nvb-compression-build-c09b2aaddddc",
+          "--rm",
+          "--init",
+          "--pull=never",
+          "--network=none",
+          "--read-only",
+          "--runtime=runc",
+          "--cap-drop=ALL",
+          "--security-opt=no-new-privileges",
+          "--pids-limit=128",
+          "--memory=4g",
+          "--memory-swap=4g",
+          "--cpus=2",
+          "--mount",
+          "type=bind,source=/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/compression-feasibility/attempt2/tmp,target=/tmp",
+          "--user",
+          "1000:1000",
+          "-e",
+          "SOURCE_DATE_EPOCH=1792719503",
+          "--mount",
+          "type=bind,source=/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/build-cuda/deb/stage,target=/stage,readonly",
+          "--mount",
+          "type=bind,source=/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/compression-feasibility/attempt2,target=/work",
+          "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+          "dpkg-deb",
+          "--root-owner-group",
+          "-Zzstd",
+          "-z10",
+          "--threads-max=2",
+          "--build",
+          "/stage",
+          "/work/nvbroadcast_1.5.3-5.cuda_amd64.zstd10-experiment.deb"
+        ],
+        "started_at": "2026-10-25T19:52:34.678977+00:00",
+        "build_seconds": 72.34512441600236,
+        "compressed": {
+          "path": "dist/compression-feasibility/attempt2/nvbroadcast_1.5.3-5.cuda_amd64.zstd10-experiment.deb",
+          "bytes": 2070585298,
+          "sha256": "7901583645920b6138f01c6502467b2ceb56384c6707e0eac106503cb2f1b022"
+        },
+        "bytes_saved": 85114456,
+        "release_limit_margin_bytes": 76898350,
+        "below_release_limit": true,
+        "decoded": {
+          "original": {
+            "control": {
+              "sha256": "8f3f0e9fa07ecf7a4363a257f0b26b7ed992d3e8d6dd53ba1153c54f826875cc",
+              "bytes": 30720,
+              "seconds": 0.21993618799751857,
+              "stderr": "",
+              "container_removed": true
+            },
+            "data": {
+              "sha256": "24815bfc20aa8db5064d0dcbb1f409c5c1d451423879b4d4f19b94c997bdcb63",
+              "bytes": 5027358720,
+              "seconds": 161.191333089002,
+              "stderr": "",
+              "container_removed": true
+            }
+          },
+          "compressed": {
+            "control": {
+              "sha256": "8f3f0e9fa07ecf7a4363a257f0b26b7ed992d3e8d6dd53ba1153c54f826875cc",
+              "bytes": 30720,
+              "seconds": 1.5641975079997792,
+              "stderr": "",
+              "container_removed": true
+            },
+            "data": {
+              "sha256": "24815bfc20aa8db5064d0dcbb1f409c5c1d451423879b4d4f19b94c997bdcb63",
+              "bytes": 5027358720,
+              "seconds": 187.01016830200024,
+              "stderr": "",
+              "container_removed": true
+            }
+          }
+        },
+        "decoded_control_and_data_identical": true,
+        "original_staging_unchanged": true,
+        "original_package_unchanged": true,
+        "container_removed": true,
+        "finished_at": "2026-10-25T20:00:07.234153+00:00"
+      },
+      "scope": "Experimental re-encoding of the unchanged level-8 staging tree; not a source-bound production recipe change, installed/GPU-qualified replacement, signature or publication. The six-run matrix used only the original packages.",
+      "preserved_first_attempt": {
+        "receipt_path": "Broadcast-native-cuda-20261025/dist/compression-feasibility/result.json",
+        "receipt_sha256": "fa002719a18535b921964205e9947cbc01d17b482b3af3a4acc8c2b01fb052de",
+        "failure": "64 MiB temporary filesystem filled while dpkg-deb spooled compressed member data; retry used task-local disk scratch.",
+        "result": {
+          "status": "fail",
+          "source": "42fd9e64bddfeecbd6227ee73f3985ab7d4b27ca",
+          "image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+          "source_date_epoch": 1792719503,
+          "scope": "Compression feasibility only; same reviewed staging, no candidate installation/execution or release qualification.",
+          "limit_bytes_exclusive": 2147483648,
+          "stage_before_sha256": "ccee1bfd45d7816b4355554ebfaa61e9038cd90d46cfa7ea68c6ce603af4fe46",
+          "original": {
+            "bytes": 2155699754,
+            "sha256": "0c84b5edb3dd1b02fc65fafdaef9e8aa72f5fb40873346ad8c92272ec2a024cc"
+          },
+          "command": [
+            "docker",
+            "run",
+            "--name",
+            "nvb-compression-build-c34b15092648",
+            "--rm",
+            "--init",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--runtime=runc",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--pids-limit=128",
+            "--memory=4g",
+            "--memory-swap=4g",
+            "--cpus=2",
+            "--tmpfs",
+            "/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777",
+            "--user",
+            "1000:1000",
+            "-e",
+            "SOURCE_DATE_EPOCH=1792719503",
+            "--mount",
+            "type=bind,source=/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/build-cuda/deb/stage,target=/stage,readonly",
+            "--mount",
+            "type=bind,source=/home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-20261025/dist/compression-feasibility,target=/work",
+            "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+            "dpkg-deb",
+            "--root-owner-group",
+            "-Zzstd",
+            "-z10",
+            "--threads-max=2",
+            "--build",
+            "/stage",
+            "/work/nvbroadcast_1.5.3-5.cuda_amd64.zstd10-experiment.deb"
+          ],
+          "started_at": "2026-10-25T19:51:04.540660+00:00",
+          "error": "compression command failed"
+        }
+      }
+    },
+    "next_step": "Commit reviewed compression and release-size policy, build new source-bound artifacts and qualify those exact bytes; do not replace the completed matrix inputs with the experimental package."
+  },
+  "limits": [
+    "Recorded historical builder images reused; no independent OS/toolchain/dependency source reconstruction.",
+    "Only the recorded Ubuntu24.04/Fedora44 amd64 fixtures and NVIDIA driver595.91.07 with the selected RTX3080/RTX5070 are exercised.",
+    "Hardware results prove bounded ONNX/CuPy execution, not camera/microphone, sustained processing, measured FPS, alternate drivers or other GPU architectures.",
+    "Fresh CPU-to-CUDA-to-CPU switching only; no legacy online-package CUDA migration, interrupted CUDA switch, clean VM or abrupt power-loss acceptance added.",
+    "Unsigned local packages; no protected hosted CUDA signing/provenance, production activation/default recipe change or release publication.",
+    "CPU/CUDA locks and source are exact; this is not a dependency upgrade or a new public application version.",
+    "Installed Snap190, frozen public v1.5.3 assets and host user settings/devices were not changed."
+  ],
+  "evidence_paths_relative_to": "Original workspace parent containing the named worktrees; immutable source/recipe commits and receipt hashes bind local evidence."
+}
