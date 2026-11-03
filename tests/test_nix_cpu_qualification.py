@@ -34,6 +34,98 @@ def forecast_paths(count, suffix):
 
 
 class NixCpuQualificationTests(unittest.TestCase):
+    def test_profile_selection_requires_an_exact_explicit_opt_in(self):
+        for labels in ([], [{"name": "nix-full-rebuild-extra"}], [{"name": "other"}]):
+            self.assertEqual(hosted.select_profile("pull_request", {"pull_request": {"labels": labels}}), "standard")
+        for action in ("labeled", "synchronize"):
+            self.assertEqual(hosted.select_profile("pull_request", {
+                "action": action, "pull_request": {"labels": [{"name": "nix-full-rebuild"}]}}), "full-rebuild")
+        self.assertEqual(hosted.select_profile("pull_request", {
+            "action": "unlabeled", "label": {"name": "nix-full-rebuild"},
+            "pull_request": {"labels": []}}), "standard")
+        self.assertEqual(hosted.select_profile("workflow_dispatch", {}), "standard")
+        self.assertEqual(hosted.select_profile("workflow_dispatch", {
+            "inputs": {"profile": "full-rebuild", "operation": "qualify"}}), "full-rebuild")
+        self.assertEqual(hosted.select_profile("workflow_dispatch", {
+            "inputs": {"profile": "full-rebuild", "operation": "prepare-lock"}}), "standard")
+        with self.assertRaisesRegex(ValueError, "Unknown"):
+            hosted.select_profile("workflow_dispatch", {"inputs": {"profile": "unlimited"}})
+        with self.assertRaisesRegex(ValueError, "Unsupported"):
+            hosted.select_profile("pull_request_target", {})
+
+    def test_measured_full_plan_requires_separate_profile_and_keeps_standard_limits(self):
+        measured = ("these 724 derivations will be built:\n" + forecast_paths(724, ".drv") +
+                    "this path will be fetched (3.5 GiB download, 15.5 GiB unpacked):\n" + forecast_paths(1, "-cached"))
+        with self.assertRaisesRegex(ValueError, "budget"):
+            hosted.check_plan(measured, 85 * 1024**3)
+        result = hosted.check_plan(measured, 85 * 1024**3, profile="full-rebuild")
+        self.assertEqual(result["build_derivations"], 724)
+        self.assertEqual(hosted.profile_limits("standard")["job_minutes"], 60)
+        self.assertEqual(hosted.profile_limits("standard")["build_seconds"], 2400)
+        self.assertEqual(result["limits"]["job_minutes"], 300)
+        self.assertEqual(result["limits"]["build_seconds"], 270 * 60)
+
+    def test_full_profile_refuses_excessive_build_download_unpack_and_scratch_costs(self):
+        for forecast in (
+            "these 901 derivations will be built:\n" + forecast_paths(901, ".drv"),
+            "this path will be fetched (8.0 GiB download, 1.0 GiB unpacked):\n" + forecast_paths(1, "-cached"),
+            "this path will be fetched (1.0 MiB download, 24.0 GiB unpacked):\n" + forecast_paths(1, "-cached"),
+        ):
+            with self.subTest(forecast=forecast[:60]), self.assertRaisesRegex(ValueError, "budget"):
+                hosted.check_plan(forecast, 85 * 1024**3, profile="full-rebuild")
+        with self.assertRaisesRegex(ValueError, "budget"):
+            hosted.check_plan("this path will be fetched (1.0 MiB download, 15.5 GiB unpacked):\n" +
+                              forecast_paths(1, "-cached"), 55 * 1024**3, profile="full-rebuild")
+        with self.assertRaisesRegex(ValueError, "Unknown"):
+            hosted.check_plan("", 85 * 1024**3, verified_present=True, profile="unlimited")
+
+    def test_full_profile_requires_hardware_floor_and_a_fixed_operation_growth_baseline(self):
+        arguments = {"free_bytes": 75 * 1024**3, "cpus": 4, "memory_bytes": 14 * 1024**3}
+        self.assertEqual(hosted.check_resources("full-rebuild", **arguments)["profile"], "full-rebuild")
+        for key in arguments:
+            reduced = {**arguments, key: arguments[key] - 1}
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "too small"):
+                hosted.check_resources("full-rebuild", **reduced)
+        self.assertIsNone(hosted.check_live_storage("full-rebuild", 90 * 1024**3, 30 * 1024**3))
+        self.assertIn("growth", hosted.check_live_storage("full-rebuild", 90 * 1024**3, 30 * 1024**3 - 1))
+        self.assertIn("free-space", hosted.check_live_storage("full-rebuild", 75 * 1024**3, 10 * 1024**3 - 1))
+        with self.assertRaisesRegex(ValueError, "fixed initial"):
+            hosted.check_live_storage("full-rebuild", 0, 85 * 1024**3)
+
+    def test_full_profile_live_growth_guard_terminates_the_owned_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, records = Path(directory), []
+            with (mock.patch.object(hosted, "ROOT", root), mock.patch.object(hosted, "OUT", root),
+                  mock.patch.object(hosted.shutil, "disk_usage", return_value=types.SimpleNamespace(free=29 * 1024**3))):
+                with self.assertRaisesRegex(RuntimeError, "observed-growth"):
+                    hosted.run("growth", [sys.executable, "-c", "import time; time.sleep(30)"], 5,
+                               records, profile="full-rebuild", initial_free_bytes=90 * 1024**3)
+            self.assertGreater(records[0]["maximum_observed_growth_bytes"], 60 * 1024**3)
+
+    def test_full_profile_rejects_a_different_filesystem_baseline_and_stops_daemon(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            preflight = {"profile": "full-rebuild", "filesystem_device": -1,
+                         "initial_free_bytes": 85 * 1024**3, "cpus": 4,
+                         "memory_bytes": 16 * 1024**3}
+            (output / "resource-preflight.json").write_text(json.dumps(preflight))
+            environment = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted"}
+            original_stat = os.stat
+            with (mock.patch.dict(os.environ, environment), mock.patch.object(hosted, "OUT", output),
+                  mock.patch.object(sys, "argv", ["hosted_check.py", "qualify"]),
+                  mock.patch.object(hosted, "selected_profile", return_value="full-rebuild"),
+                  mock.patch.object(hosted.shutil, "disk_usage", return_value=types.SimpleNamespace(free=85 * 1024**3)),
+                  mock.patch.object(hosted.os, "stat", wraps=os.stat) as stat,
+                  mock.patch.object(hosted.signal, "signal"), mock.patch.object(hosted, "run") as execute,
+                  mock.patch.object(hosted, "stop_job_daemon", return_value={"states": "inactive"}) as cleanup):
+                stat.side_effect = lambda path, *args, **kwargs: (
+                    types.SimpleNamespace(st_dev=1) if path == "/nix" else original_stat(path, *args, **kwargs))
+                with self.assertRaisesRegex(ValueError, "baseline on the Nix filesystem"):
+                    hosted.main()
+                execute.assert_not_called()
+                cleanup.assert_called_once()
+            self.assertEqual(json.loads((output / "receipt.json").read_text())["status"], "failed")
+
     def test_forecast_counts_transitive_builds_and_conservatively_bounds_sizes(self):
         result = hosted.check_plan(
             "these 12 derivations will be built:\n" + forecast_paths(12, ".drv") +
@@ -186,6 +278,12 @@ class NixCpuQualificationTests(unittest.TestCase):
         self.assertIn("needs.lock-status.outputs.ready != 'true'", workflow)
         self.assertIn("needs.lock-status.outputs.ready == 'true'", workflow)
         self.assertIn("Prepare Nix input lock (no CPU qualification)", workflow)
+        self.assertIn("types: [opened, synchronize, reopened, labeled, unlabeled]", workflow)
+        self.assertIn("format('ignored-label-{0}', github.run_id)", workflow)
+        self.assertIn("fromJSON(needs.lock-status.outputs.job_minutes)", workflow)
+        self.assertIn("fromJSON(needs.lock-status.outputs.step_minutes)", workflow)
+        self.assertLess(workflow.index("run: python3 nix/hosted_check.py preflight"),
+                        workflow.rindex("run: bash nix/bootstrap_ci.sh"))
         self.assertNotIn("secrets.", workflow)
         self.assertNotIn("id-token:", workflow)
         self.assertNotIn("pull_request_target", workflow)

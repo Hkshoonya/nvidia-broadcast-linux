@@ -18,9 +18,70 @@ OUT = ROOT / "dist/nix-cpu"
 MAX_LOG = 2 * 1024**2
 MIN_FREE = 3 * 1024**3
 OFFICIAL_KEY = "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+PROFILES = {
+    "standard": {"build_derivations": 200, "download_bytes": 8 * 1024**3,
+                 "unpacked_bytes": 12 * 1024**3, "build_scratch_bytes": 6 * 1024**3,
+                 "minimum_free_bytes": MIN_FREE, "job_minutes": 60,
+                 "step_minutes": 50, "build_seconds": 2400},
+    "full-rebuild": {"build_derivations": 900, "download_bytes": 8 * 1024**3,
+                     "unpacked_bytes": 24 * 1024**3, "build_scratch_bytes": 30 * 1024**3,
+                     "minimum_free_bytes": 10 * 1024**3, "initial_free_bytes": 75 * 1024**3,
+                     "maximum_growth_bytes": 60 * 1024**3, "minimum_cpus": 4,
+                     "minimum_memory_bytes": 14 * 1024**3, "job_minutes": 300,
+                     "step_minutes": 280, "build_seconds": 270 * 60},
+}
 
 
-def check_plan(log: str, free_bytes: int, *, verified_present=False) -> dict:
+def profile_limits(profile: str) -> dict:
+    if profile not in PROFILES:
+        raise ValueError("Unknown Nix qualification profile")
+    return dict(PROFILES[profile])
+
+
+def select_profile(event_name: str, event: dict) -> str:
+    """A maintainer-controlled PR label or manual choice opts into the finite rebuild."""
+    if event_name == "pull_request":
+        labels = event.get("pull_request", {}).get("labels", [])
+        return "full-rebuild" if any(label.get("name") == "nix-full-rebuild"
+                                     for label in labels) else "standard"
+    if event_name == "workflow_dispatch":
+        inputs = event.get("inputs", {})
+        profile = inputs.get("profile", "standard")
+        profile_limits(profile)  # Reject unknown values even for preparation.
+        return "standard" if inputs.get("operation") == "prepare-lock" else profile
+    raise ValueError("Unsupported Nix qualification event")
+
+
+def selected_profile() -> str:
+    path = Path(os.environ["GITHUB_EVENT_PATH"])
+    if path.stat().st_size > 1024**2:
+        raise ValueError("Unexpectedly large GitHub event payload")
+    return select_profile(os.environ["GITHUB_EVENT_NAME"], json.loads(path.read_text()))
+
+
+def check_resources(profile: str, *, free_bytes: int, cpus: int, memory_bytes: int) -> dict:
+    limits = profile_limits(profile)
+    resources = {"profile": profile, "initial_free_bytes": free_bytes,
+                 "cpus": cpus, "memory_bytes": memory_bytes, "limits": limits}
+    if profile == "full-rebuild" and (free_bytes < limits["initial_free_bytes"] or
+            cpus < limits["minimum_cpus"] or memory_bytes < limits["minimum_memory_bytes"]):
+        raise ValueError("Hosted runner is too small for the full-rebuild profile: " + json.dumps(resources))
+    return resources
+
+
+def check_live_storage(profile: str, initial_free_bytes: int, free_bytes: int) -> str | None:
+    limits = profile_limits(profile)
+    if profile == "full-rebuild" and initial_free_bytes <= 0:
+        raise ValueError("Full rebuild requires a fixed initial storage baseline")
+    if free_bytes < limits["minimum_free_bytes"]:
+        return "hosted filesystem free-space guard"
+    if ("maximum_growth_bytes" in limits and
+            initial_free_bytes - free_bytes > limits["maximum_growth_bytes"]):
+        return "hosted filesystem observed-growth guard"
+    return None
+
+
+def check_plan(log: str, free_bytes: int, *, verified_present=False, profile="standard") -> dict:
     """Gate the pinned Nix version's transitive stderr forecast, not output paths."""
     builds, downloads, unpacked = 0, 0, 0
     seen = set()
@@ -71,18 +132,20 @@ def check_plan(log: str, free_bytes: int, *, verified_present=False) -> dict:
         raise ValueError("Nix forecast path counts do not match its summaries")
     if not seen and not verified_present:
         raise ValueError("Missing Nix cost forecast without verified existing outputs")
-    plan = {"build_derivations": builds, "download_bytes_upper_bound": downloads,
+    limits = profile_limits(profile)
+    plan = {"profile": profile, "build_derivations": builds, "download_bytes_upper_bound": downloads,
             "unpacked_bytes_upper_bound": unpacked, "free_bytes": free_bytes,
-            "limits": {"build_derivations": 200, "download_bytes": 8 * 1024**3,
-                       "unpacked_bytes": 12 * 1024**3, "build_scratch_bytes": 6 * 1024**3,
-                       "minimum_free_bytes": MIN_FREE}}
-    if (builds > 200 or downloads > 8 * 1024**3 or unpacked > 12 * 1024**3 or
-            unpacked + 6 * 1024**3 + MIN_FREE > free_bytes):
+            "limits": limits}
+    if (builds > limits["build_derivations"] or downloads > limits["download_bytes"] or
+            unpacked > limits["unpacked_bytes"] or
+            unpacked + limits["build_scratch_bytes"] + limits["minimum_free_bytes"] > free_bytes):
         raise ValueError("Nix dry-run exceeds the hosted derivation/download/storage budget: " + json.dumps(plan))
     return plan
 
 
-def run(name: str, command: list[str], seconds: int, records: list, *, json_output=True) -> Path:
+def run(name: str, command: list[str], seconds: int, records: list, *, json_output=True,
+        profile="standard", initial_free_bytes=0) -> Path:
+    profile_limits(profile)
     environment = {key: value for key, value in os.environ.items()
                    if key not in {"GITHUB_TOKEN", "GH_TOKEN", "NIX_CONFIG", "NIX_PATH"}}
     environment["NIX_USER_CONF_FILES"] = "/dev/null"
@@ -90,6 +153,7 @@ def run(name: str, command: list[str], seconds: int, records: list, *, json_outp
     output, error = OUT / (name + (".json" if json_output else ".txt")), OUT / (name + ".log")
     started = time.monotonic()
     reason = None
+    minimum_observed_free = None
     counts = {output.name: 0, error.name: 0}
     with output.open("xb") as stdout, error.open("xb") as stderr:
         process = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=subprocess.PIPE,
@@ -109,8 +173,10 @@ def run(name: str, command: list[str], seconds: int, records: list, *, json_outp
             while selector.get_map() or process.poll() is None:
                 if reason is None and time.monotonic() - started > seconds:
                     reason = "command timeout"
-                elif reason is None and shutil.disk_usage("/nix").free < MIN_FREE:
-                    reason = "hosted filesystem free-space guard"
+                elif reason is None:
+                    free = shutil.disk_usage("/nix").free
+                    minimum_observed_free = free if minimum_observed_free is None else min(minimum_observed_free, free)
+                    reason = check_live_storage(profile, initial_free_bytes, free)
                 if reason and terminated is None:
                     terminated = time.monotonic()
                     stop_group(signal.SIGTERM)
@@ -137,10 +203,16 @@ def run(name: str, command: list[str], seconds: int, records: list, *, json_outp
                 key.fileobj.close()
             selector.close()
             process.wait(timeout=10)
+    free_after = shutil.disk_usage("/nix").free
+    minimum_observed_free = free_after if minimum_observed_free is None else min(minimum_observed_free, free_after)
+    reason = reason or check_live_storage(profile, initial_free_bytes, free_after)
     records.append({"name": name, "command": command, "exit_code": process.returncode,
                     "seconds": round(time.monotonic() - started, 2), "stop_reason": reason,
                     "observed_log_bytes": counts,
-                    "free_bytes_after": shutil.disk_usage("/nix").free})
+                    "free_bytes_after": free_after,
+                    "minimum_observed_free_bytes": minimum_observed_free,
+                    "maximum_observed_growth_bytes": max(0, initial_free_bytes - minimum_observed_free),
+                    "observed_growth_bytes_after": max(0, initial_free_bytes - free_after)})
     if reason or process.returncode:
         raise RuntimeError(f"{name} failed: {reason or process.returncode}; see bounded evidence")
     return output
@@ -174,10 +246,25 @@ def stop_job_daemon() -> dict:
 def main() -> None:
     if (os.environ.get("GITHUB_ACTIONS") != "true" or
             os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted" or
-            sys.argv[1:] not in (["prepare-lock"], ["qualify"])):
+            sys.argv[1:] not in (["preflight"], ["prepare-lock"], ["qualify"])):
         raise ValueError("Run only on hosted CI with a fixed preparation or qualification operation")
     operation = sys.argv[1]
     OUT.mkdir(parents=True, exist_ok=True)
+    profile = "standard" if operation == "prepare-lock" else selected_profile()
+    limits = profile_limits(profile)
+    if operation == "preflight":
+        memory = next(int(line.split()[1]) * 1024 for line in Path("/proc/meminfo").read_text().splitlines()
+                      if line.startswith("MemTotal:"))
+        cpus = len(os.sched_getaffinity(0))
+        resources = check_resources(profile, free_bytes=shutil.disk_usage("/").free,
+                                    cpus=cpus, memory_bytes=memory)
+        resources["filesystem_device"] = os.stat("/").st_dev
+        (OUT / "resource-preflight.json").write_text(json.dumps(resources, indent=2) + "\n")
+        return
+    initial_free = shutil.disk_usage("/nix").free
+    def execute(*args, **kwargs):
+        return run(*args, **kwargs, profile=profile, initial_free_bytes=initial_free)
+
     def interrupted(_signal, _frame):
         raise InterruptedError("Hosted workflow interrupted")
     signal.signal(signal.SIGTERM, interrupted)
@@ -186,11 +273,20 @@ def main() -> None:
     receipt = {"operation": operation, "scope": "Input preparation only" if operation == "prepare-lock"
                else "Hermetic build and generated CPU/native checks; no physical NixOS acceptance",
                "expected_nixpkgs": pins["nixpkgsRevision"], "commands": records,
-               "initial_free_bytes": shutil.disk_usage("/nix").free,
-               "limits": {"minimum_free_bytes": MIN_FREE, "per_log_bytes": MAX_LOG,
-                          "job_minutes": 15 if operation == "prepare-lock" else 60}}
+               "profile": profile, "initial_free_bytes": initial_free,
+               "limits": {**limits, "per_log_bytes": MAX_LOG,
+                          "job_minutes": 15 if operation == "prepare-lock" else limits["job_minutes"]}}
     try:
-        version = run("nix-version", ["nix", "--version"], 20, records, json_output=False).read_text().strip()
+        if profile == "full-rebuild":
+            preflight = json.loads((OUT / "resource-preflight.json").read_text())
+            if preflight["profile"] != profile or preflight["filesystem_device"] != os.stat("/nix").st_dev:
+                raise ValueError("Full rebuild requires a preflight baseline on the Nix filesystem")
+            check_resources(profile, free_bytes=preflight["initial_free_bytes"],
+                            cpus=preflight["cpus"], memory_bytes=preflight["memory_bytes"])
+            initial_free = preflight["initial_free_bytes"]
+            receipt["initial_free_bytes"] = initial_free
+            receipt["runner_resources"] = preflight
+        version = execute("nix-version", ["nix", "--version"], 20, records, json_output=False).read_text().strip()
         if version != "nix (Nix) 2.35.4":
             raise ValueError("Unexpected Nix bootstrap version")
         receipt["nix_version"] = version
@@ -220,7 +316,7 @@ def main() -> None:
             ("sandbox", "require-sigs", "substituters", "trusted-public-keys", "trusted-users",
              "builders", "accept-flake-config", "allow-import-from-derivation", "max-jobs", "cores")}, indent=2) + "\n")
         if operation == "prepare-lock":
-            run("resolve-lock", ["nix", "flake", "lock", "--override-input", "nixpkgs",
+            execute("resolve-lock", ["nix", "flake", "lock", "--override-input", "nixpkgs",
                 "github:NixOS/nixpkgs/" + pins["nixpkgsRevision"]], 240, records, json_output=False)
             checked_copy(ROOT / "flake.lock", "prepared-flake.lock")
         lock = json.loads((ROOT / "flake.lock").read_text())
@@ -228,21 +324,22 @@ def main() -> None:
         if locked["rev"] != pins["nixpkgsRevision"] or not locked.get("narHash", "").startswith("sha256-"):
             raise ValueError("Reviewed committed Nixpkgs lock is required; use the separate preparation operation")
         receipt["locked_input"] = locked
-        run("flake-metadata", ["nix", "flake", "metadata", "--json", "--no-update-lock-file"], 90, records)
+        execute("flake-metadata", ["nix", "flake", "metadata", "--json", "--no-update-lock-file"], 90, records)
         if operation == "qualify":
-            run("flake-evaluation", ["nix", "flake", "check", "--no-build", "--no-update-lock-file"], 120, records, json_output=False)
+            execute("flake-evaluation", ["nix", "flake", "check", "--no-build", "--no-update-lock-file"], 120, records, json_output=False)
             targets = [".#checks.x86_64-linux." + name for name in ("nvbroadcast", "help", "runtime", "module")]
-            dry_run = run("build-plan", ["nix", "build", "--dry-run", "--no-link", "--json", "--no-update-lock-file", *targets], 180, records)
+            dry_run = execute("build-plan", ["nix", "build", "--dry-run", "--no-link", "--json", "--no-update-lock-file", *targets], 180, records)
             declared = [Path(item["outputs"]["out"]) for item in json.loads(dry_run.read_text())]
             present = len(declared) == len(targets) and all(
                 path.resolve().is_relative_to(Path("/nix/store")) and path.exists() for path in declared)
             if present:
-                run("existing-outputs", ["nix", "path-info", "--offline", "--json", *map(str, declared)], 30, records)
+                execute("existing-outputs", ["nix", "path-info", "--offline", "--json", *map(str, declared)], 30, records)
             plan = check_plan((OUT / "build-plan.log").read_text(), shutil.disk_usage("/nix").free,
-                              verified_present=present)
+                              verified_present=present, profile=profile)
             (OUT / "build-budget.json").write_text(json.dumps(plan, indent=2) + "\n")
-            result = run("build-result", ["nix", "build", "--no-link", "--json", "--no-update-lock-file",
-                         "--max-silent-time", "600", "--timeout", "2400", *targets], 2400, records)
+            result = execute("build-result", ["nix", "build", "--no-link", "--json", "--no-update-lock-file",
+                         "--max-silent-time", "600", "--timeout", str(limits["build_seconds"]), *targets],
+                         limits["build_seconds"], records)
             outputs = [Path(item["outputs"]["out"]) for item in json.loads(result.read_text())]
             for output in outputs:
                 if not output.resolve().is_relative_to(Path("/nix/store")):

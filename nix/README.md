@@ -32,6 +32,24 @@ The hosted workflow has two separate stages:
    obtain a pass. Only small evidence files are uploaded, never binaries, cache
    contents, release assets or credentials.
 
+Normal qualification retains its 60-minute job, 40-minute build-command bound,
+200-derivation, 8 GiB download and 12 GiB unpacked limits. The maintainer-controlled
+exact `nix-full-rebuild` PR label selects a separate finite rebuild. That selection
+persists across PR updates until the label is removed. Unrelated label edits do
+not start or cancel qualification. Once this workflow is on the default branch, a manual `qualify` run
+also offers the explicit `full-rebuild` profile; preparation stays standard.
+
+The full profile uses the same standard GitHub-hosted Ubuntu runner, dependencies,
+tests and signed official cache. Before bootstrap it requires at least 4 CPUs,
+14 GiB RAM and 75 GiB free space. Its finite limits are a 300-minute job,
+270-minute build command, 900 derivations, 8 GiB downloads, 24 GiB unpacked data,
+30 GiB scratch allowance and 10 GiB free-space floor. The controller also stops
+if observed filesystem growth exceeds 60 GiB against the single pre-bootstrap
+baseline; that baseline is never reset between commands. Logs remain bounded to
+2 MiB per stream. A limit failure stops this job's fresh daemon and remains a
+failed qualification. This opt-in does not authorize paid runners or any cache,
+binary or release publication.
+
 Bootstrap runs only on disposable GitHub-hosted Linux x86_64 workers. It verifies
 the official Nix 2.35.4 installer before execution; that installer verifies its
 binary archive before extraction. This replaces 2.35.2, which is affected by
@@ -47,6 +65,8 @@ single-owner installed/imported suppliers, CPU inference, AV/RNNoise processing,
 isolated MediaPipe imports and model initialization, resources/source identity,
 and the actual packaged recording smoke test. Generated media does not substitute
 for physical camera or audio acceptance.
+The small runtime JSON also preserves the complete normalized installed Python
+name-to-version-list mapping, including duplicate entries, for supplier review.
 
 A clean runtime environment defaults both OpenSSL certificate-file variables to
 the exact upstream certifi bundle and an empty capath. The proof compares default
