@@ -108,6 +108,7 @@ class CameraSwitchTests(unittest.TestCase):
     def test_stop_pipeline_refreshes_tray_from_authoritative_state(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app._pending_start = ("/dev/video0", "YUY2")
+        app._pending_auto_start_gpu = 0
         app._idle_active = True
         app._idle_strikes = 2
         app._restart_source_id = 0
@@ -122,6 +123,7 @@ class CameraSwitchTests(unittest.TestCase):
 
         self.assertFalse(app._streaming)
         self.assertEqual(app.eye_contact_status.state, "stopped")
+        self.assertIsNone(app._pending_auto_start_gpu)
         self.assertEqual(app._eye_contact.status.state, "waiting")
         app._tray.update_status.assert_called_once_with(False, "idle")
 

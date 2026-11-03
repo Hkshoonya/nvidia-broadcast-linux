@@ -198,9 +198,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._pending_mode_key = ""
         self._mode_retry_in_flight = False
         self._mode_retry_generation = 0
-        # A GPU switch refreshes provider execution off the GTK thread.  Keep
-        # the prior mode rows out of use until that selected-device check ends.
-        self._mode_availability_ready = True
+        self._mode_retry_workers: dict[int, int] = {}
+        self._mode_retry_request = None
+        # Initial and later provider checks run through the app's worker.
+        self._mode_availability_ready = False
         self._mode_availability_gpu = max(0, int(app.config.compute_gpu))
         self._mode_availability_snapshot = None
         self._pending_meeting_start = False
@@ -1811,7 +1812,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             "doczeus", "cuda_max", "cuda_balanced", "zeus", "killer",
             "cuda_perf",
         }
-        if not self._mode_availability_ready and availability_snapshot is None:
+        if availability_snapshot is None and self._mode_availability_ready:
+            availability_snapshot = self._mode_availability_snapshot
+        if (
+            not isinstance(availability_snapshot, dict)
+            or availability_snapshot.get("gpu_index")
+            != max(0, int(self._app.config.compute_gpu))
+        ):
+            availability_snapshot = None
+        if availability_snapshot is None:
             cpu_devices = [
                 {"name": label, "device": mode_key}
                 for mode_key, label in mode_rows
@@ -1831,13 +1840,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 *checking_devices,
             ]
 
-        if availability_snapshot is None:
-            availability_snapshot = (
-                self._app.dependency_installer.mode_availability_snapshot(
-                    self._app.config.compute_gpu
-                )
-            )
-            self._mode_availability_snapshot = availability_snapshot
         has_cuda = bool(availability_snapshot.get("has_cuda", False))
         has_trt = bool(availability_snapshot.get("has_tensorrt", False))
         mode_states = availability_snapshot.get("modes", {})
@@ -1943,6 +1945,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _on_mode_changed_selector(self, selector, mode_key):
         if getattr(self._app, '_restoring', False):
             return
+        request = self._mode_retry_request
+        if (
+            self._mode_retry_in_flight
+            and request is not None
+            and request[0] == mode_key
+            and request[2] == max(0, int(self._app.config.compute_gpu))
+        ):
+            self._sync_mode_selector()
+            self.set_status("GPU runtime check is already in progress")
+            return
         self._cancel_mode_runtime_retry()
         if mode_key == "auto" and not self._mode_availability_ready:
             self._pending_mode_key = ""
@@ -2030,9 +2042,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if getattr(self, "_mode_retry_in_flight", False):
             self._mode_retry_generation += 1
             self._mode_retry_in_flight = False
+        self._mode_retry_request = None
 
     def _retry_temporarily_unavailable_mode(self, mode_key: str) -> None:
         """Retry a transient provider probe without blocking GTK."""
+        if self._app._mode_availability_closed or self is not self._app._window:
+            return
         self._sync_mode_selector()
         if self._mode_retry_in_flight:
             self.set_status("GPU runtime check is already in progress")
@@ -2042,27 +2057,49 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._mode_retry_generation += 1
         retry_generation = self._mode_retry_generation
         gpu_index = max(0, int(self._app.config.compute_gpu))
+        self._mode_retry_request = (mode_key, retry_generation, gpu_index)
         self.set_status("Rechecking selected GPU runtime...")
+        self._resume_mode_runtime_retry()
+
+    def _resume_mode_runtime_retry(self) -> None:
+        request = self._mode_retry_request
+        if (
+            request is not None
+            and not self._app._mode_availability_closed
+            and self is self._app._window
+            and request[2] == max(0, int(self._app.config.compute_gpu))
+            and request[2] not in self._mode_retry_workers
+            and request[2] not in self._app._mode_availability_workers
+            and not self._app.dependency_installer.busy
+        ):
+            self._start_mode_runtime_retry(*request)
+
+    def _start_mode_runtime_retry(self, mode_key, retry_generation, gpu_index):
+        self._mode_retry_workers[gpu_index] = retry_generation
         window_ref = weakref.ref(self)
-        installer = self._app.dependency_installer
+        app = self._app
+        installer = app.dependency_installer
 
         def _probe() -> None:
             snapshot = None
             capabilities = None
             try:
-                reason = installer.retry_mode_runtime(
-                    mode_key,
-                    gpu_index=gpu_index,
-                )
-                snapshot = installer.mode_availability_snapshot(gpu_index)
-                from nvbroadcast.core.config import detect_system_capabilities
-                capabilities = detect_system_capabilities(
-                    gpu_index, probe_cuda=not installer.restart_pending("cupy")
-                )
+                with app._mode_probe_scope.activate():
+                    reason = installer.retry_mode_runtime(
+                        mode_key,
+                        gpu_index=gpu_index,
+                    )
+                    snapshot = installer.mode_availability_snapshot(gpu_index)
+                    from nvbroadcast.core.config import detect_system_capabilities
+                    capabilities = detect_system_capabilities(
+                        gpu_index, probe_cuda=not installer.restart_pending("cupy")
+                    )
             except Exception as exc:
+                snapshot = None
+                capabilities = None
                 reason = f"GPU runtime check failed: {exc}"
             window = window_ref()
-            if window is not None:
+            if window is not None and not app._mode_availability_closed:
                 GLib.idle_add(
                     window._finish_mode_runtime_retry,
                     mode_key,
@@ -2073,11 +2110,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                     capabilities,
                 )
 
-        threading.Thread(
-            target=_probe,
-            name="nvbroadcast-mode-runtime-retry",
-            daemon=True,
-        ).start()
+        try:
+            threading.Thread(
+                target=_probe,
+                name="nvbroadcast-mode-runtime-retry",
+                daemon=True,
+            ).start()
+        except Exception as exc:
+            self._finish_mode_runtime_retry(
+                mode_key, f"Could not start GPU runtime check: {exc}",
+                retry_generation, gpu_index,
+            )
 
     def _finish_mode_runtime_retry(
         self,
@@ -2088,14 +2131,30 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         availability_snapshot: dict[str, object] | None = None,
         capabilities: dict[str, object] | None = None,
     ) -> bool:
+        if self._mode_retry_workers.get(gpu_index) == retry_generation:
+            self._mode_retry_workers.pop(gpu_index)
+        request = self._mode_retry_request
+        if not self._app._mode_availability_closed and self is self._app._window:
+            self._app._resume_mode_availability()
         if (
-            retry_generation != self._mode_retry_generation
-            or max(0, int(self._app.config.compute_gpu)) != gpu_index
+            self._app._mode_availability_closed
+            or self is not self._app._window
+            or request is None
         ):
             return False
+        if (
+            retry_generation != request[1]
+            or max(0, int(self._app.config.compute_gpu)) != gpu_index
+        ):
+            self._resume_mode_runtime_retry()
+            return False
         self._mode_retry_in_flight = False
-        if availability_snapshot is None:
+        self._mode_retry_request = None
+        if availability_snapshot is None or capabilities is None:
             self._mode_availability_ready = False
+            self._mode_availability_snapshot = None
+            self._app._mode_availability_snapshot = None
+            self._app._mode_capabilities_snapshot = None
             self.set_status(reason or "GPU runtime check did not complete")
             return False
         self._mode_availability_ready = True
@@ -2129,6 +2188,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             # activating a mode for the newly selected device.
             self._mode_retry_generation += 1
             self._mode_retry_in_flight = False
+            self._mode_retry_request = None
             self._mode_availability_ready = False
             self._mode_availability_gpu = gpu_index
         self._app.set_compute_gpu(gpu_index)
@@ -3552,9 +3612,24 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         _ = compositing, profile
         if availability_snapshot is not None:
             self._mode_availability_snapshot = availability_snapshot
-        self._mode_devices = self._build_mode_devices(availability_snapshot)
+            self._mode_availability_ready = True
+        snapshot = self._mode_availability_snapshot if self._mode_availability_ready else None
+        if (
+            not isinstance(snapshot, dict)
+            or snapshot.get("gpu_index") != max(0, int(self._app.config.compute_gpu))
+        ):
+            snapshot = None
+            self._mode_availability_snapshot = None
+            self._mode_availability_ready = False
+        self._mode_devices = self._build_mode_devices(snapshot)
         self._profile_selector.set_devices(self._mode_devices)
         self._sync_mode_selector()
+        if (
+            snapshot is None
+            and not getattr(self._app, "_restoring", False)
+            and getattr(self._app, "_window", None) is self
+        ):
+            self._app._refresh_mode_availability_async(self._app.config.compute_gpu)
 
     def _on_freeze_toggled(self, btn):
         self._preview_frozen = btn.get_active()

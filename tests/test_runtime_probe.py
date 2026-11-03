@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -13,6 +14,8 @@ from unittest import mock
 
 from nvbroadcast.runtime import __main__ as runtime_main
 from nvbroadcast.runtime import probe
+from nvbroadcast.runtime import process_scope
+from nvbroadcast.runtime.process_scope import ProviderProbeCancelled, ProviderProbeScope, run_probe_process
 from nvbroadcast.runtime.probe import (
     PROBE_EXPECTED_OUTPUT,
     PROBE_MODEL_SHA256,
@@ -494,6 +497,242 @@ class RuntimeProbeTests(unittest.TestCase):
         self.assertEqual(return_code, 1)
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("CUDA session creation failed", stderr.getvalue())
+
+
+@unittest.skipUnless(os.name == "posix", "private process groups require POSIX")
+class ProviderProbeScopeTests(unittest.TestCase):
+    @staticmethod
+    def _alive(pid):
+        try:
+            stat = Path(f"/proc/{pid}/stat")
+            if stat.exists() and stat.read_text().rsplit(") ", 1)[1].split()[0] == "Z":
+                return False
+            os.kill(pid, 0)
+            return True
+        except (ProcessLookupError, FileNotFoundError):
+            return False
+
+    def _wait(self, predicate):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.005)
+        self.fail("controlled child did not reach the expected state")
+
+    @staticmethod
+    def _start(scope, script, *arguments):
+        outcome = {}
+
+        def worker():
+            try:
+                with scope.activate():
+                    outcome["result"] = run_probe_process(
+                        [sys.executable, "-I", "-c", script, *map(str, arguments)],
+                        env={"PATH": os.defpath}, stdin=subprocess.DEVNULL,
+                        check=False, capture_output=True, text=True, timeout=60,
+                    )
+            except BaseException as error:
+                outcome["error"] = error
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        return thread, outcome
+
+    def test_close_reaps_owned_parent_kills_inherited_pipe_descendant_and_is_idempotent(self):
+        script = (
+            "import json,os,pathlib,subprocess,sys; "
+            "child=subprocess.Popen([sys.executable,'-I','-c','import time;time.sleep(60)']); "
+            "marker=pathlib.Path(sys.argv[1]); temporary=marker.with_suffix('.tmp'); "
+            "temporary.write_text(json.dumps([os.getpid(),child.pid])); temporary.replace(marker)"
+        )
+        scope = ProviderProbeScope()
+        unrelated = subprocess.Popen(
+            [sys.executable, "-I", "-c", "import time;time.sleep(60)"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "owned-pids.json"
+                thread, outcome = self._start(scope, script, marker)
+                self._wait(marker.exists)
+                parent, descendant = json.loads(marker.read_text())
+                begin = time.monotonic()
+                self.assertTrue(scope.close())
+                self.assertTrue(scope.close())
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
+                self.assertLess(time.monotonic() - begin, 3)
+                self.assertIsInstance(outcome.get("error"), ProviderProbeCancelled)
+                self._wait(lambda: not self._alive(parent) and not self._alive(descendant))
+                self.assertIsNone(unrelated.poll())
+                with self.assertRaisesRegex(RuntimeError, "closed"):
+                    with scope.activate():
+                        self.fail("closed owner accepted a new probe")
+        finally:
+            scope.close()
+            unrelated.kill()
+            unrelated.wait(timeout=2)
+
+    def test_normal_return_also_disposes_of_detached_output_descendant(self):
+        script = (
+            "import subprocess,sys; "
+            "child=subprocess.Popen([sys.executable,'-I','-c','import time;time.sleep(60)'],"
+            "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); print(child.pid,flush=True)"
+        )
+        scope = ProviderProbeScope()
+        try:
+            thread, outcome = self._start(scope, script)
+            thread.join(timeout=5)
+            self.assertFalse(thread.is_alive())
+            self.assertNotIn("error", outcome)
+            self.assertEqual(outcome["result"].returncode, 0)
+            descendant = int(outcome["result"].stdout.strip())
+            self._wait(lambda: not self._alive(descendant))
+        finally:
+            scope.close()
+
+    def test_dialog_scope_can_close_independently_and_app_close_cancels_nested_children(self):
+        parent = ProviderProbeScope()
+        script = (
+            "import pathlib,sys,time; marker=pathlib.Path(sys.argv[1]); "
+            "marker.write_text('ready'); time.sleep(60)"
+        )
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                first = parent.child()
+                marker = Path(directory) / "first"
+                thread, outcome = self._start(first, script, marker)
+                self._wait(marker.exists)
+                self.assertTrue(first.close())
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
+                with parent.activate():
+                    result = run_probe_process(
+                        [sys.executable, "-I", "-c", "print('parent still open')"],
+                        env={"PATH": os.defpath}, stdin=subprocess.DEVNULL,
+                        check=False, capture_output=True, text=True, timeout=2,
+                    )
+                self.assertEqual(result.stdout.strip(), "parent still open")
+                second = parent.child()
+                marker = Path(directory) / "second"
+                nested_script = (
+                    "import json,os,pathlib,subprocess,sys,time; "
+                    "child=subprocess.Popen([sys.executable,'-I','-c','import time;time.sleep(60)']); "
+                    "marker=pathlib.Path(sys.argv[1]); temporary=marker.with_suffix('.tmp'); "
+                    "temporary.write_text(json.dumps([os.getpid(),child.pid])); temporary.replace(marker); "
+                    "time.sleep(60)"
+                )
+                thread, outcome = self._start(second, nested_script, marker)
+                self._wait(marker.exists)
+                nested_pids = json.loads(marker.read_text())
+                self.assertTrue(parent.close())
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
+                self.assertIsInstance(outcome.get("error"), ProviderProbeCancelled)
+                self._wait(lambda: not any(self._alive(pid) for pid in nested_pids))
+                with self.assertRaisesRegex(RuntimeError, "closed"):
+                    with second.activate():
+                        self.fail("application close left a dialog owner open")
+                with self.assertRaisesRegex(RuntimeError, "closed"):
+                    parent.child()
+        finally:
+            parent.close()
+
+    def test_cancellation_is_not_cached_and_open_owner_timeout_remains_a_real_failure(self):
+        clear_runtime_probe_cache()
+        scope = ProviderProbeScope()
+        outcome = {}
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "probe-ready"
+                bootstrap = (
+                    f"from pathlib import Path; Path({str(marker)!r}).write_text('ready'); "
+                    "print('partial',flush=True); import time; time.sleep(60)"
+                )
+
+                def worker():
+                    try:
+                        with scope.activate():
+                            outcome["result"] = probe_execution_provider(ProbeProvider.CUDA)
+                    except BaseException as error:
+                        outcome["error"] = error
+
+                with mock.patch.object(probe, "_CHILD_BOOTSTRAP", bootstrap):
+                    thread = threading.Thread(target=worker, daemon=True)
+                    thread.start()
+                    self._wait(marker.exists)
+                    self.assertTrue(scope.close())
+                    thread.join(timeout=2)
+                    self.assertFalse(thread.is_alive())
+                    self.assertIsInstance(outcome.get("error"), ProviderProbeCancelled)
+                    fresh = RuntimeProbeResult.failure(ProbeProvider.CUDA, "fresh execution")
+                    with mock.patch.object(probe, "_run_provider_probe", return_value=fresh) as run:
+                        self.assertIs(probe_execution_provider(ProbeProvider.CUDA), fresh)
+                        run.assert_called_once()
+                    open_scope = ProviderProbeScope()
+                    try:
+                        with open_scope.activate():
+                            timed_out = probe_execution_provider(
+                                ProbeProvider.CUDA, timeout=0.5, use_cache=False,
+                            )
+                        self.assertFalse(timed_out.success)
+                        self.assertTrue(timed_out.temporarily_unavailable)
+                        self.assertIn("partial", timed_out.failure_detail)
+                        self.assertIn("timed out after 0.5 seconds", timed_out.failure_detail)
+                    finally:
+                        open_scope.close()
+        finally:
+            scope.close()
+            clear_runtime_probe_cache()
+
+    def test_owned_timeout_preserves_partial_output_and_reaps_child(self):
+        scope = ProviderProbeScope()
+        try:
+            with scope.activate(), self.assertRaises(subprocess.TimeoutExpired) as raised:
+                run_probe_process(
+                    [sys.executable, "-I", "-c", "import time;print('partial',flush=True);time.sleep(60)"],
+                    env={"PATH": os.defpath}, stdin=subprocess.DEVNULL,
+                    check=False, capture_output=True, text=True, timeout=0.5,
+                )
+            self.assertIn("partial", raised.exception.stdout)
+            self.assertTrue(scope.close())
+        finally:
+            scope.close()
+
+    def test_spawn_and_close_cannot_leave_a_late_child_unowned(self):
+        scope = ProviderProbeScope()
+        spawned, release = threading.Event(), threading.Event()
+        children = []
+        original = subprocess.Popen
+
+        def delayed_registration(*args, **kwargs):
+            child = original(*args, **kwargs)
+            children.append(child)
+            spawned.set()
+            if not release.wait(3):
+                child.kill()
+                raise AssertionError("test did not release owned spawn")
+            return child
+
+        closed = []
+        try:
+            with mock.patch.object(process_scope.subprocess, "Popen", delayed_registration):
+                thread, outcome = self._start(scope, "import time;time.sleep(60)")
+                self.assertTrue(spawned.wait(3))
+                closer = threading.Thread(target=lambda: closed.append(scope.close()), daemon=True)
+                closer.start()
+                release.set()
+                closer.join(timeout=3)
+                thread.join(timeout=3)
+                self.assertFalse(closer.is_alive())
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(closed, [True])
+                self.assertIsInstance(outcome.get("error"), ProviderProbeCancelled)
+                self.assertIsNotNone(children[0].poll())
+        finally:
+            release.set()
+            scope.close()
 
 
 if __name__ == "__main__":

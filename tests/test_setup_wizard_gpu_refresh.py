@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from nvbroadcast.core.dependency_installer import DependencyInstaller
+from nvbroadcast.runtime.process_scope import ProviderProbeScope
 from nvbroadcast.ui.setup_wizard import Gtk, SETUP_MODES, SetupWizard
 
 
@@ -57,14 +58,123 @@ class _Control:
 
 
 class SetupWizardGpuRefreshTests(unittest.TestCase):
+    def test_explicit_cpu_apply_works_while_gpu_check_is_pending_but_auto_and_skip_wait(self):
+        wizard, _installer = self._wizard()
+        wizard._caps_gpu = None
+        wizard._capability_refresh_in_flight = True
+        wizard._finish = mock.Mock()
+        wizard._update_action_sensitivity()
+        self.assertFalse(wizard._start_btn.sensitive)
+        self.assertFalse(wizard._skip_btn.sensitive)
+        wizard._on_start(None)
+        wizard._on_skip(None)
+        wizard._finish.assert_not_called()
+        wizard._on_mode_toggled(_Control(active=True), "cpu_light")
+        self.assertTrue(wizard._start_btn.sensitive)
+        self.assertFalse(wizard._skip_btn.sensitive)
+        wizard._on_start(None)
+        self.assertEqual(wizard._finish.call_args.args[0]["compositing"], "cpu")
+        self.assertEqual(wizard._app.config.compute_gpu, 0)
+
+    def test_refreshes_coalesce_and_round_trip_gpu_selection_uses_fresh_result(self):
+        wizard, _installer = self._wizard()
+        workers, callbacks = [], []
+
+        class QueuedThread:
+            def __init__(self, *, target, **_kwargs):
+                self.target = target
+
+            def start(self):
+                workers.append(self.target)
+
+        with (
+            mock.patch("nvbroadcast.ui.setup_wizard.threading.Thread", QueuedThread),
+            mock.patch("nvbroadcast.ui.setup_wizard.GLib.idle_add", side_effect=lambda cb, *args: (
+                callbacks.append((cb, args)) or len(callbacks)
+            )),
+            mock.patch("nvbroadcast.ui.setup_wizard.detect_system_capabilities", side_effect=lambda gpu: (
+                _caps(gpu_name=f"GPU {gpu}")
+            )) as detect,
+        ):
+            for _ in range(20):
+                wizard._request_capability_refresh(0)
+            self.assertEqual(len(workers), 1)
+            wizard._on_gpu_toggled(_Control(active=True), 1)
+            wizard._on_gpu_toggled(_Control(active=True), 0)
+            self.assertEqual(len(workers), 2)
+            old_zero, old_one = workers[:]
+            workers.clear()
+            old_zero()
+            callback, args = callbacks.pop(0)
+            callback(*args)
+            self.assertEqual(len(workers), 1)
+            old_one()
+            callback, args = callbacks.pop(0)
+            callback(*args)
+            self.assertIsNone(wizard._caps_gpu)
+            workers.pop(0)()
+            callback, args = callbacks.pop(0)
+            callback(*args)
+        self.assertEqual(detect.call_count, 3)
+        self.assertEqual(wizard._caps_gpu, 0)
+        self.assertTrue(wizard._start_btn.sensitive)
+
+    def test_replaced_parent_or_quit_cannot_commit_late_capability_result(self):
+        for close_app in (False, True):
+            with self.subTest(close_app=close_app):
+                wizard, _installer = self._wizard()
+                wizard._capability_refresh_generation = 2
+                wizard._capability_request = (2, 0)
+                wizard._capability_workers = {0: 2}
+                wizard._finish = mock.Mock()
+                if close_app:
+                    wizard._app._mode_availability_closed = True
+                else:
+                    wizard._app._window = object()
+                original = wizard._caps
+                wizard._finish_capability_refresh(2, 0, _caps(gpu_name="late result"))
+                wizard._on_mode_toggled(_Control(active=True), "cpu_light")
+                wizard._on_start(None)
+                self.assertIs(wizard._caps, original)
+                wizard._finish.assert_not_called()
+
+    def test_successful_install_requires_fresh_capabilities_before_apply(self):
+        wizard, installer = self._wizard(_caps(has_cupy=False))
+        wizard._install_key = "cupy"
+        wizard._selected_mode_key = "gpu_cuda_best"
+        wizard._pending_apply_mode = ("gpu_cuda_best", 0)
+        wizard._finish = mock.Mock()
+        installer.restart_pending.return_value = False
+        worker = mock.Mock()
+        with mock.patch("nvbroadcast.ui.setup_wizard.threading.Thread", return_value=worker):
+            wizard._on_install_completed(installer, "cupy", True, "complete")
+        wizard._finish.assert_not_called()
+        self.assertIsNone(wizard._caps_gpu)
+        self.assertFalse(wizard._caps["has_cupy"])
+        self.assertTrue(wizard._capability_refresh_in_flight)
+        generation = wizard._capability_refresh_generation
+        wizard._finish_capability_refresh(generation, 0, _caps(has_cupy=True))
+        wizard._finish.assert_called_once()
+
     def _wizard(self, caps=None):
         caps = caps or _caps()
         wizard = SetupWizard.__new__(SetupWizard)
         app_installer = mock.Mock()
+        app_installer.busy = False
+        parent = object()
+        scope = ProviderProbeScope()
+        self.addCleanup(scope.close)
         wizard._app = SimpleNamespace(
             config=SimpleNamespace(compute_gpu=0),
             dependency_installer=app_installer,
+            _window=parent, _mode_availability_closed=False,
+            _mode_probe_scope=scope, _on_setup_closed=mock.Mock(),
         )
+        wizard._parent_window = parent
+        wizard._capability_scope = scope.child()
+        wizard._capability_workers = {}
+        wizard._capability_request = None
+        wizard._pending_apply_mode = None
         wizard._installer_signal_ids = ()
         wizard._selected_gpu = 0
         wizard._caps_gpu = 0
@@ -96,6 +206,8 @@ class SetupWizardGpuRefreshTests(unittest.TestCase):
         wizard._selected_mode_key = "gpu_quality"
         wizard._mode_buttons["gpu_quality"].set_active(True)
         wizard._capability_refresh_generation = 4
+        wizard._capability_request = (4, 1)
+        wizard._capability_workers = {1: 4}
         wizard._capability_refresh_in_flight = True
 
         wizard._finish_capability_refresh(
@@ -119,6 +231,8 @@ class SetupWizardGpuRefreshTests(unittest.TestCase):
         wizard, _app_installer = self._wizard(_caps(has_gl=False))
         wizard._selected_gpu = 1
         wizard._capability_refresh_generation = 2
+        wizard._capability_request = (2, 1)
+        wizard._capability_workers = {1: 2}
         wizard._capability_refresh_in_flight = True
         self.assertFalse(wizard._mode_buttons["gpu_balanced"].sensitive)
 
@@ -141,6 +255,8 @@ class SetupWizardGpuRefreshTests(unittest.TestCase):
         wizard, _app_installer = self._wizard(original_caps)
         wizard._selected_gpu = 2
         wizard._capability_refresh_generation = 8
+        wizard._capability_request = (8, 2)
+        wizard._capability_workers = {2: 8}
         wizard._capability_refresh_in_flight = True
         wizard._start_btn.sensitive = False
         wizard._skip_btn.sensitive = False
