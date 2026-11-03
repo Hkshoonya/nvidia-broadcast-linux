@@ -196,6 +196,11 @@ signature, provenance or installed-package qualification. Hosted CUDA finalizati
 uses the explicit variant policy described below.
 The payload contains interpreter supplier metadata/licenses, exact wheels'
 installation records, a complete PEP 751 dependency lock and builder inventory.
+The source-only [Python inventory tool](../../docs/PYTHON_SUPPLIER_INVENTORY.md)
+can record installed distribution metadata and archive/input hashes in a partial
+SPDX 2.3 document. It is opt-in, is not part of release generation, and does not
+cover the complete native/interpreter/library/model or license inventory needed
+for a complete release SBOM.
 The dependency lock has no moving application pin: the application's wheel is
 built offline from the requested Git archive, and its exact hash is added to
 the final lock before installation. All installed Python source files are

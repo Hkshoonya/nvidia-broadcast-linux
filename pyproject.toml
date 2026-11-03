@@ -59,7 +59,7 @@ Repository = "https://github.com/Hkshoonya/nvidia-broadcast-linux"
 Issues = "https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0.3"]
+dev = ["pytest>=9.0.3", "jsonschema==4.26.0"]
 cpu = [
     # Version 1.23.2 keeps the supported Apple Silicon runtime on macOS 13+.
     "onnxruntime>=1.23.2,<1.24; sys_platform == 'darwin'",
