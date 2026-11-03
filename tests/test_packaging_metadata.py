@@ -1882,7 +1882,7 @@ printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
         self.assertNotIn("if:", preflight)
         self.assertNotIn("secrets.", preflight)
         self.assertIn("ref: ${{ github.ref }}", workflow)
-        for credential in ("secrets.SNAP_CANDIDATE_TOKEN", "secrets.SNAP_TOKEN"):
+        for credential in ("secrets.SNAP_CANDIDATE_TOKEN", "secrets.SNAP_EDGE_TOKEN", "secrets.SNAP_TOKEN"):
             self.assertLess(workflow.index("- name: Verify promotion release source"), workflow.index(credential))
         self.assertIn("git --no-replace-objects rev-parse --verify", preflight)
 
@@ -1921,7 +1921,7 @@ printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
                 ("wrong workflow commit", "tag", "refs/tags/v7.8.9", other, release, "7.8.9", False),
                 ("wrong checkout", "tag", "refs/tags/v7.8.9", other, other, "7.8.9", False),
             )
-            for operation in ("candidate", "stable"):
+            for operation in ("candidate", "edge", "stable"):
                 for name, ref_type, ref, workflow_sha, checkout, version, allowed in cases:
                     with self.subTest(operation=operation, case=name):
                         git("checkout", "--quiet", "--detach", checkout)
@@ -1950,6 +1950,7 @@ printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
         self.assertIn("cancel-in-progress: false", workflow)
         self.assertIn("amd64_revision:", workflow)
         self.assertIn("arm64_revision:", workflow)
+        self.assertIn("          - edge", workflow)
         self.assertIn("validate_revision amd64", workflow)
         self.assertIn("validate_revision arm64", workflow)
         self.assertIn("rollback_candidate", workflow)
@@ -1957,9 +1958,25 @@ printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
         self.assertIn('snapcraft release "$SNAP_NAME" "$AMD64_REVISION" candidate', workflow)
         self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", workflow)
         self.assertIn("secrets.SNAP_TOKEN", workflow)
-        self.assertIn("--from-channel=candidate", workflow)
-        self.assertIn("--to-channel=stable", workflow)
-        self.assertIn("Stable channel verification does not match", workflow)
+        self.assertNotIn('snapcraft promote ', workflow)
+        self.assertIn('snapcraft release "$SNAP_NAME" "$CANDIDATE_ARM64" "$TARGET_CHANNEL"', workflow)
+        self.assertIn('snapcraft release "$SNAP_NAME" "$CANDIDATE_AMD64" "$TARGET_CHANNEL"', workflow)
+        self.assertIn("inputs.operation == 'edge' || inputs.operation == 'stable'", workflow)
+        self.assertIn(
+            "(inputs.operation == 'edge' && vars.SNAP_EDGE_PROMOTION_ENABLED == 'true' && secrets.SNAP_EDGE_TOKEN) || "
+            "(inputs.operation == 'stable' && secrets.SNAP_TOKEN) || '' }}",
+            workflow,
+        )
+        self.assertNotIn(
+            "secrets.SNAP_EDGE_TOKEN || secrets.SNAP_TOKEN",
+            workflow,
+        )
+        self.assertIn("A channel-scoped Snap Store credential is required", workflow)
+        self.assertIn("Edge promotion is disabled", workflow)
+        self.assertIn("Candidate changed during verification", workflow)
+        self.assertIn('current_revision "$AMD64_TABLE" "$TARGET_CHANNEL"', workflow)
+        self.assertIn('current_revision "$ARM64_TABLE" "$TARGET_CHANNEL"', workflow)
+        self.assertIn("channel verification does not match", workflow)
         self.assertIn('snap download "$SNAP_NAME"', workflow)
         self.assertIn("download_and_verify_candidate amd64", workflow)
         self.assertIn("download_and_verify_candidate arm64", workflow)
@@ -1976,12 +1993,13 @@ printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
         self.assertIn("Attestation verification failed", verification_function)
         self.assertLess(
             workflow.index("gh attestation verify"),
-            workflow.index('snapcraft promote "$SNAP_NAME"'),
+            workflow.index('snapcraft release "$SNAP_NAME" "$CANDIDATE_ARM64" "$TARGET_CHANNEL"'),
         )
         self.assertIn(
             'snapcraft upload-metadata "$CANDIDATE_ARM64_SNAP" --force',
             workflow,
         )
+        self.assertIn('if [ "$TARGET_CHANNEL" = "stable" ]; then', workflow)
         self.assertNotIn('if [ -n "${{ inputs.', workflow)
 
     def test_about_window_separates_authorship_sponsors_and_contributors(self):
