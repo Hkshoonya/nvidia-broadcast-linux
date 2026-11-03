@@ -61,5 +61,58 @@ permit an explicitly limited package-level inventory. The document version is
 SPDX metadata uses `CC0-1.0`; this does not change any inventoried software's
 license. The optional lock context uses [PEP 751 format version 1.0](https://peps.python.org/pep-0751/).
 
-This source-only tool does not change build workflows, installed applications,
-release assets, signatures, channels or issue #60's broader acceptance gates.
+The generator does not change installed applications, release assets,
+signatures, channels or issue #60's broader acceptance gates.
+
+## Optional experimental native-candidate evidence
+
+The manual `native-cpu-finalize.yml` workflow has a `python_inventory` boolean
+input, disabled by default. It applies to the existing experimental CPU/CUDA
+native-candidate harness; enabling it does not build a new package, publish a
+release, or complete issue #60. The installed runtime and package bytes are
+unchanged. No inventory is added to the signed bundle or the DEB/RPM family
+qualification inputs.
+
+When enabled, the existing authenticated DEB validator retains only regular
+`METADATA` files during its ordinary payload stream. The projection must match
+both the complete decoded path inventory and the runtime manifest, including
+distribution directories and their directory parents. Missing metadata,
+redirected paths, unsupported egg owners and omitted distributions fail. The
+same limits apply as the generator: 1,000 distributions, 4 MiB per file and
+64 MiB of metadata in total. The projection also retains the authenticated
+assembled PEP 751 lock and the producer commit timestamp. A digest in the
+validation receipt binds this projection before signing; its small, separate
+artifact never enters the signing environment.
+
+Only after every existing final-package qualification gate succeeds does
+`retain_python_inventory.py` reverify the signed bundle against the signing
+job's externally supplied manifest digest, recheck the qualification evidence,
+and authenticate the projection. It generates one document for the final DEB
+and one for the final **signed** RPM. Each is generated twice with identical
+bytes, validated against the pinned official SPDX schema without remote
+references, and checked for exact metadata identities, archive hashes,
+relationships, timestamp and explicitly partial scope. The receipt records
+the source helper hashes, schema, evidence-tool closure, projection, runtime
+manifest, assembled lock and final archives. Package/projection identities are
+checked again before a successful receipt is written.
+
+The isolated Ubuntu evidence process uses the existing pure `packaging==26.0`
+wheel and the exact schema-validation closure in
+`packaging/native-runtime/python-inventory-tools.json`. These are host tools,
+not runtime dependencies. The six validator wheels total less than 1 MiB and
+include a CPython 3.12 Linux x86_64 RPDS extension; this restriction applies only
+to the evidence job. The bounded bootstrap verifies each source-pinned wheel,
+refuses redirected, duplicate, executable `.pth` and installation-scheme
+members, and checks the complete extracted file set before importing. It uses
+no resolver or installer. Projected runtime paths never enter `sys.path`, and
+the target interpreter, modules and entry points never execute.
+
+The optional `python-inventory/` directory under the retained qualified
+development artifact contains `deb.python-inventory.spdx.json`,
+`rpm.python-inventory.spdx.json` and `receipt.json`. Failure of optional
+generation fails that retention attempt; it cannot produce a successful
+inventory receipt. A retry uses fresh output. The default workflow retains its
+existing output and capacity policy; opting in adds a 256 MiB evidence reserve.
+This strengthens the native harness's archive/projection binding around the
+unchanged generator. It does not turn Python metadata into a complete native,
+interpreter, codec, model, license, device or public-release inventory.

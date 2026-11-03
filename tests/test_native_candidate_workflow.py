@@ -221,18 +221,21 @@ class NativeCandidateWorkflowTests(unittest.TestCase):
         declaration = MAIN.split("    inputs:\n", 1)[1].split("\npermissions:", 1)[0]
         inputs = blocks(declaration, 6)
         self.assertEqual(set(inputs), {"producer_run", "producer_attempt", "source_commit", "artifact_id",
-                                      "artifact_digest", "package_revision", "variant"})
+                                      "artifact_digest", "package_revision", "variant", "python_inventory"})
         self.assertIn("        type: choice\n", inputs["variant"])
         self.assertIn("        options: [cpu, cuda]\n", inputs["variant"])
         self.assertIn("        required: true\n", inputs["variant"])
         self.assertIn("        default: cpu\n", inputs["variant"])
         for name, body in inputs.items():
-            if name == "variant":
+            if name in {"variant", "python_inventory"}:
                 continue
             with self.subTest(input=name):
                 self.assertIn("        type: string\n", body)
                 self.assertIn("        required: true\n", body)
                 self.assertNotIn("default:", body)
+        self.assertIn("        type: boolean\n", inputs["python_inventory"])
+        self.assertIn("        required: false\n", inputs["python_inventory"])
+        self.assertIn("        default: false\n", inputs["python_inventory"])
 
     def test_reusable_qualification_has_no_secret_or_environment_contract(self):
         declaration = CALLED.split("    inputs:\n", 1)[1].split("    outputs:\n", 1)[0]
@@ -321,7 +324,7 @@ class NativeCandidateWorkflowTests(unittest.TestCase):
             self.assertIn("signed_artifact_id: ${{ needs.sign.outputs.artifact_id }}", job)
             self.assertIn("candidate_manifest: ${{ needs.sign.outputs.manifest }}", job)
             self.assertNotIn("secrets:", job)
-        self.assertIn("    needs: [sign, qualify-deb, qualify-rpm]\n", self.main["retain"])
+        self.assertIn("    needs: [validate, sign, qualify-deb, qualify-rpm]\n", self.main["retain"])
         for workflow in (MAIN, CALLED):
             self.assertNotIn("always()", workflow)
             self.assertNotIn("continue-on-error", workflow)
@@ -380,6 +383,60 @@ class NativeCandidateWorkflowTests(unittest.TestCase):
         upload = next(i for i, s in enumerate(sequence) if "uses: actions/upload-artifact@" in s)
         self.assertLess(complete, upload)
         self.assertIn("CANDIDATE_MANIFEST: ${{ needs.sign.outputs.manifest }}", sequence[complete])
+
+    def test_opt_in_projection_never_enters_the_signing_or_family_inputs(self):
+        validation = next(s for s in steps(self.main["validate"]) if "validate_candidate.py" in runs(s))
+        self.assertIn("PYTHON_INVENTORY: ${{ inputs.python_inventory }}", validation)
+        self.assertIn('if [ "$PYTHON_INVENTORY" = true ]; then', runs(validation))
+        self.assertIn("--python-inventory-output dist/python-inventory-projection", runs(validation))
+        projection = next(s for s in steps(self.main["validate"]) if "id: projection-transfer" in s)
+        self.assertIn("if: inputs.python_inventory", projection)
+        self.assertIn("path: dist/python-inventory-projection/", projection)
+        self.assertIn("projection_artifact_id: ${{ steps.projection-transfer.outputs.artifact-id }}", self.main["validate"])
+        signed = next(s for s in steps(self.main["validate"]) if "id: transfer\n" in s)
+        self.assertNotIn("projection", signed)
+        self.assertNotIn("projection", self.main["sign"])
+        self.assertNotIn("projection", CALLED)
+
+    def test_inventory_tools_and_retention_follow_complete_with_external_anchor(self):
+        sequence = steps(self.main["retain"])
+        complete = next(i for i, s in enumerate(sequence) if "finalize_candidate.py complete" in runs(s))
+        receive = next(i for i, s in enumerate(sequence) if "projection_artifact_id" in s)
+        tools = next(i for i, s in enumerate(sequence) if "inventory_host_tools.py" in runs(s))
+        inventory = next(i for i, s in enumerate(sequence) if "retain_python_inventory.py" in runs(s))
+        upload = next(i for i, s in enumerate(sequence) if "uses: actions/upload-artifact@" in s)
+        self.assertLess(complete, receive)
+        self.assertLess(receive, tools)
+        self.assertLess(tools, inventory)
+        self.assertLess(inventory, upload)
+        for index in (receive, tools, inventory):
+            self.assertIn("if: inputs.python_inventory", sequence[index])
+        self.assertIn("artifact-ids: ${{ needs.validate.outputs.projection_artifact_id }}", sequence[receive])
+        self.assertIn("CANDIDATE_MANIFEST: ${{ needs.sign.outputs.manifest }}", sequence[inventory])
+        self.assertIn('--expected-manifest "$CANDIDATE_MANIFEST"', runs(sequence[inventory]))
+        self.assertIn("--schema-tools dist/native-inventory-host-tools/schema", runs(sequence[inventory]))
+        self.assertIn("/usr/bin/python3 -I -S", runs(sequence[tools]))
+        self.assertNotIn("pip", runs(sequence[tools]))
+        checkout = next(s for s in sequence if "uses: actions/checkout@" in s)
+        self.assertIn("fetch-depth: 0", checkout)  # Producer may be an older authenticated ancestor.
+
+    def test_optional_capacity_reserve_is_required_only_when_selected(self):
+        base = 12 * 1024**3
+        extra = 256 * 1024**2
+        for job_name in ("validate", "retain"):
+            step = next(s for s in steps(self.main[job_name]) if "shutil.disk_usage" in runs(s))
+            code = python_body(step)
+            for enabled, free, success in (("false", base, True), ("true", base, False),
+                                           ("true", base + extra - 1, False), ("true", base + extra, True)):
+                with self.subTest(job=job_name, enabled=enabled, free=free), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    copy_policy(root)
+                    prelude = f"import shutil, types\nshutil.disk_usage = lambda path: types.SimpleNamespace(free={free})\n"
+                    environment = {**os.environ, "GITHUB_WORKSPACE": temporary, "RUNNER_TEMP": temporary,
+                                   "CANDIDATE_VARIANT": "cpu", "PYTHON_INVENTORY": enabled}
+                    result = subprocess.run([sys.executable, "-I", "-S", "-c", prelude + code],
+                                            cwd=root, env=environment, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
 
 
 if __name__ == "__main__":

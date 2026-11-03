@@ -92,7 +92,7 @@ jobs:
           if packaging.__version__ != '26.0' or not packaging.__file__.startswith(str(verified) + '/'):
               raise SystemExit('Host dependency did not import from the verified wheel')
           suite = unittest.TestSuite()
-          for pattern in ('test_native_builder_delivery.py', 'test_native_runtime_production.py'):
+          for pattern in ('test_native_builder_delivery.py', 'test_native_runtime_production.py', 'test_native_python_inventory.py'):
               suite.addTests(unittest.defaultTestLoader.discover('tests', pattern=pattern))
           if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
               raise SystemExit(1)
