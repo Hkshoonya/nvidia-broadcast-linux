@@ -37,10 +37,12 @@ REQUIRED_LOCKS = (
 REQUIRED_INPUTS = (
     "packaging/macos-runtime-prototype/inputs.json",
     "packaging/runtime-prototype/inputs.json",
+    "packaging/flatpak/inputs.json",
 )
 REQUIRED_FLATPAKS = (
     "packaging/flatpak/com.nvbroadcast.NVBroadcast.yml",
     "packaging/flatpak/python3-flatpak-requirements.yaml",
+    "packaging/flatpak/python3-private-runtime.yml",
 )
 MAX_BYTES = 4 * 1024 * 1024
 MAX_PINS = 1000
@@ -109,8 +111,10 @@ def collect_pins(root: Path) -> dict:
     flatpak_paths = set(root / path for path in REQUIRED_FLATPAKS)
     flatpak_paths.update((root / "packaging/flatpak").glob("*.yml"))
     flatpak_paths.update((root / "packaging/flatpak").glob("*.yaml"))
+    captured_sources, local_modules = {}, {}
     for path in sorted(flatpak_paths):
         document = yaml.safe_load(read(path))
+        local_modules[path] = []
         pending, seen, captured = [document], set(), 0
         while pending:
             node = pending.pop()
@@ -122,6 +126,11 @@ def collect_pins(root: Path) -> dict:
             if isinstance(node, list):
                 pending.extend(node)
                 continue
+            for module in node.get("modules", []):
+                if isinstance(module, str):
+                    if Path(module).name != module or not module.endswith((".yml", ".yaml")):
+                        raise ValueError("Flatpak module references must be local manifest filenames")
+                    local_modules[path].append(path.parent / module)
             pending.extend(node.values())
             if "url" not in node:
                 continue
@@ -137,7 +146,12 @@ def collect_pins(root: Path) -> dict:
                 continue
             add(name, str(version), path, "flatpak-source")
             captured += 1
-        if path in {root / name for name in REQUIRED_FLATPAKS} and not captured:
+        captured_sources[path] = captured
+    for path, includes in local_modules.items():
+        if any(include not in captured_sources for include in includes):
+            raise ValueError(f"Missing included Flatpak source manifest: {path.relative_to(root)}")
+    for path in (root / name for name in REQUIRED_FLATPAKS):
+        if not captured_sources[path] and not any(captured_sources[include] for include in local_modules[path]):
             raise ValueError(f"Required Flatpak manifest has no exact Python sources: {path.relative_to(root)}")
     return {"input_sha256": dict(sorted(files.items())),
             "pins": [{"name": name, "version": version,

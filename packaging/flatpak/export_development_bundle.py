@@ -4,6 +4,7 @@
 import argparse
 import configparser
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -29,7 +30,29 @@ BUILD_INPUTS = (
     "pyproject.toml", "packaging/flatpak/com.nvbroadcast.NVBroadcast.yml",
     "packaging/flatpak/python3-flatpak-requirements.yaml",
     "packaging/flatpak/requirements.txt",
+    "packaging/flatpak/runtime-lock.json",
+    "packaging/flatpak/runtime_policy.py",
+    "packaging/flatpak/runtime_smoke.py",
+    "packaging/flatpak/inputs.json",
+    "packaging/flatpak/private_python.py",
+    "packaging/flatpak/python3-private-runtime.yml",
+    "packaging/runtime-prototype/inputs.json",
+    "packaging/runtime-prototype/prepare.py",
+    "packaging/runtime-prototype/pylock.build.toml",
+    "packaging/flatpak/export_development_bundle.py",
+    ".github/workflows/flatpak.yml",
 )
+
+_SPEC = importlib.util.spec_from_file_location(
+    "flatpak_runtime_policy", Path(__file__).with_name("runtime_policy.py")
+)
+runtime_policy = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(runtime_policy)
+_PRIVATE_SPEC = importlib.util.spec_from_file_location(
+    "flatpak_private_python", Path(__file__).with_name("private_python.py")
+)
+private_python = importlib.util.module_from_spec(_PRIVATE_SPEC)
+_PRIVATE_SPEC.loader.exec_module(private_python)
 
 
 def sha256(path):
@@ -96,6 +119,16 @@ def verify_payloads(repo, application_commit, pairs):
     return records
 
 
+def private_python_payloads(prefix, record):
+    provenance = Path('share/nvbroadcast-runtime-provenance')
+    names = [Path('bin/python3.13'), Path('lib/python3.13/ssl.py'),
+             Path(record['ssl_fixture']['path']),
+             *(provenance / name for name in ('flatpak-private-python.json', 'PYTHON.json',
+                                               'flatpak-inputs.json', 'python-inputs.json', 'pylock.build.toml')),
+             *(provenance / 'python-licenses' / name for name in record['license_files'])]
+    return {name.as_posix(): prefix / name for name in names}
+
+
 def verify_git_sources(source, source_revision, paths):
     """Reject staged, unstaged, or untracked shipping inputs at the named SHA."""
     source = source.resolve()
@@ -116,26 +149,48 @@ def verify_git_sources(source, source_revision, paths):
             raise ValueError(f"Source differs from named Git revision: {name}")
 
 
-def export_bundle(source, build, repo, output, source_revision, builder_image):
+def export_bundle(source, build, repo, output, source_revision, builder_image,
+                  prepared_builder_image):
     if not re.fullmatch(r"[0-9a-f]{40}", source_revision):
         raise ValueError("Expected the full checked-out Git source revision")
     if not re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", builder_image):
         raise ValueError("Expected a digest-pinned builder image")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", prepared_builder_image):
+        raise ValueError("Expected an immutable prepared builder image ID")
     if output.exists():
         raise ValueError("Output directory already exists; use a fresh destination")
     metadata = configparser.ConfigParser()
+    metadata.optionxform = str
     metadata.read(build / "metadata")
     if metadata["Application"]["name"] != APP_ID:
         raise ValueError("Unexpected application identity")
     runtime_ref = metadata["Application"]["runtime"]
     if runtime_ref != "org.gnome.Platform/x86_64/50":
         raise ValueError("Unexpected development runtime")
+    if metadata.get("Environment", "PYTHONPATH", fallback="") != "/app/lib/python3.13/site-packages:/usr/lib/python3.13/site-packages":
+        raise ValueError("Application metadata must select its Python packages before startup")
+    for key, value in {'SSL_CERT_FILE': private_python.CA_FILE,
+                       'SSL_CERT_DIR': private_python.CA_DIRECTORY, 'PYTHONNOUSERSITE': '1'}.items():
+        if metadata.get('Environment', key, fallback='') != value:
+            raise ValueError('Application metadata must retain its explicit private Python trust environment')
     application_commit = commit(repo)
     pairs = source_payloads(source, build)
     verify_git_sources(
         source, source_revision,
         [*pairs.values(), *(source / name for name in BUILD_INPUTS)],
     )
+    # Re-read active deployments, signatures and CA bytes inside this image.
+    runtime_inputs = runtime_policy.inspect_runtime(
+        source / "packaging/flatpak/runtime-lock.json"
+    )
+    if runtime_inputs["base_image"] != builder_image:
+        raise ValueError("Builder base differs from the authenticated runtime lock")
+    preparation, preparation_sha256 = runtime_policy.verify_preparation_proof(
+        source / "dist/flatpak-runtime/prepared-image.json", builder_image,
+        prepared_builder_image, runtime_inputs,
+    )
+    private_runtime, private_runtime_sha256 = private_python.verify_prefix_provenance(build / "files", source)
+    private_payloads = private_python_payloads(build / 'files', private_runtime)
     output.parent.mkdir(parents=True, exist_ok=True)
     # A failed import or payload comparison must not leave a usable artifact.
     with tempfile.TemporaryDirectory(dir=output.parent) as temporary:
@@ -157,6 +212,7 @@ def export_bundle(source, build, repo, output, source_revision, builder_image):
             raise ValueError("Imported application commit differs from the build")
         command("ostree", f"--repo={imported}", "fsck")
         records = verify_payloads(imported, application_commit, pairs)
+        private_records = verify_payloads(imported, application_commit, private_payloads)
         received_metadata = command(
             "ostree", f"--repo={imported}", "cat", application_commit, "metadata"
         )
@@ -166,6 +222,12 @@ def export_bundle(source, build, repo, output, source_revision, builder_image):
             "schema_version": 1,
             "source_revision": source_revision,
             "builder_image": builder_image,
+            "prepared_builder_image": prepared_builder_image,
+            "builder_preparation": preparation,
+            "builder_preparation_sha256": preparation_sha256,
+            "runtime_inputs": runtime_inputs,
+            "private_python": private_runtime,
+            "private_python_sha256": private_runtime_sha256,
             "application_ref": APP_REF,
             "application_commit": application_commit,
             "runtime_ref": runtime_ref,
@@ -177,7 +239,8 @@ def export_bundle(source, build, repo, output, source_revision, builder_image):
             "verification": {"imported_commit_matches": True,
                              "ostree_fsck": "passed",
                              "sandbox_metadata_matches": True,
-                             "source_payloads": records},
+                             "source_payloads": records,
+                             "private_python_payloads": private_records},
             "build_inputs": {
                 name: sha256(source / name) for name in BUILD_INPUTS
             },
@@ -200,10 +263,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--builder-image", required=True)
+    parser.add_argument("--prepared-builder-image", required=True)
     args = parser.parse_args()
     evidence = export_bundle(
         args.source, args.build, args.repo, args.output,
-        args.source_revision, args.builder_image,
+        args.source_revision, args.builder_image, args.prepared_builder_image,
     )
     print(json.dumps(evidence["bundle"]))
 
