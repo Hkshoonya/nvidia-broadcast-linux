@@ -9,7 +9,11 @@ publication still gate that release. It is not a Flathub submission. See
 
 ## What is included
 
-- GNOME Platform and SDK 50 with Python 3.13.
+- Signed, commit-pinned GNOME Platform and SDK 50, plus the separately installed
+  `org.freedesktop.Platform.codecs-extra//25.08-extra` runtime extension for the
+  H.264 recording encoder.
+- An app-private, hash-pinned CPython 3.13.18 prefix, including its Python and
+  native-library license inventory. It does not replace shared runtime files.
 - GTK 4, libadwaita, GStreamer, V4L2, PipeWire, and PulseAudio utilities from
   the maintained runtime.
 - Hash-pinned Python 3.13 wheels generated from `requirements.txt`.
@@ -71,15 +75,17 @@ sandbox. Firefox profile changes must also be made from the host.
 
 ## Generate dependencies
 
-Use the GNOME 50 builder image so dependency resolution uses the same Python
-3.13 ABI as the runtime:
+Use the authenticated GNOME 50 builder preparation so dependency resolution uses
+the same pinned SDK and Python 3.13 ABI as CI (choose a fresh output directory):
 
 ```bash
+python3 packaging/flatpak/runtime_policy.py --output dist/flatpak-runtime
+PREPARED_BUILDER_IMAGE=$(cat dist/flatpak-runtime/image-id)
 docker run --rm --privileged \
   -v "$PWD:/workspace:ro" \
   -v "$PWD/packaging/flatpak:/output" \
   -w /workspace \
-  ghcr.io/flathub-infra/flatpak-github-actions:gnome-50 \
+  "$PREPARED_BUILDER_IMAGE" \
   flatpak-pip-generator \
   --requirements-file packaging/flatpak/requirements.txt \
   --runtime org.gnome.Sdk//50 \
@@ -94,6 +100,23 @@ dependency audit before review. Do not generate dependency modules with
 `--cleanup scripts`: Flatpak applies module cleanup globally at the end of the
 build, so `/bin` cleanup would also remove the app's `nvbroadcast` launcher.
 
+The private interpreter reuses `packaging/runtime-prototype/inputs.json` and
+`pylock.build.toml` as the canonical Python and build-tool pins. Flatpak-specific
+`inputs.json` selects the patched pip bootstrap and upstream SSL regression
+fixture. Regenerate and check its offline source module with:
+
+```bash
+python3 packaging/flatpak/private_python.py generate
+python3 packaging/flatpak/private_python.py check
+```
+
+The installer verifies the complete standalone archive, retains its prefix and
+all interpreter/native notices, and installs the four exact build-tool wheels
+without network access or dependency resolution. `/app` packages take precedence
+over the explicitly appended shared CP313 GI/Cairo directory; shared `.pth` files
+are not executed through `site.addsitedir`. Shared binding compatibility still
+requires the finished-runtime import and recording checks.
+
 ## Build and smoke test
 
 With Flatpak and flatpak-builder installed locally:
@@ -106,20 +129,66 @@ flatpak-builder --run flatpak-build \
   python3 -c 'import cv2, mediapipe, onnxruntime, pyrnnoise, nvbroadcast'
 ```
 
-The repository also validates this manifest in the maintained GNOME 50 Docker
+The repository also validates this manifest in a prepared GNOME 50 Docker
 builder, which avoids changing the host package set. The scoped Flatpak workflow
 runs when packaging inputs change and can be dispatched manually after other
 source changes or before a release.
 
+`runtime-lock.json` fixes the official builder digest, Flathub public-key hash,
+and exact signed Platform/SDK/codec-extension commits. `runtime_policy.py` creates a fresh
+private Flatpak installation, authenticates each commit and its reference with
+the pinned Flathub key, and verifies the deployed CA bundle hashes and rejected
+certificate fingerprints. Installation uses only those local refs, with no
+automatic dependency or related-extension updates. All workflow stages use the
+same prepared immutable Docker image ID and private installation. Export checks
+the active deployments, signatures and CA bytes again, recording them with the
+image ID and lock hash in provenance. A mutable image tag is not a runtime update.
+
+The codec extension remains an external runtime dependency and is not copied
+into the application bundle. Its exact vendor source enables the GPL x264
+plugin; the extension's AppStream license label does not describe every codec's
+license. Freedesktop SDK also identifies these codecs as patent-restricted.
+This recipe preserves upstream delivery and reference/signature checks rather
+than fetching codec binaries through an unverified Extra Data step. Any later
+redistribution of those runtime binaries requires its own applicable notices
+and source/license obligations.
+
+The finished application first proves the exact private interpreter, app launcher
+shebang, private pip, and retained native-license hashes. An offline MemoryBIO
+handshake with CPython's otherwise-valid compromised-intermediate fixture must
+fail with `CERT_REJECTED` (verify code 28), including when `_ssl` is built into
+the authenticated private executable. It also checks shared CP313 GI/Cairo and
+GStreamer imports, its actual stdlib SSL/HTTPS and
+HTTPX/Requests trust contexts offline. The application keeps its pinned
+`setuptools==84.1.0`, startup shim, and `distutils` override; the smoke test checks
+their actual `/app` origins. The GNOME runtime's older shared setuptools copy
+still exists, and its Mako development build has no release-specific PyPI audit.
+The tested application-module imports must not load Mako. These checks do not
+constitute a complete GNOME/system-library audit. The original builder container's
+own CA store is separate and retains the rejected emSign root; bootstrap relies
+on exact image digest, pinned Flathub signing key, authenticated commit/ref
+signatures and checksummed objects. No TLS verification is disabled.
+
+To refresh runtime inputs, independently verify the official signed commits,
+their reference bindings, current CA contents and Python dependency advisories;
+then update the lock and rerun preparation, closure, trust, import and media
+checks. Never regenerate the lock by trusting an unchecked current tag. The
+preparation helper requires 25 GiB free initially and checks space again before
+committing, retaining a 10 GiB margin. It modifies only a task container/image,
+not the host Flatpak installation.
+
 Successful workflow runs retain a `flatpak-development-cpu-x86_64` artifact for
 14 days. It contains an unsigned `.flatpak` bundle, `SHA256SUMS`, and
 `bundle-provenance.json` recording the checked-out Git revision, pinned builder
-image, application OSTree commit, runtime reference, and build-input hashes.
+image and prepared image ID, application OSTree commit, authenticated runtime
+inputs, runtime reference, and build-input hashes.
 Before retaining the bundle, the workflow imports it into a fresh temporary
 repository, checks the commit and all OSTree objects, and compares packaged app
 source, resources, project license, notices, and sandbox metadata with the build.
 It also compares source and build inputs with the recorded Git revision, rejecting
 staged or unstaged edits and untracked shipping inputs.
+The imported bundle's private interpreter, SSL fixture, provenance/input files,
+and all recorded native notices are compared with the verified build prefix.
 This check does not install the app or access physical devices.
 
 Download the artifact from the completed **Flatpak Development Build** run and

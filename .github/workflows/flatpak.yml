@@ -13,6 +13,9 @@ on:
       - 'README.md'
       - 'data/**'
       - 'packaging/flatpak/**'
+      - 'packaging/runtime-prototype/inputs.json'
+      - 'packaging/runtime-prototype/prepare.py'
+      - 'packaging/runtime-prototype/pylock.build.toml'
       - 'pyproject.toml'
       - 'src/**'
       - 'tests/test_flatpak*.py'
@@ -46,12 +49,26 @@ jobs:
           PYTHONPATH: src
         run: python3 -m unittest discover -s tests -p 'test_flatpak*.py'
 
+      - name: Prepare hosted runner storage
+        # The cleanup helper also rejects local and self-hosted environments.
+        # The finite allowlist is limited to unused SDKs on this disposable VM.
+        # Docker data, the checkout and RUNNER_TOOL_CACHE are never removed.
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          python3 packaging/flatpak/runtime_policy.py \
+            --prepare-hosted-runner-storage --output dist/flatpak-runner-storage
+
+      - name: Prepare authenticated runtime inputs
+        run: |
+          python3 packaging/flatpak/runtime_policy.py --output dist/flatpak-runtime
+          printf 'PREPARED_BUILDER_IMAGE=%s\n' "$(cat dist/flatpak-runtime/image-id)" >> "$GITHUB_ENV"
+
       - name: Lint manifest
         run: |
           docker run --rm \
             -v "$PWD:/workspace" \
             -w /workspace \
-            "$BUILDER_IMAGE" \
+            "$PREPARED_BUILDER_IMAGE" \
             flatpak-builder-lint manifest \
             packaging/flatpak/com.nvbroadcast.NVBroadcast.yml
 
@@ -60,7 +77,7 @@ jobs:
           docker run --rm --privileged \
             -v "$PWD:/workspace" \
             -w /workspace \
-            "$BUILDER_IMAGE" \
+            "$PREPARED_BUILDER_IMAGE" \
             flatpak-builder --force-clean --disable-rofiles-fuse \
             --repo=flatpak-repo flatpak-build \
             packaging/flatpak/com.nvbroadcast.NVBroadcast.yml
@@ -71,7 +88,7 @@ jobs:
             -v /etc/machine-id:/etc/machine-id:ro \
             -v "$PWD:/workspace" \
             -w /workspace \
-            "$BUILDER_IMAGE" \
+            "$PREPARED_BUILDER_IMAGE" \
             flatpak build --readonly flatpak-build python3 -m pip check
 
       - name: Smoke-test finished runtime
@@ -80,9 +97,22 @@ jobs:
             -v /etc/machine-id:/etc/machine-id:ro \
             -v "$PWD:/workspace" \
             -w /workspace \
-            "$BUILDER_IMAGE" \
+            "$PREPARED_BUILDER_IMAGE" \
             flatpak build --runtime --readonly flatpak-build python3 -c \
             'import cv2, mediapipe, onnxruntime, pyrnnoise, faster_whisper, nvbroadcast; from pathlib import Path; from nvbroadcast.ai.model_trust import _model_entry; from nvbroadcast.core.platform import running_in_flatpak; from nvbroadcast.core.resources import find_app_icon, find_app_icon_png, find_bundled_backgrounds; assert running_in_flatpak(); assert find_app_icon(); assert find_app_icon_png(); assert len(find_bundled_backgrounds()) == 3; assert _model_entry("base", faster_whisper.__version__)[1]["files"]["model.bin"]["sha256"]; assert Path("/app/share/doc/nvbroadcast/NOTICE").is_file(); assert Path("/app/share/doc/nvbroadcast/CONTRIBUTORS.md").is_file()'
+
+      - name: Verify application TLS contexts and dependency origins
+        run: |
+          docker run --rm --privileged -i \
+            -v /etc/machine-id:/etc/machine-id:ro \
+            -v "$PWD:/workspace:ro" \
+            -w /workspace \
+            "$PREPARED_BUILDER_IMAGE" \
+            flatpak build --runtime --readonly flatpak-build python3 - \
+            "$(cat packaging/flatpak/runtime-lock.json)" \
+            "$(cat packaging/runtime-prototype/inputs.json)" \
+            "$(cat packaging/flatpak/inputs.json)" \
+            < packaging/flatpak/runtime_smoke.py
 
       - name: Encode and decode packaged recording
         run: |
@@ -90,7 +120,7 @@ jobs:
             -v /etc/machine-id:/etc/machine-id:ro \
             -v "$PWD:/workspace" \
             -w /workspace \
-            "$BUILDER_IMAGE" \
+            "$PREPARED_BUILDER_IMAGE" \
             flatpak build --runtime --readonly flatpak-build \
             python3 -m nvbroadcast.video.recording_smoke
 
@@ -99,7 +129,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/workspace:ro" \
             -w /workspace \
-            "$BUILDER_IMAGE" \
+            "$PREPARED_BUILDER_IMAGE" \
             flatpak-builder-lint appstream \
             flatpak-build/files/share/metainfo/com.nvbroadcast.NVBroadcast.metainfo.xml
 
@@ -108,7 +138,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/workspace:ro" \
             -w /workspace \
-            "$BUILDER_IMAGE" \
+            "$PREPARED_BUILDER_IMAGE" \
             flatpak-builder-lint --exceptions \
             --user-exceptions packaging/flatpak/upstream-lint-exceptions.json \
             builddir flatpak-build
@@ -122,11 +152,12 @@ jobs:
           docker run --rm \
             -v "$PWD:/workspace" \
             -w /workspace \
-            "$BUILDER_IMAGE" \
+            "$PREPARED_BUILDER_IMAGE" \
             python3 packaging/flatpak/export_development_bundle.py \
             --output dist/flatpak-development \
             --source-revision "$SOURCE_REVISION" \
-            --builder-image "$BUILDER_IMAGE"
+            --builder-image "$BUILDER_IMAGE" \
+            --prepared-builder-image "$PREPARED_BUILDER_IMAGE"
 
       - name: Retain verified development bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -135,4 +166,15 @@ jobs:
           path: dist/flatpak-development/
           if-no-files-found: error
           compression-level: 0
+          retention-days: 14
+
+      - name: Retain runtime preparation diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: flatpak-runtime-preparation-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: |
+            dist/flatpak-runtime/
+            dist/flatpak-runner-storage/
+          if-no-files-found: ignore
           retention-days: 14

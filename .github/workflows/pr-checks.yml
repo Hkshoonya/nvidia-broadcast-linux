@@ -170,6 +170,7 @@ jobs:
             tests/test_packaging_metadata.py \
             tests/test_python_sbom.py \
             tests/test_runtime_probe.py \
+            tests/test_snap_promotion.py \
             tests/test_summarizer.py \
             tests/test_tensorrt_rvm.py \
             tests/test_training_bundle.py \

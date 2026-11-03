@@ -55,13 +55,84 @@ bundle. If Flathub is not yet configured for your user, add its runtime remote:
 ```bash
 flatpak remote-add --user --if-not-exists flathub \
   https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install --user flathub org.gnome.Platform//50
+flatpak install --user flathub org.gnome.Platform//50 \
+  org.freedesktop.Platform.codecs-extra//25.08-extra
+flatpak update --user org.gnome.Platform//50 \
+  org.freedesktop.Platform.codecs-extra//25.08-extra
 flatpak install --user ./nvbroadcast-development-cpu-x86_64.flatpak
 flatpak info --user --show-commit com.nvbroadcast.NVBroadcast
+flatpak info --user --show-commit org.gnome.Platform//50
+flatpak info --user --show-commit org.freedesktop.Platform.codecs-extra//25.08-extra
 ```
 
 The printed installed application commit must equal the value from the verified
-provenance. Start with:
+provenance. The separately updated Platform commit must match the
+`runtime_inputs.runtimes` Platform entry in that provenance. A bundle install
+alone may leave an older shared runtime installed. The codec extension commit
+must also match `runtime_inputs.extensions`. If the current remote has
+moved to a different commit, report both values for review; do not downgrade or
+force a particular runtime globally to make the comparison pass.
+
+Before opening the app, check its real TLS contexts without contacting a server
+or accessing a camera/microphone:
+
+```bash
+flatpak run --user --command=python3 com.nvbroadcast.NVBroadcast - \
+  "$(cat bundle-provenance.json)" <<'PY'
+import hashlib, importlib.metadata, json, os, re, ssl, sys
+from pathlib import Path
+import certifi, pip, pip._vendor.certifi, requests.certs, setuptools
+from httpx._config import create_ssl_context
+provenance = json.loads(sys.argv[1])
+p = provenance['runtime_inputs']
+expected_python = tuple(map(int, provenance['private_python']['python']['version'].split('.')))
+assert expected_python >= (3, 13, 18) and sys.version_info[:3] == expected_python
+assert Path(sys.prefix).resolve() == Path('/app')
+assert Path(sys.executable).resolve() == Path('/app/bin/python3.13').resolve()
+assert Path('/app/bin/nvbroadcast').read_text().splitlines()[0] == '#!/app/bin/python3.13'
+assert Path(ssl.__file__).resolve().is_relative_to('/app/')
+assert Path(pip.__file__).resolve().is_relative_to('/app/')
+assert importlib.metadata.version('pip') == '26.2.2'
+platform = next(x for x in p['runtimes'] if '/org.gnome.Platform/' in x['ref'])
+rejected = set(p['rejected_certificate_sha256'])
+defaults = ssl.get_default_verify_paths()
+default_ca = Path(defaults.cafile)
+assert hashlib.sha256(default_ca.read_bytes()).hexdigest() == platform['ca_sha256']
+# A fresh SSLContext omits unused capath certificates. Inspect each hashed
+# certificate file eagerly, including raw SSL_CERT_DIR path lists, offline.
+configured = os.environ.get(defaults.openssl_capath_env, defaults.openssl_capath) or ''
+for name in configured.split(os.pathsep):
+    if not name or not Path(name).is_dir():
+        continue
+    files = sorted(x for x in Path(name).iterdir()
+                   if re.fullmatch(r'[0-9a-fA-F]{8}\.[0-9]+', x.name))
+    assert len(files) <= 4096
+    eager = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    total = 0
+    for path in files:
+        assert path.is_file() and path.stat().st_size <= 1024 * 1024
+        total += path.stat().st_size
+        assert total <= 16 * 1024 * 1024
+        eager.load_verify_locations(cafile=str(path))
+    roots = {hashlib.sha256(x).hexdigest() for x in eager.get_ca_certs(binary_form=True)}
+    assert not files or roots
+    assert not roots.intersection(rejected)
+assert Path(setuptools.__file__).resolve().is_relative_to('/app/')
+assert importlib.metadata.version('setuptools') == '84.1.0'
+assert Path(certifi.where()).resolve().is_relative_to('/app/')
+assert requests.certs.where() == certifi.where()
+for context in (ssl.create_default_context(), create_ssl_context(),
+                ssl.create_default_context(cafile=certifi.where()),
+                ssl.create_default_context(cafile=pip._vendor.certifi.where())):
+    roots = {hashlib.sha256(x).hexdigest() for x in context.get_ca_certs(binary_form=True)}
+    assert roots and not roots.intersection(rejected)
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+print('Private interpreter, application TLS contexts and setuptools override passed')
+PY
+```
+
+Stop and report any failure. This is a targeted trust/dependency check, not a
+full audit of the shared runtime. After it passes, start with:
 
 ```bash
 flatpak run com.nvbroadcast.NVBroadcast
