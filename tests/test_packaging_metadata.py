@@ -492,7 +492,7 @@ yum() { repo_install "$@"; }
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn('"packaging>=26.0"', pyproject)
-        self.assertIn('dev = ["pytest>=9.0.3"]', pyproject)
+        self.assertIn("pytest>=9.0.3", tomllib.loads(pyproject)["project"]["optional-dependencies"]["dev"])
         self.assertIn('"mediapipe>=1.0.0"', pyproject)
         self.assertNotIn("\n      - mediapipe\n", snapcraft)
         self.assertIn(

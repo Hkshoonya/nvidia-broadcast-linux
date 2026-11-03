@@ -168,6 +168,7 @@ jobs:
             tests/test_face_landmarks.py \
             tests/test_model_download.py \
             tests/test_packaging_metadata.py \
+            tests/test_python_sbom.py \
             tests/test_runtime_probe.py \
             tests/test_snap_promotion.py \
             tests/test_summarizer.py \
