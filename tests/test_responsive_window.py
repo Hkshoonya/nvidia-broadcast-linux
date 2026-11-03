@@ -14,6 +14,7 @@ from unittest import mock
 
 from nvbroadcast.core.config import AppConfig
 from nvbroadcast.ui.window import Adw, Gdk, Gio, GLib, Gtk, NVBroadcastWindow
+from nvbroadcast.video.eye_contact import EyeContactStatus
 
 
 @unittest.skipUnless(
@@ -64,7 +65,9 @@ class ResponsiveWindowTests(unittest.TestCase):
             lambda package: {"title": package}
         )
         self.app.perf_monitor = SimpleNamespace(format_status=lambda: "")
+        self.app.eye_contact_status = EyeContactStatus("disabled")
         self.app.set_vcam_device = mock.Mock(return_value=True)
+        self.periodic_callbacks = []
         self.patches = self.enterContext(ExitStack())
         for method in (
             "_request_camera_refresh", "_populate_mics", "_populate_speakers",
@@ -77,7 +80,14 @@ class ResponsiveWindowTests(unittest.TestCase):
             ("nvbroadcast.core.gpu.detect_gpus", []),
             ("nvbroadcast.ui.window.GLib.timeout_add_seconds", 0),
         ):
-            self.patches.enter_context(mock.patch(name, return_value=result))
+            if name == "nvbroadcast.ui.window.GLib.timeout_add_seconds":
+                self.patches.enter_context(mock.patch(
+                    name, side_effect=lambda interval, callback: (
+                        self.periodic_callbacks.append((interval, callback)) or 0
+                    ),
+                ))
+            else:
+                self.patches.enter_context(mock.patch(name, return_value=result))
         self.window = NVBroadcastWindow(self.app)
         self.window._set_profile_name("Default")
         for selector, name, device in (
@@ -95,6 +105,44 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.section_nav = self.controls_pane.get_first_child()
         self.scroll = self.section_nav.get_next_sibling()
         self.controls = self.scroll.get_child().get_child()
+
+    def test_eye_contact_uses_existing_row_and_heartbeat_in_compact_layout(self):
+        self._show(420, 540)
+        self.window._set_card_expanded("eye_contact", True, persist=False)
+        self._settle()
+        row = self.window._eye_contact_toggle
+        parent = row.get_parent()
+        children = []
+        child = parent.get_first_child()
+        while child is not None:
+            children.append(child)
+            child = child.get_next_sibling()
+        heartbeat = [(interval, callback) for interval, callback in self.periodic_callbacks
+                     if callback.__name__ == "_update_perf"]
+        self.assertEqual(len(heartbeat), 1)
+        self.assertEqual(heartbeat[0][0], 1)
+        update = heartbeat[0][1]
+        for state, expected in (
+            ("correcting", "Correction active"),
+            ("no_face", "Waiting for a face"),
+            ("tracking_error", "Eye tracking error"),
+            ("eyes_unclear", "Eyes not clear enough to adjust"),
+            ("outside_range", "Gaze outside adjustment range"),
+            ("adjustment_small", "Tracking; adjustment is small"),
+            ("stopped", "Start Broadcast to track eyes"),
+            ("waiting", "Waiting for eye tracking"),
+            ("disabled", "Redirect gaze to look at camera"),
+        ):
+            with self.subTest(state=state):
+                self.app.eye_contact_status = EyeContactStatus(state)
+                self.assertTrue(update())
+                self.assertEqual(row.get_subtitle(), expected)
+        self.assertIs(row.get_parent(), parent)
+        self.assertEqual(len(children), 3)
+        success, bounds = row.compute_bounds(self.window.get_content())
+        self.assertTrue(success)
+        self.assertGreater(bounds.get_width(), 0)
+        self.assertLessEqual(bounds.get_x() + bounds.get_width(), self.window.get_width())
 
     def test_saved_recording_is_accessible_in_compact_window(self):
         self._show(420, 540)

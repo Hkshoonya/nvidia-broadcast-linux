@@ -46,7 +46,7 @@ from nvbroadcast.video.virtual_camera import (
     is_v4l2loopback_device,
     v4l2loopback_modprobe_command,
 )
-from nvbroadcast.video.eye_contact import EyeContactCorrector
+from nvbroadcast.video.eye_contact import EyeContactCorrector, EyeContactStatus
 from nvbroadcast.video.relighting import FaceRelighter
 from nvbroadcast.video.face_landmarks import get_shared_landmarker
 from nvbroadcast.video.perf_monitor import PerfMonitor
@@ -1254,6 +1254,7 @@ class NVBroadcastApp(Adw.Application):
         return False
 
     def _do_start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
+        self._eye_contact.reset_status()
         self._clear_finished_teardown()
         if self._video_pipeline or self._pipeline_teardown:
             self._pending_start = (camera_device, output_format)
@@ -1408,6 +1409,7 @@ class NVBroadcastApp(Adw.Application):
                 self._pipeline_teardown = pipeline
             self._video_pipeline = None
         self._streaming = False
+        self._eye_contact.reset_status()
         self._sync_tray_status("idle")
 
     def _update_alpha(self, frame_data: bytes, width: int, height: int) -> None:
@@ -1561,8 +1563,13 @@ class NVBroadcastApp(Adw.Application):
             if self._video_effects.enabled:
                 alpha_u8 = self._video_effects.latest_final_matte_u8(width, height)
 
-            if self._eye_contact.enabled and landmarks is not None:
-                result_frame = self._eye_contact.process_frame(result_frame, landmarks=landmarks)
+            if self._eye_contact.enabled:
+                if landmarks is not None:
+                    result_frame = self._eye_contact.process_frame(result_frame, landmarks=landmarks)
+                else:
+                    self._eye_contact.set_tracking_status(
+                        landmarker.detection_status.state if landmarker.ready else "unavailable"
+                    )
             if self._relighter.enabled and landmarks is not None:
                 result_frame = self._relighter.process_frame(result_frame, alpha_u8, landmarks=landmarks)
 
@@ -2594,6 +2601,14 @@ class NVBroadcastApp(Adw.Application):
         save_config(self.config)
 
     # --- Eye Contact ---
+
+    @property
+    def eye_contact_status(self) -> EyeContactStatus:
+        if not self._eye_contact.enabled:
+            return EyeContactStatus("disabled")
+        if not self._streaming:
+            return EyeContactStatus("stopped")
+        return self._eye_contact.status
 
     def set_eye_contact(self, enabled: bool):
         if getattr(self, '_restoring', False):
