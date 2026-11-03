@@ -466,6 +466,9 @@ pythonPackages.buildPythonApplication (finalAttrs: {
   pythonImportsCheck = [ "nvbroadcast" ];
 
   dontWrapGApps = true;
+  # runtimePython already supplies a merged dependency prefix. Automatic
+  # wrapping would add each dependency's metadata directory a second time.
+  dontWrapPythonPrograms = true;
 
   postPatch = ''
     # Python's sys.prefix points at the interpreter, not this application output.
@@ -546,7 +549,7 @@ pythonPackages.buildPythonApplication (finalAttrs: {
     "--prefix"
     "PYTHONPATH"
     ":"
-    "${placeholder "out"}/${pythonPackages.python.sitePackages}:${pythonPath}"
+    "${placeholder "out"}/${pythonPackages.python.sitePackages}"
     # Explicit external trust settings remain user configuration. A clean
     # environment uses exactly the current upstream certifi roots, with no
     # implicit older Nix/system capath added by OpenSSL.
@@ -556,6 +559,15 @@ pythonPackages.buildPythonApplication (finalAttrs: {
   ];
 
   postFixup = ''
+    # Reuse the pinned hook's argv0/app-site preamble, with only the app root.
+    # Keep the same GApps and PATH arguments on both real entrypoints.
+    buildPythonPath "$out ''${pythonPath[*]}"
+    program_PYTHONPATH="$out/${pythonPackages.python.sitePackages}"
+    for program in nvbroadcast nvbroadcast-vcam; do
+      patchPythonScript "$out/bin/$program"
+      wrapProgram "$out/bin/$program" --prefix PATH ':' "$program_PATH" \
+        --set PYTHONNOUSERSITE true "''${makeWrapperArgs[@]}"
+    done
     mv "$out/bin/nvbroadcast" "$out/bin/.nvbroadcast-gapps-wrapped"
     makeShellWrapper "$out/bin/.nvbroadcast-gapps-wrapped" "$out/bin/nvbroadcast" \
       --run ${requirementsCheck}
@@ -591,7 +603,7 @@ pythonPackages.buildPythonApplication (finalAttrs: {
         # finished app's interpreter and its app-only dependency path.
         env -i HOME="$TMPDIR/home" PATH="${lib.makeBinPath [ coreutils ]}" \
           PYTHONNOUSERSITE=1 MPLBACKEND=Agg MPLCONFIGDIR="$TMPDIR/matplotlib" \
-          PYTHONPATH="${finalAttrs.finalPackage}/${pythonPackages.python.sitePackages}:${pythonPath}" \
+          PYTHONPATH="${finalAttrs.finalPackage}/${pythonPackages.python.sitePackages}" \
           NIX_SSL_CERT_FILE="${caBundle}" SSL_CERT_FILE="${caBundle}" SSL_CERT_DIR="${emptyCaDirectory}" \
           ${runtimePython.interpreter} ${./qualify_runtime.py} \
           ${finalAttrs.finalPackage} ${finalAttrs.src} ${./security-inputs.json} \

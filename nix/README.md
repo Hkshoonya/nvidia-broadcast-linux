@@ -74,6 +74,10 @@ single-owner installed/imported suppliers, CPU inference, AV/RNNoise processing,
 isolated MediaPipe imports and model initialization, resources/source identity,
 and the actual packaged recording smoke test. Generated media does not substitute
 for physical camera or audio acceptance.
+Both entrypoints reuse the pinned Python hook's argv0 preamble and GApps setup,
+adding only the app directory; the interpreter's merged prefix supplies its
+dependencies. Base-interpreter build/help checks retain their declared dependency
+paths. The single-owner checks are unchanged.
 The small runtime JSON also preserves the complete normalized installed Python
 name-to-version-list mapping, including duplicate entries, for supplier review.
 The Requests trust proof captures its actual configured context immediately
@@ -93,3 +97,9 @@ BSD metadata does not establish the complete licensing of bundled FFmpeg/codecs,
 native libraries, models or the interpreter. Complete native/license inventory,
 current advisory review and real NixOS/device acceptance remain separate work;
 this draft tooling is not a public launch or complete release-security claim.
+Supplier notice comparisons include package-level `ThirdPartyNotices.txt` and
+the complete MediaPipe notice. Before decompression they enforce 2 MiB per member,
+2 MiB per wheel, 4 MiB and 128 notices across all six wheels, plus 20,000 ZIP
+members per wheel.
+The pinned inputs contain 28 selected members totaling 2,057,408 bytes; each
+installed notice must still match its source wheel exactly.

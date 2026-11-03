@@ -16,6 +16,46 @@ import tempfile
 import zipfile
 
 
+MAX_NOTICE_BYTES = 2 * 1024**2
+MAX_WHEEL_NOTICE_BYTES = 2 * 1024**2
+MAX_SUPPLIER_NOTICE_BYTES = 4 * 1024**2
+MAX_SUPPLIER_NOTICES = 128
+
+
+def supplier_notice_members(archive, prior_bytes=0, prior_count=0):
+    """Bound selected supplier metadata before decompressing any notice."""
+    members = archive.infolist()
+    if len(members) > 20000:
+        raise ValueError("Supplier wheel member bound exceeded")
+    selected, seen = [], set()
+    for member in members:
+        path = Path(member.filename)
+        if member.is_dir() or not ("licenses" in path.parts or
+                re.match(r"(?:license|copying|notice|thirdpartynotices)(?:[._-].*)?$", path.name, re.I)):
+            continue
+        if (path.is_absolute() or ".." in path.parts or member.filename in seen or
+                not 0 <= member.file_size <= MAX_NOTICE_BYTES):
+            raise ValueError("Unexpected supplier notice member")
+        seen.add(member.filename)
+        selected.append(member)
+    wheel_bytes = sum(member.file_size for member in selected)
+    total_bytes = prior_bytes + wheel_bytes
+    total_count = prior_count + len(selected)
+    if (not selected or wheel_bytes > MAX_WHEEL_NOTICE_BYTES or
+            total_bytes > MAX_SUPPLIER_NOTICE_BYTES or total_count > MAX_SUPPLIER_NOTICES):
+        raise ValueError("Supplier notice aggregate/count bound exceeded or notices absent")
+    return selected, total_bytes, total_count
+
+
+def verify_supplier_notice(archive, member, distribution, *, store_root=Path("/nix/store")):
+    expected = archive.read(member)
+    installed = Path(distribution.locate_file(member.filename)).resolve()
+    if (len(expected) != member.file_size or not installed.is_relative_to(store_root.resolve()) or
+            not installed.is_file() or installed.stat().st_size != len(expected) or installed.read_bytes() != expected):
+        raise ValueError("Supplier notice lost/changed during fixup: " + member.filename)
+    return {"path": member.filename, "bytes": len(expected), "sha256": hashlib.sha256(expected).hexdigest()}
+
+
 def check_spki_distrust(context: ssl.SSLContext, fixture: Path, expected_hash: str) -> dict:
     """Reuse CPython's public compromised-intermediate MemoryBIO regression case."""
     if fixture.is_symlink() or fixture.stat().st_size > 65536:
@@ -217,25 +257,14 @@ def qualify(package: Path, source: Path, pins: dict, fixture: Path, model: Path,
             raise ValueError("Installed application notice mismatch: " + name)
         notices[name] = hashlib.sha256(actual).hexdigest()
     supplier_notices = {}
+    notice_bytes, notice_count = 0, 0
     for name, wheel in wheels.items():
         entries = []
         distribution = metadata.distribution(name)
         with zipfile.ZipFile(wheel) as archive:
-            members = archive.infolist()
-            if len(members) > 20000:
-                raise ValueError("Supplier wheel member bound exceeded")
+            members, notice_bytes, notice_count = supplier_notice_members(archive, notice_bytes, notice_count)
             for member in members:
-                path = Path(member.filename)
-                if member.is_dir() or not ("licenses" in path.parts or
-                        re.match(r"(?:license|copying|notice)(?:[._-].*)?$", path.name, re.I)):
-                    continue
-                if path.is_absolute() or ".." in path.parts or member.file_size > 1024**2:
-                    raise ValueError("Unexpected supplier notice member")
-                expected = archive.read(member)
-                installed_notice = Path(distribution.locate_file(member.filename)).resolve()
-                if not installed_notice.is_relative_to(Path("/nix/store")) or installed_notice.read_bytes() != expected:
-                    raise ValueError("Supplier notice lost/changed during fixup: " + name + ":" + member.filename)
-                entries.append({"path": member.filename, "sha256": hashlib.sha256(expected).hexdigest()})
+                entries.append(verify_supplier_notice(archive, member, distribution))
         supplier_notices[name] = entries
 
     bundle = Path(certifi.where())

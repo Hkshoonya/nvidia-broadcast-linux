@@ -11,6 +11,7 @@ import sys
 import tempfile
 import types
 import unittest
+import zipfile
 from unittest import mock
 
 
@@ -34,6 +35,49 @@ def forecast_paths(count, suffix):
 
 
 class NixCpuQualificationTests(unittest.TestCase):
+    def test_supplier_notice_selection_accepts_complete_notice_and_third_party_file(self):
+        large = zipfile.ZipInfo("mediapipe.dist-info/licenses/NOTICE")
+        large.file_size = 1569742
+        third_party = zipfile.ZipInfo("onnxruntime/ThirdPartyNotices.txt")
+        third_party.file_size = 325054
+        archive = types.SimpleNamespace(infolist=lambda: [large, third_party])
+        members, size, count = runtime.supplier_notice_members(archive)
+        self.assertEqual(members, [large, third_party])
+        self.assertEqual((size, count), (1894796, 2))
+
+    def test_supplier_notice_limits_fail_before_any_decompression(self):
+        member = zipfile.ZipInfo("package.dist-info/licenses/NOTICE")
+        member.file_size = runtime.MAX_NOTICE_BYTES + 1
+        archive = types.SimpleNamespace(infolist=lambda: [member])
+        with self.assertRaisesRegex(ValueError, "Unexpected"):
+            runtime.supplier_notice_members(archive)
+        member.file_size = 8
+        with self.assertRaisesRegex(ValueError, "aggregate/count"):
+            runtime.supplier_notice_members(archive, runtime.MAX_SUPPLIER_NOTICE_BYTES - 7)
+        with self.assertRaisesRegex(ValueError, "aggregate/count"):
+            runtime.supplier_notice_members(archive, prior_count=runtime.MAX_SUPPLIER_NOTICES)
+        other = zipfile.ZipInfo("package.dist-info/licenses/LICENSE")
+        other.file_size = runtime.MAX_WHEEL_NOTICE_BYTES
+        with self.assertRaisesRegex(ValueError, "aggregate/count"):
+            runtime.supplier_notice_members(types.SimpleNamespace(infolist=lambda: [member, other]))
+        with self.assertRaisesRegex(ValueError, "wheel member"):
+            runtime.supplier_notice_members(types.SimpleNamespace(infolist=lambda: [member] * 20001))
+
+    def test_supplier_notice_verification_refuses_changed_installed_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Path(directory)
+            installed = store / "NOTICE"
+            installed.write_bytes(b"altered!")
+            member = zipfile.ZipInfo("package.dist-info/licenses/NOTICE")
+            member.file_size = 8
+            archive = types.SimpleNamespace(read=lambda _member: b"expected")
+            distribution = types.SimpleNamespace(locate_file=lambda _name: installed)
+            with self.assertRaisesRegex(ValueError, "lost/changed"):
+                runtime.verify_supplier_notice(archive, member, distribution, store_root=store)
+            installed.write_bytes(b"expected")
+            self.assertEqual(runtime.verify_supplier_notice(archive, member, distribution, store_root=store)["sha256"],
+                             hashlib.sha256(b"expected").hexdigest())
+
     def test_evaluated_interpreter_witness_rejects_missing_splices_and_source_mismatches(self):
         pins = json.loads((ROOT / "nix/security-inputs.json").read_text())
         names = ("selected", "pythonOnBuildForBuild", "pythonOnBuildForHost", "pythonOnBuildForTarget",
