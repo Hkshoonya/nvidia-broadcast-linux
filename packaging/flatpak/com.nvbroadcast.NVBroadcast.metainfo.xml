@@ -62,6 +62,18 @@
   </branding>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="1.5.5" date="2026-11-03">
+      <description>
+        <p>Responsive startup and face-effect recovery</p>
+        <ul>
+          <li>Keep mode controls and first-run setup responsive during GPU checks</li>
+          <li>Cancel owned provider checks when setup closes or the app quits</li>
+          <li>Contain optional face-model initialization failures</li>
+          <li>Show Eye Contact tracking and correction status without changing gaze behavior</li>
+          <li>Correct Fedora source-install desktop binding dependencies</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.4" date="2026-10-28">
       <description>
         <p>Update affected Python dependencies and certificate bundles, and keep

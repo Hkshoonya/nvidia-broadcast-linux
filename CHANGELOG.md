@@ -2,8 +2,24 @@
 
 ## Unreleased
 
-These changes apply to source installs, development candidates and future
-release workflows. Published v1.5.4 artifacts retain their recorded identities.
+Changes accepted after the v1.5.5 release freeze will be recorded here.
+
+## v1.5.5 - Responsive Startup and Face-Effect Recovery
+
+**Release preparation.** This version is not yet published. The changes below
+are included in the proposed release tree; exact package verification and
+candidate acceptance are recorded separately in
+[the release notes](docs/RELEASE_NOTES_1.5.5.md). Published v1.5.4 artifacts
+retain their recorded identities.
+
+- **Contain face-model initialization failures** - Check the MediaPipe face
+  landmarker and Auto Frame detector in a separate process before enabling
+  their native models. A failed, killed or timed-out check leaves the affected
+  optional effect unavailable for the session, containing the reported startup
+  failure. Contributed by
+  [@Nirusaki-Malaal](https://github.com/Nirusaki-Malaal)
+  ([PR #180](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/180),
+  fixes [#179](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/179)).
 
 - **Keep mode selection responsive during GPU checks** - Run provider checks
   away from the desktop interface, reuse completed results, and allow an
@@ -14,9 +30,12 @@ release workflows. Published v1.5.4 artifacts retain their recorded identities.
   final-package qualification gates, retain authenticated METADATA projections
   and deterministic, schema-checked SPDX sidecars for the final DEB and signed
   RPM. This manual option defaults off and changes no package or released asset.
-  It remains partial Python inventory: complete native/interpreter/codec/model/
-  license coverage, the first hosted opt-in handoff, and release/device acceptance
-  remain separate under #60
+  The [first protected handoff](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/41733325775)
+  passed on historical `1.5.3-9.cpu` packages, with 59 installed Python
+  distributions per inventory. Independent metadata readback verified the small
+  evidence chain; hosted jobs checked the large package archives and signatures.
+  Complete native/interpreter/codec/model/license coverage and current-package
+  release/device acceptance remain separate under #60
   ([scope and workflow contract](docs/PYTHON_SUPPLIER_INVENTORY.md#optional-experimental-native-candidate-evidence)).
 - **Explain Eye Contact tracking and correction skips** - Show live status in
   the existing Eye Contact controls when a face is missing, tracking fails,

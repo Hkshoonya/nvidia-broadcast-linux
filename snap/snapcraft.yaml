@@ -1,7 +1,7 @@
 name: nvbroadcast
 title: NV Broadcast
 base: core24
-version: '1.5.4'
+version: '1.5.5'
 summary: AI virtual camera with background effects and noise removal for Linux
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
@@ -9,11 +9,13 @@ description: |
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.5.4:
-  - Updates Python certificate bundles and dependencies affected by recent
-    security advisories, and audits frozen package versions in CI.
-  - Keeps Eye Contact tracking current when camera frame objects are reused,
-    preserving the existing blink and occlusion limits.
+  What's new in v1.5.5:
+  - Keeps processing-mode controls responsive while GPU checks run, including
+    first-run setup, retries, and automatic startup.
+  - Contains face-model initialization failures so the affected optional
+    effect can stay unavailable without stopping the app.
+  - Shows Eye Contact tracking and correction status while preserving its
+    existing gaze, blink, and occlusion limits.
 
   Recent reliability improvements:
   - Keeps Camera, Audio, and preview controls usable in small windows.

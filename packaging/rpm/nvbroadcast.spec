@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.5.4
+Version:        1.5.5
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -203,6 +203,12 @@ fi
 %doc README.md CONTRIBUTORS.md
 
 %changelog
+* Tue Nov 03 2026 doczeus <harshit@kshoonya.com> - 1.5.5-1
+- Keep provider checks off the desktop thread and cancel owned probes on quit.
+- Contain optional face-model initialization failures and expose tracking status.
+- Correct Fedora source-install binding dependencies.
+- Retain explicit opt-in boundaries for experimental runtime and inventory tools.
+
 * Wed Oct 28 2026 doczeus <harshit@kshoonya.com> - 1.5.4-1
 - Refresh affected Python dependencies and certificate bundles.
 - Keep Eye Contact tracking fresh and recognize live Arch CUDA runtimes.
