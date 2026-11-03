@@ -17,6 +17,10 @@ CPython source. Before compilation, actual Nix evaluation records all six
 interpreter source versions, final URLs and normalized hashes, and requires each
 to match the reviewed PSF input. Build, host and target must be the same native
 x86_64-linux platform; cross-compilation is unsupported.
+The one Nix mimetypes patch is ported to the exact 3.13.18 source, preserving its
+upstream Windows security branch while using the declared Nix mailcap database
+on Linux. A finished-interpreter check requires that sole database and a real
+MIME lookup. Other interpreter patches are retained.
 
 Run `python3 nix/source_files.py` after staging intended source changes. The
 manifest covers Git-tracked application/test/documentation inputs and excludes
@@ -72,6 +76,9 @@ and the actual packaged recording smoke test. Generated media does not substitut
 for physical camera or audio acceptance.
 The small runtime JSON also preserves the complete normalized installed Python
 name-to-version-list mapping, including duplicate entries, for supplier review.
+The Requests trust proof captures its actual configured context immediately
+before socket wrapping, with the transport replaced to prohibit networking;
+Requests need not expose that context in its pool-construction metadata.
 
 A clean runtime environment defaults both OpenSSL certificate-file variables to
 the exact upstream certifi bundle and an empty capath. The proof compares default

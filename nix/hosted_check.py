@@ -364,11 +364,11 @@ def main() -> None:
                 if not output.resolve().is_relative_to(Path("/nix/store")):
                     raise ValueError("Build output is outside the Nix store")
                 if output.name.endswith("-finished-cpu-runtime-check"):
-                    for name in ("runtime.json", "recording.json", "wrapper-help.txt"):
+                    for name in ("runtime.json", "recording.json", "mimetypes.json", "wrapper-help.txt"):
                         checked_copy(output / name, name)
                 elif output.name.endswith("-module-evaluation.json"):
                     checked_copy(output, "module-evaluation.json")
-            if not all((OUT / name).is_file() for name in ("runtime.json", "recording.json", "module-evaluation.json")):
+            if not all((OUT / name).is_file() for name in ("runtime.json", "recording.json", "mimetypes.json", "module-evaluation.json")):
                 raise ValueError("Finished runtime/module evidence was not produced")
         receipt["status"] = "preparation-only" if operation == "prepare-lock" else "pass"
     except BaseException as error:

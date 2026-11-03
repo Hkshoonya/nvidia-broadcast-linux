@@ -21,6 +21,7 @@
   libadwaita,
   libglvnd,
   libxcb,
+  mailcap,
   makeShellWrapper,
   onnx,
   pango,
@@ -52,7 +53,7 @@ let
     "pythonOnHostForHost"
     "pythonOnTargetForTarget"
   ];
-  python = python313Packages.python.override {
+  python = (python313Packages.python.override {
     self = python;
     sourceVersion = { major = "3"; minor = "13"; patch = "18"; suffix = ""; };
     inherit (qualification.python) hash;
@@ -60,7 +61,13 @@ let
     # when deriving default splices. In this native-only package all aliases
     # must select this same interpreter, including its exact source identity.
     __splices = lib.genAttrs spliceNames (_: python);
-  };
+  }).overrideAttrs (old: {
+    patches =
+      let isMimetypesPatch = patch: builtins.baseNameOf (toString patch) == "mimetypes.patch";
+      in assert lib.assertMsg (builtins.length (builtins.filter isMimetypesPatch old.patches) == 1)
+        "Expected exactly one Nixpkgs mimetypes patch to port";
+      map (patch: if isMimetypesPatch patch then ./mimetypes-3.13.18.patch else patch) old.patches;
+  });
   pinnedSource = name: fetchurl {
     inherit (securityInputs.${name}) url hash;
   };
@@ -568,6 +575,18 @@ pythonPackages.buildPythonApplication (finalAttrs: {
         env -i HOME="$TMPDIR/home" PATH="${lib.makeBinPath [ coreutils ]}" \
           NVBROADCAST_SKIP_REQUIREMENTS_CHECK=1 \
           ${finalAttrs.finalPackage}/bin/nvbroadcast --recording-smoke > "$out/recording.json"
+        env -i HOME="$TMPDIR/home" PATH="${lib.makeBinPath [ coreutils ]}" \
+          ${runtimePython.interpreter} -I -c '
+        import json, mimetypes
+        from pathlib import Path
+        expected = "${mailcap}/etc/mime.types"
+        if mimetypes.knownfiles != [expected] or not Path(expected).is_file():
+            raise ValueError("Native mimetypes must use only the selected Nix mailcap database")
+        mimetypes.init()
+        if mimetypes.guess_type("document.pdf")[0] != "application/pdf":
+            raise ValueError("Native mailcap MIME lookup failed")
+        print(json.dumps({"knownfiles": mimetypes.knownfiles, "pdf": "application/pdf"}, sort_keys=True))
+        ' > "$out/mimetypes.json"
         # Deliberately exclude pytest/check/build environments. These are the
         # finished app's interpreter and its app-only dependency path.
         env -i HOME="$TMPDIR/home" PATH="${lib.makeBinPath [ coreutils ]}" \

@@ -69,6 +69,51 @@ def check_context(context: ssl.SSLContext, expected_roots: set[str], rejected_ro
     return len(observed)
 
 
+def requests_tls_context() -> ssl.SSLContext:
+    """Capture Requests' configured context immediately before socket wrapping."""
+    import requests
+    from unittest.mock import patch
+    from urllib3.util import ssl_ as urllib3_ssl
+
+    class ContextCaptured(Exception):
+        pass
+
+    class NoNetworkTransport:
+        def close(self):
+            pass
+
+    adapter = requests.adapters.HTTPAdapter()
+    request = requests.Request("GET", "https://localhost/").prepare()
+    pool = adapter.get_connection_with_tls_context(request, verify=True, proxies={})
+    adapter.cert_verify(pool, request.url, verify=True, cert=None)
+    connection = pool._new_conn()
+    transport = NoNetworkTransport()
+    captured = []
+
+    def capture(sock, context, tls_in_tls, server_hostname):
+        if sock is not transport or tls_in_tls or server_hostname != "localhost":
+            raise ValueError("Unexpected Requests TLS transport path")
+        captured.append(context)
+        raise ContextCaptured
+
+    try:
+        # Preserve Requests' CA selection and urllib3's real context creation,
+        # trust loading and TLS settings. Replace only TCP creation and the
+        # final socket-wrapping boundary, before either can perform socket I/O.
+        with patch.object(type(connection), "_new_conn", return_value=transport), \
+                patch.object(urllib3_ssl, "_ssl_wrap_socket_impl", side_effect=capture):
+            try:
+                connection.connect()
+            except ContextCaptured:
+                pass
+        if len(captured) != 1 or not isinstance(captured[0], ssl.SSLContext):
+            raise ValueError("Cannot establish the actual Requests adapter TLS context")
+        return captured[0]
+    finally:
+        connection.close()
+        adapter.close()
+
+
 def qualify(package: Path, source: Path, pins: dict, fixture: Path, model: Path, wheels: dict) -> dict:
     import av
     import av.option  # noqa: F401 - audiolab's required interface
@@ -76,7 +121,6 @@ def qualify(package: Path, source: Path, pins: dict, fixture: Path, model: Path,
     import cv2
     import numpy as np
     import nvbroadcast
-    import requests
     from packaging.version import Version
     from pyrnnoise import rnnoise
     from nvbroadcast.core import dependency_installer, resources
@@ -200,12 +244,7 @@ def qualify(package: Path, source: Path, pins: dict, fixture: Path, model: Path,
     expected_roots = {hashlib.sha256(ssl.PEM_cert_to_DER_cert(x.decode())).hexdigest()
                       for x in re.findall(rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", bundle.read_bytes(), re.S)}
     default_context = ssl.create_default_context()
-    adapter = requests.adapters.HTTPAdapter()
-    request = requests.Request("GET", "https://localhost/").prepare()
-    pool = adapter.get_connection_with_tls_context(request, verify=True, proxies={})
-    requests_context = pool.conn_kw.get("ssl_context")
-    if not isinstance(requests_context, ssl.SSLContext):
-        raise ValueError("Cannot establish the actual Requests adapter TLS context")
+    requests_context = requests_tls_context()
     contexts = {"stdlib-default": default_context, "requests-adapter": requests_context}
     root_counts = {}
     for name, context in contexts.items():
