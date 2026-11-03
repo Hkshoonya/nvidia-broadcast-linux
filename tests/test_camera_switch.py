@@ -7,6 +7,7 @@ from unittest import mock
 from nvbroadcast.app import NVBroadcastApp
 from nvbroadcast.core.config import AppConfig
 from nvbroadcast.ui.window import NVBroadcastWindow
+from nvbroadcast.video.eye_contact import EyeContactCorrector
 
 
 class CameraSwitchTests(unittest.TestCase):
@@ -86,12 +87,16 @@ class CameraSwitchTests(unittest.TestCase):
         app._window = mock.Mock()
         app._tray = mock.Mock()
         app._clear_finished_teardown = mock.Mock()
+        app._eye_contact = EyeContactCorrector()
+        app._eye_contact.enabled = True
+        app._eye_contact._set_status("correcting", 2)
 
         app._do_start_pipeline("/dev/video0", "YUY2")
 
         resolve_camera_device.assert_called_once_with("/dev/video0")
         self.assertIsNone(app._video_pipeline)
         self.assertFalse(app._streaming)
+        self.assertEqual(app._eye_contact.status.state, "waiting")
         app._window.set_status.assert_called_once_with(
             "No usable camera found. Connect a camera and try again."
         )
@@ -109,10 +114,15 @@ class CameraSwitchTests(unittest.TestCase):
         app._video_pipeline = None
         app._streaming = True
         app._tray = mock.Mock()
+        app._eye_contact = EyeContactCorrector()
+        app._eye_contact.enabled = True
+        app._eye_contact._set_status("correcting", 2)
 
         app.stop_pipeline()
 
         self.assertFalse(app._streaming)
+        self.assertEqual(app.eye_contact_status.state, "stopped")
+        self.assertEqual(app._eye_contact.status.state, "waiting")
         app._tray.update_status.assert_called_once_with(False, "idle")
 
 

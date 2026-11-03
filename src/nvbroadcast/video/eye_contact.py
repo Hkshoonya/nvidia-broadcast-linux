@@ -6,6 +6,7 @@
 """Eye contact correction - redirects gaze toward a shared camera target."""
 
 from dataclasses import dataclass
+import threading
 
 import cv2
 import numpy as np
@@ -18,6 +19,13 @@ _LEFT_IRIS = [468, 469, 470, 471, 472]
 _RIGHT_IRIS = [473, 474, 475, 476, 477]
 _NOSE_TIP = 1
 _EYE_CONTACT_MODES = ("natural", "gaze_lock")
+
+
+@dataclass(frozen=True)
+class EyeContactStatus:
+    """Bounded processing state; active means a nonzero warp, not gaze accuracy."""
+    state: str
+    corrected_eyes: int = 0
 
 
 @dataclass(frozen=True)
@@ -39,6 +47,43 @@ class EyeContactCorrector:
         self._smoothed_correction: np.ndarray | None = None
         self._previous_disparity: np.ndarray | None = None
         self._locked_camera_target: np.ndarray | None = None
+        self._status_lock = threading.RLock()
+        self._status_generation = 0
+        self._status = EyeContactStatus("disabled")
+
+    @property
+    def status(self) -> EyeContactStatus:
+        with self._status_lock:
+            return self._status
+
+    def _set_status(self, state: str, corrected_eyes: int = 0,
+                    *, generation: int | None = None) -> None:
+        with self._status_lock:
+            if generation is not None and generation != self._status_generation:
+                return
+            if self._status.state != state or self._status.corrected_eyes != corrected_eyes:
+                self._status = EyeContactStatus(state, corrected_eyes)
+
+    def reset_status(self) -> None:
+        with self._status_lock:
+            self._status_generation += 1
+            if not self._enabled:
+                self._set_status("disabled")
+            elif self._intensity == 0.0:
+                self._set_status("intensity_zero")
+            else:
+                self._set_status("waiting")
+
+    def set_tracking_status(self, state: str) -> None:
+        """Report an absent async result without triggering inline inference."""
+        with self._status_lock:
+            self.reset_status()
+            if self._enabled and self._intensity > 0.0:
+                self._set_status({
+                    "unavailable": "tracker_unavailable",
+                    "error": "tracking_error",
+                    "no_face": "no_face",
+                }.get(state, "waiting"))
 
     @property
     def enabled(self) -> bool:
@@ -46,9 +91,12 @@ class EyeContactCorrector:
 
     @enabled.setter
     def enabled(self, value: bool):
+        changed = self._enabled != bool(value)
         self._enabled = bool(value)
         if not self._enabled:
             self._reset_tracking()
+        if changed or not self._enabled:
+            self.reset_status()
 
     @property
     def intensity(self) -> float:
@@ -56,9 +104,12 @@ class EyeContactCorrector:
 
     @intensity.setter
     def intensity(self, value: float):
+        previous = self._intensity
         self._intensity = max(0.0, min(1.0, value))
         if self._intensity == 0.0:
             self._reset_tracking()
+        if previous != self._intensity:
+            self.reset_status()
 
     @property
     def mode(self) -> str:
@@ -70,6 +121,7 @@ class EyeContactCorrector:
         if mode != self._mode:
             self._mode = mode
             self._reset_tracking()
+            self.reset_status()
 
     def _reset_tracking(self) -> None:
         self._smoothed_correction = None
@@ -77,20 +129,30 @@ class EyeContactCorrector:
         self._locked_camera_target = None
 
     def process_frame(self, frame: np.ndarray, landmarks=None) -> np.ndarray:
+        with self._status_lock:
+            generation = self._status_generation
         if not self._enabled or self._intensity == 0.0:
+            self.reset_status()
             return frame
         if frame.ndim != 3 or frame.shape[2] < 3:
             self._reset_tracking()
+            self._set_status("invalid_frame", generation=generation)
             return frame
 
         if landmarks is None:
             lm = get_shared_landmarker()
             if not lm.ready:
                 self._reset_tracking()
+                self.set_tracking_status("unavailable")
                 return frame
             landmarks = lm.detect(frame, reuse_frames=1)
+            if landmarks is None:
+                self._reset_tracking()
+                self.set_tracking_status(lm.detection_status.state)
+                return frame
         if landmarks is None or len(landmarks) < 478:
             self._reset_tracking()
+            self._set_status("eyes_unclear", generation=generation)
             return frame
 
         img_h, img_w = frame.shape[:2]
@@ -106,17 +168,22 @@ class EyeContactCorrector:
         # distracting than skipping one frame, so only move a valid eye pair.
         if any(eye is None for eye in eyes):
             self._reset_tracking()
+            self._set_status("eyes_unclear", generation=generation)
             return frame
 
         valid_eyes = [eye for eye in eyes if eye is not None]
         shifts = self._binocular_shifts(valid_eyes, landmarks, img_w)
         if shifts is None:
             self._reset_tracking()
+            self._set_status("outside_range", generation=generation)
             return frame
 
         output = frame.copy()
+        corrected_eyes = 0
         for eye, shift in zip(valid_eyes, shifts):
-            self._warp_eye(output, eye, shift)
+            corrected_eyes += self._warp_eye(output, eye, shift)
+        self._set_status("correcting" if corrected_eyes else "adjustment_small",
+                         corrected_eyes, generation=generation)
         return output
 
     def _measure_eye(self, landmarks, eye_indices, iris_indices,
@@ -308,10 +375,10 @@ class EyeContactCorrector:
 
     @staticmethod
     def _warp_eye(frame: np.ndarray, eye: _EyeGeometry,
-                  shift: np.ndarray) -> None:
+                  shift: np.ndarray) -> bool:
         shift_x, shift_y = map(float, shift)
         if abs(shift_x) < 0.2 and abs(shift_y) < 0.2:
-            return
+            return False
 
         x1, y1, x2, y2 = eye.bounds
         eye_roi = frame[y1:y2, x1:x2].copy()
@@ -341,3 +408,4 @@ class EyeContactCorrector:
             + original_color.astype(np.float32) * (1.0 - mask)
         ).astype(np.uint8)
         frame[y1:y2, x1:x2, :3] = blended
+        return True

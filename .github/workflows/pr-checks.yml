@@ -41,7 +41,8 @@ jobs:
 
   linux:
     name: Linux validation
-    runs-on: ubuntu-latest
+    # Keep distro GI/Cairo and inherited-package checks on the qualified baseline.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - name: Checkout

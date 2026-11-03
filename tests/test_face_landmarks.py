@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import FrozenInstanceError
 import subprocess
 import threading
 import time
@@ -21,6 +22,7 @@ def _make_landmarker():
     lm._last_result = None
     lm._frames_since_infer = 0
     lm._lock = threading.Lock()
+    lm._detection_status = face_landmarks.FaceTrackingStatus("waiting")
     lm._detect_lock = threading.Lock()
     lm._async_busy = False
     lm._pending_job = None
@@ -33,6 +35,33 @@ def _make_landmarker():
 
 
 class FaceLandmarkerTests(unittest.TestCase):
+    def test_detector_outcomes_distinguish_no_face_from_error_without_details(self):
+        tracker = _make_landmarker()
+        tracker._mp = SimpleNamespace(
+            Image=mock.Mock(return_value=object()),
+            ImageFormat=SimpleNamespace(SRGB=1),
+        )
+        tracker._landmarker = mock.Mock()
+        frame = np.zeros((16, 16, 4), dtype=np.uint8)
+        points = [SimpleNamespace(x=0.5, y=0.5)]
+        tracker._landmarker.detect_for_video.side_effect = [
+            SimpleNamespace(face_landmarks=[points]),
+            SimpleNamespace(face_landmarks=[]),
+            RuntimeError("private native failure detail"),
+            SimpleNamespace(face_landmarks=[points]),
+        ]
+
+        snapshots = []
+        for expected, state in ((points, "tracking"), (None, "no_face"),
+                                (None, "error"), (points, "tracking")):
+            self.assertIs(tracker._detect_in_frame(frame), expected)
+            snapshots.append(tracker.detection_status)
+            self.assertEqual(snapshots[-1].state, state)
+            self.assertEqual(vars(snapshots[-1]), {"state": state})
+        self.assertEqual(snapshots[1].state, "no_face")
+        with self.assertRaises(FrozenInstanceError):
+            snapshots[1].state = "tracking"
+
     def test_scale_detection_frame_caps_large_inputs(self):
         frame = np.zeros((576, 1024, 4), dtype=np.uint8)
 
@@ -269,6 +298,7 @@ class NativeProbeTests(unittest.TestCase):
             tracker = face_landmarks.SharedFaceLandmarker()
         self.assertFalse(tracker.ready)
         self.assertIsNone(tracker.latest())
+        self.assertEqual(tracker.detection_status.state, "unavailable")
 
     def test_failed_detector_probe_leaves_auto_frame_unavailable(self):
         with (

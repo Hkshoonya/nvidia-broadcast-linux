@@ -331,6 +331,7 @@ tests/test_deepfilter_model.py
 tests/test_dependency_installer.py
 tests/test_edge_refinement_controls.py
 tests/test_eye_contact.py
+tests/test_eye_contact_status.py
 tests/test_face_landmarks.py
 tests/test_flatpak_bundle.py
 tests/test_flatpak_packaging.py
