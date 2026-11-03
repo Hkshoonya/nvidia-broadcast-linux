@@ -27,7 +27,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.5.3"
+        current = "1.5.4"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -44,12 +44,12 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-10-10">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-10-28">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
         # Website native downloads are updated after release publication;
         # Snap channel availability is reported separately.
-        published = "1.5.3"
+        published = "1.5.4"
         self.assertIn(f"nvbroadcast_{published}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{published}-1.noarch.rpm", docs_index)
         self.assertIn(f"NVBroadcast-{published}-1.pkg", docs_index)
@@ -99,6 +99,44 @@ class PackagingMetadataTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("CORE_INSTALL_CONTINUES", result.stdout)
                 self.assertEqual("CODEC_TRANSACTION" in result.stdout, available)
+
+    def test_fedora_binding_packages_do_not_cancel_core_dependency_transaction(self):
+        source = (REPO_ROOT / "install.sh").read_text()
+        functions = source.split("get_packages() {", 1)[1].split(
+            "\ninstall_optional_recording_codecs() {", 1
+        )[0]
+        functions = "get_packages() {" + functions
+        for manager in ("dnf", "yum"):
+            with self.subTest(package_manager=manager):
+                # DNF rejects the complete transaction when any requested name
+                # is absent. Model the obsolete name without changing the host.
+                script = "set -e\n" + functions
+                script += """
+sudo() { "$@"; }
+repo_install() {
+    for arg in "$@"; do
+        if [ "$arg" = "python3-gobject-cairo" ]; then
+            echo "No match for argument: $arg" >&2
+            return 1
+        fi
+    done
+    printf 'INSTALLED %s\\n' "$@"
+}
+dnf() { repo_install "$@"; }
+yum() { repo_install "$@"; }
+"""
+                script += f"PKG_MANAGER={manager}\nget_packages\n"
+                script += 'install_packages "$PKGS_PYTHON $PKGS_GTK $PKGS_GST"\n'
+                script += "echo CORE_DEPENDENCIES_INSTALLED\n"
+                result = subprocess.run(
+                    ["bash", "-c", script], capture_output=True, text=True
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("INSTALLED python3-gobject", result.stdout)
+                self.assertIn("INSTALLED python3-cairo", result.stdout)
+                self.assertIn("INSTALLED gtk4-devel", result.stdout)
+                self.assertIn("INSTALLED gstreamer1-devel", result.stdout)
+                self.assertIn("CORE_DEPENDENCIES_INSTALLED", result.stdout)
 
     def test_published_native_downloads_protect_legacy_upgrades(self):
         website = (REPO_ROOT / "docs" / "index.html").read_text()
@@ -156,7 +194,7 @@ class PackagingMetadataTests(unittest.TestCase):
         nodes = {node["@type"]: node for node in graph}
         self.assertEqual(nodes["WebSite"]["url"], f"{canonical}/")
         application = nodes["SoftwareApplication"]
-        self.assertEqual(application["softwareVersion"], "1.5.3")
+        self.assertEqual(application["softwareVersion"], "1.5.4")
         self.assertEqual(application["applicationCategory"], "MultimediaApplication")
         self.assertEqual(application["offers"]["price"], "0")
 
@@ -1404,6 +1442,8 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--variant cpu --meeting-backends faster", setup)
         self.assertIn("(( EUID == 0 ))", setup)
         self.assertIn("macos-runtime-id", setup)
+        self.assertIn('"$INSTALL_DIR/scripts/macos-bindings-inputs.json"', setup)
+        self.assertIn("install -m 644 packaging/macos-runtime/inputs.json", pkg_builder)
         self.assertNotIn("rm -rf", setup)
         self.assertIn(
             'mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/scripts"', pkg_builder
@@ -1426,6 +1466,38 @@ class PackagingMetadataTests(unittest.TestCase):
             "opt/nvbroadcast/scripts/install_runtime_variant.py", macos_builder
         )
         self.assertIn('test -x "$runtime_installer"', macos_builder)
+        self.assertIn('cmp packaging/macos-runtime/inputs.json "$binding_inputs"', macos_builder)
+        runtime_test = workflow.split("  test-macos-runtime:", 1)[1].split("  sign-macos:", 1)[0]
+        self.assertIn("path.relative_to(prefix)", runtime_test)
+        self.assertIn("private_binding_fallback_exercised", runtime_test)
+        self.assertIn("('gi', 'gi._gi', 'cairo', 'cairo._cairo')", runtime_test)
+        prerequisites = "brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer pkgconf ninja"
+        self.assertIn(prerequisites, setup)
+        self.assertIn(prerequisites, (REPO_ROOT / "docs/MACOS_SIGNING.md").read_text())
+        self.assertIn(prerequisites, (REPO_ROOT / "docs/index.html").read_text())
+
+    def test_macos_private_binding_pins_match_source_and_wheel_identities(self):
+        from packaging.utils import (
+            canonicalize_name, parse_sdist_filename, parse_wheel_filename,
+        )
+        from urllib.parse import urlsplit
+
+        inputs = json.loads((REPO_ROOT / "packaging/macos-runtime/inputs.json").read_text())
+        self.assertEqual(inputs["schema_version"], 1)
+        self.assertEqual(inputs["target"], "macos-arm64-cp313-cpu")
+        self.assertEqual({item["name"] for item in inputs["bootstrap"]},
+                         {"meson", "meson-python", "pyproject-metadata", "packaging"})
+        self.assertEqual({item["name"] for item in inputs["bindings"]}, {"pycairo", "PyGObject"})
+        for item in inputs["bootstrap"] + inputs["bindings"]:
+            with self.subTest(package=item["name"]):
+                url = urlsplit(item["url"])
+                self.assertEqual((url.scheme, url.netloc), ("https", "files.pythonhosted.org"))
+                filename = url.path.rsplit("/", 1)[-1]
+                parsed = (parse_wheel_filename(filename) if filename.endswith(".whl")
+                          else parse_sdist_filename(filename))
+                self.assertEqual(parsed[0], canonicalize_name(item["name"]))
+                self.assertEqual(str(parsed[1]), item["version"])
+                self.assertRegex(item["sha256"], r"^[a-f0-9]{64}$")
 
     def test_macos_source_installer_guards_openai_whisper(self):
         script = (REPO_ROOT / "install_macos.sh").read_text()
@@ -1801,6 +1873,68 @@ printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
             workflow,
         )
         self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
+
+    def test_snap_promotion_preflight_precedes_both_store_credentials(self):
+        workflow = (REPO_ROOT / ".github/workflows/snap-promote.yml").read_text()
+        preflight = workflow.split("      - name: Verify promotion release source\n", 1)[1].split(
+            "      - name: Install Snapcraft\n", 1
+        )[0]
+        self.assertNotIn("if:", preflight)
+        self.assertNotIn("secrets.", preflight)
+        self.assertIn("ref: ${{ github.ref }}", workflow)
+        for credential in ("secrets.SNAP_CANDIDATE_TOKEN", "secrets.SNAP_TOKEN"):
+            self.assertLess(workflow.index("- name: Verify promotion release source"), workflow.index(credential))
+        self.assertIn("git --no-replace-objects rev-parse --verify", preflight)
+
+    def test_snap_promotion_preflight_rejects_wrong_ref_version_and_commit(self):
+        workflow = (REPO_ROOT / ".github/workflows/snap-promote.yml").read_text()
+        step = workflow.split("      - name: Verify promotion release source\n", 1)[1].split(
+            "      - name: Install Snapcraft\n", 1
+        )[0]
+        body = step.split("        run: |\n", 1)[1]
+        script = "\n".join(line[10:] for line in body.splitlines())
+        script += "\nprintf 'STORE_ACTION_REACHED\\n'\n"
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+            def git(*arguments):
+                return subprocess.check_output(
+                    ["git", "-c", "user.name=Promotion fixture", "-c", "user.email=fixture@example.invalid",
+                     "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null", *arguments],
+                    cwd=project, env=environment, stderr=subprocess.DEVNULL, text=True,
+                ).strip()
+            git("init", "--quiet")
+            snapcraft = project / "snap/snapcraft.yaml"
+            snapcraft.parent.mkdir()
+            snapcraft.write_text("name: fixture\nversion: '7.8.9'\n")
+            git("add", "snap/snapcraft.yaml")
+            git("commit", "--quiet", "-m", "Release fixture")
+            release = git("rev-parse", "HEAD")
+            git("tag", "v7.8.9")
+            git("commit", "--quiet", "--allow-empty", "-m", "Other commit")
+            other = git("rev-parse", "HEAD")
+            cases = (
+                ("valid", "tag", "refs/tags/v7.8.9", release, release, "7.8.9", True),
+                ("branch", "branch", "refs/heads/main", release, release, "7.8.9", False),
+                ("wrong tag", "tag", "refs/tags/v7.8.8", release, release, "7.8.9", False),
+                ("wrong version", "tag", "refs/tags/v7.8.9", release, release, "7.8.10", False),
+                ("wrong workflow commit", "tag", "refs/tags/v7.8.9", other, release, "7.8.9", False),
+                ("wrong checkout", "tag", "refs/tags/v7.8.9", other, other, "7.8.9", False),
+            )
+            for operation in ("candidate", "stable"):
+                for name, ref_type, ref, workflow_sha, checkout, version, allowed in cases:
+                    with self.subTest(operation=operation, case=name):
+                        git("checkout", "--quiet", "--detach", checkout)
+                        snapcraft.write_text(f"name: fixture\nversion: '{version}'\n")
+                        result = subprocess.run(
+                            ["bash", "-c", script], cwd=project,
+                            env=dict(environment, GITHUB_REF_TYPE=ref_type, GITHUB_REF=ref,
+                                     GITHUB_SHA=workflow_sha, INPUT_OPERATION=operation),
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                        self.assertEqual("STORE_ACTION_REACHED" in result.stdout, allowed, result.stdout)
+                        snapcraft.write_text("name: fixture\nversion: '7.8.9'\n")
 
     def test_snap_promotion_workflow_validates_exact_revisions_and_rolls_back(self):
         workflow = (

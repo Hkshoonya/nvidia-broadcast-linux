@@ -13,6 +13,7 @@ import importlib
 import os
 import subprocess
 import sys
+import textwrap
 import threading
 import time
 import weakref
@@ -38,40 +39,54 @@ _MEDIAPIPE_READY: bool | None = None
 _instance: Optional["SharedFaceLandmarker"] = None
 
 
-def _probe_mediapipe_runtime() -> tuple[bool, str]:
+def _probe_mediapipe_runtime(model_path: Path) -> tuple[bool, str]:
     env = dict(os.environ)
     env.setdefault("MPLBACKEND", "Agg")
-    code = (
-        "import mediapipe as mp\n"
-        "from mediapipe.tasks.python import BaseOptions\n"
-        "from mediapipe.tasks.python.vision import FaceLandmarker, FaceLandmarkerOptions, RunningMode\n"
-        "print('ok')\n"
-    )
+    # Imports can succeed even when native model initialization kills the process.
+    # Exercise the same model options in a child before loading it in the GUI.
+    code = textwrap.dedent("""\
+        import sys
+        from mediapipe.tasks.python import BaseOptions
+        from mediapipe.tasks.python.vision import (
+            FaceLandmarker, FaceLandmarkerOptions, RunningMode,
+        )
+
+        options = FaceLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=sys.argv[1]),
+            running_mode=RunningMode.VIDEO,
+            num_faces=1,
+            min_face_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+        )
+        with FaceLandmarker.create_from_options(options):
+            pass
+        """)
     try:
         result = subprocess.run(
-            [sys.executable, "-c", code],
+            [sys.executable, "-I", "-c", code, str(model_path)],
             capture_output=True,
             text=True,
             timeout=15,
             env=env,
         )
-    except Exception as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)
     if result.returncode == 0:
         return True, ""
     detail = (result.stderr or result.stdout or "").strip()
-    return False, detail[:300] or f"exit code {result.returncode}"
+    message = f"MediaPipe face model initialization exited {result.returncode}"
+    return False, f"{message}: {detail[:300]}" if detail else message
 
 
-def _load_mediapipe():
+def _load_mediapipe(model_path: Path):
     global _MEDIAPIPE_IMPORT_ERROR, _MEDIAPIPE_READY
     if _MEDIAPIPE_READY is False:
         raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR or "MediaPipe runtime unavailable")
     if _MEDIAPIPE_READY is None:
-        ok, detail = _probe_mediapipe_runtime()
+        ok, detail = _probe_mediapipe_runtime(model_path)
         if not ok:
             _MEDIAPIPE_READY = False
-            _MEDIAPIPE_IMPORT_ERROR = detail or "MediaPipe import probe failed"
+            _MEDIAPIPE_IMPORT_ERROR = detail or "MediaPipe model probe failed"
             raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR)
         _MEDIAPIPE_READY = True
 
@@ -137,7 +152,7 @@ class SharedFaceLandmarker:
                 FaceLandmarker,
                 FaceLandmarkerOptions,
                 RunningMode,
-            ) = _load_mediapipe()
+            ) = _load_mediapipe(model_path)
             opts = FaceLandmarkerOptions(
                 base_options=BaseOptions(model_asset_path=str(model_path)),
                 running_mode=RunningMode.VIDEO,

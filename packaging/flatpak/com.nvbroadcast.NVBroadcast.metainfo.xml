@@ -62,6 +62,12 @@
   </branding>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="1.5.4" date="2026-10-28">
+      <description>
+        <p>Update affected Python dependencies and certificate bundles, and keep
+        Eye Contact tracking current when camera frame objects are reused.</p>
+      </description>
+    </release>
     <release version="1.5.3" date="2026-10-09">
       <description>
         <p>Camera, audio, and preview controls fit small windows. Recordings retain

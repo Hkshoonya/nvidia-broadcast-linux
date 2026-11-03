@@ -12,6 +12,7 @@ import venv
 from types import ModuleType
 
 from scripts import source_runtime as runtime
+from scripts import python315_runtime
 from nvbroadcast.runtime.artifact import ArtifactEnvironment
 from nvbroadcast.runtime.variants import RuntimeVariant
 
@@ -308,6 +309,48 @@ class SourceRuntimeTests(unittest.TestCase):
         self.assertEqual(json.loads(output)[0], str(self.project / ".venv"))
 
 
+class SourceRuntimeNativeEnvironmentTests(unittest.TestCase):
+    def result(self, arguments, **kwargs):
+        if arguments[2:4] == ["-S", "-c"]:
+            return subprocess.CompletedProcess(arguments, 0, self.version + "\n", "")
+        return subprocess.CompletedProcess(arguments, 0, "NVB_RUNTIME=cpu\n", "")
+
+    def test_python315_activation_and_rollback_checks_use_clean_native_environment(self):
+        self.version = "3.15"
+        with (
+            mock.patch.object(runtime.subprocess, "run", side_effect=self.result) as probe,
+            mock.patch.object(python315_runtime, "verify_native_runtime") as native,
+            mock.patch.object(python315_runtime, "clean_native_environment", return_value={"PATH": "/usr/bin"}),
+        ):
+            self.assertEqual(runtime.verify_runtime(Path("/candidate"), "cpu", "faster"), "cpu")
+        native.assert_called_once_with("/candidate/bin/python", "faster")
+        for call in probe.call_args_list[1:]:
+            self.assertEqual(call.kwargs["env"], {"PATH": "/usr/bin"})
+
+    def test_normal_interpreters_preserve_existing_probe_environment(self):
+        for version in ("3.11", "3.12", "3.13", "3.14"):
+            self.version = version
+            with (
+                self.subTest(version=version),
+                mock.patch.object(runtime.subprocess, "run", side_effect=self.result) as probe,
+                mock.patch.object(python315_runtime, "verify_native_runtime") as native,
+            ):
+                self.assertEqual(runtime.verify_runtime(Path("/candidate"), "cpu", "none"), "cpu")
+                native.assert_not_called()
+                for call in probe.call_args_list[1:]:
+                    self.assertNotIn("env", call.kwargs)
+
+    def test_python315_native_failure_prevents_later_verification(self):
+        self.version = "3.15"
+        with (
+            mock.patch.object(runtime.subprocess, "run", side_effect=self.result) as probe,
+            mock.patch.object(python315_runtime, "verify_native_runtime", side_effect=subprocess.CalledProcessError(1, ["native probe"])),
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                runtime.verify_runtime(Path("/candidate"), "cpu", "none")
+        self.assertEqual(probe.call_count, 1)
+
+
 class SourceRuntimeVerificationExtrasTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -336,6 +379,8 @@ class SourceRuntimeVerificationExtrasTests(unittest.TestCase):
         environment = ArtifactEnvironment.inspect(self.root, "amd64")
 
         def run(arguments, **_kwargs):
+            if arguments[2:4] == ["-S", "-c"]:
+                return subprocess.CompletedProcess(arguments, 0, "3.12\n", "")
             if arguments[2] == "-c":
                 # Execute the exact candidate verification program against
                 # real fixture metadata. Native imports and the later device

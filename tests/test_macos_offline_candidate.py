@@ -1,14 +1,20 @@
 """Portable negative tests; actual macOS runtime is qualified by its own CI job."""
 
 import copy
+import base64
+import csv
+import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import shlex
 import subprocess
+import struct
 import sys
 import tempfile
+import tarfile
 import tomllib
 import unittest
 from unittest import mock
@@ -24,6 +30,10 @@ spec = importlib.util.spec_from_file_location("mac_offline_builder", HERE / "bui
 builder = importlib.util.module_from_spec(spec)
 with mock.patch.dict(sys.modules, {"runtime": runtime}):
     spec.loader.exec_module(builder)
+spec = importlib.util.spec_from_file_location("mac_binding_prepare", HERE / "prepare_bindings.py")
+binding_prepare = importlib.util.module_from_spec(spec)
+with mock.patch.dict(sys.modules, {"runtime": runtime}):
+    spec.loader.exec_module(binding_prepare)
 spec = importlib.util.spec_from_file_location("mac_offline_target", HERE / "wheel_target.py")
 wheel_target = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wheel_target)
@@ -39,6 +49,56 @@ media_validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(media_validator)
 
 
+def native_fixture(version=(14, 0, 0), cpu=0x0100000c):
+    """A Mach-O header fixture, never an executable native extension."""
+    floor = (version[0] << 16) | (version[1] << 8) | version[2]
+    return struct.pack("<8I", 0xfeedfacf, cpu, 0, 8, 1, 24, 0, 0) + struct.pack("<6I", 0x32, 24, 1, floor, floor, 0)
+
+
+def write_binding_fixture(wheels, source, *, tag="cp313-cp313-macosx_14_0_arm64", floor=(14, 0, 0)):
+    name = runtime.canonical(source["name"])
+    version = source["version"]
+    package = "cairo" if name == "pycairo" else "gi"
+    info = f"{name}-{version}.dist-info"
+    licence = (f"{name}-{version}/COPYING-LGPL-2.1" if name == "pycairo"
+               else f"{name}-{version}/LICENSES/LGPL-2.1-or-later.txt")
+    notice = b"Synthetic licence text for portable tests only.\n"
+    licence_file = info + "/licenses/nvbroadcast-source/" + licence
+    source_licenses = {licence: {"file": licence_file, "sha256": hashlib.sha256(notice).hexdigest()}}
+    metadata = (f"Metadata-Version: 2.3\nName: {source['name']}\nVersion: {version}\nRequires-Python: >=3.9\n"
+                + ("Requires-Dist: pycairo>=1.16.0\n" if name == "pygobject" else ""))
+    payloads = {f"{package}/__init__.py": b"# synthetic package; not imported\n",
+                f"{info}/METADATA": metadata.encode(),
+                f"{info}/WHEEL": f"Wheel-Version: 1.0\nRoot-Is-Purelib: false\nTag: {tag}\n".encode(),
+                licence_file: notice}
+    for module in (("_cairo",) if name == "pycairo" else ("_gi", "_gi_cairo")):
+        payloads[f"{package}/{module}.cpython-313-darwin.so"] = native_fixture(floor)
+    payloads[f"{info}/RECORD"] = b""  # Preparation regenerates this record when retaining source licences.
+    path = wheels / f"{name}-{version}-{tag}.whl"
+    with zipfile.ZipFile(path, "w") as archive:
+        for relative, payload in payloads.items():
+            archive.writestr(relative, payload)
+    return path, source_licenses
+
+
+def write_binding_inputs(bundle):
+    source_path = ROOT / "packaging/macos-runtime/inputs.json"
+    (bundle / runtime.BINDING_INPUT_FILE).write_bytes(source_path.read_bytes())
+    sources = json.loads(source_path.read_text())
+    records = []
+    for source in sources["bindings"]:
+        path, licenses = write_binding_fixture(bundle / "wheels", source)
+        records.append(runtime.validate_binding_wheel(path, source, licenses))
+    (bundle / runtime.BINDING_INVENTORY_FILE).write_text(json.dumps({"scope": "synthetic portable fixture"}))
+    receipt = {"schema_version": 1, "target": runtime.TARGET, "source_revision": "a" * 40,
+               "source_inputs": {"file": runtime.BINDING_INPUT_FILE, "sha256": runtime.digest(bundle / runtime.BINDING_INPUT_FILE)},
+               "build_inventory": {"file": runtime.BINDING_INVENTORY_FILE, "sha256": runtime.digest(bundle / runtime.BINDING_INVENTORY_FILE)},
+               "wheels": sorted(records, key=lambda item: item["name"])}
+    path = bundle / runtime.BINDING_MANIFEST_FILE
+    path.write_text(json.dumps(receipt))
+    return receipt, runtime.digest(path)
+
+
 class MacOfflineCandidateTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -51,6 +111,7 @@ class MacOfflineCandidateTests(unittest.TestCase):
         self.wheels.mkdir(parents=True)
         for name in ("nvbroadcast", "onnxruntime", "faster-whisper", "pip", "setuptools", "wheel", "packaging"):
             self.add_wheel(name)
+        self.bindings, self.binding_sha256 = write_binding_inputs(self.bundle)
         self.manifest()
         self.runtime = self.root / "user runtime"
 
@@ -64,15 +125,47 @@ class MacOfflineCandidateTests(unittest.TestCase):
 
     def manifest(self):
         packages = sorted((runtime.wheel_record(path) for path in self.wheels.iterdir()), key=lambda item: item["name"])
-        manifest = {"schema_version": 1, "target": runtime.TARGET,
-                    "minimum_macos": runtime.MINIMUM_MACOS, "packages": packages}
+        manifest = {"schema_version": 2, "target": runtime.TARGET,
+                    "minimum_macos": runtime.MINIMUM_MACOS, "packages": packages,
+                    "source_revision": self.bindings["source_revision"],
+                    "native_bindings_manifest_sha256": self.binding_sha256, "native_bindings": self.bindings}
         (self.bundle / "manifest.json").write_text(json.dumps(manifest))
         (self.bundle / "requirements.txt").write_text(runtime.requirements(packages))
         (self.bundle / "macos-runtime-id").write_text(runtime.tree_digest(self.bundle) + "\n")
 
     def test_exact_bundle_is_accepted(self):
         result = runtime.validate_bundle(self.bundle)
-        self.assertEqual(len(result["packages"]), 7)
+        self.assertEqual(len(result["packages"]), 9)
+
+    def test_binding_provenance_must_match_application_source(self):
+        path = self.bundle / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["source_revision"] = "b" * 40
+        path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "provenance differs"):
+            runtime.validate_bundle(self.bundle)
+
+    def test_base_without_cairo_can_install_private_wheels_before_native_verification(self):
+        with (mock.patch.object(runtime.os, "geteuid", return_value=501),
+              mock.patch.object(runtime, "base_probe", return_value={}) as base,
+              mock.patch.object(runtime, "native_probe", side_effect=AssertionError("Bare Python must not import Cairo")),
+              mock.patch.object(runtime, "pip_install") as install,
+              mock.patch.object(runtime, "run") as run):
+            runtime.install(self.bundle, self.runtime)
+        base.assert_called_once()
+        install.assert_called_once()
+        self.assertEqual(run.call_args_list[0].args, (sys.executable, "-m", "venv", self.runtime / ".venv"))
+        self.assertIn("verify", run.call_args_list[1].args)
+        self.assertTrue((self.runtime / "runtime-ready").is_file())
+
+    def test_failed_private_native_verification_never_marks_ready(self):
+        with (mock.patch.object(runtime.os, "geteuid", return_value=501),
+              mock.patch.object(runtime, "base_probe", return_value={}),
+              mock.patch.object(runtime, "pip_install"),
+              mock.patch.object(runtime, "run", side_effect=[mock.Mock(), subprocess.CalledProcessError(1, "native verify")])):
+            with self.assertRaises(subprocess.CalledProcessError):
+                runtime.install(self.bundle, self.runtime)
+        self.assertFalse((self.runtime / "runtime-ready").exists())
 
     def test_vendored_dependency_metadata_is_not_a_second_wheel_owner(self):
         path = self.wheels / "pip-1.0-py3-none-any.whl"
@@ -127,7 +220,7 @@ class MacOfflineCandidateTests(unittest.TestCase):
             runtime.tree_digest(self.bundle)
 
     def test_root_never_probes_homebrew(self):
-        with mock.patch.object(runtime.os, "geteuid", return_value=0), mock.patch.object(runtime, "native_probe") as probe:
+        with mock.patch.object(runtime.os, "geteuid", return_value=0), mock.patch.object(runtime, "base_probe") as probe:
             with self.assertRaisesRegex(RuntimeError, "without sudo"):
                 runtime.install(self.bundle, self.runtime)
         probe.assert_not_called()
@@ -138,7 +231,7 @@ class MacOfflineCandidateTests(unittest.TestCase):
         previous.mkdir()
         (previous / "runtime-ready").write_text("previous successful runtime")
         with mock.patch.object(runtime.os, "geteuid", return_value=501), \
-                mock.patch.object(runtime, "native_probe", return_value={}), \
+                mock.patch.object(runtime, "base_probe", return_value={}), \
                 mock.patch.object(runtime, "run"), \
                 mock.patch.object(runtime, "pip_install", side_effect=RuntimeError("install failed")):
             with self.assertRaisesRegex(RuntimeError, "install failed"):
@@ -150,7 +243,7 @@ class MacOfflineCandidateTests(unittest.TestCase):
         self.runtime.mkdir()
         (self.runtime / "keep.txt").write_text("inspect this failure")
         with mock.patch.object(runtime.os, "geteuid", return_value=501), \
-                mock.patch.object(runtime, "native_probe", return_value={}), \
+                mock.patch.object(runtime, "base_probe", return_value={}), \
                 mock.patch.object(runtime, "pip_install") as install:
             with self.assertRaisesRegex(RuntimeError, "incomplete"):
                 runtime.install(self.bundle, self.runtime)
@@ -160,7 +253,7 @@ class MacOfflineCandidateTests(unittest.TestCase):
     def test_changed_payload_is_rejected_before_environment_creation(self):
         (self.bundle / "extra-script.py").write_text("changed payload")
         with mock.patch.object(runtime.os, "geteuid", return_value=501), \
-                mock.patch.object(runtime, "native_probe", return_value={}):
+                mock.patch.object(runtime, "base_probe", return_value={}):
             with self.assertRaisesRegex(ValueError, "identity"):
                 runtime.install(self.bundle, self.runtime)
         self.assertFalse(self.runtime.exists())
@@ -170,7 +263,7 @@ class MacOfflineCandidateTests(unittest.TestCase):
         target.mkdir()
         self.runtime.symlink_to(target, target_is_directory=True)
         with mock.patch.object(runtime.os, "geteuid", return_value=501), \
-                mock.patch.object(runtime, "native_probe", return_value={}):
+                mock.patch.object(runtime, "base_probe", return_value={}):
             with self.assertRaisesRegex(RuntimeError, "redirected user runtime"):
                 runtime.install(self.bundle, self.runtime)
         self.assertEqual(list(target.iterdir()), [])
@@ -314,6 +407,233 @@ echo application-started >> "$NVB_TEST_LOG"
         pins = json.loads((HERE / "inputs.json").read_text())
         self.assertEqual(pins["minimum_macos"], runtime.MINIMUM_MACOS)
         self.assertEqual(runtime.MINIMUM_MACOS, "14.0")
+
+
+class MacPrivateBindingTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.bundle = self.root / "bindings"
+        (self.bundle / "wheels").mkdir(parents=True)
+        self.receipt, self.expected = write_binding_inputs(self.bundle)
+        self.sources = json.loads((self.bundle / runtime.BINDING_INPUT_FILE).read_text())
+        self.source = next(item for item in self.sources["bindings"] if item["name"] == "pycairo")
+
+    def seal(self):
+        path = self.bundle / runtime.BINDING_MANIFEST_FILE
+        path.write_text(json.dumps(self.receipt))
+        self.expected = runtime.digest(path)
+
+    def test_exact_prepared_binding_inputs_are_accepted(self):
+        result = runtime.validate_binding_inputs(self.bundle, self.expected)
+        self.assertEqual({item["name"] for item in result["wheels"]}, runtime.BINDING_NAMES)
+        for item in result["wheels"]:
+            self.assertTrue(item["source_licenses"])
+            self.assertTrue(item["native_objects"])
+
+    def test_manifest_source_inventory_and_wheel_tampering_are_rejected(self):
+        paths = [self.bundle / name for name in (
+            runtime.BINDING_MANIFEST_FILE, runtime.BINDING_INPUT_FILE, runtime.BINDING_INVENTORY_FILE)]
+        paths += [self.bundle / "wheels" / self.receipt["wheels"][0]["file"]]
+        for path in paths:
+            with self.subTest(path=path.name):
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                try:
+                    with self.assertRaises(ValueError):
+                        runtime.validate_binding_inputs(self.bundle, self.expected)
+                finally:
+                    path.write_bytes(original)
+
+    def test_missing_extra_duplicate_and_redirected_binding_inputs_fail(self):
+        original = copy.deepcopy(self.receipt)
+        for change in ("missing", "duplicate", "owner", "path", "target"):
+            with self.subTest(change=change):
+                self.receipt = copy.deepcopy(original)
+                if change == "missing":
+                    self.receipt["wheels"].pop()
+                elif change == "duplicate":
+                    self.receipt["wheels"].append(self.receipt["wheels"][0])
+                elif change == "owner":
+                    self.receipt["wheels"][0]["name"] = "unreviewed"
+                elif change == "path":
+                    self.receipt["source_inputs"]["file"] = "../other.json"
+                else:
+                    self.receipt["target"] = "macos-arm64-cp314-cpu"
+                self.seal()
+                with self.assertRaises(ValueError):
+                    runtime.validate_binding_inputs(self.bundle, self.expected)
+        self.receipt = original
+        self.seal()
+        extra = self.bundle / "wheels/unexpected.whl"
+        extra.write_bytes(b"unexpected")
+        with self.assertRaisesRegex(ValueError, "undeclared"):
+            runtime.validate_binding_inputs(self.bundle, self.expected)
+        extra.unlink()
+        path = self.bundle / "wheels" / original["wheels"][0]["file"]
+        outside = self.root / path.name
+        path.rename(outside)
+        path.symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, "regular wheel"):
+            runtime.validate_binding_inputs(self.bundle, self.expected)
+
+    def test_python_architecture_and_exact_deployment_floor_are_checked(self):
+        for tag in ("cp314-cp314-macosx_14_0_arm64", "cp313-cp313-macosx_14_0_x86_64",
+                    "cp313-cp313-macosx_15_0_arm64", "py3-none-any"):
+            with self.subTest(tag=tag):
+                path, licenses = write_binding_fixture(self.bundle / "wheels", self.source, tag=tag)
+                with self.assertRaisesRegex(ValueError, "incompatible"):
+                    runtime.validate_binding_wheel(path, self.source, licenses)
+        for floor in ((14, 0, 1), (14, 1, 0), (15, 0, 0)):
+            with self.subTest(floor=floor):
+                path, licenses = write_binding_fixture(self.bundle / "wheels", self.source, floor=floor)
+                with self.assertRaisesRegex(ValueError, "deployment floor"):
+                    runtime.validate_binding_wheel(path, self.source, licenses)
+        with self.assertRaisesRegex(ValueError, "architecture"):
+            runtime._native_object(native_fixture(cpu=0x01000007))
+        with self.assertRaisesRegex(ValueError, "Mach-O"):
+            runtime._native_object(b"not an extension")
+        path, licenses = write_binding_fixture(self.bundle / "wheels", self.source,
+                                               tag="cp313-cp313-macosx_11_0_arm64")
+        with self.assertRaisesRegex(ValueError, "wheel tag"):
+            runtime.validate_binding_wheel(path, self.source, licenses)
+
+    def test_wheel_filename_and_wheel_metadata_are_bound_to_source(self):
+        path, licenses = write_binding_fixture(self.bundle / "wheels", self.source)
+        renamed = path.with_name(path.name.replace("pycairo-1.29.2-", "unrelated-9.0-"))
+        path.rename(renamed)
+        with self.assertRaisesRegex(ValueError, "filename"):
+            runtime.validate_binding_wheel(renamed, self.source, licenses)
+        renamed.rename(path)
+        with zipfile.ZipFile(path) as archive:
+            payloads = {item.filename: archive.read(item) for item in archive.infolist()}
+        wheel_metadata = next(name for name in payloads if name.endswith(".dist-info/WHEEL"))
+        payloads[wheel_metadata] = payloads[wheel_metadata].replace(b"cp313-cp313-", b"cp314-cp314-")
+        with zipfile.ZipFile(path, "w") as archive:
+            for name, data in payloads.items():
+                archive.writestr(name, data)
+        with self.assertRaisesRegex(ValueError, "tags differ"):
+            runtime.validate_binding_wheel(path, self.source, licenses)
+
+    def test_private_module_origins_and_actual_installed_bytes_are_checked(self):
+        prefix = self.root / "private"
+        site = prefix / "lib/python3.13/site-packages"
+        paths = {}
+        for name in ("gi/__init__.py", "gi/_gi.so", "cairo/__init__.py", "cairo/_cairo.so"):
+            path = site / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(name.encode())
+            paths[name] = path
+        expected = {name: runtime.digest(path) for name, path in paths.items()}
+        runtime.verify_binding_modules(paths, prefix, site, expected)
+        paths["gi/_gi.so"].write_bytes(b"changed extension")
+        with self.assertRaisesRegex(RuntimeError, "packaged wheel"):
+            runtime.verify_binding_modules(paths, prefix, site, expected)
+        outside = self.root / "external.so"
+        outside.write_bytes(b"external")
+        mixed = {**paths, "gi/_gi.so": outside}
+        with self.assertRaisesRegex(RuntimeError, "private prefix"):
+            runtime.verify_binding_modules(mixed, prefix, site, None)
+        paths["gi/_gi.so"].unlink()
+        paths["gi/_gi.so"].symlink_to(outside)
+        with self.assertRaisesRegex(RuntimeError, "private prefix"):
+            runtime.verify_binding_modules(paths, prefix, site, None)
+
+    def test_producer_digest_is_new_and_kept_outside_mutable_inputs(self):
+        cache = self.root / "cache"
+        cache.mkdir()
+        output = self.root / "expected.sha256"
+        binding_prepare.write_expected_digest(output, self.expected, self.bundle, cache)
+        self.assertEqual(output.read_text().strip(), self.expected)
+        with self.assertRaises(FileExistsError):
+            binding_prepare.write_expected_digest(output, "b" * 64, self.bundle, cache)
+        self.assertEqual(output.read_text().strip(), self.expected)
+        for path in (cache / "expected.sha256", self.bundle / "expected.sha256"):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "outside"):
+                binding_prepare.write_expected_digest(path, self.expected, self.bundle, cache)
+        link = self.root / "redirected.sha256"
+        link.symlink_to(output)
+        with self.assertRaises(FileExistsError):
+            binding_prepare.write_expected_digest(link, self.expected, self.bundle, cache)
+
+    def test_authenticated_source_notices_are_retained_and_record_is_regenerated(self):
+        path, _ = write_binding_fixture(self.bundle / "wheels", self.source)
+        with zipfile.ZipFile(path) as wheel:
+            original_modules = {name: wheel.read(name) for name in wheel.namelist() if name.endswith(".so")}
+        source_archive = self.root / "pycairo-1.29.2.tar.gz"
+        entries = {"pycairo-1.29.2/COPYING": b"source notice\n",
+                   "pycairo-1.29.2/LICENSES/MPL-1.1.txt": b"source licence text\n",
+                   "pycairo-1.29.2/REUSE.toml": b"source attribution metadata\n",
+                   "pycairo-1.29.2/README.md": b"ordinary documentation\n"}
+        with tarfile.open(source_archive, "w:gz") as archive:
+            for name, data in entries.items():
+                item = tarfile.TarInfo(name)
+                item.size = len(data)
+                archive.addfile(item, io.BytesIO(data))
+        source = {**self.source, "sha256": runtime.digest(source_archive)}
+        retained = binding_prepare.retain_source_licenses(path, source_archive, source)
+        self.assertEqual(set(retained), set(entries) - {"pycairo-1.29.2/README.md"})
+        runtime.validate_binding_wheel(path, source, retained)
+        with zipfile.ZipFile(path) as wheel:
+            for name, data in original_modules.items():
+                self.assertEqual(wheel.read(name), data)
+            for name, record in retained.items():
+                self.assertEqual(wheel.read(record["file"]), entries[name])
+            record_path = next(name for name in wheel.namelist() if name.endswith(".dist-info/RECORD"))
+            rows = list(csv.reader(io.StringIO(wheel.read(record_path).decode())))
+            self.assertEqual({row[0] for row in rows}, set(wheel.namelist()))
+            for name, expected_hash, expected_size in rows:
+                if name == record_path:
+                    self.assertEqual((expected_hash, expected_size), ("", ""))
+                    continue
+                data = wheel.read(name)
+                expected = "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+                self.assertEqual((expected_hash, int(expected_size)), (expected, len(data)))
+
+    def test_compilation_requires_actual_network_denial_before_any_install(self):
+        client = mock.MagicMock()
+        client.__enter__.return_value = client
+        client.connect.return_value = None
+        with (mock.patch.object(runtime.os, "geteuid", return_value=501),
+              mock.patch.object(runtime, "base_probe", return_value={}),
+              mock.patch.object(binding_prepare.socket, "socket", return_value=client),
+              mock.patch.object(runtime, "run") as run):
+            with self.assertRaisesRegex(RuntimeError, "enforced network denial"):
+                binding_prepare.compile_bindings(self.bundle, self.root, "", "", "a" * 40, "1")
+        run.assert_not_called()
+
+    def test_builder_requires_explicit_expected_binding_digest(self):
+        with (mock.patch.object(builder.os, "geteuid", return_value=501),
+              mock.patch.object(runtime, "base_probe") as probe):
+            with self.assertRaisesRegex(ValueError, "explicit expected SHA"):
+                builder.build(self.root / "output", native_bindings=self.bundle)
+        probe.assert_not_called()
+
+    def test_private_binding_dependencies_are_checked_with_upstream_selection(self):
+        upstream = self.root / "upstream"
+        upstream.mkdir()
+        app = self.root / "nvbroadcast-1.0-py3-none-any.whl"
+        with zipfile.ZipFile(app, "w") as archive:
+            archive.writestr("nvbroadcast-1.0.dist-info/METADATA",
+                             "Metadata-Version: 2.3\nName: nvbroadcast\nVersion: 1.0\n")
+        result = binding_prepare.verify_closure(self.bundle, self.expected, upstream, app)
+        self.assertEqual(result["status"], "pass")
+        record = next(item for item in self.receipt["wheels"] if item["name"] == "pygobject")
+        wheel = self.bundle / "wheels" / record["file"]
+        with zipfile.ZipFile(wheel) as archive:
+            contents = {item.filename: archive.read(item) for item in archive.infolist()}
+        metadata = next(name for name in contents if name.endswith(".dist-info/METADATA"))
+        contents[metadata] = contents[metadata].replace(b"pycairo>=1.16.0", b"pycairo>=99")
+        with zipfile.ZipFile(wheel, "w") as archive:
+            for name, data in contents.items():
+                archive.writestr(name, data)
+        source = next(item for item in self.sources["bindings"] if item["name"] == "PyGObject")
+        updated = runtime.validate_binding_wheel(wheel, source, record["source_licenses"])
+        self.receipt["wheels"] = [updated if item["name"] == "pygobject" else item for item in self.receipt["wheels"]]
+        self.seal()
+        with self.assertRaisesRegex(ValueError, "Unsatisfied private binding dependency"):
+            binding_prepare.verify_closure(self.bundle, self.expected, upstream, app)
 
 
 class MacFixedSupplierTests(unittest.TestCase):

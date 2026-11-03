@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.5.3
+Version:        1.5.4
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -203,6 +203,12 @@ fi
 %doc README.md CONTRIBUTORS.md
 
 %changelog
+* Wed Oct 28 2026 doczeus <harshit@kshoonya.com> - 1.5.4-1
+- Refresh affected Python dependencies and certificate bundles.
+- Keep Eye Contact tracking fresh and recognize live Arch CUDA runtimes.
+- Stop runtime setup on prerequisite or CPU fallback failure.
+- Keep managed protobuf visible with Fedora’s legacy google namespace hook.
+
 * Sat Oct 10 2026 doczeus <harshit@kshoonya.com> - 1.5.3-1
 - Keep Camera, Audio, and preview controls usable in small windows
 - Preserve MP4 video and audio across capture changes and expose saved recordings

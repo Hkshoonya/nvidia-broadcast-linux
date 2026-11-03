@@ -1,3 +1,5 @@
+from pathlib import Path
+import subprocess
 import threading
 import time
 import unittest
@@ -7,6 +9,7 @@ from unittest import mock
 
 import numpy as np
 
+from nvbroadcast.video import autoframe, face_landmarks
 from nvbroadcast.video.face_landmarks import SharedFaceLandmarker
 
 
@@ -192,6 +195,94 @@ class FaceLandmarkerTests(unittest.TestCase):
         self.assertIs(lm.request_async(frames[2], reuse_frames=3), cached)
         np.testing.assert_array_equal(lm._pending_job, frames[2])
         self.assertEqual(lm._worker_event.set.call_count, 1)
+
+
+class NativeProbeTests(unittest.TestCase):
+    def test_killed_model_probe_is_cached_without_importing_native_library(self):
+        for module in (autoframe, face_landmarks):
+            with (
+                self.subTest(module=module.__name__),
+                mock.patch.object(module, "_MEDIAPIPE_READY", None),
+                mock.patch.object(module, "_MEDIAPIPE_IMPORT_ERROR", None),
+                mock.patch.object(
+                    module.subprocess, "run",
+                    return_value=SimpleNamespace(
+                        returncode=-9, stdout="", stderr="native model failed",
+                    ),
+                ) as run,
+                mock.patch.object(module.importlib, "import_module") as load,
+            ):
+                for _ in range(2):
+                    with self.assertRaisesRegex(RuntimeError, "initialization exited -9"):
+                        module._load_mediapipe(Path("/tmp/model with spaces.task"))
+                run.assert_called_once()
+                load.assert_not_called()
+
+    def test_successful_probe_keeps_model_path_as_a_separate_argument(self):
+        model_path = Path("/tmp/model with spaces.task")
+        for module in (autoframe, face_landmarks):
+            with self.subTest(module=module.__name__), mock.patch.object(
+                module.subprocess, "run",
+                return_value=SimpleNamespace(returncode=0, stdout="", stderr="warning"),
+            ) as run:
+                self.assertEqual(module._probe_mediapipe_runtime(model_path), (True, ""))
+                command = run.call_args.args[0]
+                self.assertEqual(command[-1], str(model_path))
+                self.assertEqual(command[1:3], ["-I", "-c"])
+                self.assertIn("create_from_options(options)", command[3])
+                compile(command[3], "<mediapipe-probe>", "exec")
+
+    def test_timeout_and_launch_failure_are_reported_without_loading_model(self):
+        errors = (subprocess.TimeoutExpired("probe", 15), OSError("cannot start probe"))
+        for module in (autoframe, face_landmarks):
+            for error in errors:
+                with (
+                    self.subTest(module=module.__name__, error=type(error).__name__),
+                    mock.patch.object(module, "_MEDIAPIPE_READY", None),
+                    mock.patch.object(module, "_MEDIAPIPE_IMPORT_ERROR", None),
+                    mock.patch.object(module.subprocess, "run", side_effect=error),
+                    mock.patch.object(module.importlib, "import_module") as load,
+                ):
+                    with self.assertRaises(RuntimeError):
+                        module._load_mediapipe(Path("model.task"))
+                    load.assert_not_called()
+
+    def test_silent_native_failure_retains_exit_status(self):
+        for module in (autoframe, face_landmarks):
+            with self.subTest(module=module.__name__), mock.patch.object(
+                module.subprocess, "run",
+                return_value=SimpleNamespace(returncode=-9, stdout="", stderr=""),
+            ):
+                ok, detail = module._probe_mediapipe_runtime(Path("model.task"))
+                self.assertFalse(ok)
+                self.assertIn("initialization exited -9", detail)
+
+    def test_failed_face_probe_leaves_optional_tracker_unavailable(self):
+        with (
+            mock.patch.object(
+                face_landmarks, "download_verified_model", return_value=Path("model.task"),
+            ),
+            mock.patch.object(
+                face_landmarks, "_load_mediapipe", side_effect=RuntimeError("native model killed"),
+            ),
+        ):
+            tracker = face_landmarks.SharedFaceLandmarker()
+        self.assertFalse(tracker.ready)
+        self.assertIsNone(tracker.latest())
+
+    def test_failed_detector_probe_leaves_auto_frame_unavailable(self):
+        with (
+            mock.patch.object(
+                autoframe, "download_verified_model", return_value=Path("detector.tflite"),
+            ),
+            mock.patch.object(
+                autoframe, "_load_mediapipe", side_effect=RuntimeError("native model killed"),
+            ),
+        ):
+            tracker = autoframe.AutoFrame()
+            self.assertFalse(tracker.initialize())
+        self.assertFalse(tracker._initialized)
+        self.assertIsNone(tracker._detector)
 
 
 if __name__ == "__main__":

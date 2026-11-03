@@ -12,7 +12,7 @@ export GI_TYPELIB_PATH=/opt/homebrew/lib/girepository-1.0
 bundle="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python=/opt/homebrew/opt/python@3.13/bin/python3.13
 if [[ ! -x "$python" ]]; then
-    echo 'Candidate requires Homebrew python@3.13, pygobject3, gtk4, libadwaita and gstreamer.' >&2
+    echo 'Candidate requires Homebrew python@3.13, gobject-introspection, gtk4, libadwaita and gstreamer. Python GI/Cairo bindings are packaged privately.' >&2
     exit 1
 fi
 identity=$(<"$bundle/macos-runtime-id")

@@ -36,7 +36,31 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: ${{ github.ref }}
           persist-credentials: false
+
+      - name: Verify promotion release source
+        run: |
+          set -euo pipefail
+
+          PACKAGE_VERSION="$(sed -n "s/^version:[[:space:]]*['\"]\([^'\"]*\)['\"]/\1/p" snap/snapcraft.yaml | head -n1)"
+          if [[ ! "$PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Could not read a release version from snap/snapcraft.yaml."
+            exit 1
+          fi
+          EXPECTED_REF="refs/tags/v$PACKAGE_VERSION"
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ] || [ "${GITHUB_REF:-}" != "$EXPECTED_REF" ]; then
+            echo "::error::Snap promotion must run from $EXPECTED_REF."
+            echo "Dispatch candidate or stable promotion with --ref v$PACKAGE_VERSION."
+            exit 1
+          fi
+
+          TAG_COMMIT="$(git --no-replace-objects rev-parse --verify "$EXPECTED_REF^{commit}")"
+          CHECKED_OUT_COMMIT="$(git --no-replace-objects rev-parse --verify "HEAD^{commit}")"
+          if [ "$CHECKED_OUT_COMMIT" != "$TAG_COMMIT" ] || [ "$CHECKED_OUT_COMMIT" != "${GITHUB_SHA:-}" ]; then
+            echo "::error::Checked-out commit, release tag commit, and workflow source SHA must match."
+            exit 1
+          fi
 
       - name: Install Snapcraft
         run: |

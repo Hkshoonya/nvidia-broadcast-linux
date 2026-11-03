@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.5.4" date="2026-10-28">
+      <description>
+        <p>Security updates and runtime reliability</p>
+        <ul>
+          <li>Refresh affected Python dependencies and certificate bundles</li>
+          <li>Keep Eye Contact following changing camera frames</li>
+          <li>Recognize live Arch CUDA runtimes while preserving ownership checks</li>
+          <li>Report native runtime prerequisite and fallback failures clearly</li>
+          <li>Keep managed protobuf visible with Fedora’s legacy namespace hook</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.3" date="2026-10-10">
       <description>
         <p>Recording, small windows, and runtime recovery</p>

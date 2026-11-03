@@ -66,10 +66,11 @@ base64 -i "$HOME/Downloads/NVBroadcast-Developer-ID-Installer.p12" |
     --repo Hkshoonya/nvidia-broadcast-linux --env macos-signing
 ```
 
-Set deployment branch/tag policies before adding secrets. For the current
-candidate work, allowed branches are `main` and `release/1.5.3-preparation`;
-allowed tags are `v*`. Temporary fix-branch policies have been removed after
-integration. Do not broaden this to all branches or expose
+Set deployment branch/tag policies before adding secrets. Release signing uses
+reviewed `v*` tags; manual development signing uses reviewed `main`. Check the
+configured environment restrictions before using another release-preparation
+branch, and remove temporary branch policies after integration. Do not broaden
+this to all branches or expose
 signing secrets to pull-request jobs. GitHub documents
 [environment restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 and [certificate handling on runners](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
@@ -162,10 +163,10 @@ keychain with stored credentials, run:
 ```bash
 python3 scripts/sign_macos_package.py \
   --resume-from /path/to/checkpoint \
-  --input /path/to/original/NVBroadcast-1.5.3-1.pkg \
+  --input /path/to/original/NVBroadcast-1.5.4-1.pkg \
   --source-sha256 UNSIGNED_PACKAGE_SHA256 \
   --signed-sha256 SIGNED_UPLOAD_SHA256 \
-  --output /path/to/new-output/NVBroadcast-1.5.3-1.pkg \
+  --output /path/to/new-output/NVBroadcast-1.5.4-1.pkg \
   --team-id YOUR_TEAM_ID --keychain /path/to/dedicated.keychain-db \
   --notary-profile YOUR_STORED_PROFILE --evidence-dir /path/to/new-evidence
 ```
@@ -184,9 +185,9 @@ Verify the downloaded
 package against the final evidence checksum, then run:
 
 ```bash
-pkgutil --check-signature "$HOME/Downloads/NVBroadcast-1.5.3-1.pkg"
-xcrun stapler validate "$HOME/Downloads/NVBroadcast-1.5.3-1.pkg"
-spctl --assess --type install --verbose=4 "$HOME/Downloads/NVBroadcast-1.5.3-1.pkg"
+pkgutil --check-signature "$HOME/Downloads/NVBroadcast-1.5.4-1.pkg"
+xcrun stapler validate "$HOME/Downloads/NVBroadcast-1.5.4-1.pkg"
+spctl --assess --type install --verbose=4 "$HOME/Downloads/NVBroadcast-1.5.4-1.pkg"
 ```
 
 Gatekeeper should accept the notarized Developer ID package. Open the package
@@ -194,7 +195,9 @@ normally in Installer. Keep Gatekeeper enabled. The package installs its
 admin-owned source; runtime preparation is a separate user step:
 
 ```bash
-/opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
+/opt/homebrew/bin/brew update
+/opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer pkgconf ninja
+/opt/homebrew/bin/brew upgrade python@3.13
 /opt/nvbroadcast/scripts/setup_macos_runtime.sh
 /usr/local/bin/nvbroadcast
 ```
@@ -204,6 +207,17 @@ plugins, provisions a user runtime tied to the exact package source, and marks
 it ready only after validation. Old runtime generations are retained. Unsafe
 or redirected package destinations require administrator review; Installer
 does not change ownership/ACLs or execute Homebrew/Python as root.
+
+The v1.5.4 PKG adds private, pinned Python 3.13 bindings when the current
+Homebrew formula no longer supplies that ABI. This compile path requires
+Apple's Command Line Tools (`xcode-select --install` if missing), plus the
+`pkgconf` and `ninja` prerequisites above. The
+[exact-tag package run](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/40792768856)
+passed private binding compilation/imports, CPU inference and synthetic media
+checks on Apple Silicon. The owner also confirmed M2 setup, camera/effects and
+spoken recording. These results do not qualify Intel or the separate M5/Tahoe
+report. The verified v1.5.4 installer is available from the
+[release page](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4).
 
 Use `/usr/local/bin/nvbroadcast` explicitly during acceptance so a previous
 source-install launcher does not shadow this package. Check:

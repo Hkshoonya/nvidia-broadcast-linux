@@ -2,21 +2,57 @@
 
 ## Unreleased
 
+- **Correct Fedora source-install dependencies and guidance** - Request the
+  available `python3-gobject` and `python3-cairo` packages, and explain why an
+  alternate Python alone does not provide matching desktop bindings. Normal
+  source installation still requires CPython 3.11–3.14; Python 3.15 support is
+  tracked separately in #184. Fixes #183.
+
+## v1.5.4 - Security and Runtime Reliability
+
+**Published.** [v1.5.4 downloads](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4)
+are available. The exact native packages and tag-built Snaps passed the scoped
+verification in [the release notes](docs/RELEASE_NOTES_1.5.4.md). The published
+release record documents Store revision identities, the observation decision
+and accepted limitations. Snap channel availability is reported separately by
+[the Store](https://snapcraft.io/nvbroadcast).
+
+- **Refresh Security-Sensitive Python Inputs** - Update affected certificate
+  bundles, image decoding, file locking and build/install tools. Audit actual
+  frozen Python versions in CI as well as the resolved project environment
+  ([PR #171](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/171)).
 - **Keep Eye Contact Tracking Fresh** - Prevent the shared face tracker from
   freezing on an earlier frame when Python reuses a released camera frame's
-  object ID. Eye Contact can keep following changing eye positions while
-  preserving its existing blink and occlusion limits
+  object ID. Eye Contact can follow changing eye positions while preserving
+  its existing blink and occlusion limits
   ([PR #151](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/151)).
-- **Report Failed RPM Runtime Fallback** - Report an installation failure when
-  both CUDA runtime setup and its clean CPU fallback fail
-  ([PR #142](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/142)).
-- **Stop on Native Runtime Prerequisite Failures** - DEB and RPM runtime setup
-  now stops if environment cleanup, creation, or bootstrap dependency setup
-  fails, instead of allowing later commands to hide the failure
-  ([PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143)).
+- **Recognize Arch CUDA Runtime Packages** - Recognize a live CUDA-enabled ONNX
+  build distributed under the plain `onnxruntime` name, while retaining strict
+  packaged-runtime checks, duplicate-owner rejection and inference validation.
+  Thanks to [@mauriciozaffari](https://github.com/mauriciozaffari) for the
+  contribution and Arch/RTX 2070 SUPER verification
+  ([PR #156](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/156)).
+- **Keep Fedora Virtualenv Protobuf Visible** - Keep the managed runtime’s
+  protobuf discoverable when Fedora’s legacy `google` namespace hook would
+  otherwise hide it, while retaining distro-only namespace modules
+  ([PR #159](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/159)).
+- **Report Native Runtime Setup Failures** - Stop when required environment
+  cleanup, creation or bootstrap setup fails. Report failure when CUDA setup
+  and its clean CPU fallback both fail
+  ([PR #142](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/142),
+  [PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143)).
+- **Handle Fresh Homebrew Python Bindings** - The macOS PKG setup can build
+  pinned GTK/Cairo Python bindings in its per-user runtime when current
+  Homebrew bindings target a newer Python ABI. Working supported system
+  bindings remain available. The tag-built PKG passed fresh binding compilation,
+  CPU inference and synthetic media checks on the Apple Silicon runner.
 
-These fixes are merged on main but are not included in the immutable v1.5.3
-release packages.
+Exact-tag package contents, signatures and provenance are verified within the
+recorded scope; the owner also confirmed the requested Linux and M2 Mac checks.
+Separately built Store revisions use their own verification and candidate
+acceptance records; tag-built Snap checksums do not identify another build. Experimental offline native adapters and Flatpak remain
+separate work under #60 and #95; this release does not enable them as defaults
+or close the remaining quality and physical-device issues.
 
 ## v1.5.3 - Recording, Small Windows, and Runtime Recovery
 

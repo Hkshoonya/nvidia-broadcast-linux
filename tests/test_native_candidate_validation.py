@@ -561,7 +561,10 @@ class VariantPayloadIdentityTests(unittest.TestCase):
             root = Path(temporary)
             source = {"revision": "a"*40, "version": "1.5.3", "source_date_epoch": 1}
             version = "1.5.3-7." + variant
-            git = lambda path: (ROOT / path).read_bytes()
+            def git(path):
+                if path == "pyproject.toml":
+                    return ('[project]\nversion="' + source["version"] + '"\n').encode()
+                return (ROOT / path).read_bytes()
             adapter = {"revision": source["revision"], "tree": "b"*40,
                        "files": {name: v.digest(git(name)) for name in v.ADAPTER_PATHS}}
             base_lock = git(f"packaging/native-runtime/pylock.linux-x86_64-cp313-{variant}.toml")

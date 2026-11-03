@@ -8,22 +8,30 @@ arm64 CPython 3.13 supplier wheels require macOS 14; a real runner resolution fo
 macOS 13 failed for that reason. The shipping package's support policy is unchanged.
 
 The candidate requires **Homebrew CPython 3.13.18 or newer in the 3.13 series**,
-with matching CPython 3.13 PyGObject/Pycairo bindings, GTK4, libadwaita and
-GStreamer. Build, setup, qualification and launch reject older interpreters. It replaces destination source builds,
+GTK4, libadwaita, GObject Introspection and GStreamer. Matching CPython 3.13
+PyGObject/Pycairo wheels are prepared privately on the builder and included in
+the candidate. Build, setup, qualification and launch reject older interpreters. It replaces destination source builds,
 pip index queries and dependency resolution with prebuilt wheels selected and
 hashed at build time. Homebrew provisioning is still an online prerequisite;
 this is not yet a self-contained macOS runtime. Model weights are not included.
 
 ## Trust and build boundaries
 
-Run `build.py --directory /absolute/new/output` on an ordinary-user Apple Silicon
-macOS runner, using `/opt/homebrew/opt/python@3.13/bin/python3.13`. Start from a
-clean committed checkout and provide the native prerequisites first:
+Use an ordinary-user Apple Silicon macOS runner and
+`/opt/homebrew/opt/python@3.13/bin/python3.13`. Start from a clean committed
+checkout, provide native build prerequisites, then prepare the two binding
+wheels. Keep the producer's validated expected digest outside both input
+directories. Preparation refuses to replace an existing output or digest file:
 
 ```sh
-/opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer
+/opt/homebrew/bin/brew install python@3.13 cairo glib gobject-introspection libffi gtk4 libadwaita gstreamer pkgconf ninja
+/opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/prepare_bindings.py prepare \
+  --directory "$PWD/dist/macos-binding-inputs" --cache "$PWD/dist/macos-offline-inputs" \
+  --sha256-output "$PWD/dist/macos-native-bindings.sha256"
+BINDINGS_SHA256="$(cat "$PWD/dist/macos-native-bindings.sha256")"
 /opt/homebrew/opt/python@3.13/bin/python3.13 packaging/macos-runtime-prototype/build.py \
-  --directory "$PWD/dist/macos-offline-candidate" --cache "$PWD/dist/macos-offline-inputs"
+  --directory "$PWD/dist/macos-offline-candidate" --cache "$PWD/dist/macos-offline-inputs" \
+  --native-bindings "$PWD/dist/macos-binding-inputs" --native-bindings-sha256 "$BINDINGS_SHA256"
 ```
 
 `inputs.json` pins the builder wheels and the SHA-256 of the committed
@@ -41,14 +49,27 @@ Previous functional qualification used older inputs and is historical; the
 revised selections require actual macOS runtime and rebuild qualification.
 Updating wheel pins does not update an existing installed candidate or Homebrew.
 
-As checked on 2026-10-26, [Homebrew supplies Python 3.13.18](https://formulae.brew.sh/api/formula/python@3.13.json),
+As checked on 2026-10-30, [Homebrew supplies Python 3.13.18](https://formulae.brew.sh/api/formula/python@3.13.json),
 but its current [PyGObject](https://formulae.brew.sh/api/formula/pygobject3.json)
 and [Pycairo](https://formulae.brew.sh/api/formula/py3cairo.json) formulae build
 bindings for Python 3.14/3.15. Installing current formulae alone therefore does
-not establish the required CPython 3.13 native ABI. Retained compatible bindings
-must pass the actual native import/media probe with patched Python; otherwise
-provide reviewed CPython 3.13 bindings before proceeding. The candidate fails
-instead of switching Python ABI or accepting an unpatched interpreter.
+not establish the required CPython 3.13 native ABI. The preparation uses the
+existing authenticated sources and build tools in `../macos-runtime/inputs.json`:
+Pycairo 1.29.2 and PyGObject 3.58.1 are built with the selected CPython 3.13,
+without dependency resolution or build isolation. Source/tool acquisition is
+followed by compilation under `sandbox-exec` network denial, which is checked
+using local and external TCP attempts. Every upstream licence/attribution file
+selected from the authenticated source archives is retained in the generated
+wheels, and their RECORD inventories are regenerated before hashing.
+
+`native-bindings.json` binds the two wheel hashes, exact source-input file and
+native build inventory. Each consumer requires the producer's separately kept
+expected SHA-256, the same source revision and the current canonical input hash.
+Binding wheel metadata and tags, arm64 Mach-O objects, macOS 14.0 deployment
+commands, module bytes and retained notices are checked. These generated wheels
+remain separate from the unchanged 54-entry HTTPS supplier lock. Both enter the
+final package manifest and full generated lock; combined dependency closure is
+checked before packaging.
 
 Normal builds never invoke the resolver. They rebuild the application wheel from
 committed source using the pinned builder tools, fetch only exact reviewed wheel
@@ -64,9 +85,13 @@ Use `--offline --cache /absolute/cache` to consume existing authenticated inputs
 without downloads. Missing or changed inputs fail instead of accessing an index.
 The hosted workflow repeats the complete build with networking denied and
 compares every candidate payload file's bytes and mode, including the launcher,
-application wheel, supplier inventory and Installer scripts. This verifies fixed Python input
-consumption on the same native host; it does not establish independent Homebrew
-reproducibility or byte-identical PKG archives.
+application wheel, supplier inventory and Installer scripts. Pass the same
+`--native-bindings` and `--native-bindings-sha256` arguments for this rebuild.
+The qualified preparation wheel bytes are reused; native recompilation is not
+claimed reproducible. The immutable preparation inventory is embedded in both
+payloads, while each build's actual private import paths are retained separately.
+This verifies fixed input consumption on the same native host; it does not
+establish independent Homebrew reproducibility or byte-identical PKG archives.
 
 Dependency refresh is a separate explicit operation:
 
@@ -85,8 +110,11 @@ SHA-256/provenance in `inputs.json` in the same PR. If builder versions change,
 review and update the bootstrap pins as part of that change. Keep the new runner
 qualification evidence before treating the updated inputs as qualified.
 
-The native probe imports actual GI/Pycairo extensions using the selected Python,
-checks their resolved Homebrew origins, and records Python, binding hashes,
+The base preflight checks the supported Homebrew interpreter and platform before
+creating a runtime. The full native probe runs after installing the authenticated
+binding wheels. It imports actual GI/Pycairo extensions from the selected private
+environment, compares them with the packaged module hashes, verifies the pinned
+binding owners, and records Python, binding hashes,
 Homebrew installed versions and GStreamer plugin versions/paths. Homebrew ABI
 changes fail the probe instead of silently choosing a different Python version.
 Build-host inventory and destination inventory are separately retained. The
@@ -116,8 +144,9 @@ owner, and verifies the complete package identity. Pip runs with `--isolated
 --no-index --no-deps --require-hashes --only-binary=:all: --force-reinstall`.
 Reinstalling removes stale local ensurepip metadata while pip's venv boundary
 prevents removing global Homebrew distributions.
-All selected wheels must be installed in the private venv at their exact versions;
-Homebrew supplies the native bindings through the existing system-site ABI.
+All selected wheels, including GI/Cairo, must be installed in the private venv at
+their exact versions. The venv does not inherit Homebrew site-packages; Homebrew
+continues to supply CPython and the linked native libraries and typelibs.
 The ready marker is written only after dependency closure, ownership, native
 imports, real CPU inference and generated H.264/AAC recording/decode pass.
 
@@ -131,6 +160,17 @@ inventory, generated-media results and install logs.
 PR triggers cover prototype/runtime packaging inputs. Run the manual workflow
 on the final candidate revision when unrelated application changes also need
 qualification; an older green prototype run does not qualify newer source.
+
+## Private binding preparation — 30 October 2026
+
+The repair follows the unchanged native-preflight failure in
+[run 41046981781](https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/41046981781):
+Homebrew CPython 3.13 could not import `cairo` before any application wheel was
+built. The private preparation path and updated payload contract require a new
+actual Mac build, offline rebuild, installed ABI/media qualification and artifact
+readback. Earlier successful prototype or shipping-package results do not qualify
+these new generated binding inputs. The prototype remains unsigned and separate
+from the frozen v1.5.4 release.
 
 ## Fixed Python inputs qualification — 26 October 2026
 
