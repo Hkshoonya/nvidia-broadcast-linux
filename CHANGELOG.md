@@ -10,6 +10,14 @@ release workflows. Published v1.5.4 artifacts retain their recorded identities.
   explicit CPU choice during first-run GPU checks. Cancel owned probe children
   when setup closes or the app quits, while retaining verified runtime checks
   and the existing cold-start time limits.
+- **Optional native-candidate Python inventory evidence** - After all existing
+  final-package qualification gates, retain authenticated METADATA projections
+  and deterministic, schema-checked SPDX sidecars for the final DEB and signed
+  RPM. This manual option defaults off and changes no package or released asset.
+  It remains partial Python inventory: complete native/interpreter/codec/model/
+  license coverage, the first hosted opt-in handoff, and release/device acceptance
+  remain separate under #60
+  ([scope and workflow contract](docs/PYTHON_SUPPLIER_INVENTORY.md#optional-experimental-native-candidate-evidence)).
 - **Explain Eye Contact tracking and correction skips** - Show live status in
   the existing Eye Contact controls when a face is missing, tracking fails,
   eyes cannot be adjusted, or correction is applied. Gaze correction and its

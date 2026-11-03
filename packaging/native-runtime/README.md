@@ -621,3 +621,13 @@ The test image must supply declared OS dependencies plus Xvfb, D-Bus, a private
 PulseAudio daemon and ordinary UID 1000. Its actual immutable ID is saved in
 the results. Production defaults remain gated until the delivery and supported
 platform acceptance above are complete; this adapter alone does not close #60.
+
+The finalization workflow also accepts optional `python_inventory: true`
+(default `false`). After the existing exact final-DEB/signed-RPM qualification
+gate, it retains archive-bound Python SPDX sidecars and their receipt. Only
+authenticated `METADATA` and the assembled lock cross a separate projection
+artifact; the package bytes, strict signed-bundle/family evidence allowlists
+and release defaults are unchanged. Both actual documents must pass repeat
+generation, official schema and metadata relationship checks. See
+[the partial inventory contract](../../docs/PYTHON_SUPPLIER_INVENTORY.md#optional-experimental-native-candidate-evidence)
+for bounds, evidence-tool inputs and the remaining native/license scope.

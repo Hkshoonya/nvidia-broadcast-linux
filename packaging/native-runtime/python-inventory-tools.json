@@ -1,0 +1,62 @@
+{
+  "host": {
+    "implementation": "cpython",
+    "machine": "x86_64",
+    "python": [
+      3,
+      12
+    ],
+    "system": "Linux"
+  },
+  "packages": [
+    {
+      "bytes": 60752,
+      "filename": "attrs-23.2.0-py3-none-any.whl",
+      "name": "attrs",
+      "sha256": "99b87a485a5820b23b879f04c2305b44b951b502fd64be915879d77a7e8fc6f1",
+      "url": "https://files.pythonhosted.org/packages/e0/44/827b2a91a5816512fcaf3cc4ebc465ccd5d598c45cefa6703fcf4a79018f/attrs-23.2.0-py3-none-any.whl",
+      "version": "23.2.0"
+    },
+    {
+      "bytes": 90630,
+      "filename": "jsonschema-4.26.0-py3-none-any.whl",
+      "name": "jsonschema",
+      "sha256": "d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce",
+      "url": "https://files.pythonhosted.org/packages/69/90/f63fb5873511e014207a475e2bb4e8b2e570d655b00ac19a9a0ca0a385ee/jsonschema-4.26.0-py3-none-any.whl",
+      "version": "4.26.0"
+    },
+    {
+      "bytes": 18437,
+      "filename": "jsonschema_specifications-2025.9.1-py3-none-any.whl",
+      "name": "jsonschema-specifications",
+      "sha256": "98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe",
+      "url": "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl",
+      "version": "2025.9.1"
+    },
+    {
+      "bytes": 26766,
+      "filename": "referencing-0.37.0-py3-none-any.whl",
+      "name": "referencing",
+      "sha256": "381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231",
+      "url": "https://files.pythonhosted.org/packages/2c/58/ca301544e1fa93ed4f80d724bf5b194f6e4b945841c5bfd555878eea9fcb/referencing-0.37.0-py3-none-any.whl",
+      "version": "0.37.0"
+    },
+    {
+      "bytes": 394080,
+      "filename": "rpds_py-0.30.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "name": "rpds-py",
+      "sha256": "47f236970bccb2233267d89173d3ad2703cd36a0e2a6e92d0560d333871a3d23",
+      "url": "https://files.pythonhosted.org/packages/60/1b/6f8f29f3f995c7ffdde46a626ddccd7c63aefc0efae881dc13b6e5d5bb16/rpds_py-0.30.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "0.30.0"
+    },
+    {
+      "bytes": 45571,
+      "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+      "name": "typing-extensions",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+      "version": "4.16.0"
+    }
+  ],
+  "schema_version": 1
+}

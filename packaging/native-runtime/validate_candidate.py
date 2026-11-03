@@ -327,7 +327,7 @@ def docker_query(package, family, command):
         require(not bounded(["docker", "ps", "-aq", "--filter", "name=^/" + name + "$" ]).strip(), "decoder query cleanup failed")
 
 
-def decoded_inventory(package, family, *, control=False, variant="cpu"):
+def decoded_inventory(package, family, *, control=False, variant="cpu", metadata_collector=None):
     selected = policy.policy_for(variant)
     name = "nvb-artifact-decode-" + uuid.uuid4().hex[:12]
     command = (["dpkg-deb", "--ctrl-tarfile" if control else "--fsys-tarfile", "/package.deb"] if family == "deb"
@@ -353,6 +353,11 @@ def decoded_inventory(package, family, *, control=False, variant="cpu"):
                     require(path not in inventory and len(inventory) < 50000, "duplicate/excess payload entry")
                     require(entry.uid == 0 and entry.gid == 0
                             and (entry.issym() or not entry.mode & 0o6022), "unsafe payload owner/mode")
+                    metadata_selected = False
+                    if metadata_collector is not None:
+                        kind = ("directory" if entry.isdir() else "file" if entry.isfile()
+                                else "symlink" if entry.issym() else "special")
+                        metadata_selected = metadata_collector.select(path, kind, entry.size)
                     modes[path] = entry.mode & 0o7777
                     if entry.isdir():
                         item = {"directory": True}
@@ -376,17 +381,22 @@ def decoded_inventory(package, family, *, control=False, variant="cpu"):
                             PREFIX + "share/nvbroadcast-runtime-provenance/inputs.json",
                             PREFIX + "share/nvbroadcast-runtime-provenance/builders.json",
                             PREFIX + "share/nvbroadcast-runtime-provenance/selection.json"}
-                        require(not retain or entry.size <= 16*MIB, "oversize retained member")
+                        buffer_member = retain or metadata_selected
+                        require(not buffer_member or entry.size <= 16*MIB, "oversize retained member")
                         while chunk := member_stream.read(MIB):
                             size += len(chunk)
                             require(size <= entry.size, "member exceeds declared size")
                             h.update(chunk)
-                            if retain:
+                            if buffer_member:
                                 chunks.append(chunk)
                         require(size == entry.size, "truncated payload member")
                         item = {"sha256": h.hexdigest(), "size": size}
-                        if retain:
-                            kept[path] = b"".join(chunks)
+                        if buffer_member:
+                            data = b"".join(chunks)
+                            if retain:
+                                kept[path] = data
+                            if metadata_selected:
+                                metadata_collector.accept(path, data)
                     else:
                         raise ValueError("unsupported special or hardlink payload entry")
                     inventory[path] = item
@@ -438,6 +448,8 @@ def parse_arguments(argv=None):
     parser.add_argument("--variant", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--gh", default="gh")
     parser.add_argument("--zip", type=Path, help="Inspect this already-downloaded ZIP instead of fetching it")
+    parser.add_argument("--python-inventory-output", type=Path,
+                        help="Optional fresh METADATA projection outside the validated signing transfer")
     for option in ("repo", "output"):
         parser.add_argument("--" + option, required=True, type=Path)
     args = parser.parse_args(argv)
@@ -462,6 +474,14 @@ def validate(args):
     run, artifact = live_metadata(args)
     require(not args.output.exists() and not args.output.is_symlink(), "output must be a new directory")
     output = args.output.resolve()
+    projection_output = getattr(args, "python_inventory_output", None)
+    if projection_output is not None:
+        projection_output = projection_output.absolute()
+        require(not projection_output.exists() and not projection_output.is_symlink() and
+                projection_output.resolve() == projection_output and
+                not projection_output.resolve().is_relative_to(output) and
+                not output.is_relative_to(projection_output.resolve()),
+                "Python projection must be fresh and outside the validated signing transfer")
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     result = {"schema_version": 1, "status": "running", "driver_sha256": file_digest(Path(__file__)), "source": args.source,
               "repository": REPO, "repository_id": REPOSITORY_ID,
@@ -532,6 +552,8 @@ def validate(args):
         helper = helper_source.replace('PUBLIC_ARMOR = b""', 'PUBLIC_ARMOR = ' + repr(key)).encode()
         app_paths = bounded(["git", "--no-replace-objects", "ls-tree", "-r", "--name-only", args.source, "--", "src/nvbroadcast"], cwd=args.repo).decode().splitlines()
         app_expected = {p.removeprefix("src/nvbroadcast/"): digest(git(p)) for p in app_paths if p.endswith(".py")}
+        projection = None
+        inventory_module = None
         for package in packages:
             family = package["family"]
             expected_relative = (f"deb/nvbroadcast_{version}_amd64.deb" if family == "deb" else
@@ -551,7 +573,14 @@ def validate(args):
             content = parse_json(read(package["content"]))
             expected_content = {p: entry for p, entry in content.items()
                                 if family != "rpm" or not (entry.get("directory") and len(PurePosixPath(p).parts) < 4)}
-            actual, modes, kept, total = decoded_inventory(path, family, variant=variant)
+            collector = None
+            if projection_output is not None and family == "deb":
+                inventory_spec = importlib.util.spec_from_file_location(
+                    "native_python_inventory", Path(__file__).with_name("python_inventory.py"))
+                inventory_module = importlib.util.module_from_spec(inventory_spec)
+                inventory_spec.loader.exec_module(inventory_module)
+                collector = inventory_module.MetadataCollector()
+            actual, modes, kept, total = decoded_inventory(path, family, variant=variant, metadata_collector=collector)
             require(actual == expected_content, "full package payload differs from content inventory")
             actual_runtime = {p.removeprefix(PREFIX): dict({"mode": modes[p]}, **{k: v for k, v in item.items() if k != "directory"})
                               for p, item in actual.items() if p.startswith(PREFIX)}
@@ -618,7 +647,24 @@ def validate(args):
                 "payload_entries": len(actual), "payload_regular_bytes": total, "runtime_entries": len(manifest),
                 "runtime_manifest_sha256": digest(manifest_bytes), "application_python_files": len(app_actual),
                 "scriptlet_source_match": True, "recovery_helper_sha256": digest(helper) if family == "rpm" else None}
+            if collector is not None:
+                projection = (collector, actual, path)
             save()
+        if projection_output is not None:
+            require(projection is not None, "validated DEB metadata projection is absent")
+            collector, decoded, deb = projection
+            projected = inventory_module.write_projection(
+                projection_output, collector, decoded, manifest, lock_bytes=lock_bytes,
+                source_commit=args.source, source_date_epoch=source["source_date_epoch"],
+                archive_identity={"name": deb.name, "bytes": result["packages"]["deb"]["bytes"],
+                                  "sha256": result["packages"]["deb"]["sha256"]},
+                runtime_manifest_sha256=digest(manifest_bytes))
+            projection_receipt = projection_output / "projection.json"
+            result["python_inventory_projection"] = {
+                "receipt_sha256": file_digest(projection_receipt), "receipt_bytes": projection_receipt.stat().st_size,
+                "metadata_count": projected["metadata_count"], "metadata_bytes": projected["metadata_bytes"],
+                "driver_sha256": file_digest(Path(__file__).with_name("python_inventory.py")),
+            }
         result["status"] = "pass"
     except Exception as error:
         result.update(status="fail", error=f"{type(error).__name__}: {error}")

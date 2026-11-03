@@ -33,6 +33,11 @@ on:
         description: 'Exact positive integer native package revision'
         type: string
         required: true
+      python_inventory:
+        description: 'Retain partial Python METADATA SPDX evidence after native qualification'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -57,6 +62,7 @@ jobs:
     outputs:
       receipt: ${{ steps.identity.outputs.receipt }}
       artifact_id: ${{ steps.transfer.outputs.artifact-id }}
+      projection_artifact_id: ${{ steps.projection-transfer.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -66,6 +72,7 @@ jobs:
       - name: Require sufficient workspace, temporary and Docker storage
         env:
           CANDIDATE_VARIANT: ${{ inputs.variant }}
+          PYTHON_INVENTORY: ${{ inputs.python_inventory }}
         run: |
           /usr/bin/python3 -I -S - <<'PY'
           import importlib.util, os, shutil, sys
@@ -76,8 +83,9 @@ jobs:
           spec.loader.exec_module(policy_module)
           policy = policy_module.policy_for(os.environ['CANDIDATE_VARIANT'])
           free = {name: shutil.disk_usage(os.environ[name]).free for name in ('GITHUB_WORKSPACE', 'RUNNER_TEMP', 'HOME')}
-          if any(value < policy.capacity_bytes for value in free.values()):
-              raise SystemExit(f'Candidate validation allocation requires {policy.capacity_bytes} free bytes; observed {free}')
+          required = policy.capacity_bytes + (256 * 1024**2 if os.environ.get('PYTHON_INVENTORY', 'false') == 'true' else 0)
+          if any(value < required for value in free.values()):
+              raise SystemExit(f'Candidate validation allocation requires {required} free bytes; observed {free}')
           Path('dist/builder-delivery').mkdir(parents=True, exist_ok=True)
           PY
       - name: Enable an isolated containerd image store
@@ -105,11 +113,17 @@ jobs:
           ARTIFACT_DIGEST: ${{ inputs.artifact_digest }}
           PACKAGE_REVISION: ${{ inputs.package_revision }}
           CANDIDATE_VARIANT: ${{ inputs.variant }}
+          PYTHON_INVENTORY: ${{ inputs.python_inventory }}
         run: |
+          projection_args=()
+          if [ "$PYTHON_INVENTORY" = true ]; then
+            projection_args+=(--python-inventory-output dist/python-inventory-projection)
+          fi
           /usr/bin/python3 -I -S packaging/native-runtime/validate_candidate.py \
             --run-id "$PRODUCER_RUN" --attempt "$PRODUCER_ATTEMPT" --source "$SOURCE_COMMIT" \
             --artifact-id "$ARTIFACT_ID" --expected-digest "$ARTIFACT_DIGEST" \
-            --package-revision "$PACKAGE_REVISION" --variant "$CANDIDATE_VARIANT" --repo "$GITHUB_WORKSPACE" --output dist/validated
+            --package-revision "$PACKAGE_REVISION" --variant "$CANDIDATE_VARIANT" --repo "$GITHUB_WORKSPACE" --output dist/validated \
+            "${projection_args[@]}"
       - name: Bind validated transfer to this job
         id: identity
         run: |
@@ -131,6 +145,15 @@ jobs:
           path: |
             dist/validated/
             !dist/validated/candidate.zip
+      - name: Transfer only the authenticated optional metadata projection
+        id: projection-transfer
+        if: inputs.python_inventory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-${{ inputs.variant }}-python-projection-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 1
+          if-no-files-found: error
+          path: dist/python-inventory-projection/
 
   sign:
     needs: validate
@@ -219,17 +242,19 @@ jobs:
       candidate_manifest: ${{ needs.sign.outputs.manifest }}
 
   retain:
-    needs: [sign, qualify-deb, qualify-rpm]
+    needs: [validate, sign, qualify-deb, qualify-rpm]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Require enough storage for the selected native candidate
         env:
           CANDIDATE_VARIANT: ${{ inputs.variant }}
+          PYTHON_INVENTORY: ${{ inputs.python_inventory }}
         run: |
           /usr/bin/python3 -I -S - <<'PY'
           import importlib.util, os, shutil, sys
@@ -239,8 +264,9 @@ jobs:
           spec.loader.exec_module(policy_module)
           policy = policy_module.policy_for(os.environ['CANDIDATE_VARIANT'])
           free = {name: shutil.disk_usage(os.environ[name]).free for name in ('GITHUB_WORKSPACE', 'RUNNER_TEMP', 'HOME')}
-          if any(value < policy.capacity_bytes for value in free.values()):
-              raise SystemExit(f'{policy.variant} candidate allocation requires {policy.capacity_bytes} free bytes; observed {free}')
+          required = policy.capacity_bytes + (256 * 1024**2 if os.environ.get('PYTHON_INVENTORY', 'false') == 'true' else 0)
+          if any(value < required for value in free.values()):
+              raise SystemExit(f'{policy.variant} candidate allocation requires {required} free bytes; observed {free}')
           PY
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -265,6 +291,55 @@ jobs:
           /usr/bin/python3 -I -S packaging/native-runtime/finalize_candidate.py complete \
             --bundle dist/signed --expected-manifest "$CANDIDATE_MANIFEST" --variant "$CANDIDATE_VARIANT" \
             --deb-evidence dist/evidence/deb --rpm-evidence dist/evidence/rpm --output dist/qualified
+      - name: Receive only the optional metadata projection after complete qualification
+        if: inputs.python_inventory
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.validate.outputs.projection_artifact_id }}
+          merge-multiple: true
+          path: dist/python-inventory-projection
+      - name: Prepare hash-pinned isolated host metadata and schema tools
+        id: inventory-tools
+        if: inputs.python_inventory
+        timeout-minutes: 3
+        run: |
+          /usr/bin/python3 -I -S - <<'PY'
+          import importlib.util, os, tomllib
+          from pathlib import Path
+          root = Path.cwd()
+          prototype = root / 'packaging/runtime-prototype'
+          spec = importlib.util.spec_from_file_location('inventory_input_fetch', prototype / 'prepare.py')
+          prepare = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(prepare)
+          entries = [p for p in tomllib.loads((prototype / 'pylock.build.toml').read_text())['packages'] if p['name'] == 'packaging']
+          if len(entries) != 1 or entries[0]['version'] != '26.0' or len(entries[0]['wheels']) != 1:
+              raise SystemExit('Expected the existing reviewed pure host packaging wheel')
+          wheel = entries[0]['wheels'][0]
+          if not wheel['url'].endswith('/packaging-26.0-py3-none-any.whl'):
+              raise SystemExit('Host metadata tool must remain the universal pure wheel')
+          cache = root / 'dist/native-inventory-host-tools'
+          cache.mkdir(parents=True, exist_ok=True)
+          verified = prepare.fetch(cache, {'url': wheel['url'], 'sha256': wheel['hashes']['sha256']})
+          if verified.stat().st_size != wheel['size']:
+              raise SystemExit('Host metadata tool size differs from the reviewed lock')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('wheel=' + str(verified) + '\n')
+          PY
+          /usr/bin/python3 -I -S packaging/native-runtime/inventory_host_tools.py \
+            --output dist/native-inventory-host-tools/schema
+      - name: Retain final archive-bound partial Python SPDX evidence
+        if: inputs.python_inventory
+        timeout-minutes: 5
+        env:
+          CANDIDATE_MANIFEST: ${{ needs.sign.outputs.manifest }}
+          CANDIDATE_VARIANT: ${{ inputs.variant }}
+          HOST_PACKAGING_WHEEL: ${{ steps.inventory-tools.outputs.wheel }}
+        run: |
+          /usr/bin/python3 -I -S packaging/native-runtime/retain_python_inventory.py \
+            --qualified dist/qualified --expected-manifest "$CANDIDATE_MANIFEST" \
+            --projection dist/python-inventory-projection --host-packaging-wheel "$HOST_PACKAGING_WHEEL" \
+            --schema-tools dist/native-inventory-host-tools/schema \
+            --variant "$CANDIDATE_VARIANT"
       - name: Retain complete qualified development candidate without publishing a release
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
