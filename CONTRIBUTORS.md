@@ -40,6 +40,8 @@ diminish authorship of any contribution.
 
 ### Cédric Prezelin ([@Tenshock](https://github.com/Tenshock))
 
+- Added the interim CPU-only NixOS flake, package, module and installation docs
+  ([#18](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/18)).
 - Improved documentation, live camera switching, profile changes with
   single-frame backends, GTK diagnostics, and consistent logging
   ([#19](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/19),

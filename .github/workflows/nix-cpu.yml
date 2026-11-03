@@ -1,0 +1,142 @@
+name: Experimental Nix CPU package
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'nix/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'data/**'
+      - 'pyproject.toml'
+      - '.github/workflows/nix-cpu.yml'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Prepare the exact Nixpkgs lock, or qualify an already reviewed committed lock.
+        type: choice
+        required: true
+        default: qualify
+        options: [qualify, prepare-lock]
+      profile:
+        description: Full rebuild is a finite opt-in for an uncached patched Python closure.
+        type: choice
+        required: true
+        default: standard
+        options: [standard, full-rebuild]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-cpu-${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'nix-full-rebuild') && format('ignored-label-{0}', github.run_id) || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ (github.event.action != 'labeled' && github.event.action != 'unlabeled') || github.event.label.name == 'nix-full-rebuild' }}
+
+jobs:
+  lock-status:
+    name: Check whether the prepared input lock is committed
+    if: (github.event.action != 'labeled' && github.event.action != 'unlabeled') || github.event.label.name == 'nix-full-rebuild'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      ready: ${{ steps.lock.outputs.ready }}
+      profile: ${{ steps.lock.outputs.profile }}
+      job_minutes: ${{ steps.lock.outputs.job_minutes }}
+      step_minutes: ${{ steps.lock.outputs.step_minutes }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - id: lock
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('hosted_check', 'nix/hosted_check.py')
+          hosted = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(hosted)
+          profile = hosted.selected_profile()
+          limits = hosted.profile_limits(profile)
+          pin = json.loads(Path('nix/security-inputs.json').read_text())['nixpkgsRevision']
+          locked = json.loads(Path('flake.lock').read_text())['nodes']['nixpkgs']['locked']
+          ready = locked.get('rev') == pin and locked.get('narHash', '').startswith('sha256-')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('ready=' + str(ready).lower() + '\n')
+              output.write('profile=' + profile + '\n')
+              output.write('job_minutes=' + str(limits['job_minutes']) + '\n')
+              output.write('step_minutes=' + str(limits['step_minutes']) + '\n')
+          if not ready:
+              print('::notice::CPU qualification is skipped until the prepared exact input lock is reviewed and committed.')
+          PY
+
+  prepare-lock:
+    name: Prepare Nix input lock (no CPU qualification)
+    needs: lock-status
+    if: needs.lock-status.outputs.ready != 'true' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'prepare-lock')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - name: Bootstrap exact official Nix without credentials
+        timeout-minutes: 8
+        run: bash nix/bootstrap_ci.sh
+      - name: Resolve only the committed upstream input revision
+        timeout-minutes: 6
+        run: python3 nix/hosted_check.py prepare-lock
+      - name: Stop only this job's fresh Nix daemon
+        if: always()
+        timeout-minutes: 1
+        run: |
+          if [ -f dist/nix-cpu/installation-owned-by-job ]; then
+            sudo systemctl stop nix-daemon.socket nix-daemon.service
+          fi
+      - name: Retain the lock and bounded preparation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nix-input-preparation-${{ github.sha }}-${{ github.run_attempt }}
+          path: dist/nix-cpu/
+          if-no-files-found: warn
+          retention-days: 7
+
+  qualify:
+    name: Build and qualify the committed Nix CPU runtime (${{ needs.lock-status.outputs.profile }})
+    needs: lock-status
+    if: needs.lock-status.outputs.ready == 'true' && (github.event_name != 'workflow_dispatch' || inputs.operation == 'qualify')
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ fromJSON(needs.lock-status.outputs.job_minutes) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - name: Verify the source manifest before bootstrap
+        run: python3 nix/source_files.py --check
+      - name: Verify the selected profile's runner resources before bootstrap
+        run: python3 nix/hosted_check.py preflight
+      - name: Bootstrap exact official Nix without credentials
+        timeout-minutes: 8
+        run: bash nix/bootstrap_ci.sh
+      - name: Check official cache plan, then build within time and storage bounds
+        timeout-minutes: ${{ fromJSON(needs.lock-status.outputs.step_minutes) }}
+        run: python3 nix/hosted_check.py qualify
+      - name: Stop only this job's fresh Nix daemon
+        if: always()
+        timeout-minutes: 1
+        run: |
+          if [ -f dist/nix-cpu/installation-owned-by-job ]; then
+            sudo systemctl stop nix-daemon.socket nix-daemon.service
+          fi
+      - name: Retain bounded source, module, runtime and budget evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nix-cpu-qualification-${{ github.sha }}-${{ github.run_attempt }}
+          path: dist/nix-cpu/
+          if-no-files-found: warn
+          retention-days: 7
