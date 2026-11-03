@@ -34,6 +34,30 @@ def forecast_paths(count, suffix):
 
 
 class NixCpuQualificationTests(unittest.TestCase):
+    def test_evaluated_interpreter_witness_rejects_missing_splices_and_source_mismatches(self):
+        pins = json.loads((ROOT / "nix/security-inputs.json").read_text())
+        names = ("selected", "pythonOnBuildForBuild", "pythonOnBuildForHost", "pythonOnBuildForTarget",
+                 "pythonOnHostForHost", "pythonOnTargetForTarget")
+        proof = {"platforms": {name: {"system": "x86_64-linux", "config": "x86_64-unknown-linux-gnu"}
+                               for name in ("build", "host", "target")},
+                 "interpreters": {name: {"version": pins["python"]["version"],
+                                         "urls": [pins["python"]["url"]], "hash": pins["python"]["hash"]}
+                                  for name in names}}
+        hosted.check_python_sources(proof, pins)
+        for field, value in (("version", "3.13.16"), ("urls", ["https://invalid/source"]), ("hash", "sha256-wrong")):
+            invalid = json.loads(json.dumps(proof))
+            invalid["interpreters"]["pythonOnBuildForHost"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "source version/URL/hash"):
+                hosted.check_python_sources(invalid, pins)
+        invalid = json.loads(json.dumps(proof))
+        del invalid["interpreters"]["pythonOnBuildForTarget"]
+        with self.assertRaisesRegex(ValueError, "all five"):
+            hosted.check_python_sources(invalid, pins)
+        invalid = json.loads(json.dumps(proof))
+        invalid["platforms"]["target"]["config"] = "x86_64-unknown-linux-musl"
+        with self.assertRaisesRegex(ValueError, "matching native"):
+            hosted.check_python_sources(invalid, pins)
+
     def test_profile_selection_requires_an_exact_explicit_opt_in(self):
         for labels in ([], [{"name": "nix-full-rebuild-extra"}], [{"name": "other"}]):
             self.assertEqual(hosted.select_profile("pull_request", {"pull_request": {"labels": labels}}), "standard")

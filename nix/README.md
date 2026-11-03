@@ -12,6 +12,11 @@ application requirement bounds are preserved; the old AV relaxation and obsolete
 OpenCV removal are absent. The OpenCV contrib metadata/provider must pass the
 actual CPU dependency-closure check. Nixpkgs-native patches and the new Python
 microrelease remain subject to an actual hermetic build, not static assertions.
+Native build/host/target interpreter aliases explicitly share the selected
+CPython source. Before compilation, actual Nix evaluation records all six
+interpreter source versions, final URLs and normalized hashes, and requires each
+to match the reviewed PSF input. Build, host and target must be the same native
+x86_64-linux platform; cross-compilation is unsupported.
 
 Run `python3 nix/source_files.py` after staging intended source changes. The
 manifest covers Git-tracked application/test/documentation inputs and excludes

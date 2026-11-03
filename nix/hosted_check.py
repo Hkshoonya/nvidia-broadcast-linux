@@ -81,6 +81,22 @@ def check_live_storage(profile: str, initial_free_bytes: int, free_bytes: int) -
     return None
 
 
+def check_python_sources(proof: dict, pins: dict) -> None:
+    names = {"selected", "pythonOnBuildForBuild", "pythonOnBuildForHost", "pythonOnBuildForTarget",
+             "pythonOnHostForHost", "pythonOnTargetForTarget"}
+    platforms = proof["platforms"]
+    if (set(platforms) != {"build", "host", "target"} or
+            {value["system"] for value in platforms.values()} != {"x86_64-linux"} or
+            len({value["config"] for value in platforms.values()}) != 1):
+        raise ValueError("Only matching native x86_64-linux build/host/target platforms are qualified")
+    if set(proof["interpreters"]) != names:
+        raise ValueError("The selected interpreter and all five native splices must be evaluated")
+    for identity in proof["interpreters"].values():
+        if (identity["version"] != pins["python"]["version"] or
+                identity["urls"] != [pins["python"]["url"]] or identity["hash"] != pins["python"]["hash"]):
+            raise ValueError("Evaluated CPython source version/URL/hash differs from the reviewed pin")
+
+
 def check_plan(log: str, free_bytes: int, *, verified_present=False, profile="standard") -> dict:
     """Gate the pinned Nix version's transitive stderr forecast, not output paths."""
     builds, downloads, unpacked = 0, 0, 0
@@ -326,6 +342,9 @@ def main() -> None:
         receipt["locked_input"] = locked
         execute("flake-metadata", ["nix", "flake", "metadata", "--json", "--no-update-lock-file"], 90, records)
         if operation == "qualify":
+            sources = execute("python-source-identities", ["nix", "eval", "--json", "--no-update-lock-file",
+                ".#packages.x86_64-linux.nvbroadcast.pythonSourceQualification"], 90, records)
+            check_python_sources(json.loads(sources.read_text()), pins)
             execute("flake-evaluation", ["nix", "flake", "check", "--no-build", "--no-update-lock-file"], 120, records, json_output=False)
             targets = [".#checks.x86_64-linux." + name for name in ("nvbroadcast", "help", "runtime", "module")]
             dry_run = execute("build-plan", ["nix", "build", "--dry-run", "--no-link", "--json", "--no-update-lock-file", *targets], 180, records)

@@ -37,10 +37,29 @@
 let
   qualification = lib.importJSON ./security-inputs.json;
   securityInputs = qualification.packages;
+  nativePlatforms = {
+    build = stdenv.buildPlatform;
+    host = stdenv.hostPlatform;
+    target = stdenv.targetPlatform;
+  };
+  nativeOnly = lib.all (platform:
+    platform.system == "x86_64-linux" && platform.config == stdenv.buildPlatform.config
+  ) (builtins.attrValues nativePlatforms);
+  spliceNames = [
+    "pythonOnBuildForBuild"
+    "pythonOnBuildForHost"
+    "pythonOnBuildForTarget"
+    "pythonOnHostForHost"
+    "pythonOnTargetForTarget"
+  ];
   python = python313Packages.python.override {
     self = python;
     sourceVersion = { major = "3"; minor = "13"; patch = "18"; suffix = ""; };
     inherit (qualification.python) hash;
+    # Pinned Nixpkgs propagates scalar hash but drops attrset sourceVersion
+    # when deriving default splices. In this native-only package all aliases
+    # must select this same interpreter, including its exact source identity.
+    __splices = lib.genAttrs spliceNames (_: python);
   };
   pinnedSource = name: fetchurl {
     inherit (securityInputs.${name}) url hash;
@@ -86,6 +105,23 @@ let
       };
     });
   });
+
+  pythonSourceIdentities = lib.mapAttrs (_name: interpreter: {
+    version = interpreter.version;
+    urls = interpreter.src.urls;
+    hash = builtins.convertHash {
+      hash = interpreter.src.outputHash;
+      hashAlgo = "sha256";
+      toHashFormat = "sri";
+    };
+    source = toString interpreter.src;
+  }) ({ selected = pythonPackages.python; } //
+    lib.genAttrs spliceNames (name: pythonPackages.python.${name}));
+  pythonSourcesMatch = lib.all (identity:
+    identity.version == qualification.python.version &&
+    identity.urls == [ qualification.python.url ] &&
+    identity.hash == qualification.python.hash
+  ) (builtins.attrValues pythonSourceIdentities);
 
   av = pythonPackages.buildPythonPackage {
     pname = "av";
@@ -335,6 +371,8 @@ let
     fi
   '';
 in
+assert lib.assertMsg nativeOnly "NV Broadcast supports only native x86_64-linux Nix builds";
+assert lib.assertMsg pythonSourcesMatch "Selected and spliced CPython source identities must match the reviewed pin";
 pythonPackages.buildPythonApplication (finalAttrs: {
   pname = "nvbroadcast";
   version = "1.5.4";
@@ -517,6 +555,10 @@ pythonPackages.buildPythonApplication (finalAttrs: {
   '';
 
   passthru = {
+    pythonSourceQualification = {
+      platforms = lib.mapAttrs (_name: platform: { inherit (platform) system config; }) nativePlatforms;
+      interpreters = pythonSourceIdentities;
+    };
     tests = {
       runtime = runCommand "${finalAttrs.pname}-finished-cpu-runtime-check" { } ''
         mkdir -p "$out" "$TMPDIR/home"
