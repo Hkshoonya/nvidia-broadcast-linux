@@ -1,4 +1,7 @@
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import FrozenInstanceError
+import threading
 from unittest import mock
 
 import cv2
@@ -117,6 +120,119 @@ class EyeContactTests(unittest.TestCase):
         self.assertEqual(corrector.mode, "gaze_lock")
         corrector.mode = "broken"
         self.assertEqual(corrector.mode, "natural")
+
+    def test_status_reports_applied_warp_and_conservative_no_op_reasons(self):
+        corrector = EyeContactCorrector()
+        self.assertEqual(corrector.status.state, "disabled")
+        corrector.enabled = True
+        self.assertEqual(corrector.status.state, "waiting")
+
+        frame, landmarks = self._scene()
+        output = corrector.process_frame(frame, landmarks)
+        active = corrector.status
+        self.assertEqual(active.state, "correcting")
+        self.assertEqual(active.corrected_eyes, 2)
+        self.assertFalse(np.array_equal(frame, output))
+        with self.assertRaises(FrozenInstanceError):
+            active.state = "disabled"
+
+        # A small positive intensity can track with every shift below the
+        # existing subpixel guard; enabled alone must not imply an active warp.
+        centered, points = self._scene((0, 0), (0, 0))
+        corrector.intensity = 0.01
+        corrector._reset_tracking()
+        np.testing.assert_array_equal(corrector.process_frame(centered, points), centered)
+        self.assertEqual(corrector.status.state, "adjustment_small")
+        self.assertEqual(corrector.status.corrected_eyes, 0)
+
+        for kwargs, expected in (({"blink_eye": 0}, "eyes_unclear"),
+                                 ({"left_offset": (21, 0), "right_offset": (21, 0)},
+                                  "outside_range")):
+            with self.subTest(expected=expected):
+                frame, points = self._scene(**kwargs)
+                self.assertIs(corrector.process_frame(frame, points), frame)
+                self.assertEqual(corrector.status.state, expected)
+                self.assertEqual(corrector.status.corrected_eyes, 0)
+        self.assertEqual(active.state, "correcting")
+
+    def test_status_reset_cannot_be_overwritten_by_an_inflight_frame(self):
+        for reset in (lambda c: c.reset_status(),
+                      lambda c: setattr(c, "mode", "gaze_lock"),
+                      lambda c: setattr(c, "enabled", False),
+                      lambda c: setattr(c, "intensity", 0.0)):
+            with self.subTest(reset=reset):
+                corrector = EyeContactCorrector()
+                corrector.enabled = True
+                frame, landmarks = self._scene()
+                entered, resume = threading.Event(), threading.Event()
+                warp = corrector._warp_eye
+
+                def blocked_warp(*args):
+                    entered.set()
+                    if not resume.wait(3):
+                        raise AssertionError("test did not release the processing frame")
+                    return warp(*args)
+
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    with mock.patch.object(corrector, "_warp_eye", side_effect=blocked_warp):
+                        future = executor.submit(corrector.process_frame, frame, landmarks)
+                        try:
+                            self.assertTrue(entered.wait(3))
+                            reset(corrector)
+                            expected = corrector.status
+                        finally:
+                            resume.set()
+                        future.result(timeout=3)
+                self.assertEqual(corrector.status, expected)
+                self.assertNotEqual(corrector.status.state, "correcting")
+
+    def test_absent_async_tracking_clears_active_state_without_inference(self):
+        corrector = EyeContactCorrector()
+        corrector.enabled = True
+        frame, landmarks = self._scene()
+        corrector.process_frame(frame, landmarks)
+        with mock.patch("nvbroadcast.video.eye_contact.get_shared_landmarker") as get:
+            for source, expected in (("no_face", "no_face"), ("error", "tracking_error"),
+                                     ("unavailable", "tracker_unavailable"),
+                                     ("tracking", "waiting"), ("waiting", "waiting")):
+                corrector.set_tracking_status(source)
+                self.assertEqual(corrector.status.state, expected)
+                self.assertEqual(corrector.status.corrected_eyes, 0)
+            get.assert_not_called()
+
+    def test_absent_tracking_publish_is_atomic_with_lifecycle_reset(self):
+        corrector = EyeContactCorrector()
+        corrector.enabled = True
+        publishing, resume = threading.Event(), threading.Event()
+        reset_started, reset_done = threading.Event(), threading.Event()
+        set_status = corrector._set_status
+
+        def blocked_publish(state, *args, **kwargs):
+            if state == "no_face":
+                publishing.set()
+                if not resume.wait(3):
+                    raise AssertionError("test did not release the absent result")
+            return set_status(state, *args, **kwargs)
+
+        def lifecycle_reset():
+            reset_started.set()
+            corrector.reset_status()
+            reset_done.set()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            with mock.patch.object(corrector, "_set_status", side_effect=blocked_publish):
+                missing = executor.submit(corrector.set_tracking_status, "no_face")
+                try:
+                    self.assertTrue(publishing.wait(3))
+                    reset = executor.submit(lifecycle_reset)
+                    self.assertTrue(reset_started.wait(3))
+                    # A lifecycle reset cannot interleave the reset/map pair.
+                    self.assertFalse(reset_done.wait(0.05))
+                finally:
+                    resume.set()
+                missing.result(timeout=3)
+                reset.result(timeout=3)
+        self.assertEqual(corrector.status.state, "waiting")
 
     def test_downward_gaze_tracks_new_frames_after_numeric_id_reuse(self):
         for mode in ("natural", "gaze_lock"):

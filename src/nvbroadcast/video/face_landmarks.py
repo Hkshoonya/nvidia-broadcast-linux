@@ -17,6 +17,7 @@ import textwrap
 import threading
 import time
 import weakref
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,12 @@ _FACE_MODEL_URL = (
 _FACE_MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
 _MEDIAPIPE_IMPORT_ERROR: str | None = None
 _MEDIAPIPE_READY: bool | None = None
+
+
+@dataclass(frozen=True)
+class FaceTrackingStatus:
+    """Last detector outcome, without frames, landmarks or exception details."""
+    state: str
 
 # Singleton instance
 _instance: Optional["SharedFaceLandmarker"] = None
@@ -124,6 +131,7 @@ class SharedFaceLandmarker:
         self._last_result = None
         self._frames_since_infer = 0
         self._lock = threading.Lock()
+        self._detection_status = FaceTrackingStatus("waiting")
         self._detect_lock = threading.Lock()
         self._async_busy = False
         self._pending_job = None
@@ -144,6 +152,7 @@ class SharedFaceLandmarker:
             )
         except Exception as e:
             print(f"[FaceLandmarks] Download failed: {e}")
+            self._set_detection_status("unavailable")
             return
         try:
             (
@@ -171,10 +180,21 @@ class SharedFaceLandmarker:
             print("[FaceLandmarks] Shared landmarker initialized")
         except Exception as e:
             print(f"[FaceLandmarks] Init failed: {e}")
+            self._set_detection_status("unavailable")
 
     @property
     def ready(self) -> bool:
         return self._initialized and self._landmarker is not None
+
+    @property
+    def detection_status(self) -> FaceTrackingStatus:
+        with self._lock:
+            return self._detection_status
+
+    def _set_detection_status(self, state: str) -> None:
+        with self._lock:
+            if self._detection_status.state != state:
+                self._detection_status = FaceTrackingStatus(state)
 
     def latest(self):
         """Return the most recent landmark result without running inference."""
@@ -306,10 +326,13 @@ class SharedFaceLandmarker:
         try:
             result = self._landmarker.detect_for_video(mp_image, ts)
         except Exception:
+            self._set_detection_status("error")
             return None
 
         if result.face_landmarks:
+            self._set_detection_status("tracking")
             return result.face_landmarks[0]
+        self._set_detection_status("no_face")
         return None
 
     def _run_detection(self, bgra_frame: np.ndarray):

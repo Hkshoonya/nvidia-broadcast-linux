@@ -5,6 +5,11 @@
 These changes apply to source installs, development candidates and future
 release workflows. Published v1.5.4 artifacts retain their recorded identities.
 
+- **Explain Eye Contact tracking and correction skips** - Show live status in
+  the existing Eye Contact controls when a face is missing, tracking fails,
+  eyes cannot be adjusted, or correction is applied. Gaze correction and its
+  conservative limits remain unchanged; Mac quality confirmation remains open
+  under #150.
 - **Correct Fedora source-install dependencies and guidance** - Request the
   available `python3-gobject` and `python3-cairo` packages, and explain why an
   alternate Python alone does not provide matching desktop bindings. Normal

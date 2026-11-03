@@ -663,6 +663,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 status = pm.format_status()
                 self._perf_label.set_text(status)
                 self._perf_label.set_tooltip_text(status or None)
+                self._refresh_eye_contact_status()
             return True
         GLib.timeout_add_seconds(1, _update_perf)
 
@@ -2668,20 +2669,41 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         GLib.timeout_add(100, _update)
 
     # --- Eye Contact ---
+    def _refresh_eye_contact_status(self):
+        subtitle = {
+            "disabled": "Redirect gaze to look at camera",
+            "stopped": "Start Broadcast to track eyes",
+            "intensity_zero": "Intensity is zero",
+            "waiting": "Waiting for eye tracking",
+            "tracker_unavailable": "Eye tracking unavailable",
+            "no_face": "Waiting for a face",
+            "tracking_error": "Eye tracking error",
+            "eyes_unclear": "Eyes not clear enough to adjust",
+            "outside_range": "Gaze outside adjustment range",
+            "adjustment_small": "Tracking; adjustment is small",
+            "correcting": "Correction active",
+            "invalid_frame": "Waiting for a camera frame",
+        }.get(self._app.eye_contact_status.state, "Waiting for eye tracking")
+        if self._eye_contact_toggle.get_subtitle() != subtitle:
+            self._eye_contact_toggle.set_subtitle(subtitle)
+
     def _on_eye_contact_toggled(self, t, active):
         self._app.set_eye_contact(active)
         self._eye_contact_mode_selector.set_sensitive(active)
         self._eye_contact_slider.set_sensitive(active)
         self._app.config.video.eye_contact = active
         save_config(self._app.config)
+        self._refresh_eye_contact_status()
 
     def _on_eye_contact_mode_changed(self, selector, mode):
         self._app.set_eye_contact_mode(mode)
+        self._refresh_eye_contact_status()
 
     def _on_eye_contact_intensity(self, s, v):
         self._app.set_eye_contact_intensity(v)
         self._app.config.video.eye_contact_intensity = v
         save_config(self._app.config)
+        self._refresh_eye_contact_status()
 
     # --- Face Relighting ---
     def _on_relighting_toggled(self, t, active):
