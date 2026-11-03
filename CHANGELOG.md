@@ -2,11 +2,46 @@
 
 ## Unreleased
 
+These changes apply to source installs, development candidates and future
+release workflows. Published v1.5.4 artifacts retain their recorded identities.
+
 - **Correct Fedora source-install dependencies and guidance** - Request the
   available `python3-gobject` and `python3-cairo` packages, and explain why an
   alternate Python alone does not provide matching desktop bindings. Normal
-  source installation still requires CPython 3.11–3.14; Python 3.15 support is
-  tracked separately in #184. Fixes #183.
+  source installation retains CPython 3.11–3.14; the explicitly opted-in
+  [Python 3.15 CPU route](docs/PYTHON315.md) remains separate under #184.
+  Fixes #183.
+- **Experimental Python 3.15 CPU source installs** - Add a Linux x86_64 route
+  that builds the pinned AV and ONNX Runtime wheels and verifies native audio,
+  dependency closure and CPU inference before activation. GPU and Fedora 45
+  physical camera/microphone acceptance remain separate. Contributed by
+  [@Nirusaki-Malaal](https://github.com/Nirusaki-Malaal)
+  ([PR #185](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/185)).
+- **Private bindings for the offline macOS prototype** - Prepare matching
+  CPython 3.13 PyGObject/Cairo wheels and install them privately without
+  destination dependency resolution. The unsigned arm64 candidate retains its
+  external Homebrew and final package/platform acceptance requirements
+  ([PR #181](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/181)).
+- **Verified Snap revision promotion** - Verify both candidate architectures
+  against the release tag and hosted provenance, then promote the captured
+  revision IDs. Optional edge publication remains disabled by default and
+  requires its own activation and credential checks. The workflow applies to
+  future tags containing it
+  ([PR #90](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/90),
+  [promotion policy](docs/SNAP_EDGE_PROMOTION.md)).
+- **Authenticated Flatpak development runtime** - Authenticate pinned GNOME 50
+  runtime refs, use app-private CPython 3.13.18, and check the actual runtime's
+  trust, imports and generated media. This remains a CPU/x86_64 development
+  candidate; Wayland/physical-device acceptance and public distribution remain
+  open under #95
+  ([PR #176](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/176)).
+- **Partial Python supplier inventory** - Export installed app-owned Python
+  distribution metadata and input/archive hashes as deterministic SPDX 2.3 JSON.
+  The opt-in tool labels source/lock context as caller-provided and runs no
+  artifact code. Complete native/interpreter/library/model/license coverage and
+  automatic release generation remain further work under #60
+  ([PR #187](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/187),
+  [inventory scope](docs/PYTHON_SUPPLIER_INVENTORY.md)).
 
 ## v1.5.4 - Security and Runtime Reliability
 
