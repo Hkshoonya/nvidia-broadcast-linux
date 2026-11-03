@@ -113,6 +113,63 @@ class BlurControlTests(unittest.TestCase):
 
         self.assertEqual(tone.call_args.args[0].shape, (16, 20, 4))
 
+    def test_blur_dilate_control_expands_the_subject_matte(self):
+        self.effects._bg_mode = "blur"
+        alpha = np.zeros((96, 96), dtype=np.float32)
+        alpha[32:64, 32:64] = 1.0
+
+        self.effects.update_edge_params(
+            dilate_size=0,
+            blur_size=1,
+            sigmoid_strength=0,
+        )
+        tight = self.effects._refine_alpha_full(alpha)
+
+        self.effects.update_edge_params(dilate_size=15)
+        expanded = self.effects._refine_alpha_full(alpha)
+
+        self.assertGreater(float(expanded.sum()), float(tight.sum()))
+
+    def test_blur_softness_control_widens_the_transition(self):
+        self.effects._bg_mode = "blur"
+        alpha = np.zeros((96, 96), dtype=np.float32)
+        alpha[32:64, 32:64] = 1.0
+
+        self.effects.update_edge_params(
+            dilate_size=0,
+            blur_size=1,
+            sigmoid_strength=0,
+        )
+        crisp = self.effects._refine_alpha_full(alpha)
+
+        self.effects.update_edge_params(blur_size=25)
+        soft = self.effects._refine_alpha_full(alpha)
+
+        crisp_transition = np.count_nonzero((crisp > 0.05) & (crisp < 0.95))
+        soft_transition = np.count_nonzero((soft > 0.05) & (soft < 0.95))
+        self.assertGreater(soft_transition, crisp_transition)
+
+    def test_blur_preserves_exterior_gap_between_raised_hands(self):
+        self.effects._bg_mode = "blur"
+        self.effects.update_edge_params(
+            dilate_size=2,
+            blur_size=6,
+            sigmoid_strength=14,
+            sigmoid_midpoint=0.45,
+        )
+        alpha = np.zeros((96, 96), dtype=np.float32)
+        alpha[62:88, 20:76] = 1.0
+        alpha[16:70, 20:38] = 1.0
+        alpha[16:70, 58:76] = 1.0
+
+        refined = self.effects._refine_alpha_full(alpha)
+
+        self.assertLess(
+            float(refined[40, 48]),
+            0.15,
+            "blur refinement must not bridge the open gap between raised hands",
+        )
+
     def test_cpu_and_cuda_blur_match_when_cuda_is_available(self):
         try:
             import cupy as cp
@@ -140,6 +197,85 @@ class BlurControlTests(unittest.TestCase):
 
         difference = np.abs(cpu.astype(np.int16) - gpu.astype(np.int16))
         self.assertLessEqual(int(difference.max()), 1)
+
+    def test_cpu_and_cuda_blur_edge_controls_match_when_cuda_is_available(self):
+        try:
+            import cupy as cp
+
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                self.skipTest("CUDA device not available")
+        except Exception as exc:
+            self.skipTest(f"CuPy/CUDA unavailable: {exc}")
+
+        self.effects._bg_mode = "blur"
+        self.effects._cupy = cp
+        alpha = np.zeros((96, 96), dtype=np.float32)
+        alpha[32:64, 32:64] = 1.0
+
+        for dilate_size, blur_size in ((0, 1), (2, 6), (15, 25)):
+            with self.subTest(dilate=dilate_size, softness=blur_size):
+                self.effects.update_edge_params(
+                    dilate_size=dilate_size,
+                    blur_size=blur_size,
+                    sigmoid_strength=14,
+                )
+                cpu = self.effects._refine_alpha_full(alpha)
+                gpu = cp.asnumpy(
+                    self.effects._refine_alpha_full_gpu(cp.asarray(alpha))
+                )
+
+                difference = np.abs(cpu - gpu)
+                self.assertLessEqual(float(difference.max()), 0.02)
+
+        hand_gap = np.zeros((96, 96), dtype=np.float32)
+        hand_gap[62:88, 20:76] = 1.0
+        hand_gap[16:70, 20:38] = 1.0
+        hand_gap[16:70, 58:76] = 1.0
+        self.effects.update_edge_params(
+            dilate_size=2,
+            blur_size=6,
+            sigmoid_strength=14,
+            sigmoid_midpoint=0.45,
+        )
+        cpu = self.effects._refine_alpha_full(hand_gap)
+        gpu = cp.asnumpy(
+            self.effects._refine_alpha_full_gpu(cp.asarray(hand_gap))
+        )
+
+        self.assertLess(float(gpu[40, 48]), 0.15)
+        self.assertLessEqual(float(np.abs(cpu - gpu).max()), 0.02)
+
+    def test_cuda_small_hole_fill_matches_cpu_when_cuda_is_available(self):
+        try:
+            import cupy as cp
+
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                self.skipTest("CUDA device not available")
+        except Exception as exc:
+            self.skipTest(f"CuPy/CUDA unavailable: {exc}")
+
+        self.effects._cupy = cp
+        matte = np.zeros((96, 96), dtype=np.uint8)
+        matte[16:80, 16:80] = 255
+        matte[47:49, 47:49] = 0
+        params = {
+            "binary_threshold": 30,
+            "fill_cutoff": 100,
+            "fill_value": 220,
+            "max_area_ratio": 0.0007,
+            "max_span_ratio": 0.07,
+        }
+
+        cpu = self.effects._fill_small_internal_holes(matte, **params)
+        gpu = cp.asnumpy(
+            self.effects._fill_small_internal_holes_gpu(
+                cp.asarray(matte),
+                **params,
+            )
+        )
+
+        np.testing.assert_array_equal(gpu, cpu)
+        self.assertEqual(int(gpu[47, 47]), 220)
 
 
 class BackgroundControlSensitivityTests(unittest.TestCase):

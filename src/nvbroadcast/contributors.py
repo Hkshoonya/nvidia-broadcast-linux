@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """Canonical credits for accepted external contributions."""
@@ -33,6 +33,9 @@ CONTRIBUTORS: tuple[Contributor, ...] = (
     Contributor("Jon Fuller", "perfectra1n"),
     Contributor("Cédric Prezelin", "Tenshock"),
     Contributor("Cenkay Çoban", "pastor0711"),
+    Contributor("KadotyGamer", "KadotyGamer"),
+    Contributor("Mauricio Zaffari", "mauriciozaffari"),
+    Contributor("Mradul Kumar", "Nirusaki-Malaal"),
 )
 
 CONTRIBUTOR_GITHUB_LOGINS = frozenset(

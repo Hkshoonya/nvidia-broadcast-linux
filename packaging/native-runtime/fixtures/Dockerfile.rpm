@@ -1,0 +1,15 @@
+# Disposable desktop qualification fixture, not a release/runtime image.
+FROM fedora@sha256:be9d65e2344d805cc11114319c685ecaa96b6d9b4350a0a6460cdb931babbd19
+RUN dnf -y install ca-certificates gtk4 libadwaita gstreamer1-plugins-base \
+    gstreamer1-plugins-good gstreamer1-plugins-bad-free \
+    gstreamer1-plugin-openh264 openh264 libayatana-appindicator-gtk3 \
+    libgomp libsndfile portaudio mesa-libGL gobject-introspection libglvnd-gles \
+    xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon pulseaudio shadow-utils \
+    v4l-utils pulseaudio-utils pipewire-utils util-linux python3 rpm \
+    && dnf clean all
+RUN getent passwd 1000 >/dev/null || useradd -M -u 1000 -d /tmp/nvb-home nvb-probe
+RUN mkdir -p /usr/share/nvbroadcast-qualification \
+    && rpm -qa --qf '%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n' \
+    > /tmp/fixture-packages.tsv \
+    && LC_ALL=C sort /tmp/fixture-packages.tsv > /usr/share/nvbroadcast-qualification/packages.tsv \
+    && rm /tmp/fixture-packages.tsv

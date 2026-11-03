@@ -6,9 +6,10 @@ set -u
 PACKAGE_MANAGER="unknown"
 PYTHON_REQUEST=""
 REQUIRE_DESKTOP_BINDINGS=false
+EXPERIMENTAL_PYTHON315=false
 
 usage() {
-    echo "Usage: $0 [--python /path/to/python] [--package-manager NAME] [--require-desktop-bindings]" >&2
+    echo "Usage: $0 [--python /path/to/python] [--package-manager NAME] [--require-desktop-bindings] [--experimental-python315]" >&2
 }
 
 while [ "$#" -gt 0 ]; do
@@ -28,6 +29,10 @@ while [ "$#" -gt 0 ]; do
             REQUIRE_DESKTOP_BINDINGS=true
             shift
             ;;
+        --experimental-python315)
+            EXPERIMENTAL_PYTHON315=true
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -39,6 +44,11 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+SUPPORTED_PYTHON_RANGE="3.11-3.14"
+if [ "$EXPERIMENTAL_PYTHON315" = true ]; then
+    SUPPORTED_PYTHON_RANGE="3.11-3.15 (3.15 experimental)"
+fi
 
 case "$PYTHON_REQUEST" in
     *$'\t'*|*$'\n'*)
@@ -103,7 +113,9 @@ inspect_python() {
         INSPECT_REASON="not-cpython"
         return 1
     fi
-    if [ "$INSPECT_MAJOR" -ne 3 ] || [ "$INSPECT_MINOR" -lt 11 ] || [ "$INSPECT_MINOR" -gt 13 ]; then
+    local maximum_minor=14
+    if [ "$EXPERIMENTAL_PYTHON315" = true ]; then maximum_minor=15; fi
+    if [ "$INSPECT_MAJOR" -ne 3 ] || [ "$INSPECT_MINOR" -lt 11 ] || [ "$INSPECT_MINOR" -gt "$maximum_minor" ]; then
         INSPECT_REASON="unsupported-version"
         return 1
     fi
@@ -133,7 +145,7 @@ from gi.repository import Adw, GdkPixbuf, Gst, GstVideo, Gtk
 print_apt_guidance() {
     local version
     if command -v apt-cache &>/dev/null; then
-        for version in 3.13 3.12 3.11; do
+        for version in 3.13 3.12 3.11 3.14; do
             if apt-cache show "python${version}" &>/dev/null &&
                apt-cache show "python${version}-venv" &>/dev/null; then
                 echo "  sudo apt install python${version} python${version}-venv" >&2
@@ -142,61 +154,59 @@ print_apt_guidance() {
             fi
         done
     fi
-    echo "  apt-cache policy python3.13 python3.12 python3.11" >&2
-    echo "Install the newest listed version and its matching -venv package." >&2
+    echo "  apt-cache policy python3.14 python3.13 python3.12 python3.11" >&2
+    echo "Install a supported listed version and its matching -venv package." >&2
+}
+
+print_fedora_binding_guidance() {
+    echo "Fedora/RHEL family:" >&2
+    echo "Required distro packages: python3-gobject, python3-cairo, gtk4, libadwaita, and GStreamer typelibs." >&2
+    echo "These bindings normally target the distro's default Python, not every versioned interpreter." >&2
+    echo "Installing an alternate Python does not install matching desktop bindings for it." >&2
+    echo "Use a CPython 3.11-3.14 interpreter with matching desktop bindings and venv support:" >&2
+    echo "  ./install.sh --python /path/to/python3" >&2
+    echo "If no such interpreter is available, use the Snap package: https://snapcraft.io/nvbroadcast" >&2
 }
 
 print_install_guidance() {
-    echo "Install CPython 3.13, 3.12, or 3.11 from your distro's official repositories." >&2
+    echo "Install CPython 3.11-3.14 from your distro's official repositories." >&2
+    echo "Choose a Python with matching desktop bindings; TensorRT 10 libraries also support Python 3.14." >&2
     case "$PACKAGE_MANAGER" in
         apt)
             echo "Ubuntu/Debian family:" >&2
             print_apt_guidance
             ;;
-        dnf)
-            echo "Fedora/RHEL family:" >&2
-            echo "  dnf repoquery python3.13" >&2
-            echo "If that package is listed by an enabled official repository:" >&2
-            echo "  sudo dnf install python3.13" >&2
-            echo "  ./install.sh --python /usr/bin/python3.13" >&2
-            echo "Use python3.12 or python3.11 if 3.13 is unavailable in the enabled official repositories." >&2
-            ;;
-        yum)
-            echo "RHEL/CentOS family:" >&2
-            echo "  yum list available python3.13" >&2
-            echo "If that package is listed by an enabled official repository:" >&2
-            echo "  sudo yum install python3.13" >&2
-            echo "  ./install.sh --python /usr/bin/python3.13" >&2
-            echo "Use python3.12 or python3.11 if 3.13 is unavailable in the enabled official repositories." >&2
+        dnf|yum)
+            print_fedora_binding_guidance
             ;;
         zypper)
             echo "openSUSE family:" >&2
-            echo "  zypper search --match-exact python313" >&2
+            echo "  zypper search --match-exact python314" >&2
             echo "If that package is listed by an enabled official repository:" >&2
-            echo "  sudo zypper install python313" >&2
-            echo "  ./install.sh --python /usr/bin/python3.13" >&2
-            echo "Use the python312 or python311 package if python313 is unavailable." >&2
+            echo "  sudo zypper install python314" >&2
+            echo "  ./install.sh --python /usr/bin/python3.14" >&2
+            echo "Use the python313, python312, or python311 package if python314 is unavailable." >&2
             ;;
         pacman)
             echo "Arch family:" >&2
             echo "  pacman -Si python" >&2
             echo "  sudo pacman -S python" >&2
-            echo "Rerun only if the official package is Python 3.11-3.13; otherwise pass an independently managed interpreter with --python." >&2
+            echo "Rerun only if the official package is Python 3.11-3.14; otherwise pass an independently managed interpreter with --python." >&2
             ;;
         portage)
             echo "Gentoo:" >&2
-            echo "  sudo emerge --ask dev-lang/python:3.13" >&2
-            echo "  ./install.sh --python /usr/bin/python3.13" >&2
+            echo "  sudo emerge --ask dev-lang/python:3.14" >&2
+            echo "  ./install.sh --python /usr/bin/python3.14" >&2
             ;;
         xbps)
             echo "Void Linux:" >&2
             echo "  xbps-query -R python3" >&2
             echo "  sudo xbps-install -S python3" >&2
-            echo "Rerun only if the official package is Python 3.11-3.13." >&2
+            echo "Rerun only if the official package is Python 3.11-3.14." >&2
             ;;
         nix)
             echo "NixOS:" >&2
-            echo "  nix-shell -p python313 --run './install.sh --python \"\$(command -v python3.13)\"'" >&2
+            echo "  nix-shell -p python314 --run './install.sh --python \"\$(command -v python3.14)\"'" >&2
             ;;
         *)
             echo "After installation, rerun: ./install.sh --python /path/to/python3" >&2
@@ -205,11 +215,17 @@ print_install_guidance() {
     echo "The installer will create only this project's .venv and will not replace the system Python." >&2
 }
 
+print_python315_guidance() {
+    echo "Python 3.15 requires experimental source-built CPU dependencies: av>=16,<17 and onnxruntime>=1.24.4,<1.25." >&2
+    echo "The pinned CUDA dependencies also lack Python 3.15 wheels; CUDA and TensorRT are not enabled on 3.15." >&2
+    echo "See docs/PYTHON315.md to build wheels, then use --experimental-python315 --python /path/to/python3.15." >&2
+}
+
 print_desktop_binding_guidance() {
     echo "The installed desktop bindings do not support the selected interpreter." >&2
     case "$PACKAGE_MANAGER" in
         apt) echo "Required distro packages: python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, and the GStreamer typelibs." >&2 ;;
-        dnf|yum) echo "Required distro packages: python3-gobject, python3-gobject-cairo, gtk4, libadwaita, and GStreamer typelibs." >&2 ;;
+        dnf|yum) print_fedora_binding_guidance ;;
         pacman) echo "Required distro packages: python-gobject, gtk4, libadwaita, and GStreamer." >&2 ;;
         zypper) echo "Required distro packages: python3-gobject, python3-gobject-cairo, GTK4/Libadwaita typelibs, and GStreamer." >&2 ;;
         *) echo "Install PyGObject plus the GTK4, Libadwaita, and GStreamer typelibs for this exact interpreter." >&2 ;;
@@ -232,7 +248,7 @@ if [ -n "$PYTHON_REQUEST" ]; then
     case "$INSPECT_REASON" in
         not-found) echo "ERROR: --python interpreter '$PYTHON_REQUEST' was not found or is not executable." >&2 ;;
         not-cpython) echo "ERROR: --python must select CPython; found ${INSPECT_IMPLEMENTATION:-an unknown implementation}." >&2 ;;
-        unsupported-version) echo "ERROR: --python must select CPython 3.11-3.13; found ${INSPECT_VERSION:-an unknown version}." >&2 ;;
+        unsupported-version) echo "ERROR: --python must select CPython $SUPPORTED_PYTHON_RANGE; found ${INSPECT_VERSION:-an unknown version}." >&2 ;;
         missing-venv) echo "ERROR: $PYTHON_REQUEST is CPython $INSPECT_VERSION but its venv module is unavailable." >&2 ;;
         missing-desktop-bindings)
             echo "ERROR: $PYTHON_REQUEST cannot import the required GTK4, Libadwaita, and GStreamer bindings." >&2
@@ -241,12 +257,21 @@ if [ -n "$PYTHON_REQUEST" ]; then
             ;;
         *) echo "ERROR: Could not validate --python interpreter '$PYTHON_REQUEST'." >&2 ;;
     esac
+    if [ "$INSPECT_VERSION" = "3.15" ] && [ "$INSPECT_REASON" = "unsupported-version" ]; then
+        print_python315_guidance
+    fi
     print_install_guidance
     exit 1
 fi
 
 SAW_MISSING_DESKTOP_BINDINGS=false
-for candidate in python3.13 python3.12 python3.11 python3; do
+# Preserve the current broad-feature preference so an installer rerun does
+# not replace a working older environment just because 3.14 became available.
+candidates=(python3.13 python3.12 python3.11 python3.14)
+if [ "$EXPERIMENTAL_PYTHON315" = true ]; then candidates+=(python3.15); fi
+candidates+=(python3)
+SAW_PYTHON315=false
+for candidate in "${candidates[@]}"; do
     if inspect_python "$candidate"; then
         emit_selection
         exit 0
@@ -254,14 +279,18 @@ for candidate in python3.13 python3.12 python3.11 python3; do
     if [ "$INSPECT_REASON" = "missing-desktop-bindings" ]; then
         SAW_MISSING_DESKTOP_BINDINGS=true
     fi
+    if [ "$INSPECT_VERSION" = "3.15" ] && [ "$INSPECT_REASON" = "unsupported-version" ]; then
+        SAW_PYTHON315=true
+    fi
 done
 
 if [ "$REQUIRE_DESKTOP_BINDINGS" = true ] && [ "$SAW_MISSING_DESKTOP_BINDINGS" = true ]; then
-    echo "ERROR: No CPython 3.11-3.13 interpreter can import the required desktop bindings." >&2
+    echo "ERROR: No CPython $SUPPORTED_PYTHON_RANGE interpreter can import the required desktop bindings." >&2
     print_desktop_binding_guidance
     exit 1
 fi
 
 echo "ERROR: No fully supported CPython interpreter with venv support was found." >&2
+if [ "$SAW_PYTHON315" = true ]; then print_python315_guidance; fi
 print_install_guidance
 exit 1

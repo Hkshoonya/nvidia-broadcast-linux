@@ -5,6 +5,7 @@ from unittest import mock
 from nvbroadcast.video.virtual_camera import (
     camera_capture_candidates,
     camera_mode_candidates,
+    clear_camera_probe_cache,
     list_camera_devices,
     list_camera_format_modes,
     list_camera_modes,
@@ -16,16 +17,10 @@ from nvbroadcast.video.virtual_camera import (
 
 class CameraModesTests(unittest.TestCase):
     def setUp(self):
-        list_camera_format_modes.cache_clear()
-        list_camera_modes.cache_clear()
-        import nvbroadcast.video.virtual_camera as virtual_camera
-        virtual_camera._get_v4l2_device_info.cache_clear()
+        clear_camera_probe_cache()
 
     def tearDown(self):
-        list_camera_format_modes.cache_clear()
-        list_camera_modes.cache_clear()
-        import nvbroadcast.video.virtual_camera as virtual_camera
-        virtual_camera._get_v4l2_device_info.cache_clear()
+        clear_camera_probe_cache()
 
     def test_list_camera_modes_returns_empty_on_timeout(self):
         with mock.patch("nvbroadcast.video.virtual_camera.subprocess.run", side_effect=subprocess.TimeoutExpired("v4l2-ctl", 3)):
@@ -58,6 +53,129 @@ ioctl: VIDIOC_ENUM_FMT
 
         self.assertEqual(first, second)
         self.assertEqual(run.call_count, 1)
+
+    def test_clear_camera_probe_cache_refreshes_all_cached_probe_results(self):
+        import nvbroadcast.video.virtual_camera as virtual_camera
+
+        format_outputs = iter([
+            """
+ioctl: VIDIOC_ENUM_FMT
+        Type: Video Capture
+        [0]: 'YUYV' (YUYV 4:2:2)
+                Size: Discrete 640x480
+                        Interval: Discrete 0.033s (30.000 fps)
+""",
+            """
+ioctl: VIDIOC_ENUM_FMT
+        Type: Video Capture
+        [0]: 'MJPG' (Motion-JPEG, compressed)
+                Size: Discrete 1280x720
+                        Interval: Discrete 0.017s (60.000 fps)
+""",
+        ])
+        info_outputs = iter(["Card type: Camera A", "Card type: Camera B"])
+
+        def fake_run(args, **_kwargs):
+            if args == ["v4l2-ctl", "-d", "/dev/video0", "--list-formats-ext"]:
+                return mock.Mock(returncode=0, stdout=next(format_outputs))
+            if args == ["v4l2-ctl", "-D", "-d", "/dev/video0"]:
+                return mock.Mock(returncode=0, stdout=next(info_outputs))
+            raise AssertionError(f"Unexpected command: {args}")
+
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.subprocess.run",
+            side_effect=fake_run,
+        ) as run:
+            first_modes = list_camera_modes("/dev/video0")
+            first_info = virtual_camera._get_v4l2_device_info("/dev/video0")
+            self.assertEqual(list_camera_modes("/dev/video0"), first_modes)
+            self.assertEqual(
+                virtual_camera._get_v4l2_device_info("/dev/video0"),
+                first_info,
+            )
+
+            clear_camera_probe_cache()
+
+            self.assertEqual(
+                list_camera_modes("/dev/video0"),
+                [{"width": 1280, "height": 720, "fps": [60]}],
+            )
+            self.assertEqual(
+                virtual_camera._get_v4l2_device_info("/dev/video0"),
+                "Card type: Camera B",
+            )
+
+        self.assertEqual(first_modes, [{"width": 640, "height": 480, "fps": [30]}])
+        self.assertEqual(first_info, "Card type: Camera A")
+        self.assertEqual(run.call_count, 4)
+
+    def test_clear_camera_probe_cache_allows_late_device_discovery(self):
+        list_output = """
+USB Camera:
+        /dev/video0
+"""
+        device_info = """
+Driver Info:
+        Card type        : USB Camera
+Device Caps     : 0x04200001
+        Video Capture
+        Streaming
+"""
+        format_info = """
+ioctl: VIDIOC_ENUM_FMT
+        Type: Video Capture
+        [0]: 'YUYV' (YUYV 4:2:2)
+                Size: Discrete 640x480
+                        Interval: Discrete 0.033s (30.000 fps)
+"""
+        camera_ready = False
+
+        def fake_run(args, **_kwargs):
+            if args == ["v4l2-ctl", "--list-devices"]:
+                return mock.Mock(returncode=0, stdout=list_output)
+            if args == ["v4l2-ctl", "-D", "-d", "/dev/video0"]:
+                return mock.Mock(
+                    returncode=0 if camera_ready else 1,
+                    stdout=device_info if camera_ready else "",
+                )
+            if args == ["v4l2-ctl", "-d", "/dev/video0", "--list-formats-ext"]:
+                return mock.Mock(
+                    returncode=0 if camera_ready else 1,
+                    stdout=format_info if camera_ready else "",
+                )
+            raise AssertionError(f"Unexpected command: {args}")
+
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.subprocess.run",
+            side_effect=fake_run,
+        ):
+            self.assertEqual(list_camera_devices(), [])
+
+            camera_ready = True
+            self.assertEqual(list_camera_devices(), [])
+
+            clear_camera_probe_cache()
+            self.assertEqual(
+                list_camera_devices(),
+                [{"name": "USB Camera", "device": "/dev/video0"}],
+            )
+
+    def test_list_camera_devices_returns_empty_on_timeout(self):
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.IS_MACOS",
+            False,
+        ), mock.patch(
+            "nvbroadcast.video.virtual_camera.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("v4l2-ctl", 3),
+        ) as run:
+            self.assertEqual(list_camera_devices(), [])
+
+        run.assert_called_once_with(
+            ["v4l2-ctl", "--list-devices"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
 
     def test_list_camera_modes_includes_raw_only_modes(self):
         output = """

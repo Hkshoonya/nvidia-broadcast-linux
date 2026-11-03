@@ -30,7 +30,7 @@
     </ul>
   </description>
 
-  <url type="homepage">https://nvbroadcast.domjarvis.com</url>
+  <url type="homepage">https://nvbroadcast.com</url>
   <url type="bugtracker">https://github.com/Hkshoonya/nvidia-broadcast-linux/issues</url>
   <url type="vcs-browser">https://github.com/Hkshoonya/nvidia-broadcast-linux</url>
   <url type="donation">https://github.com/sponsors/Hkshoonya</url>
@@ -62,6 +62,31 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.5.4" date="2026-10-28">
+      <description>
+        <p>Security updates and runtime reliability</p>
+        <ul>
+          <li>Refresh affected Python dependencies and certificate bundles</li>
+          <li>Keep Eye Contact following changing camera frames</li>
+          <li>Recognize live Arch CUDA runtimes while preserving ownership checks</li>
+          <li>Report native runtime prerequisite and fallback failures clearly</li>
+          <li>Keep managed protobuf visible with Fedora’s legacy namespace hook</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.5.3" date="2026-10-10">
+      <description>
+        <p>Recording, small windows, and runtime recovery</p>
+        <ul>
+          <li>Keep Camera, Audio, and preview controls usable in small windows</li>
+          <li>Preserve MP4 video and audio when effects are disabled or changed during recording</li>
+          <li>Save recordings in Videos and provide actions to find saved files</li>
+          <li>Recover processing choices after GPU memory pressure and allow cold GPU verification</li>
+          <li>Discover cameras connected after startup and improve moving background edges</li>
+          <li>Verify pinned meeting-model downloads and preserve source runtimes during failed updates</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.2" date="2026-09-04">
       <description>
         <p>Camera recovery and first public v1.5 release</p>

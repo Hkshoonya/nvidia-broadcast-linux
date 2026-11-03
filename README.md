@@ -13,14 +13,18 @@
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-76b900?style=for-the-badge&labelColor=1a1a1a" alt="License"></a>
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues"><img src="https://img.shields.io/github/issues/Hkshoonya/nvidia-broadcast-linux?style=for-the-badge&color=76b900&labelColor=1a1a1a" alt="Issues"></a>
   <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/workflows/build-packages.yml"><img src="https://img.shields.io/github/actions/workflow/status/Hkshoonya/nvidia-broadcast-linux/build-packages.yml?style=for-the-badge&color=76b900&labelColor=1a1a1a&label=Build" alt="Build"></a>
+  <a href="https://nvbroadcast.com"><img src="https://img.shields.io/badge/Website-nvbroadcast.com-76b900?style=for-the-badge&labelColor=1a1a1a" alt="Website"></a>
   <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme"><img src="https://img.shields.io/badge/Sponsor-DocZeus-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor"></a>
 </p>
 
 <p align="center">
-  <em>NV Broadcast — Unofficial NV Broadcast and other OS. Open source. GPU accelerated. Built with passion.</em>
+  <em>Open-source, unofficial NVIDIA Broadcast alternative for Linux and macOS. AI-powered virtual camera and audio tools.</em>
 </p>
 
 ---
+
+> [!IMPORTANT]
+> **Canonical upstream:** [Hkshoonya/nvidia-broadcast-linux](https://github.com/Hkshoonya/nvidia-broadcast-linux), created and maintained by [DocZeus](https://github.com/Hkshoonya). Forks and mirrors are welcome under the project license, but downstream versions should identify themselves clearly, link to this repository, and preserve the required author attribution. See [Canonical Project and Attribution](docs/CANONICAL_PROJECT.md).
 
 ## Why I Built This
 
@@ -109,15 +113,18 @@ See [CHANGELOG.md](./CHANGELOG.md) for latest updates!
 | **CUDA Max** | 720p | CuPy GPU | 45ms / 22fps | 22% | 46% | Maximum quality |
 | **CUDA Balanced** | 720p, skip 2 | CuPy GPU | 29ms / 34fps | 24% | 39% | Daily use |
 | **CUDA Perf** | 720p, skip 2 | CuPy GPU | 30ms / 34fps | 23% | 39% | Light GPU load |
-| **CPU Quality** | 720p | OpenCV SIMD | 66ms / 15fps | 17% | 27% | No CuPy fallback |
-| **CPU Light** | 720p, skip 2 | OpenCV SIMD | 30ms / 34fps | 23% | 20% | Save GPU for games |
-| **CPU Low End** | 720p, skip 3 | OpenCV SIMD | 27ms / 37fps | 21% | 20% | Older hardware |
+| **CPU Quality** | 720p, CPU provider | OpenCV SIMD | Hardware-dependent | Higher | 0% video inference | No CUDA required |
+| **CPU Light** | 720p, CPU provider, skip 2 | OpenCV SIMD | Hardware-dependent | Medium | 0% video inference | Save GPU for other work |
+| **CPU Low End** | 720p, CPU provider, skip 3 | OpenCV SIMD | Hardware-dependent | Lower | 0% video inference | Older hardware |
 
 > **Edge Refine** toggle available for Killer and Zeus modes — adds ~27ms but recovers 89.9% of max quality edges.
 >
 > Switch modes anytime from the **Mode** dropdown. No restart needed.
 >
 > CUDA modes require the CUDA mode runtime: CuPy for compositing plus ONNX Runtime with `CUDAExecutionProvider` for model inference. Source, `.deb`, `.rpm`, and amd64 Snap installs handle this automatically on NVIDIA systems. The arm64 Snap build stays CPU-safe because ONNX Runtime GPU wheels are not published for Linux arm64 yet.
+>
+> CPU modes use ONNX Runtime's CPU provider for video inference as well as
+> OpenCV CPU compositing. Audio GPU effects remain controlled separately.
 
 ---
 
@@ -245,7 +252,7 @@ When Edge Refine is toggled ON (Zeus/Killer modes):
 
 ### Software
 - **Linux** with NVIDIA driver 525+ (Pop!_OS, Ubuntu, Fedora, Arch, openSUSE, etc.)
-- **Python** 3.11+ (the Linux source installer uses CPython 3.11-3.13 for the current broad-feature runtime)
+- **Python** 3.11+ (the Linux source installer supports CPython 3.11-3.14 with compatible GTK4/Libadwaita/GStreamer bindings; Python 3.12/3.13 currently give the broadest premium-feature compatibility, see [Python runtime notice](#optional-tensorrt-for-zeuskiller-modes))
 - **PipeWire** (virtual microphone)
 - **PulseAudio utilities** (`pactl`) for speaker-monitor routing and device resolution
 - **GStreamer** 1.20+ with plugins-base, plugins-good, plugins-bad
@@ -266,8 +273,11 @@ cd nvidia-broadcast-linux
 ```
 
 The Linux source installer uses an already-installed compatible interpreter in
-this order: CPython 3.13, 3.12, then 3.11. It creates only the repository's
-`.venv`; it does not replace the distro's system Python or add a package
+this order: CPython 3.13, 3.12, 3.11, then 3.14, followed by a compatible
+`python3`. This preserves the current broad-feature preference while
+supporting distros whose desktop bindings target Python 3.14. It builds each
+update in a separate `.nvbroadcast-runtimes/gen-*` environment; it does not
+replace the distro's system Python or add a package
 repository. Compatibility includes `venv`/`ensurepip` support and access to the
 distro's GTK4, Libadwaita, and GStreamer Python bindings. To select a specific
 compatible interpreter:
@@ -276,10 +286,52 @@ compatible interpreter:
 ./install.sh --python /usr/bin/python3.12
 ```
 
+Use `--python /usr/bin/python3.14` to choose Python 3.14 explicitly when that
+interpreter can import the desktop bindings. TensorRT modes also work with the
+pinned TensorRT 10 libraries after the provider execution probe succeeds.
+Newer Python versions need runtime-wheel validation before the source installer
+accepts them.
+
+Fedora's `python3-gobject` and `python3-cairo` packages target its default Python.
+Installing an alternate `python3.14` package does not supply desktop bindings
+for that interpreter. Fedora 45's default Python 3.15 is outside the normal
+source installer's supported range. Use the [Snap package](https://snapcraft.io/nvbroadcast)
+or an independently provisioned compatible interpreter with matching desktop
+bindings; the installer does not copy bindings between Python versions.
+
+Python 3.15 on Linux x86_64 has an opt-in **experimental source-built CPU**
+path for distros whose desktop bindings require it. Build the missing pinned
+dependencies, then install with `--experimental-python315 --python /usr/bin/python3.15
+--wheelhouse /path/to/wheels --runtime cpu`. See [Python 3.15 instructions](docs/PYTHON315.md)
+for build prerequisites, validation, and limitations. CUDA/TensorRT and 3.15t
+are not supported by this experimental path. Its local AV wheel retains the
+FFmpeg library locations selected at build time; keep that prefix in place.
+
 If no compatible interpreter with `venv` support is installed, the installer
 stops before changing the system and prints guidance for the detected distro.
 
-### macOS — One Command Install
+An update becomes active only after its imports, dependency closure, and real
+CPU/CUDA inference probe pass. Both installed launchers use the same atomic
+selection. Failed builds leave the selected runtime unchanged, including for
+same-variant updates. A previous `.venv` installation is retained at its original
+path. Stop Broadcast and its services before switching or rolling back:
+
+```bash
+./install.sh --rollback-runtime
+```
+
+Rollback rechecks the previous runtime before selecting it. Optional packages
+in these installer-managed generations are added by rerunning `install.sh`
+and selecting the desired options, rather than by changing the running
+environment through the GUI. `python3 scripts/source_runtime.py --project . active`
+prints the current environment path. Developer-managed `.venv` and Makefile
+setups are separate. See [source runtime updates](docs/SOURCE_RUNTIME_UPDATES.md)
+for failure recovery and the host-runtime boundary.
+
+### macOS — Source Install
+
+Install [Apple Silicon Homebrew](https://brew.sh) at `/opt/homebrew` first.
+Run the source installer as your logged-in user, without sudo:
 
 ```bash
 git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git
@@ -287,8 +339,32 @@ cd nvidia-broadcast-linux
 ./install_macos.sh
 ```
 
-Requires an Apple Silicon Mac with macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio for virtual-camera output. The installer provisions GStreamer and GTK4 and can install OBS. After installing OBS, open it once, start and stop **Virtual Camera**, then close OBS so its camera backend is registered for NV Broadcast.
-CPU modes use CoreML acceleration. Intel macOS is not included in v1.5.2 because no secure current MediaPipe wheel is available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are Linux-only and require an NVIDIA GPU.
+Requires an Apple Silicon Mac with macOS 15+ for the supported Homebrew stack.
+The installer provisions `python@3.13 pygobject3 gtk4 libadwaita gstreamer`,
+selects a Homebrew Python 3.11-3.13 with working GTK/Adw/GStreamer bindings,
+and checks the required native plugins before replacing the source runtime.
+OBS Studio is required for virtual-camera output and can be installed by the
+installer. Open OBS once, start and stop **Virtual Camera**, then close OBS so
+its camera backend is registered for NV Broadcast. The installer validates
+`CPUExecutionProvider`; these checks do not qualify CoreML availability or
+acceleration.
+Intel macOS is unsupported because no secure current MediaPipe wheel is
+available for that architecture. GPU modes (Killer/Zeus/DocZeus/CUDA) are
+Linux-only and require an NVIDIA GPU. Homebrew classifies macOS 13/14 as
+unsupported; the lower PKG/wheel platform declaration does not qualify current
+Homebrew setup. See [Homebrew installation requirements](https://docs.brew.sh/Installation).
+
+To update this source installation, stop NV Broadcast, update the checkout to
+the intended release, and rerun `./install_macos.sh`. It installs under
+`~/.local/share/nvbroadcast` and creates `~/.local/bin/nvbroadcast`. Prerequisite
+failures leave the previous environment in place, but this legacy installer
+rebuilds its `venv` in place: a later pip/runtime failure can require rerunning
+the installer, and it has no runtime rollback. User configuration and cached
+models are retained; Homebrew dependency changes are not rolled back.
+A PKG installation is separate; follow its verified
+[package installation and per-user setup steps](docs/MACOS_SIGNING.md#test-the-signed-installer-on-your-mac)
+and use `/usr/local/bin/nvbroadcast` explicitly so the source launcher does not
+shadow it. Installing a PKG does not replace this legacy source environment.
 
 ### Linux — Snap Package
 
@@ -319,12 +395,12 @@ The installer:
 5. **Asks about compositing** — CPU, GStreamer GL, or CuPy CUDA
 6. **Sets up virtual camera**, launcher scripts, desktop entry, systemd service
 7. **Verifies GPU acceleration** and writes initial config
-8. **Lets optional runtimes install later** inside the app without blocking the rest of the UI
+8. **Preserves the previous verified source runtime** for rollback; rerun the installer to add optional packages
 
 ### Update Behavior
 
 - **Git checkout / manual Linux packages** — the app checks GitHub Releases and opens the matching release download page when a newer stable build is available
-- **macOS package installs** — the app prefers the latest `.pkg` release asset when one is published; the package updates an installation whose Homebrew, Python, GStreamer, GTK, and OBS prerequisites are already configured by `install_macos.sh`
+- **macOS installs** — the app prefers the latest `.pkg` release asset when one is published. Current PKG installs use admin-owned source under `/opt/nvbroadcast` and a separate per-user runtime; complete the package's setup step after each new package. To keep a legacy source installation, update its checkout and rerun `install_macos.sh` instead.
 - **Snap installs** — the app opens the Snap Store listing; stable refreshes are normally handled by `snapd`
 
 ### Verify Release Downloads
@@ -338,20 +414,37 @@ reproducibility limits.
 
 ### Optional: TensorRT (for Zeus/Killer modes)
 
+For an installer-managed source runtime, rerun `./install.sh --runtime cuda`
+and answer yes to the TensorRT prompt. It builds and verifies a new generation
+while preserving the previous one. For a manually managed developer `.venv`,
+install the TensorRT 10 libraries into an existing CUDA variant and verify
+that ONNX Runtime actually executes its pinned probe graph on TensorRT:
+
 ```bash
-.venv/bin/pip install tensorrt-cu12 onnx
+.venv/bin/pip install --index-url https://pypi.nvidia.com \
+  --only-binary tensorrt-cu12-libs 'tensorrt-cu12-libs==10.16.0.72'
+.venv/bin/python -m nvbroadcast.runtime --variant cuda --provider tensorrt
 ```
 
-TensorRT Python wheels are currently published for Python `3.8` through `3.13`
-on Linux `x86_64`. If you are on Python `3.14+`, use `DocZeus` or the CUDA
-modes instead.
+The ONNX Runtime GPU wheel used here requires TensorRT 10 shared libraries;
+TensorRT Python bindings are not needed for Zeus or Killer. The pinned library
+wheel is about 4.3 GB and is retrieved directly from NVIDIA's package index so
+pip can identify the download instead of appearing to stop while preparing the
+PyPI forwarding stub's metadata. The binary-only constraint prevents pip from
+silently falling back to that stub if NVIDIA's wheel index is unavailable. It
+supports the source installer's Python `3.11` through `3.14` range on Linux
+`x86_64`. The installer also requires GTK4, Libadwaita, and GStreamer bindings
+for the selected interpreter, so choose a distro Python that can import them.
+The first use of each mode or frame size builds and caches an engine; the
+preview or window can appear unresponsive for several minutes during that
+build.
 
 ### Supported Distros
 
 | Distro | Package Manager | Status |
 |--------|----------------|--------|
 | Ubuntu, Debian, Pop!_OS, Mint | apt | Full auto-install |
-| Fedora, RHEL, CentOS, Rocky | dnf/yum | Full auto-install |
+| Fedora, RHEL, CentOS, Rocky | dnf/yum | Auto-install with matching Python/desktop bindings |
 | Arch, Manjaro, EndeavourOS | pacman | Full auto-install |
 | openSUSE | zypper | Full auto-install |
 | Gentoo, Void, NixOS | portage/xbps/nix | Manual instructions shown |
@@ -415,6 +508,22 @@ This installs support dependencies through project metadata, installs
 versions below 3.14. Native packages keep their lighter `faster-whisper` policy;
 the macOS installer keeps its best-effort OpenAI Whisper fallback.
 
+The default `faster-whisper` backend accepts the bundled model aliases and
+repository IDs only. It downloads a pinned revision and checks the size and
+SHA-256 of each model file before loading it. An explicitly configured local
+CTranslate2 model directory, such as
+`NVBROADCAST_TRANSCRIBER_MODEL=/path/to/model`, remains available and is trusted
+as a user-supplied file. An existing relative directory also takes precedence
+over a model alias with the same name. Set
+`NVBROADCAST_TRANSCRIBER_BACKEND=whisper` to select the separate OpenAI Whisper
+backend explicitly. A cold model load allows time for a 1 MiB/s download plus
+five minutes for hashing and startup, with a one-hour cap; a timed-out worker
+is terminated.
+
+The Hugging Face cache is writable by the same user. A process with write
+access to that cache could replace a file between verification and the native
+model loader opening it. The hash check does not prevent that race.
+
 </details>
 
 ---
@@ -443,6 +552,8 @@ nvbroadcast          # Launch GUI (first time: setup wizard)
 | **Mode** | 9 modes: Killer, Zeus, DocZeus, CUDA, CPU |
 | **Mirror** | Horizontal flip on/off |
 | **Edge Refine** | Neural edge refinement (Zeus/Killer) |
+| **Dilate** | Adjust the subject boundary in Blur, Replace, and Remove. Default: 3. In Replace, lower values contract the established outline and higher values expand it. |
+| **Softness** | Adjust the edge transition in every background mode. Default: 5. Replace retains a narrower transition than Remove at the same setting. |
 | **Pause View** | Freeze preview display |
 | **Hide Preview** | Collapse preview for more control space |
 | **Drag Divider** | Resize preview vs controls area |
@@ -526,8 +637,9 @@ install `.[cuda]`. Never overlay `.[cuda]` on an existing `.[cpu]` environment.
 Bare `pip install .` is runtime-neutral and intended for downstream packagers
 that provide exactly one ONNX Runtime owner themselves.
 
-Verify ownership and execute the pinned probe model in a fresh process with CPU
-fallback disabled:
+The installer verifies ownership and executes the pinned probe model in a fresh
+process with CPU fallback disabled. To repeat that check in a manually managed
+developer environment:
 ```bash
 .venv/bin/python -m nvbroadcast.runtime --variant cuda
 ```
@@ -541,8 +653,9 @@ CUDA-owned environment, run:
 .venv/bin/python -m nvbroadcast.runtime --variant cuda --provider tensorrt
 ```
 
-On Python `3.14+`, TensorRT may still be unavailable, but CUDA modes can run
-when the default CUDA probe succeeds.
+On Python `3.14`, the optional TensorRT 10 libraries and a successful TensorRT
+probe enable Zeus and Killer. CUDA modes remain available when the CUDA probe
+succeeds.
 
 The amd64 Snap includes CUDA inference, compositing, and frame conversion, but
 intentionally uses GStreamer's CPU MJPEG decoder. Bundling the optional
@@ -570,7 +683,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.5.2)
+│   ├── __init__.py              # Package version
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── __main__.py              # CLI entry point
@@ -642,7 +755,7 @@ nvidia-broadcast-linux/
 ├── install_macos.sh             # macOS installer
 ├── uninstall.sh                 # Clean removal
 ├── build-packages.sh            # Debian/RPM/macOS package builder
-├── pyproject.toml               # Package config (v1.5.2)
+├── pyproject.toml               # Package config
 └── README.md
 ```
 
@@ -651,6 +764,12 @@ nvidia-broadcast-linux/
 ## Contributing
 
 Contributions, feedback, and ideas are **warmly welcome**.
+
+Recognized external contributors receive cumulative credit in every later app
+release and in [CONTRIBUTORS.md](CONTRIBUTORS.md), including a public record of
+the work or technical finding behind each credit. Original project authorship,
+external contributions, community testing, and financial sponsorship are
+recognized separately so that one form of support never replaces another.
 
 ### How to Contribute
 
@@ -675,6 +794,16 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 - [ ] NVIDIA Maxine SDK integration
 - [ ] Flatpak packaging
 - [x] Snap packaging
+
+### Recognized Contributors
+
+The permanent contributor record currently recognizes
+[John Maingi](https://github.com/JohnMaingi-IXP),
+[Jon Fuller](https://github.com/perfectra1n),
+[Cédric Prezelin](https://github.com/Tenshock), and
+[Cenkay Çoban](https://github.com/pastor0711). See
+[CONTRIBUTORS.md](CONTRIBUTORS.md) for the contribution summary and source
+references behind each credit.
 
 ## Future Upgrades
 
@@ -725,7 +854,7 @@ Financial supporters make sustained maintainer time possible, while contributors
 
 ## License
 
-- **Python app & Linux code:** GPL-3.0 — see [LICENSE](LICENSE)
+- **Python app & Linux code:** GPL-3.0-or-later — see [LICENSE](LICENSE), including the retained attribution terms, and [NOTICE](NOTICE)
 - **macOS Camera Extension** (`macos/`): Proprietary — see [macos/LICENSE](macos/LICENSE)
 
 Any redistribution or derivative work **must retain the original author attribution**.
@@ -742,5 +871,5 @@ Any redistribution or derivative work **must retain the original author attribut
 </p>
 
 <p align="center">
-  <sub>Copyright (c) 2026 DocZeus. All rights reserved under GPL-3.0.</sub>
+  <sub>Copyright (c) 2026 DocZeus. All rights reserved under GPL-3.0-or-later.</sub>
 </p>

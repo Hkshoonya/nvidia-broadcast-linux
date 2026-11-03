@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-23",
+  "status": "pass",
+  "scope": "Exact-source hosted x86_64 CPU native candidate, isolated installed smoke and signed RPM first-install recovery; no release/default promotion.",
+  "application_revision": "71903d7ca59f119249a1d8342ddc73b7dc8cfb5a",
+  "adapter_revision": "71903d7ca59f119249a1d8342ddc73b7dc8cfb5a",
+  "runtime_manifest_sha256": "854613987856c2309829d1711868f1f8cbce9ac9341460ad3baad9bbef6d47ae",
+  "hosted_build": {
+    "workflow": ".github/workflows/native-cpu-candidate.yml",
+    "run_id": 39874767495,
+    "run_attempt": 1,
+    "source_ref": "refs/heads/main",
+    "conclusion": "success",
+    "artifact": {
+      "id": 12467991495,
+      "name": "native-cpu-candidate-71903d7ca59f119249a1d8342ddc73b7dc8cfb5a-39874767495-1",
+      "bytes": 789233571,
+      "digest": "sha256:bcf25080d15906d332832028bef7e581dca570399eee176e914a6ec53cfa8e9c",
+      "expires_at": "2026-11-21T23:57:32Z"
+    },
+    "capacity": {
+      "required_free_bytes": 12884901888,
+      "observed_free_bytes": {
+        "GITHUB_WORKSPACE": 92098985984,
+        "RUNNER_TEMP": 92098985984,
+        "HOME": 92098985984
+      },
+      "scope": "CPU only; CUDA capacity is not qualified",
+      "receipt": {
+        "path": "dist/hosted-cpu-39874767495/validation-v2/dist/builder-delivery/capacity.json",
+        "sha256": "08d1376c0c592e82cc344033646b5c87fda314f054ed6186db6a2110e36cd101"
+      }
+    },
+    "url": "https://github.com/Hkshoonya/nvidia-broadcast-linux/actions/runs/39874767495",
+    "completed_at": "2026-10-22T23:57:49Z"
+  },
+  "source_ci": {
+    "pull_request": 160,
+    "run_id": 39874142133,
+    "tested_revision": "2ed07ec9b432d2611d81245f8b933877b94de0da",
+    "tested_tree": "e8dca54461586b364a33f632170ccf509e727d0f",
+    "tested_tree_matches_build_source": true,
+    "conclusion": "success",
+    "github_actions_checks_passed": 4,
+    "external_gitguardian_conclusion": "success",
+    "receipt": {
+      "path": "dist/issue60-hosted-cpu-20261023/pr160-ci.json",
+      "sha256": "7a6b3f7fb99b773dc97d2f92f9cc7efe775f1b6956c6433d80550efb91ea4f9d"
+    }
+  },
+  "builder_delivery": {
+    "prior_record": "2026-10-11-builder-import.json",
+    "lock_sha256": "32faae2c917880000d30beedc9504f33d9933d1211806d727e9d953c85327d94",
+    "authenticated_consumer_receipt": {
+      "path": "dist/hosted-cpu-39874767495/validation-v2/dist/builder-delivery/authenticated-builders.json",
+      "sha256": "0a3c64d5ae37c71fddad4c1f9d4861198668aa448880d38dd8fd8d265cff7f49"
+    }
+  },
+  "packages": [
+    {
+      "family": "deb",
+      "variant": "cpu",
+      "version": "1.5.3-4.cpu",
+      "artifact": "deb/nvbroadcast_1.5.3-4.cpu_amd64.deb",
+      "content_sha256": "6ed0aa1f32a972c1e47e1a9458bdfb39614a80546a0e398c4e7079451d858ff5",
+      "bytes": 390316076,
+      "sha256": "359b3c9cd3cb697727ce345685c597c1b44551e729c2e64f890f9713f9c6b4b9"
+    },
+    {
+      "family": "rpm",
+      "variant": "cpu",
+      "version": "1.5.3-4.cpu",
+      "artifact": "rpm/build/RPMS/x86_64/nvbroadcast-1.5.3-4.cpu.x86_64.rpm",
+      "content_sha256": "603f10c972fc7dee01395994745dd6951654b398ceac8985929767c841abad6e",
+      "unsigned_bytes": 389969054,
+      "unsigned_sha256": "fc7280e9ca20b891333dc01792d17503e8f1b52676f1807c718bd2b3f0992c1e",
+      "signed_bytes": 389969054,
+      "signed_sha256": "91d2052394b864e567103dbf0802422e5b1459305512e3ff0e2b218a6c9c5893"
+    }
+  ],
+  "artifact_verification": {
+    "status": "pass",
+    "result": {
+      "path": "dist/hosted-cpu-39874767495/validation-v2/result.json",
+      "sha256": "ebf30e95c5a56afc36964a8635fa981878904f6e5a20053f8a7c75c28a754171"
+    },
+    "driver_sha256": "49cddb3355460db5e9666ac671dd288ab545437ca84c039090cdb5c7b7b90bcd",
+    "application_python_files_each": 62,
+    "scriptlet_source_match": true
+  },
+  "installed_smoke": {
+    "deb": {
+      "status": "pass",
+      "result": {
+        "path": "dist/hosted-cpu-39874767495/smoke-deb-v2/result.json",
+        "sha256": "a1b9262b6bd18222463b92cd1e1b77eefbdd7e4b6837fc4285d51cd372560fff"
+      },
+      "driver_sha256": "206c5c17fc327cef5fadf092a48435f64c73dc8251c999ad90699c6b89f651b7",
+      "fixture_image": "sha256:b4215156c71cac4ca6a318baa523f166540768ef3594314adbb1450b7c9b5366",
+      "os": "ubuntu",
+      "os_version": "24.04",
+      "steps_completed": 14,
+      "all_step_log_hashes_verified": true,
+      "application_python_files": 62,
+      "ordinary_user_cpu_gtk_and_media": true,
+      "generated_recording": {
+        "audio_encoder": "voaacenc",
+        "audio_peak": 0.8085297346115112,
+        "audio_samples": 49152,
+        "file_bytes": 211661,
+        "status": "pass",
+        "video_encoder": "x264enc",
+        "video_frames": 24
+      },
+      "system_python_preserved": "absent before and after",
+      "user_data_preserved": true,
+      "container_removed": true,
+      "package_inputs_unchanged": true
+    },
+    "signed_rpm": {
+      "status": "pass",
+      "result": {
+        "path": "dist/hosted-cpu-39874767495/smoke-rpm-v2/result.json",
+        "sha256": "e8669c5ac16698aa527452d4088ba868decea2eacd06a6ee0d36e61fedd1fbd1"
+      },
+      "driver_sha256": "206c5c17fc327cef5fadf092a48435f64c73dc8251c999ad90699c6b89f651b7",
+      "fixture_image": "sha256:c5cb226d51d0bc9e3c13861649a7ba73b06d0b09d9f866501a1569b48c562ab5",
+      "os": "fedora",
+      "os_version": "44",
+      "steps_completed": 19,
+      "all_step_log_hashes_verified": true,
+      "application_python_files": 62,
+      "ordinary_user_cpu_gtk_and_media": true,
+      "generated_recording": {
+        "audio_encoder": "fdkaacenc",
+        "audio_peak": 0.8150238394737244,
+        "audio_samples": 51200,
+        "file_bytes": 143537,
+        "status": "pass",
+        "video_encoder": "openh264enc",
+        "video_frames": 24
+      },
+      "system_python_preserved": "existing bytes unchanged",
+      "user_data_preserved": true,
+      "container_removed": true,
+      "package_inputs_unchanged": true,
+      "project_signature_verified": true
+    }
+  },
+  "signing": {
+    "status": "verified",
+    "publisher_fingerprint": "A691DCA6C031FEFD2C34F5AAFE33D0C20C9451D1",
+    "signing_subkey_fingerprint": "C2EF93F80C95F85BF878A8475E1E5602DBACBCB5",
+    "public_key_sha256": "bf9371c4fc83c41f8b1dbc3607c25ffa261b1e5de99fe799cf0a863db16cbd8a",
+    "immutable_header_and_payload_unchanged": true,
+    "rendered_upgrade_helper_sha256": "529237029a2a3174e5e45af615929f5ba3781494884620bd6b1e98b508cb9764",
+    "native_versions": [
+      "RPM version 4.18.2",
+      "RPM version 6.0.2"
+    ],
+    "receipt": {
+      "path": "dist/hosted-cpu-39874767495/signing-qualification.json",
+      "sha256": "36618e24734f202c3e74b91c1b804e43a193a728c395ca34c6d61dab173069eb"
+    },
+    "completion": {
+      "path": "dist/hosted-cpu-39874767495/signing-completion.json",
+      "sha256": "f6f97653c089b5722a9807f4f085271ede72b91b13d63cf58b15f9a4b3d34413"
+    },
+    "independent_review": {
+      "path": "dist/hosted-cpu-39874767495/signing-independent-review.json",
+      "sha256": "11877e537a9530cd39a23ee2167818d32644c1270ca2dff5ff995ec19a67a75e"
+    },
+    "scratch_removed": true
+  },
+  "fresh_rpm_recovery": {
+    "status": "pass",
+    "scenario": "fresh-install-only",
+    "driver_sha256": "7d65e0d1f0a066f9ecbbf7bb5023262f4046d9ef420e63113b37c56f996a0e53",
+    "recovery_source_sha256": "67cef65abaa04e49ccb1f1276a498b38080ddacfb6b1a7bc5f86a62cb25971b5",
+    "rendered_recovery_helper_sha256": "4c7cb21c6389d83c5ce051e039aa9e36dcc53077c9896f73f13773eab6d536cc",
+    "bootstrap_source_sha256": "2c2dfe1690e5bcefaccb88391fbe92e86712ed8060b1f9bf581eacc011f9935d",
+    "result": {
+      "path": "dist/hosted-cpu-39874767495/fresh-signed-recovery/result.json",
+      "sha256": "691549d792652dce15d3b33c800baca0db809d900c55edb90add9ed642ab5cc9"
+    },
+    "preservation_report": {
+      "path": "dist/hosted-cpu-39874767495/fresh-signed-recovery/preservation.json",
+      "sha256": "9409b2f40e63921736e9b98c9512cad1a875582239d36174f49b7d2e61e7976d"
+    },
+    "actual_sigkill_observed": true,
+    "exact_signed_replay_and_full_validator": true,
+    "container_removed": true,
+    "signed_inputs_unchanged": true,
+    "all_step_log_hashes_verified": true,
+    "fixture_image": "sha256:c5cb226d51d0bc9e3c13861649a7ba73b06d0b09d9f866501a1569b48c562ab5",
+    "observed_fragment_bytes": 24838144,
+    "manager_exit": 9,
+    "preserved_fragment_count": 45,
+    "steps_completed": 23
+  },
+  "limitations": [
+    "Historical builder import/delivery is authenticated; original apt/dnf build provenance is not.",
+    "Only the recorded current-candidate smoke and fresh first-install recovery are repeated; October 11 upgrade/rollback/migration proofs remain bound to their earlier package bytes.",
+    "Isolated containers with preinstalled OS dependencies; no new physical camera, microphone, GPU, host desktop or clean-VM acceptance.",
+    "CPU x86_64 only; CUDA capacity, variant switching and remaining platform/device acceptance are separate.",
+    "No power-loss guarantee, native release-default promotion or publication; frozen v1.5.3 assets and Flatpak qualification are outside this record."
+  ],
+  "evidence": {
+    "retained_artifact_worktree": "Broadcast-native-cpu-20261022",
+    "retained_documentation_worktree": "Broadcast-issue60-hosted-cpu-20261023",
+    "run": {
+      "path": "dist/hosted-cpu-39874767495/run.json",
+      "sha256": "8874c03fccb1261af1d39f9896ef6b4d27933167e49851d0458b8470bd4c224d"
+    },
+    "artifact": {
+      "path": "dist/hosted-cpu-39874767495/artifact.json",
+      "sha256": "c75f67ce87e5bf161bf16abd972041a2f6dc1965f0f46fb132e6a0d5ddf4c7b0"
+    },
+    "packages": {
+      "path": "dist/hosted-cpu-39874767495/validation-v2/dist/native-cpu/packages.json",
+      "sha256": "912a2dbbe157e30c2844f595d8c96819c1bc20f6a209ed54b0215af0f657aefe"
+    },
+    "host_tools": {
+      "path": "dist/hosted-cpu-39874767495/validation-v2/dist/builder-delivery/host-tools.json",
+      "sha256": "8f4921bf0001b1604d0cf0990a0813f6a09244b7293dd8e116ab4aa38e2b9a25"
+    },
+    "final_receipt_review": {
+      "path": "dist/issue60-hosted-cpu-20261023/final-receipt-review.json",
+      "sha256": "b1c6e34ce46adc8024a8e1fdc4187f61e89e9293331e7f97cfe8cbdaf5cfd4c2"
+    }
+  },
+  "retained_failures": [
+    {
+      "meaning": "Initial hosted run rejected duplicate Docker data-root options before loading builders; corrected by PR160.",
+      "run_id": 39873561546,
+      "fix_pull_request": 160,
+      "log": {
+        "path": "dist/issue60-hosted-cpu-20261023/retained-failures/failed-run39873561546-job120153552283.raw.log",
+        "sha256": "7144a64cbf367c5ecdcef1b39fb9514632ec9abd1f9c0f0ca56dd40065a50d90"
+      }
+    },
+    {
+      "meaning": "First independent validator lacked writable temporary space required by dpkg-deb under its read-only container root; bounded tmpfs correction passed complete revalidation.",
+      "result": {
+        "path": "dist/issue60-hosted-cpu-20261023/retained-failures/first-validator-result.json",
+        "sha256": "5cb388a618e4b9808dd515f4d72a9d41b5d20d757afd12f1c3987d948e37b2bd"
+      },
+      "log": {
+        "path": "dist/issue60-hosted-cpu-20261023/retained-failures/first-validator.log",
+        "sha256": "5ee0bdd5ee9ab1ad306914bc7917a2d89761232e974c507ae1af046f36cb2e3f"
+      }
+    },
+    {
+      "meaning": "First DEB smoke fixture lacked /usr/bin/python3; its sentinel assumed system Python existed and stopped before package installation. Revised smoke preserves explicit absence and passed.",
+      "result": {
+        "path": "dist/hosted-cpu-39874767495/smoke-deb/result.json",
+        "sha256": "e81a25d14b0632de36c6c47877b20bfc6bf140a989d75af9c145570b4056fcb0"
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """Face beautification — skin smoothing, denoising, edge darkening, enhancement.
@@ -221,7 +221,10 @@ class FaceBeautifier:
             frame = self._apply_skin_smooth(frame)
 
         # Batch GPU-eligible operations (enhance + sharpen + vignette)
-        if self._cupy is not None:
+        if (
+            self._compositing in ("cupy", "gstreamer_gl")
+            and self._cupy is not None
+        ):
             frame = self._apply_gpu_batch(
                 frame,
                 width,
@@ -509,7 +512,6 @@ class FaceBeautifier:
         x1 = max(0, x - pad)
         x2 = min(frame.shape[1], x + w + pad)
 
-        roi = frame[y1:y2, x1:x2, :3]
         roi_mask = mask[y1:y2, x1:x2]
         # When the face is moving quickly, smoothing contributes less visible
         # value than edge freshness. Back off instead of spending the full
@@ -526,6 +528,7 @@ class FaceBeautifier:
             # Small kernel (d=5 = 2ms vs d=10 = 20ms)
             d = 5 if intensity < 0.6 else 7
             sigma = int(30 + intensity * 40)
+        roi = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGRA2BGR)
         smoothed = cv2.bilateralFilter(roi, d, sigma, sigma)
 
         # Blend using face mask (ROI only)
@@ -540,7 +543,7 @@ class FaceBeautifier:
     def _apply_denoise(self, frame: np.ndarray) -> np.ndarray:
         """Face-local temporal denoising that avoids recursive motion smear."""
         intensity = self._denoise
-        raw_bgr = frame[:, :, :3].copy()
+        raw_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
 
         bbox = self._face_bbox
         mask = self._tone_mask if self._tone_mask is not None else self._face_mask

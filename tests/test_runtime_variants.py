@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts import install_runtime_variant
+from nvbroadcast.runtime.artifact import ArtifactEnvironment
 from nvbroadcast.runtime.variants import (
     FASTER_WHISPER_REQUIREMENT,
     FASTER_WHISPER_VERSION,
@@ -15,10 +16,23 @@ from nvbroadcast.runtime.variants import (
     current_distribution_inventory,
     detect_runtime_variant,
     runtime_ownership_problems,
+    validate_current_runtime,
 )
 
 
 class RuntimeVariantTests(unittest.TestCase):
+    def setUp(self):
+        # These tests cover normal CPU/CUDA installs. Experimental 3.15's
+        # explicit wheelhouse contract is exercised in test_python315_runtime.
+        version = mock.patch.object(install_runtime_variant.sys, "version_info", (3, 14))
+        version.start()
+        self.addCleanup(version.stop)
+        patcher = mock.patch.object(
+            install_runtime_variant, "prepare_virtualenv_namespaces"
+        )
+        self.prepare_namespaces = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_supported_meeting_backend_version_is_pinned(self):
         self.assertEqual(
             FASTER_WHISPER_REQUIREMENT,
@@ -126,6 +140,21 @@ class RuntimeVariantTests(unittest.TestCase):
 
         self.assertEqual(inventory, {"onnxruntime": ("1.24.4",)})
 
+    def test_inventory_recognizes_canonical_gpu_name_with_repeated_separators(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site_packages = Path(tmp) / "site-packages"
+            dist_info = site_packages / "onnxruntime__gpu-1.24.4.dist-info"
+            dist_info.mkdir(parents=True)
+            (dist_info / "METADATA").write_text(
+                "Metadata-Version: 2.1\n"
+                "Name: onnxruntime__gpu\n"
+                "Version: 1.24.4\n"
+            )
+            with mock.patch.object(sys, "path", [str(site_packages)]):
+                inventory = current_distribution_inventory()
+
+        self.assertEqual(inventory, {"onnxruntime-gpu": ("1.24.4",)})
+
     def test_cpu_contract_accepts_single_cpu_owner(self):
         self.assertEqual(
             runtime_ownership_problems(
@@ -162,6 +191,86 @@ class RuntimeVariantTests(unittest.TestCase):
         )
         self.assertTrue(any("found 2" in item for item in problems))
 
+    def test_aliased_owner_names_do_not_hide_duplicate_distributions(self):
+        problems = runtime_ownership_problems(
+            RuntimeVariant.CUDA,
+            {
+                "onnxruntime-gpu": ("1.24.4",),
+                "onnxruntime_gpu": ("1.30.0",),
+            },
+            ["CPUExecutionProvider", "CUDAExecutionProvider"],
+        )
+        self.assertTrue(any("found 2" in item for item in problems))
+
+    def test_cli_reports_owner_fault_before_broken_shared_import(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            venv = root / "venv"
+            subprocess.run(
+                [sys.executable, "-m", "venv", "--without-pip", venv],
+                check=True,
+            )
+            python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+            site_packages = root / "packages"
+            runtime = site_packages / "onnxruntime"
+            runtime.mkdir(parents=True)
+            (runtime / "__init__.py").write_text(
+                "raise ImportError('intentionally broken shared import')\n"
+            )
+            for name in ("onnxruntime", "onnxruntime-gpu"):
+                metadata = site_packages / f"{name}-1.24.4.dist-info"
+                metadata.mkdir()
+                (metadata / "METADATA").write_text(
+                    f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.24.4\n"
+                )
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = os.pathsep.join(
+                (str(Path(__file__).resolve().parents[1] / "src"), str(site_packages))
+            )
+            environment["PYTHONNOUSERSITE"] = "1"
+            command = [python, "-m", "nvbroadcast.runtime", "--variant", "cpu"]
+
+            mixed = subprocess.run(command, capture_output=True, text=True, env=environment)
+            self.assertEqual(mixed.returncode, 1)
+            self.assertIn("unexpected runtime distribution(s): onnxruntime-gpu", mixed.stderr)
+            self.assertNotIn("intentionally broken shared import", mixed.stderr)
+
+            gpu_metadata = site_packages / "onnxruntime-gpu-1.24.4.dist-info"
+            (gpu_metadata / "METADATA").unlink()
+            gpu_metadata.rmdir()
+            broken = subprocess.run(command, capture_output=True, text=True, env=environment)
+            self.assertEqual(broken.returncode, 1)
+            self.assertIn("cannot import onnxruntime", broken.stderr)
+            self.assertIn("intentionally broken shared import", broken.stderr)
+
+    def test_single_owner_with_working_provider_remains_valid(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = ["CPUExecutionProvider"]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(validate_current_runtime(RuntimeVariant.CPU), [])
+
+    def test_provider_query_failure_returns_actionable_problem(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.side_effect = RuntimeError("broken provider library")
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime-gpu": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            problems = validate_current_runtime(RuntimeVariant.CUDA)
+
+        self.assertTrue(
+            any("broken provider library" in item for item in problems)
+        )
+
     def test_provider_contract_is_enforced(self):
         problems = runtime_ownership_problems(
             RuntimeVariant.CPU,
@@ -180,6 +289,202 @@ class RuntimeVariantTests(unittest.TestCase):
                 {"onnxruntime": ("1.24.4",), "onnxruntime-gpu": ("1.24.4",)}
             )
         )
+
+    def test_detect_rejects_duplicate_distributions_of_the_same_owner(self):
+        for owner in ("onnxruntime", "onnxruntime-gpu"):
+            for versions in (("1.24.4", "1.24.4"), ("1.24.4", "1.30.0")):
+                with self.subTest(owner=owner, versions=versions):
+                    self.assertIsNone(detect_runtime_variant({owner: versions}))
+        self.assertIsNone(detect_runtime_variant({
+            "onnxruntime-gpu": ("1.24.4",),
+            "onnxruntime_gpu": ("1.24.4",),
+        }))
+
+    def test_detect_cpu_named_cuda_build_with_providers_returns_cuda(self):
+        self.assertEqual(
+            detect_runtime_variant(
+                {"onnxruntime": ("1.29.0",)},
+                ["CPUExecutionProvider", "CUDAExecutionProvider"],
+            ),
+            RuntimeVariant.CUDA,
+        )
+
+    def test_detect_explicit_cpu_dict_without_providers_stays_cpu(self):
+        self.assertEqual(
+            detect_runtime_variant({"onnxruntime": ("1.24.4",)}),
+            RuntimeVariant.CPU,
+        )
+
+    def test_detect_rejects_duplicates_even_with_cuda_providers(self):
+        self.assertIsNone(
+            detect_runtime_variant(
+                {"onnxruntime": ("1.24.4", "1.30.0")},
+                ["CPUExecutionProvider", "CUDAExecutionProvider"],
+            )
+        )
+        self.assertIsNone(
+            detect_runtime_variant(
+                {"onnxruntime": ("1.24.4",), "onnxruntime-gpu": ("1.24.4",)},
+                ["CPUExecutionProvider", "CUDAExecutionProvider"],
+            )
+        )
+
+    def test_cuda_ownership_accepts_cpu_named_cuda_build(self):
+        self.assertEqual(
+            runtime_ownership_problems(
+                RuntimeVariant.CUDA,
+                {"onnxruntime": ("1.29.0",)},
+                ["CPUExecutionProvider", "CUDAExecutionProvider"],
+                allow_cpu_named_cuda=True,
+            ),
+            [],
+        )
+
+    def test_cpu_named_cuda_rejects_duplicate_case_aliases(self):
+        inventory = {
+            "onnxruntime": ("1.29.0",),
+            "ONNXRuntime": ("1.30.0",),
+        }
+        providers = ["CPUExecutionProvider", "CUDAExecutionProvider"]
+        self.assertIsNone(detect_runtime_variant(inventory, providers))
+        self.assertTrue(
+            runtime_ownership_problems(
+                RuntimeVariant.CUDA, inventory, providers,
+                allow_cpu_named_cuda=True,
+            )
+        )
+        runtime = mock.Mock()
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value=inventory,
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertTrue(validate_current_runtime(RuntimeVariant.CUDA))
+        runtime.get_available_providers.assert_not_called()
+
+    def test_cpu_named_cuda_ignores_non_runtime_distributions(self):
+        inventory = {"ONNXRuntime": ("1.29.0",), "numpy": ("2.4.4",)}
+        providers = ["CPUExecutionProvider", "CUDAExecutionProvider"]
+        self.assertEqual(
+            detect_runtime_variant(inventory, providers), RuntimeVariant.CUDA
+        )
+        self.assertEqual(
+            runtime_ownership_problems(
+                RuntimeVariant.CUDA, inventory, providers,
+                allow_cpu_named_cuda=True,
+            ),
+            [],
+        )
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = providers
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value=inventory,
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(validate_current_runtime(RuntimeVariant.CUDA), [])
+
+    def test_runtime_ownership_accepts_one_shot_provider_iterables(self):
+        cases = (
+            (RuntimeVariant.CPU, "onnxruntime", ["CPUExecutionProvider"]),
+            (RuntimeVariant.CUDA, "onnxruntime-gpu", ["CPUExecutionProvider", "CUDAExecutionProvider"]),
+            (RuntimeVariant.CUDA, "onnxruntime", ["CPUExecutionProvider", "CUDAExecutionProvider"]),
+        )
+        for variant, owner, providers in cases:
+            with self.subTest(variant=variant, owner=owner):
+                self.assertEqual(
+                    runtime_ownership_problems(
+                        variant, {owner: ("1.29.0",)}, iter(providers),
+                        allow_cpu_named_cuda=True,
+                    ),
+                    [],
+                )
+
+    def test_cuda_ownership_reports_missing_cpu_provider_for_arch_layout(self):
+        problems = runtime_ownership_problems(
+            RuntimeVariant.CUDA,
+            {"onnxruntime": ("1.29.0",)},
+            ["CUDAExecutionProvider"],
+            allow_cpu_named_cuda=True,
+        )
+        self.assertTrue(any("missing execution provider" in item for item in problems))
+
+    def test_detect_live_probe_returns_cuda_for_cpu_named_cuda_build(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = [
+            "CPUExecutionProvider",
+            "CUDAExecutionProvider",
+        ]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.29.0",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(detect_runtime_variant(), RuntimeVariant.CUDA)
+
+    def test_detect_live_probe_without_cuda_stays_cpu(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = ["CPUExecutionProvider"]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(detect_runtime_variant(), RuntimeVariant.CPU)
+
+    def test_detect_live_probe_failure_falls_back_to_cpu(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.side_effect = RuntimeError("broken lib")
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.24.4",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(detect_runtime_variant(), RuntimeVariant.CPU)
+
+    def test_validate_cuda_accepts_arch_layout(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = [
+            "CPUExecutionProvider",
+            "CUDAExecutionProvider",
+        ]
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.29.0",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+        ):
+            self.assertEqual(validate_current_runtime(RuntimeVariant.CUDA), [])
+
+    def test_duplicate_metadata_on_distinct_import_paths_is_not_a_valid_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for index, version in enumerate(("1.24.4", "1.30.0")):
+                site = Path(tmp) / f"site-{index}"
+                dist_info = site / f"onnxruntime_gpu-{version}.dist-info"
+                dist_info.mkdir(parents=True)
+                (dist_info / "METADATA").write_text(
+                    "Metadata-Version: 2.1\n"
+                    "Name: onnxruntime-gpu\n"
+                    f"Version: {version}\n"
+                )
+                paths.append(str(site))
+            with mock.patch.object(sys, "path", paths):
+                self.assertEqual(current_distribution_inventory(), {
+                    "onnxruntime-gpu": ("1.24.4", "1.30.0"),
+                })
+                self.assertIsNone(detect_runtime_variant())
 
     def test_installer_uses_support_extra_before_no_deps_backend(self):
         with (
@@ -213,7 +518,9 @@ class RuntimeVariantTests(unittest.TestCase):
                 ),
             ],
         )
-        validate_meeting_dependencies.assert_called_once_with("cuda", "faster")
+        validate_meeting_dependencies.assert_called_once_with(
+            "cuda", "faster", development=False
+        )
         run.assert_called_once_with(
             [
                 install_runtime_variant.sys.executable,
@@ -257,7 +564,9 @@ class RuntimeVariantTests(unittest.TestCase):
                 ),
             ],
         )
-        validate_meeting_dependencies.assert_called_once_with("cpu", "all")
+        validate_meeting_dependencies.assert_called_once_with(
+            "cpu", "all", development=False
+        )
 
     def test_refuses_cpu_to_cuda_before_mutation(self):
         self._assert_owner_transition_is_refused(
@@ -322,9 +631,11 @@ class RuntimeVariantTests(unittest.TestCase):
         run_pip.assert_not_called()
         guard.assert_not_called()
         run.assert_not_called()
+        self.prepare_namespaces.assert_not_called()
 
     def test_source_guard_runs_before_runtime_installation(self):
         events = []
+        self.prepare_namespaces.side_effect = lambda: events.append("namespaces")
 
         def guard(*_args):
             events.append("guard")
@@ -349,6 +660,7 @@ class RuntimeVariantTests(unittest.TestCase):
             mock.patch.object(
                 install_runtime_variant, "run_pip", side_effect=run_pip
             ),
+            mock.patch.object(install_runtime_variant, "validate_meeting_dependencies"),
             mock.patch.object(install_runtime_variant.subprocess, "run"),
         ):
             install_runtime_variant.install(
@@ -359,7 +671,7 @@ class RuntimeVariantTests(unittest.TestCase):
                 source_venv=Path("/project/.venv"),
             )
 
-        self.assertEqual(events, ["guard", "pip"])
+        self.assertEqual(events, ["guard", "namespaces", "pip"])
 
     def test_preflight_only_guards_source_environment(self):
         project = Path("/project")
@@ -394,6 +706,7 @@ class RuntimeVariantTests(unittest.TestCase):
             project, "cpu", source_venv
         )
         guard_source_environment.assert_called_once_with(project, source_venv)
+        self.prepare_namespaces.assert_not_called()
 
     def test_installer_rejects_mixed_owners_after_installation(self):
         mixed_inventory = {
@@ -447,6 +760,7 @@ class RuntimeVariantTests(unittest.TestCase):
         environment.dependency_closure_problems.assert_called_once_with(
             {"onnxruntime": "onnxruntime-gpu"},
             roots={"nvbroadcast", "faster-whisper"},
+            root_extras={"nvbroadcast": {"cuda", "meeting-support"}},
         )
 
     def test_cpu_meeting_closure_uses_standard_runtime_requirement(self):
@@ -468,7 +782,8 @@ class RuntimeVariantTests(unittest.TestCase):
             )
 
         environment.dependency_closure_problems.assert_called_once_with(
-            None, roots={"nvbroadcast", "faster-whisper"}
+            None, roots={"nvbroadcast", "faster-whisper"},
+            root_extras={"nvbroadcast": {"cpu", "meeting-support"}},
         )
 
     def test_all_meeting_closure_includes_supported_openai_whisper_root(self):
@@ -492,6 +807,7 @@ class RuntimeVariantTests(unittest.TestCase):
         environment.dependency_closure_problems.assert_called_once_with(
             None,
             roots={"nvbroadcast", "faster-whisper", "openai-whisper"},
+            root_extras={"nvbroadcast": {"cpu", "meeting-support", "meeting"}},
         )
 
     def test_meeting_closure_rejects_unresolved_backend_dependency(self):
@@ -525,6 +841,90 @@ class RuntimeVariantTests(unittest.TestCase):
             install_runtime_variant.validate_meeting_dependencies(
                 "cpu", "faster"
             )
+
+
+class RuntimeDependencyClosureTests(unittest.TestCase):
+    def setUp(self):
+        version = mock.patch.object(install_runtime_variant.sys, "version_info", (3, 14))
+        version.start()
+        self.addCleanup(version.stop)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.site = self.root / "lib/python3.12/site-packages"
+        self.site.mkdir(parents=True)
+
+    def distribution(self, name, version, requirements=()):
+        directory = self.site / f"{name.replace('-', '_')}-{version}.dist-info"
+        directory.mkdir()
+        (directory / "METADATA").write_text(
+            f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n" +
+            "".join(f"Requires-Dist: {requirement}\n" for requirement in requirements)
+        )
+
+    def environment(self):
+        return ArtifactEnvironment.inspect(self.root, "amd64")
+
+    def test_installer_without_meeting_rejects_missing_variant_dependency_before_probe(self):
+        self.distribution("nvbroadcast", "1.0", ('required-cpu-leaf; extra == "cpu"',))
+        self.distribution("onnxruntime", "1.24.4")
+        with (
+            mock.patch.object(install_runtime_variant, "prepare_virtualenv_namespaces"),
+            mock.patch.object(install_runtime_variant, "runtime_owner_inventory",
+                              side_effect=[{}, {"onnxruntime": ("1.24.4",)}]),
+            mock.patch.object(install_runtime_variant, "run_pip") as pip,
+            mock.patch.object(install_runtime_variant.subprocess, "run") as probe,
+            mock.patch("nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+                       return_value=self.environment()),
+            self.assertRaisesRegex(RuntimeError, "missing package required-cpu-leaf"),
+        ):
+            install_runtime_variant.install(Path("/project"), "cpu", "none")
+        pip.assert_called_once_with("install", "--upgrade", "/project[cpu]")
+        probe.assert_not_called()
+
+    def test_cuda_selection_requires_cupy_and_ignores_unselected_meeting_extra(self):
+        self.distribution("nvbroadcast", "1.0", (
+            'cupy-cuda12x>=14.1.1,<15; extra == "cuda"',
+            'unselected-meeting; extra == "meeting-support"',
+        ))
+        self.distribution("onnxruntime-gpu", "1.24.4")
+        with mock.patch("nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+                        side_effect=self.environment):
+            with self.assertRaisesRegex(RuntimeError, "missing package cupy-cuda12x"):
+                install_runtime_variant.validate_meeting_dependencies("cuda", "none")
+            self.distribution("cupy-cuda12x", "14.2.0")
+            install_runtime_variant.validate_meeting_dependencies("cuda", "none")
+
+    def test_meeting_selection_requires_project_support_extra(self):
+        self.distribution("nvbroadcast", "1.0", ('soundfile; extra == "meeting-support"',))
+        self.distribution("faster-whisper", "1.2.1", ("onnxruntime>=1.14,<2",))
+        self.distribution("onnxruntime-gpu", "1.24.4")
+        with mock.patch("nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+                        side_effect=self.environment):
+            with self.assertRaisesRegex(RuntimeError, "missing package soundfile"):
+                install_runtime_variant.validate_meeting_dependencies("cuda", "faster")
+            self.distribution("soundfile", "0.13.1")
+            install_runtime_variant.validate_meeting_dependencies("cuda", "faster")
+
+    def test_all_meeting_keeps_python_guard_and_selected_development_extra(self):
+        self.distribution("nvbroadcast", "1.0", (
+            'openai-whisper; extra == "meeting" and python_version < "3.14"',
+            'development-leaf; extra == "dev"',
+        ))
+        self.distribution("faster-whisper", "1.2.1")
+        self.distribution("onnxruntime", "1.24.4")
+        environment = self.environment()
+        environment.markers.update(python_version="3.14", python_full_version="3.14.0")
+        with (
+            mock.patch("nvbroadcast.runtime.artifact.ArtifactEnvironment.current",
+                       return_value=environment),
+            mock.patch.object(install_runtime_variant.sys, "version_info", (3, 14)),
+        ):
+            install_runtime_variant.validate_meeting_dependencies("cpu", "all")
+            with self.assertRaisesRegex(RuntimeError, "missing package development-leaf"):
+                install_runtime_variant.validate_meeting_dependencies(
+                    "cpu", "all", development=True
+                )
 
 
 if __name__ == "__main__":

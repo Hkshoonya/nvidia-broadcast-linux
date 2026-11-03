@@ -1,0 +1,1604 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "scope": "unsigned non-release CPU/CUDA native-package and bounded recovery prototype; separate from v1.5.3",
+  "recipe_revision": "b6cb04ff72696a5b008e27fc27fc9604707dff2e",
+  "payload_build_recipe_revision": "cfa2e32824fe536c26bce2636f4502f15dacb6d5",
+  "recipe_sha256": {
+    "packaging/native-prototype/CUDA_SWITCHING.md": "495a12a1cda175cff9446277ea593a3129b2b0e5266c99658744ac93fdf47b58",
+    "packaging/native-prototype/README.md": "b8825fc5b9c812bfe4b90123ffbc696f02e54a0316caf6745011a711b72f63fc",
+    "packaging/native-prototype/build.py": "ed731871ee8a3bc400d629b983f335fde9fb36e1ffcebb3dc7f0a8a5771d626b",
+    "packaging/native-prototype/package-hooks.sh": "8c0ce4f1ec5bb265e8f223693ed70d33385839c8867397b4b8b35925d038c00d",
+    "packaging/native-prototype/recover_rpm_unpacked.py": "d9a6a7e5913bb61d93bad90f88278546c81e79632efe4623a4e4a84cd3e17d30",
+    "packaging/native-prototype/run_lifecycle.py": "13d85ae24e300ade713f5b5830a65e82126209c972b47ca01a20c5eb5e731f2b",
+    "packaging/native-prototype/run_switching.py": "db0e52b2f7ce89c598bf20ea04dcb77f25b1a4eaa9636f27c72fc191ea81f254",
+    "packaging/native-prototype/verify.py": "3caa1b56cc8a6adceabed5af455992fdb005b26d8b1b0397e356783fe10612c7",
+    "packaging/runtime-prototype/README.md": "eee74d290d8032c69d92c6a457f7fdf4e426c89063d96e18a94b4c41ab3944c7",
+    "packaging/runtime-prototype/assemble.py": "3f8e1b1c1dac75579c804f3f34ccdbfb486f6ebc4e9addbba523701acdaa54bc",
+    "packaging/runtime-prototype/build-bindings.sh": "1f6711b113481375cc4ce38b6fab21d4d84dff79c69fc9119aaccf8d9390ffa1",
+    "packaging/runtime-prototype/build_local.py": "95e11aeba56e70abca6d26ac1891a2136ae4660191bff920bd8f345f1f0cd24f",
+    "packaging/runtime-prototype/desktop_probe.sh": "46c103991ebe25eb95ef6e7f7509f2445c53cc395ef010a331e7ff31532146b4",
+    "packaging/runtime-prototype/prepare.py": "83947e129b8b259e0e565b005a427e53081dc20f7617a2ee13b4c64556d8d651",
+    "packaging/runtime-prototype/probe.py": "0bdf5843e76ad4cc15a6a5caf7e1f258e8e44b1c9f3fbd433854b385c438aac7",
+    "packaging/runtime-prototype/pylock.build.toml": "7a5bf5ed999ab8d77c48fd4244a2623df86c6686df1de716508a18bc21420990",
+    "packaging/runtime-prototype/pylock.linux-x86_64-cp313-cpu.toml": "58ef492a44b9a5450aec1c552858ed404ce5ba1d41c97cc7b69487231c978e9f",
+    "packaging/runtime-prototype/pylock.linux-x86_64-cp313-cuda.toml": "5018f29eb3a8abae0f78671ae94dd0247bb8f3eb36dd884281b369e992b225a1",
+    "packaging/runtime-prototype/resolve.py": "c9231b19ba647b2daadd676db64a28540700d0fe346d9dd8c10a83e6551fb135",
+    "packaging/runtime-prototype/run_matrix.py": "d4eab384f0c5dfc8079f5a818c03e175fdb5c89c8d2e67d8084766ed4b8e086a",
+    "tests/test_rpm_unpack_recovery.py": "318c677b8528f3e3d8169146c35095b040c4e35991dcbbe1548cd03bf494f137",
+    "tests/test_private_cuda_runtime.py": "cb85aade2e46f834967c4470af93941b8a0b1424e774d6cb5ade5a045b15f937",
+    "tests/test_native_runtime_prototype.py": "cd8740c2af83eca497ecc3d251cea055595f77f6fdc347c83f0ff6f4a204640c",
+    "tests/test_private_runtime_inputs.py": "b5c27f705e28a2289866a1ceacc71859c599f722af203162d0fac12abc98d77e"
+  },
+  "application": {
+    "revision": "8987171078e1fe4a048035315fa5d651abccef6c",
+    "source_date_epoch": 1791222858,
+    "version": "1.5.2"
+  },
+  "application_source": {
+    "path": "dist/native-cuda-switching/application-source-sha256.json",
+    "sha256": "9e0ef9accc9b9873c02326ff4585bba522956a2507814865761a3e409375537a",
+    "python_files": 62
+  },
+  "input_sha256": {
+    "packaging/runtime-prototype/inputs.json": "4b78c88ef667c94237a774a1349a630f1e5fb0d1f76229eb5bec165ab55590b7",
+    "packaging/runtime-prototype/pylock.linux-x86_64-cp313-cpu.toml": "58ef492a44b9a5450aec1c552858ed404ce5ba1d41c97cc7b69487231c978e9f",
+    "packaging/runtime-prototype/pylock.linux-x86_64-cp313-cuda.toml": "5018f29eb3a8abae0f78671ae94dd0247bb8f3eb36dd884281b369e992b225a1"
+  },
+  "runtimes": {
+    "cpu": {
+      "path": "../Broadcast-native-package-lifecycle/dist/native-package-lifecycle/payload/manifest.json",
+      "sha256": "80bef9e45964c3b56269026d5953aacb76be4d0af0654aab64d45560eb837595",
+      "entries": 16556,
+      "regular_file_bytes": 1383528940
+    },
+    "cuda": {
+      "path": "dist/native-cuda-switching/cuda-payload-final/manifest.json",
+      "sha256": "f425d4a7de9054682c310d10af8bd04276db4675286fd216ec2c9b2563ed72c2",
+      "entries": 19571,
+      "regular_file_bytes": 5004664649,
+      "independent_assembly_manifest_identical": true,
+      "selection": {
+        "inputs_sha256": "4b78c88ef667c94237a774a1349a630f1e5fb0d1f76229eb5bec165ab55590b7",
+        "lock_sha256": "5018f29eb3a8abae0f78671ae94dd0247bb8f3eb36dd884281b369e992b225a1",
+        "target": "linux-x86_64-cp313-cuda"
+      }
+    }
+  },
+  "packages": [
+    {
+      "family": "deb",
+      "kind": "self",
+      "revision": 1,
+      "name": "nvbroadcast-cpu",
+      "version": "1.5.2-900~prototype1",
+      "variant": "cpu",
+      "artifact": "dist/native-cuda-switching/cpu-packages/deb/self-1/nvbroadcast-cpu_1.5.2-900~prototype1_amd64.deb",
+      "sha256": "7ab7356caf6dc550d1615781e1abaf3999804cdc71e01bfe3724ece2d57568c4",
+      "bytes": 389752922,
+      "installed_file_bytes": 1383530426,
+      "content": "dist/native-cuda-switching/cpu-packages/deb/self-1/content.json",
+      "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "content_sha256": "5958cf11fde0c98299763c3a2753e5f58a972b6cf59057ccae8470f2ed199293",
+      "repeat_builder_image": "sha256:499381ebf02e632b868152248a63d713a70a20cae66712f384b30149ef471d6a"
+    },
+    {
+      "family": "deb",
+      "kind": "app",
+      "revision": 1,
+      "name": "nvbroadcast",
+      "version": "1.5.2-900~prototype1",
+      "variant": "cpu",
+      "artifact": "dist/native-cuda-switching/cpu-packages/deb/app-1/nvbroadcast_1.5.2-900~prototype1_amd64.deb",
+      "sha256": "2d23cd47fbbd1a68ad1bbe049516e2282c3e800c19ac08868cf55704bf1d3b6c",
+      "bytes": 398100,
+      "installed_file_bytes": 1707988,
+      "content": "dist/native-cuda-switching/cpu-packages/deb/app-1/content.json",
+      "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "content_sha256": "8ec975767c25329a957f84718d89d5f7a732cf08723ebae3abc6292c3d06a1ac",
+      "repeat_builder_image": "sha256:499381ebf02e632b868152248a63d713a70a20cae66712f384b30149ef471d6a"
+    },
+    {
+      "family": "deb",
+      "kind": "runtime",
+      "revision": 1,
+      "name": "nvbroadcast-runtime-cpu",
+      "version": "1.5.2-900~prototype1",
+      "variant": "cpu",
+      "artifact": "dist/native-cuda-switching/cpu-packages/deb/runtime-1/nvbroadcast-runtime-cpu_1.5.2-900~prototype1_amd64.deb",
+      "sha256": "be7d52536f3efc63444410c451ffab8e14883c3abfb6f1bf821fd14c1107917f",
+      "bytes": 389411154,
+      "installed_file_bytes": 1381822947,
+      "content": "dist/native-cuda-switching/cpu-packages/deb/runtime-1/content.json",
+      "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "content_sha256": "86b04240e94afaba4103cf87491b4e94d2bcb040c2aff5a4154158cfe69dafb5",
+      "repeat_builder_image": "sha256:499381ebf02e632b868152248a63d713a70a20cae66712f384b30149ef471d6a"
+    },
+    {
+      "family": "rpm",
+      "kind": "self",
+      "revision": 1,
+      "name": "nvbroadcast-cpu",
+      "version": "1.5.2-900.prototype1",
+      "variant": "cpu",
+      "artifact": "dist/native-cuda-switching/cpu-packages/rpm/self-1/build/RPMS/x86_64/nvbroadcast-cpu-1.5.2-900.prototype1.x86_64.rpm",
+      "sha256": "5bfd7a12e42f091a05486f8b2deb11dd2078251e58bb95598669a2cf45a4d8f2",
+      "bytes": 389369974,
+      "installed_file_bytes": 1383530238,
+      "content": "dist/native-cuda-switching/cpu-packages/rpm/self-1/content.json",
+      "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+      "content_sha256": "05142ccff005d3b011d6ebfeed8d6a49cfbeaf3a1ddeffb76acf7d0f3ea7f83b",
+      "repeat_builder_image": "sha256:ab2dd6d6c435b63a445cc3aa7e8b0c09d8c3c3c5bcdf161c434b73de00769416"
+    },
+    {
+      "family": "rpm",
+      "kind": "app",
+      "revision": 1,
+      "name": "nvbroadcast",
+      "version": "1.5.2-900.prototype1",
+      "variant": "cpu",
+      "artifact": "dist/native-cuda-switching/cpu-packages/rpm/app-1/build/RPMS/x86_64/nvbroadcast-1.5.2-900.prototype1.x86_64.rpm",
+      "sha256": "e81788607c71edb0534e3174a0f80d68d23917e96f68d820932f090a556d9eed",
+      "bytes": 424646,
+      "installed_file_bytes": 1707775,
+      "content": "dist/native-cuda-switching/cpu-packages/rpm/app-1/content.json",
+      "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+      "content_sha256": "345a53c42a562b835555926302c432ad576e5cc550e6455092229173cbeeec42",
+      "repeat_builder_image": "sha256:ab2dd6d6c435b63a445cc3aa7e8b0c09d8c3c3c5bcdf161c434b73de00769416"
+    },
+    {
+      "family": "rpm",
+      "kind": "runtime",
+      "revision": 1,
+      "name": "nvbroadcast-runtime-cpu",
+      "version": "1.5.2-900.prototype1",
+      "variant": "cpu",
+      "artifact": "dist/native-cuda-switching/cpu-packages/rpm/runtime-1/build/RPMS/x86_64/nvbroadcast-runtime-cpu-1.5.2-900.prototype1.x86_64.rpm",
+      "sha256": "ce2a93e1abdcc531a3c45b25ed8122555b07bedf4c2fca94d718041f6118a675",
+      "bytes": 388907938,
+      "installed_file_bytes": 1381822947,
+      "content": "dist/native-cuda-switching/cpu-packages/rpm/runtime-1/content.json",
+      "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+      "content_sha256": "39ae8a44a7e12dff7b0280c377706d017aa82a504670fcb9b68c756c9dd29fb1",
+      "repeat_builder_image": "sha256:ab2dd6d6c435b63a445cc3aa7e8b0c09d8c3c3c5bcdf161c434b73de00769416"
+    },
+    {
+      "family": "deb",
+      "kind": "self",
+      "revision": 1,
+      "name": "nvbroadcast-cuda",
+      "version": "1.5.2-900~prototype1.cuda",
+      "variant": "cuda",
+      "artifact": "dist/native-cuda-switching/cuda-packages/deb/self-1/nvbroadcast-cuda_1.5.2-900~prototype1.cuda_amd64.deb",
+      "sha256": "810de0cb11f4739adbcf1bf471b94bd112f04eea541499d2a73614f35c165737",
+      "bytes": 2155133646,
+      "installed_file_bytes": 5004666159,
+      "content": "dist/native-cuda-switching/cuda-packages/deb/self-1/content.json",
+      "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "content_sha256": "e38c73d42b2789cf702179c76b0a6e8014913eb30e4b1cde5be4beb85a1ee567",
+      "repeat_builder_image": "sha256:499381ebf02e632b868152248a63d713a70a20cae66712f384b30149ef471d6a"
+    },
+    {
+      "family": "deb",
+      "kind": "app",
+      "revision": 1,
+      "name": "nvbroadcast",
+      "version": "1.5.2-900~prototype1.cuda",
+      "variant": "cuda",
+      "artifact": "dist/native-cuda-switching/cuda-packages/deb/app-1/nvbroadcast_1.5.2-900~prototype1.cuda_amd64.deb",
+      "sha256": "0abc734cba71f1534407c663decab2a48dfb02d7dd1c67d638d907ef56488283",
+      "bytes": 398104,
+      "installed_file_bytes": 1708016,
+      "content": "dist/native-cuda-switching/cuda-packages/deb/app-1/content.json",
+      "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "content_sha256": "376ecf6fbb41353725397e316707abc66bdf99008909aeadc470aa96209f9691",
+      "repeat_builder_image": "sha256:499381ebf02e632b868152248a63d713a70a20cae66712f384b30149ef471d6a"
+    },
+    {
+      "family": "deb",
+      "kind": "runtime",
+      "revision": 1,
+      "name": "nvbroadcast-runtime-cuda",
+      "version": "1.5.2-900~prototype1.cuda",
+      "variant": "cuda",
+      "artifact": "dist/native-cuda-switching/cuda-packages/deb/runtime-1/nvbroadcast-runtime-cuda_1.5.2-900~prototype1.cuda_amd64.deb",
+      "sha256": "2e0e5ccb5c5be8d2e9bcaeb71019d21f4499c5d376140fa3c43291c3d0f1cd28",
+      "bytes": 2155132764,
+      "installed_file_bytes": 5002958663,
+      "content": "dist/native-cuda-switching/cuda-packages/deb/runtime-1/content.json",
+      "builder_image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "content_sha256": "658ec7ec77e403faea2d930dc63a68b577743b3515f03663d002a8d7d2d609ac",
+      "repeat_builder_image": "sha256:499381ebf02e632b868152248a63d713a70a20cae66712f384b30149ef471d6a"
+    },
+    {
+      "family": "rpm",
+      "kind": "self",
+      "revision": 1,
+      "name": "nvbroadcast-cuda",
+      "version": "1.5.2-900.prototype1.cuda",
+      "variant": "cuda",
+      "artifact": "dist/native-cuda-switching/cuda-packages/rpm/self-1/build/RPMS/x86_64/nvbroadcast-cuda-1.5.2-900.prototype1.cuda.x86_64.rpm",
+      "sha256": "36c1f0417995344db6a557747aaff952dedcb957ed99445ab41539ebeecf193e",
+      "bytes": 2144159400,
+      "installed_file_bytes": 5004665961,
+      "content": "dist/native-cuda-switching/cuda-packages/rpm/self-1/content.json",
+      "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+      "content_sha256": "8e3dc40a1d8a685ffa9bc7312127fe57e30b9537acc3ac99e94dc08499d47085",
+      "repeat_builder_image": "sha256:ab2dd6d6c435b63a445cc3aa7e8b0c09d8c3c3c5bcdf161c434b73de00769416"
+    },
+    {
+      "family": "rpm",
+      "kind": "app",
+      "revision": 1,
+      "name": "nvbroadcast",
+      "version": "1.5.2-900.prototype1.cuda",
+      "variant": "cuda",
+      "artifact": "dist/native-cuda-switching/cuda-packages/rpm/app-1/build/RPMS/x86_64/nvbroadcast-1.5.2-900.prototype1.cuda.x86_64.rpm",
+      "sha256": "128c55927f5e3fd5d964c9bc2474799ff944d0f9280a9711dc544f80d14bb66e",
+      "bytes": 424876,
+      "installed_file_bytes": 1707793,
+      "content": "dist/native-cuda-switching/cuda-packages/rpm/app-1/content.json",
+      "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+      "content_sha256": "b4c751cb4dc914dced530ec550f74f7a9aa286056be263a9151226354b515372",
+      "repeat_builder_image": "sha256:ab2dd6d6c435b63a445cc3aa7e8b0c09d8c3c3c5bcdf161c434b73de00769416"
+    },
+    {
+      "family": "rpm",
+      "kind": "runtime",
+      "revision": 1,
+      "name": "nvbroadcast-runtime-cuda",
+      "version": "1.5.2-900.prototype1.cuda",
+      "variant": "cuda",
+      "artifact": "dist/native-cuda-switching/cuda-packages/rpm/runtime-1/build/RPMS/x86_64/nvbroadcast-runtime-cuda-1.5.2-900.prototype1.cuda.x86_64.rpm",
+      "sha256": "7229aebd76863d5d9bbee8991b7a71940a6e5705d4f1baa232d601567b0a6a7e",
+      "bytes": 2143898025,
+      "installed_file_bytes": 5002958663,
+      "content": "dist/native-cuda-switching/cuda-packages/rpm/runtime-1/content.json",
+      "builder_image": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c",
+      "content_sha256": "0abcf3a623fe1cae6c83b34d2f340d7ba72311471c6dced63502228f77878cd1",
+      "repeat_builder_image": "sha256:ab2dd6d6c435b63a445cc3aa7e8b0c09d8c3c3c5bcdf161c434b73de00769416"
+    }
+  ],
+  "runtime_matrix": {
+    "no_gpu": {
+      "path": "dist/native-cuda-switching/no-gpu-final-qualified/matrix-results.json",
+      "sha256": "77e50d60a9fd6fafdff876e65473cd1bfe1530ea2540ebff47d9493158c45d24",
+      "cells": [
+        {
+          "name": "debian12",
+          "image_id": "sha256:11f90416c857b08c22702273fb66146f66a1b4416c119c918ad84acea3f2bf47",
+          "gpu": null,
+          "status": "pass",
+          "python": "3.13.16",
+          "glibc": "2.36",
+          "gtk": "4.8.3",
+          "adwaita": "1.2.2",
+          "gstreamer": "GStreamer 1.22.0",
+          "os": "debian",
+          "os_version": "12",
+          "cpu_executed_providers": [
+            "CPUExecutionProvider"
+          ],
+          "cuda_executed_providers": [],
+          "cuda_execution_succeeded": false,
+          "cuda_unavailable_expected": true,
+          "application_source_files": 62,
+          "portaudio_host_apis": [
+            {
+              "default_input_device": 0,
+              "default_output_device": 0,
+              "devices": [
+                0
+              ],
+              "name": "ALSA"
+            },
+            {
+              "default_input_device": -1,
+              "default_output_device": -1,
+              "devices": [],
+              "name": "OSS"
+            }
+          ],
+          "portaudio_device_count": 1
+        },
+        {
+          "name": "debian13",
+          "image_id": "sha256:7bf4e3845ff78cef51e5915e0c4a392549e6ed153a10309eb3bbae200047f6d8",
+          "gpu": null,
+          "status": "pass",
+          "python": "3.13.16",
+          "glibc": "2.41",
+          "gtk": "4.18.6",
+          "adwaita": "1.7.6",
+          "gstreamer": "GStreamer 1.26.2",
+          "os": "debian",
+          "os_version": "13",
+          "cpu_executed_providers": [
+            "CPUExecutionProvider"
+          ],
+          "cuda_executed_providers": [],
+          "cuda_execution_succeeded": false,
+          "cuda_unavailable_expected": true,
+          "application_source_files": 62,
+          "portaudio_host_apis": [
+            {
+              "default_input_device": 0,
+              "default_output_device": 0,
+              "devices": [
+                0
+              ],
+              "name": "ALSA"
+            },
+            {
+              "default_input_device": -1,
+              "default_output_device": -1,
+              "devices": [],
+              "name": "OSS"
+            }
+          ],
+          "portaudio_device_count": 1
+        },
+        {
+          "name": "fedora43",
+          "image_id": "sha256:b5df1eed06d5c5a2749b7f19107f9dfbe8c09a57dd6a0216d21787949b9c8d11",
+          "gpu": null,
+          "status": "pass",
+          "python": "3.13.16",
+          "glibc": "2.42",
+          "gtk": "4.20.4",
+          "adwaita": "1.8.8",
+          "gstreamer": "GStreamer 1.26.11",
+          "os": "fedora",
+          "os_version": "43",
+          "cpu_executed_providers": [
+            "CPUExecutionProvider"
+          ],
+          "cuda_executed_providers": [],
+          "cuda_execution_succeeded": false,
+          "cuda_unavailable_expected": true,
+          "application_source_files": 62,
+          "portaudio_host_apis": [
+            {
+              "default_input_device": 0,
+              "default_output_device": 0,
+              "devices": [
+                0
+              ],
+              "name": "ALSA"
+            },
+            {
+              "default_input_device": -1,
+              "default_output_device": -1,
+              "devices": [],
+              "name": "OSS"
+            }
+          ],
+          "portaudio_device_count": 1
+        },
+        {
+          "name": "fedora44",
+          "image_id": "sha256:dae331982d87963f355dee40a008c2ec16fcdb734fc32a9fc174c29f82d7c381",
+          "gpu": null,
+          "status": "pass",
+          "python": "3.13.16",
+          "glibc": "2.43",
+          "gtk": "4.22.5",
+          "adwaita": "1.9.4",
+          "gstreamer": "GStreamer 1.28.7",
+          "os": "fedora",
+          "os_version": "44",
+          "cpu_executed_providers": [
+            "CPUExecutionProvider"
+          ],
+          "cuda_executed_providers": [],
+          "cuda_execution_succeeded": false,
+          "cuda_unavailable_expected": true,
+          "application_source_files": 62,
+          "portaudio_host_apis": [
+            {
+              "default_input_device": 0,
+              "default_output_device": 0,
+              "devices": [
+                0
+              ],
+              "name": "ALSA"
+            },
+            {
+              "default_input_device": -1,
+              "default_output_device": -1,
+              "devices": [],
+              "name": "OSS"
+            }
+          ],
+          "portaudio_device_count": 1
+        },
+        {
+          "name": "ubuntu22",
+          "image_id": "sha256:e52312e8a6e2e83a8214aa4470bd1a08fdaa830e7b4f57851716160383546c14",
+          "gpu": null,
+          "status": "pass",
+          "python": "3.13.16",
+          "glibc": "2.35",
+          "gtk": "4.6.9",
+          "adwaita": "1.1.7",
+          "gstreamer": "GStreamer 1.20.3",
+          "os": "ubuntu",
+          "os_version": "22.04",
+          "cpu_executed_providers": [
+            "CPUExecutionProvider"
+          ],
+          "cuda_executed_providers": [],
+          "cuda_execution_succeeded": false,
+          "cuda_unavailable_expected": true,
+          "application_source_files": 62,
+          "portaudio_host_apis": [
+            {
+              "default_input_device": 0,
+              "default_output_device": 0,
+              "devices": [
+                0
+              ],
+              "name": "ALSA"
+            },
+            {
+              "default_input_device": -1,
+              "default_output_device": -1,
+              "devices": [],
+              "name": "OSS"
+            }
+          ],
+          "portaudio_device_count": 1
+        },
+        {
+          "name": "ubuntu24",
+          "image_id": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+          "gpu": null,
+          "status": "pass",
+          "python": "3.13.16",
+          "glibc": "2.39",
+          "gtk": "4.14.5",
+          "adwaita": "1.5.0",
+          "gstreamer": "GStreamer 1.24.2",
+          "os": "ubuntu",
+          "os_version": "24.04",
+          "cpu_executed_providers": [
+            "CPUExecutionProvider"
+          ],
+          "cuda_executed_providers": [],
+          "cuda_execution_succeeded": false,
+          "cuda_unavailable_expected": true,
+          "application_source_files": 62,
+          "portaudio_host_apis": [
+            {
+              "default_input_device": 0,
+              "default_output_device": 0,
+              "devices": [
+                0
+              ],
+              "name": "ALSA"
+            },
+            {
+              "default_input_device": -1,
+              "default_output_device": -1,
+              "devices": [],
+              "name": "OSS"
+            }
+          ],
+          "portaudio_device_count": 1
+        },
+        {
+          "name": "ubuntu26",
+          "image_id": "sha256:a44afcd74880d314054c35913e8a7cadbdc9e1d4cbca02e88cd4ce0b0be383aa",
+          "gpu": null,
+          "status": "pass",
+          "python": "3.13.16",
+          "glibc": "2.43",
+          "gtk": "4.22.4",
+          "adwaita": "1.9.1",
+          "gstreamer": "GStreamer 1.28.2",
+          "os": "ubuntu",
+          "os_version": "26.04",
+          "cpu_executed_providers": [
+            "CPUExecutionProvider"
+          ],
+          "cuda_executed_providers": [],
+          "cuda_execution_succeeded": false,
+          "cuda_unavailable_expected": true,
+          "application_source_files": 62,
+          "portaudio_host_apis": [
+            {
+              "default_input_device": -1,
+              "default_output_device": -1,
+              "devices": [],
+              "name": "ALSA"
+            },
+            {
+              "default_input_device": -1,
+              "default_output_device": -1,
+              "devices": [],
+              "name": "OSS"
+            },
+            {
+              "default_input_device": 1,
+              "default_output_device": 0,
+              "devices": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "name": "PulseAudio"
+            }
+          ],
+          "portaudio_device_count": 4
+        }
+      ],
+      "payload_integrity": {
+        "manifest_sha256": "f425d4a7de9054682c310d10af8bd04276db4675286fd216ec2c9b2563ed72c2",
+        "unchanged_after_probes": true
+      },
+      "probe_recipe_sha256": {
+        "packaging/runtime-prototype/probe.py": "ef03060e6dac0a1400db7ef647d3ea3dd0d422e64c12c34cf1155335984e560c",
+        "packaging/runtime-prototype/desktop_probe.sh": "46c103991ebe25eb95ef6e7f7509f2445c53cc395ef010a331e7ff31532146b4"
+      },
+      "post_probe_cleanup": "subsequent unused subprocess import removal has no behavior or payload change; final focused suite and changed-file Ruff pass"
+    },
+    "hardware": {
+      "date": "2026-10-05",
+      "probe_recipe_revision": "cfa2e32824fe536c26bce2636f4502f15dacb6d5",
+      "scope": "unchanged exact CUDA payload; pre-diagnostic/private-ALSA harness; explicit selected GPU in disposable containers",
+      "driver": "595.91.07",
+      "rtx3080": {
+        "path": "dist/native-cuda-switching/final-gpu-3080/matrix-results.json",
+        "sha256": "9d2af4f9be4c5fcc4a8b408ed3e1c39e2b6968b3c329cd8d3369e89a7800a65e",
+        "cells": [
+          {
+            "name": "fedora44",
+            "image_id": "sha256:dae331982d87963f355dee40a008c2ec16fcdb734fc32a9fc174c29f82d7c381",
+            "gpu": 0,
+            "status": "pass",
+            "python": "3.13.16",
+            "glibc": "2.43",
+            "gtk": "4.22.5",
+            "adwaita": "1.9.4",
+            "gstreamer": "GStreamer 1.28.7",
+            "os": "fedora",
+            "os_version": "44",
+            "cpu_executed_providers": [
+              "CPUExecutionProvider"
+            ],
+            "cuda_executed_providers": [
+              "CUDAExecutionProvider"
+            ],
+            "cuda_execution_succeeded": true,
+            "cuda_unavailable_expected": false,
+            "application_source_files": 62,
+            "cupy_execution": {
+              "device": "NVIDIA GeForce RTX 3080",
+              "output": [
+                0.0,
+                1.0,
+                4.0,
+                9.0,
+                16.0,
+                25.0,
+                36.0,
+                49.0,
+                64.0,
+                81.0,
+                100.0,
+                121.0,
+                144.0,
+                169.0,
+                196.0,
+                225.0
+              ]
+            }
+          }
+        ],
+        "payload_integrity": {
+          "manifest_sha256": "f425d4a7de9054682c310d10af8bd04276db4675286fd216ec2c9b2563ed72c2",
+          "unchanged_after_probes": true
+        }
+      },
+      "rtx5070": {
+        "path": "dist/native-cuda-switching/final-gpu-5070/matrix-results.json",
+        "sha256": "50e3bdfb3c3327df6587dae98a84256c3e7e4e8431fc89fc7cdb80e2324a7a0f",
+        "cells": [
+          {
+            "name": "ubuntu24",
+            "image_id": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+            "gpu": 1,
+            "status": "pass",
+            "python": "3.13.16",
+            "glibc": "2.39",
+            "gtk": "4.14.5",
+            "adwaita": "1.5.0",
+            "gstreamer": "GStreamer 1.24.2",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "cpu_executed_providers": [
+              "CPUExecutionProvider"
+            ],
+            "cuda_executed_providers": [
+              "CUDAExecutionProvider"
+            ],
+            "cuda_execution_succeeded": true,
+            "cuda_unavailable_expected": false,
+            "application_source_files": 62,
+            "cupy_execution": {
+              "device": "NVIDIA GeForce RTX 5070",
+              "output": [
+                0.0,
+                1.0,
+                4.0,
+                9.0,
+                16.0,
+                25.0,
+                36.0,
+                49.0,
+                64.0,
+                81.0,
+                100.0,
+                121.0,
+                144.0,
+                169.0,
+                196.0,
+                225.0
+              ]
+            }
+          }
+        ],
+        "payload_integrity": {
+          "manifest_sha256": "f425d4a7de9054682c310d10af8bd04276db4675286fd216ec2c9b2563ed72c2",
+          "unchanged_after_probes": true
+        }
+      }
+    }
+  },
+  "native_switching": [
+    {
+      "path": "dist/native-cuda-switching/clean-final-private-alsa/ubuntu24-clean-self/result.json",
+      "sha256": "cf532b7806269d32aad16c7db9b6c587160cb972c5d5d210ee4f6f8f564d3ed9",
+      "cell": {
+        "name": "ubuntu24-clean",
+        "family": "deb",
+        "image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+        "legacy": false
+      },
+      "shape": "self",
+      "status": "pass",
+      "steps": 49,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "prepare",
+        "observed_unpack_path": "",
+        "tid_min": 1791387099,
+        "tid_max": 1791387113,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": false,
+        "qualification": "retained earlier successful Ubuntu run before JACK refusal/enumeration addition; native libjack-jackd2 unaffected by PipeWire-only setting; final seven-distro runtime matrix separately qualifies revised fixture"
+      }
+    },
+    {
+      "path": "dist/native-cuda-switching/clean-final-private-alsa/ubuntu24-clean-split/result.json",
+      "sha256": "d0b0b3ab18c074319a7ddc2857c70c2b98494f2c142ec9cc723fd4d829e5e292",
+      "cell": {
+        "name": "ubuntu24-clean",
+        "family": "deb",
+        "image": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+        "legacy": false
+      },
+      "shape": "split",
+      "status": "pass",
+      "steps": 56,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "prepare",
+        "observed_unpack_path": "",
+        "tid_min": 1791387118,
+        "tid_max": 1791387131,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "after-rejected-pair",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "after-rejected-pair-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "after-rejected-pair-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": false,
+        "qualification": "retained earlier successful Ubuntu run before JACK refusal/enumeration addition; native libjack-jackd2 unaffected by PipeWire-only setting; final seven-distro runtime matrix separately qualifies revised fixture"
+      }
+    },
+    {
+      "path": "dist/native-cuda-switching/legacy-final-private-alsa/ubuntu24-legacy-self/result.json",
+      "sha256": "f10df80d67b6cb231922955f541b3dcea49475676e316779f8e3c2e91ad14df2",
+      "cell": {
+        "name": "ubuntu24-legacy",
+        "family": "deb",
+        "image": "sha256:5d7d636935e7488f6248040f68a6075f41633553b8dce210c42d91bc9399dcab",
+        "legacy": true,
+        "legacy_base_image": "sha256:499381ebf02e632b868152248a63d713a70a20cae66712f384b30149ef471d6a"
+      },
+      "shape": "self",
+      "status": "pass",
+      "steps": 49,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "prepare",
+        "observed_unpack_path": "",
+        "tid_min": 1791387432,
+        "tid_max": 1791387447,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": false,
+        "qualification": "retained earlier successful Ubuntu run before JACK refusal/enumeration addition; native libjack-jackd2 unaffected by PipeWire-only setting; final seven-distro runtime matrix separately qualifies revised fixture"
+      }
+    },
+    {
+      "path": "dist/native-cuda-switching/legacy-final-private-alsa/ubuntu24-legacy-split/result.json",
+      "sha256": "00c5eb552182055f64f04c43bbb3d6e007a303c2652152a99f4dd1b1d198afb3",
+      "cell": {
+        "name": "ubuntu24-legacy",
+        "family": "deb",
+        "image": "sha256:5d7d636935e7488f6248040f68a6075f41633553b8dce210c42d91bc9399dcab",
+        "legacy": true,
+        "legacy_base_image": "sha256:499381ebf02e632b868152248a63d713a70a20cae66712f384b30149ef471d6a"
+      },
+      "shape": "split",
+      "status": "pass",
+      "steps": 56,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "prepare",
+        "observed_unpack_path": "",
+        "tid_min": 1791387451,
+        "tid_max": 1791387465,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "after-rejected-pair",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "after-rejected-pair-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "after-rejected-pair-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": false,
+        "qualification": "retained earlier successful Ubuntu run before JACK refusal/enumeration addition; native libjack-jackd2 unaffected by PipeWire-only setting; final seven-distro runtime matrix separately qualifies revised fixture"
+      }
+    },
+    {
+      "path": "dist/native-cuda-switching/clean-final-jack-isolated/fedora44-clean-self/result.json",
+      "sha256": "47eaa525afd1cd120c99764c7c4ef5de042d11bc986690497b2c1f243a88f845",
+      "cell": {
+        "name": "fedora44-clean",
+        "family": "rpm",
+        "image": "sha256:dae331982d87963f355dee40a008c2ec16fcdb734fc32a9fc174c29f82d7c381",
+        "legacy": false
+      },
+      "shape": "self",
+      "status": "pass",
+      "steps": 49,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "prepare",
+        "observed_unpack_path": "",
+        "tid_min": 1791388469,
+        "tid_max": 1791388509,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": true,
+          "verifier_sha256": "3caa1b56cc8a6adceabed5af455992fdb005b26d8b1b0397e356783fe10612c7"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": true,
+        "qualification": "rerun with final probe recipe"
+      },
+      "preservation": {
+        "path": "dist/native-cuda-switching/clean-final-jack-isolated/fedora44-clean-self/rpm-unpack-preservation.json",
+        "sha256": "515a97f8e51ce4a12d8e78b1c430aa75d6facbba5ebd7805ba514c7a33006684",
+        "fragments": 0,
+        "regular_file_bytes": 0,
+        "native_paths": []
+      }
+    },
+    {
+      "path": "dist/native-cuda-switching/clean-final-jack-isolated/fedora44-clean-split/result.json",
+      "sha256": "e5de434e4f8702311c1d12c2ae6d6c98c3713fdb822baf27ff57b2642207658f",
+      "cell": {
+        "name": "fedora44-clean",
+        "family": "rpm",
+        "image": "sha256:dae331982d87963f355dee40a008c2ec16fcdb734fc32a9fc174c29f82d7c381",
+        "legacy": false
+      },
+      "shape": "split",
+      "status": "pass",
+      "steps": 56,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "prepare",
+        "observed_unpack_path": "",
+        "tid_min": 1791388470,
+        "tid_max": 1791388510,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "after-rejected-pair",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "after-rejected-pair-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": true,
+          "verifier_sha256": "3caa1b56cc8a6adceabed5af455992fdb005b26d8b1b0397e356783fe10612c7"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "after-rejected-pair-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": true,
+        "qualification": "rerun with final probe recipe"
+      },
+      "preservation": {
+        "path": "dist/native-cuda-switching/clean-final-jack-isolated/fedora44-clean-split/rpm-unpack-preservation.json",
+        "sha256": "a00b212fabc870379242b8cb3f7c0ecd6c4e5f6e44ac673d775cf4a72376e7e5",
+        "fragments": 0,
+        "regular_file_bytes": 0,
+        "native_paths": []
+      }
+    },
+    {
+      "path": "dist/native-cuda-switching/legacy-final-jack-isolated/fedora44-legacy-self/result.json",
+      "sha256": "c96fe316f77af12086705e6692f93a673463a0f237decb893aa963bd4c2c6992",
+      "cell": {
+        "name": "fedora44-legacy",
+        "family": "rpm",
+        "image": "sha256:0979943ed9f0dac663927308f451ba1dd346c237b4564a2d29e94eab2d8f8948",
+        "legacy": true,
+        "legacy_base_image": "sha256:ab2dd6d6c435b63a445cc3aa7e8b0c09d8c3c3c5bcdf161c434b73de00769416"
+      },
+      "shape": "self",
+      "status": "pass",
+      "steps": 49,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "prepare",
+        "observed_unpack_path": "",
+        "tid_min": 1791388469,
+        "tid_max": 1791388510,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": true,
+          "verifier_sha256": "3caa1b56cc8a6adceabed5af455992fdb005b26d8b1b0397e356783fe10612c7"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": true,
+        "qualification": "rerun with final probe recipe"
+      },
+      "preservation": {
+        "path": "dist/native-cuda-switching/legacy-final-jack-isolated/fedora44-legacy-self/rpm-unpack-preservation.json",
+        "sha256": "565b18da4327b2746c99e0e051e40a4176e7e469f48d0c5c7ad4fe1d31fbd69c",
+        "fragments": 0,
+        "regular_file_bytes": 0,
+        "native_paths": []
+      }
+    },
+    {
+      "path": "dist/native-cuda-switching/legacy-final-jack-isolated/fedora44-legacy-split/result.json",
+      "sha256": "9fe65d737d35aa0504ca10489884547656f7446b72e4091fd614de7f37c517ca",
+      "cell": {
+        "name": "fedora44-legacy",
+        "family": "rpm",
+        "image": "sha256:0979943ed9f0dac663927308f451ba1dd346c237b4564a2d29e94eab2d8f8948",
+        "legacy": true,
+        "legacy_base_image": "sha256:ab2dd6d6c435b63a445cc3aa7e8b0c09d8c3c3c5bcdf161c434b73de00769416"
+      },
+      "shape": "split",
+      "status": "pass",
+      "steps": 56,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "prepare",
+        "observed_unpack_path": "",
+        "tid_min": 1791388471,
+        "tid_max": 1791388511,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "after-rejected-pair",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "after-rejected-pair-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": true,
+          "verifier_sha256": "3caa1b56cc8a6adceabed5af455992fdb005b26d8b1b0397e356783fe10612c7"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "after-rejected-pair-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": true,
+        "qualification": "rerun with final probe recipe"
+      },
+      "preservation": {
+        "path": "dist/native-cuda-switching/legacy-final-jack-isolated/fedora44-legacy-split/rpm-unpack-preservation.json",
+        "sha256": "572014598a20dde693344a331ad2d30d7684f40f1673a25c75f1b528fc31e467",
+        "fragments": 0,
+        "regular_file_bytes": 0,
+        "native_paths": []
+      }
+    },
+    {
+      "path": "dist/native-cuda-switching/unpack-final-jack-isolated/fedora44-clean-self/result.json",
+      "sha256": "43d359fa2bea650211a9e79aac1d5f6579d423eb8216a5da314bf725de7932db",
+      "cell": {
+        "name": "fedora44-clean",
+        "family": "rpm",
+        "image": "sha256:dae331982d87963f355dee40a008c2ec16fcdb734fc32a9fc174c29f82d7c381",
+        "legacy": false
+      },
+      "shape": "self",
+      "status": "pass",
+      "steps": 49,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "rpm-unpack",
+        "observed_unpack_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13;6ac66b4a",
+        "tid_min": 1791388470,
+        "tid_max": 1791388510,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": true,
+          "verifier_sha256": "3caa1b56cc8a6adceabed5af455992fdb005b26d8b1b0397e356783fe10612c7"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": true,
+        "qualification": "rerun with final probe recipe"
+      },
+      "preservation": {
+        "path": "dist/native-cuda-switching/unpack-final-jack-isolated/fedora44-clean-self/rpm-unpack-preservation.json",
+        "sha256": "fea24a600ee649d1c6c56e0c35ee3afd204673bacd46128857d8fa9cbf5b8312",
+        "fragments": 42,
+        "regular_file_bytes": 17374143,
+        "native_paths": [
+          "/usr/bin/nvbroadcast-vcam;6ac66b4a",
+          "/usr/bin/nvbroadcast;6ac66b4a",
+          "/usr/lib/nvbroadcast/check-packages;6ac66b4a"
+        ]
+      }
+    },
+    {
+      "path": "dist/native-cuda-switching/unpack-final-jack-isolated/fedora44-clean-split/result.json",
+      "sha256": "3344b9c66d2097f8271c99cf31b04c651ee81a308ecf3de2241c396ea26cee8f",
+      "cell": {
+        "name": "fedora44-clean",
+        "family": "rpm",
+        "image": "sha256:dae331982d87963f355dee40a008c2ec16fcdb734fc32a9fc174c29f82d7c381",
+        "legacy": false
+      },
+      "shape": "split",
+      "status": "pass",
+      "steps": 56,
+      "interruption": {
+        "name": "interrupted-switch",
+        "exit": 137,
+        "container_exit": 137,
+        "fault_boundary": "rpm-unpack",
+        "observed_unpack_path": "/usr/lib/nvbroadcast/runtime/bin/python3.13;6ac66b4a",
+        "tid_min": 1791388470,
+        "tid_max": 1791388511,
+        "fault": "SIGKILL whole isolated container after new variant's prepare marker"
+      },
+      "verified_states": [
+        "initial-cpu",
+        "after-rejected-pair",
+        "switched-cuda",
+        "switched-back-cpu",
+        "repaired-cuda",
+        "rolled-back-cpu"
+      ],
+      "verifier_identity_by_state": {
+        "initial-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "after-rejected-pair-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "switched-back-cpu-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "repaired-cuda-integrity": {
+          "native_regular_type_checked": false,
+          "verifier_sha256": "8227e7f043bc38267d5e1b847b64244236d78993284c4a5a94c85c21c47d999c"
+        },
+        "rolled-back-cpu-integrity": {
+          "native_regular_type_checked": true,
+          "verifier_sha256": "3caa1b56cc8a6adceabed5af455992fdb005b26d8b1b0397e356783fe10612c7"
+        }
+      },
+      "full_runtime_entries": {
+        "initial-cpu-integrity": 16556,
+        "after-rejected-pair-integrity": 16556,
+        "switched-cuda-integrity": 19571,
+        "switched-back-cpu-integrity": 16556,
+        "repaired-cuda-integrity": 19571,
+        "rolled-back-cpu-integrity": 16556
+      },
+      "configuration_recording_sentinels_unchanged": true,
+      "system_python_unchanged": true,
+      "synthetic_fixture": {
+        "alsa_null_pcm": true,
+        "pipewire_jack_refusal": true,
+        "qualification": "rerun with final probe recipe"
+      },
+      "preservation": {
+        "path": "dist/native-cuda-switching/unpack-final-jack-isolated/fedora44-clean-split/rpm-unpack-preservation.json",
+        "sha256": "72c0c49a597fb82da38756b9de7e136fa6be7e44fbcb10fd1bde150fc621834d",
+        "fragments": 38,
+        "regular_file_bytes": 18716608,
+        "native_paths": [
+          "/usr/lib/nvbroadcast/runtime.json;6ac66b4a"
+        ]
+      }
+    }
+  ],
+  "synthetic_desktop_scope": "private ALSA null PCM for real PortAudio imports; PipeWire JACK refusal for absent session; separate private Pulse null sink for GStreamer audio EOS; mapped synthetic GTK window and video EOS",
+  "reproducibility": {
+    "path": "dist/native-cuda-switching/reproducibility.json",
+    "sha256": "9212ecec778c318f24c7724c08672b18bd2da5f9b5a38d5333ec04e1251fd0ed",
+    "independent_package_pairs": 12,
+    "all_archive_and_content_hashes_identical": true
+  },
+  "reproduced_failure": {
+    "cause": "RPM transaction-ID staging files survive interrupted unpack and exact DNF install/reinstall; unowned fragments remain outside RPM database ownership",
+    "baseline_result": {
+      "path": "dist/native-cuda-switching/fedora-split-unpack-defect2/fedora44-clean-split/result.json",
+      "sha256": "b6a48ee5e8457345e298c4b31495c043ca846342b64cd2078a2e57554c040cf6"
+    },
+    "baseline_error": "RuntimeError: repaired-cuda-integrity: expected exit 0, got 1; see /home/doczeus/Projects/Nvidia Wrappers/Broadcast-native-cuda-switching/dist/native-cuda-switching/fedora-split-unpack-defect2/fedora44-clean-split",
+    "inventory": {
+      "path": "dist/native-cuda-switching/fedora-split-unpack-defect2/installed-runtime-before-preservation.json",
+      "sha256": "46e3f04b87837a33844d17d341422e02145f9a4eae323b96a4c5ba1ac178489b"
+    },
+    "extra": 37,
+    "missing": 0,
+    "changed": 0,
+    "extra_paths": [
+      "bin/audi;6ac65d20",
+      "bin/backend-test-tools;6ac65d20",
+      "bin/cffi-gen-src;6ac65d20",
+      "bin/check-model;6ac65d20",
+      "bin/check-node;6ac65d20",
+      "bin/ct2-fairseq-converter;6ac65d20",
+      "bin/ct2-marian-converter;6ac65d20",
+      "bin/ct2-openai-gpt2-converter;6ac65d20",
+      "bin/ct2-opennmt-py-converter;6ac65d20",
+      "bin/ct2-opennmt-tf-converter;6ac65d20",
+      "bin/ct2-opus-mt-converter;6ac65d20",
+      "bin/ct2-transformers-converter;6ac65d20",
+      "bin/denoise;6ac65d20",
+      "bin/f2py;6ac65d20",
+      "bin/fonttools;6ac65d20",
+      "bin/hf;6ac65d20",
+      "bin/httpx;6ac65d20",
+      "bin/huggingface-cli;6ac65d20",
+      "bin/idle3.13;6ac65d20",
+      "bin/idle3;6ac65d20",
+      "bin/idna;6ac65d20",
+      "bin/isympy;6ac65d20",
+      "bin/normalizer;6ac65d20",
+      "bin/numpy-config;6ac65d20",
+      "bin/onnxruntime_test;6ac65d20",
+      "bin/pip3.13;6ac65d20",
+      "bin/pip3;6ac65d20",
+      "bin/pip;6ac65d20",
+      "bin/pyav;6ac65d20",
+      "bin/pydoc3.13;6ac65d20",
+      "bin/pydoc3;6ac65d20",
+      "bin/pyftmerge;6ac65d20",
+      "bin/pyftsubset;6ac65d20",
+      "bin/python3-config;6ac65d20",
+      "bin/python3.13;6ac65d20",
+      "bin/python3;6ac65d20",
+      "bin/python;6ac65d20"
+    ],
+    "original_fragment_forensic_bytes": 44799706,
+    "manual_preservation": {
+      "path": "dist/native-cuda-switching/fedora-split-unpack-defect2/manual-preservation.json",
+      "sha256": "d3977ec9e6fb9001608cc47f08b277bcf66afc2fec05db66458c966243c707f3"
+    },
+    "unowned_fragment_query": {
+      "path": "dist/native-cuda-switching/fedora-split-unpack-defect2/unowned-fragment.log",
+      "sha256": "cf5ab14017aa952dd8490f3462f437d00f21b867a4525b000ad18bb1f28e0aed"
+    },
+    "cleanup": {
+      "path": "dist/native-cuda-switching/fedora-split-unpack-defect2/diagnostic-cleanup.json",
+      "sha256": "52022209448b47a4187f1130cf93553b17179ad2ba8ae073c46acc1d99b38f32"
+    },
+    "runtime_only_followup_failure": {
+      "path": "dist/native-cuda-switching/fedora-unpack-recovery-fixed/fedora44-clean-self/result.json",
+      "sha256": "ed91c7eaf050f32ada5061f1919282777c402e9b155737f782a5a8145910f280"
+    },
+    "original_and_intermediate_results_remain_failed": true
+  },
+  "synthetic_fixture_diagnosis": {
+    "failure": {
+      "path": "dist/native-cuda-switching/legacy-final-private-alsa/fedora44-legacy-self/result.json",
+      "sha256": "43f0ad3bc6a6c123d54971b733d3dbfabd8cadf66467218b726c38b541bc5b3c"
+    },
+    "stack_dump": {
+      "path": "dist/native-cuda-switching/legacy-final-private-alsa/fedora44-legacy-self/switched-back-cpu-probe.log",
+      "sha256": "2e64289ae1fd9407e9e78f55cf4334ceef580577be1db2b93fb3dd06a4bfeef9"
+    },
+    "native_dependencies": {
+      "path": "dist/native-cuda-switching/portaudio-jack-native-dependencies.log",
+      "sha256": "ddeb3769d1c012c4ec8eab79f26e172dff3091a0a65c70fcaf961a6ec091b738"
+    },
+    "diagnosis": "Pa_Initialize stalled even with private ALSA null PCM; live process had pw-PortAudio thread; PortAudio opens JACK and Fedora supplies PipeWire JACK compatibility library with no running session",
+    "remediation": "fixture-only documented PIPEWIRE_NOJACK=1 refuses the absent optional JACK client; actual ALSA enumeration and separate Pulse/GStreamer EOS remain required",
+    "upstream_documentation": "https://pipewire.pages.freedesktop.org/pipewire/page_man_pipewire-jack_conf_5.html",
+    "stress": {
+      "path": "dist/native-cuda-switching/portaudio-jack-isolation-stress.log",
+      "sha256": "9242e2153e37cce6a2251b4412fdbea20f2de10040e8b52ebe7ced81e9f53064",
+      "independent_imports": 40,
+      "max_seconds": 0.091,
+      "all_real_alsa_enumerations": true
+    },
+    "original_result_remains_failed": true,
+    "overly_strict_probe_assertion": {
+      "result": {
+        "path": "dist/native-cuda-switching/no-gpu-final-jack-isolated/matrix-results.json",
+        "sha256": "f5a3886f8e2374faf9a5b05de232552c885f84aaa750292564129f8a3fa6249e"
+      },
+      "failed_probe": {
+        "path": "dist/native-cuda-switching/no-gpu-final-jack-isolated/probe-ubuntu26.log",
+        "sha256": "20d675a75302303d02ec1950f0ef196574b432f051aa9823d3104b69b376e94e"
+      },
+      "diagnosis": "new ALSA-only device assertion incorrectly rejected Ubuntu26 PortAudio using four private PulseAudio devices; corrected to require a real ALSA or PulseAudio device",
+      "targeted_ubuntu26_rerun": {
+        "path": "dist/native-cuda-switching/ubuntu26-final-jack-isolated/matrix-results.json",
+        "sha256": "0a885dee61a11c20865dc2ed099f7414ced4a8af7ad4dc205d7d9cad2080f481"
+      },
+      "subsequent_final_seven_distro_matrix": {
+        "path": "dist/native-cuda-switching/no-gpu-final-qualified/matrix-results.json",
+        "sha256": "77e50d60a9fd6fafdff876e65473cd1bfe1530ea2540ebff47d9493158c45d24"
+      },
+      "original_result_remains_failed": true
+    }
+  },
+  "verification": {
+    "pytest": "968 passed, 38 skipped, 990 subtests passed; CUDA_VISIBLE_DEVICES empty, explicit worktree PYTHONPATH",
+    "pytest_log": {
+      "path": "dist/native-cuda-switching/pytest-final-strict-verifier-cpu.log",
+      "sha256": "af234e3b70109ef42e3c782f4a3935240a7430cfc979732364f27bf3b293768d"
+    },
+    "focused_pytest": "37 passed, 30 subtests passed",
+    "focused_pytest_log": {
+      "path": "dist/native-cuda-switching/pytest-final-verifier-focused.log",
+      "sha256": "721b0978cea2369bbdf7f7bfe2560bb4702e3d1fdaf84387f8d828868731e24d"
+    },
+    "ruff": "E9,F63,F7,F82 passed",
+    "shell_syntax": "desktop_probe.sh bash -n passed",
+    "git_diff_check": "passed",
+    "changed_file_ruff": {
+      "path": "dist/native-cuda-switching/ruff-final-changed-files.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "result": "default Ruff rules pass for Python files changed in recovery commit b6cb04f; the broader branch retains two inherited E402 bootstrap reports in build.py"
+    },
+    "release_smoke": "passed wheel build, asset check, compileall and unit tests for prototype app 1.5.2",
+    "release_smoke_log": {
+      "path": "dist/native-cuda-switching/release-smoke-final.log",
+      "sha256": "e1131d274e1c3f7e98049b95b8d04c6c6bc37614ebbc5b87aaa394ea64c19e3e"
+    },
+    "dependency_audit": {
+      "tool": "pip-audit 2.10.1 via isolated uv tool environment",
+      "command": "uv tool run --from pip-audit==2.10.1 pip-audit --disable-pip --no-deps -r dist/native-cuda-switching/audit-requirements.txt --format=json --output dist/native-cuda-switching/pip-audit-final.json --progress-spinner off",
+      "inventory": {
+        "path": "dist/native-cuda-switching/audit-requirements.txt",
+        "sha256": "5506caa26b6f297ca51b419e5a2b005b9c1d7f01c4345a80b3aaa5a8743b4c5b"
+      },
+      "report": {
+        "path": "dist/native-cuda-switching/pip-audit-final.json",
+        "sha256": "21c398a07a1e068e5aff89a889d36d60511823cb307537b61aed9f3ab162bceb"
+      },
+      "distributions": 69,
+      "known_vulnerabilities": 0,
+      "scope": "pinned public Python inventory including interpreter pip; not an ELF/native dependency, license, or full supply-chain audit"
+    },
+    "independent_review": "no remaining blocking defect in exclusive quiescent root-controlled container scope; reviewed helper, native adapters, strict verifier and synthetic audio fixture; independently reproduced and rejected native same-byte symlink substitution; 37 focused tests pass",
+    "regular_type_verifier_hardening": {
+      "before_recipe_snapshot": {
+        "path": "dist/native-cuda-switching/verification-before-regular-type-check.json",
+        "sha256": "c9b155dba41ef6292313eac464ec8c515485e6f7ac6798f444c1221827e33dc8"
+      },
+      "independent_negative_control": {
+        "path": "dist/native-cuda-switching/independent-review/integration-symlink-negative-control.json",
+        "sha256": "262688c7f0c53cf343027a90d8927ecf9168a9ecdbac11fb98d6d38bee391e31"
+      },
+      "independent_fixed_control": {
+        "path": "dist/native-cuda-switching/independent-review/integration-symlink-fixed-control.json",
+        "sha256": "c901182c067afaef755fb8cf6fe675a099fea934adfc52d725559ea1434a9c95"
+      },
+      "defect": "expected regular native integration files outside runtime followed substituted symlinks for hash/mode checks",
+      "fix": "require lstat regular-file type before hashing; expected symlinks retain separate target/type check",
+      "final_verifier_sha256": "3caa1b56cc8a6adceabed5af455992fdb005b26d8b1b0397e356783fe10612c7",
+      "scope": "focused real regular-file positive and same-byte/mode symlink negative control; six real Fedora CPU rollback states run final verifier, prior states retain preceding verifier identity",
+      "retention_basis": "package/runtime bytes did not change; earlier positive inventories are retained as earlier executions, not relabeled final-recipe tests; stricter predicate and negative control independently qualify file-type rejection"
+    }
+  },
+  "raw_logs": {
+    "path": "dist/native-cuda-switching/final-evidence-log-sha256.json",
+    "sha256": "b55092180bd0a82ef0957c9fecd86447b675b4580d4714c5f28b32811500eb90",
+    "files": 1043,
+    "artifacts_retained_locally": true
+  },
+  "limitations": [
+    "Unsigned prototype artifact identities and app 1.5.2 remain separate from the v1.5.3 release candidate.",
+    "Recovery helper is a maintainer-only experiment, not shipped in native package payloads; production auto-recovery and quarantine retention remain undecided.",
+    "Requires stopped package writers, an exclusive quiescent root-controlled fixture and read-only verified payload; path-based preflight/hash/rename is not resistant to concurrent privileged filesystem changes.",
+    "Whole-container SIGKILL at recorded prepare/real-RPM-unpack boundaries does not establish exhaustive physical power-loss, disk-full or filesystem durability behavior.",
+    "Synthetic ALSA/PortAudio and private Pulse/GStreamer checks exclude JACK, physical cameras/microphones, desktop PipeWire user-session behavior and native app audio acceptance.",
+    "Hardware execution covers the unchanged pinned CUDA payload on RTX3080/5070 with driver595.91.07, not every supported GPU/driver/model.",
+    "Full local CPU suite disabled device visibility; an earlier host-GPU-enabled attempt exposed unrelated user CUDA13 headers/NVRTC mismatch and is retained as failed, not qualified.",
+    "Payload size/pruning, signed publication/updater ownership, native ELF dependencies, Zypper/EL, real model acceptance and TensorRT remain unqualified.",
+    "Prototype codec/NVIDIA/model redistribution and pinned private-Python license inventory do not inherit the separate release candidate licensing changes."
+  ]
+}

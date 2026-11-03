@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """NVIDIA Broadcast - setup once and forget.
@@ -59,15 +59,20 @@ from nvbroadcast.core.platform import (
     IS_ARM64,
     legacy_tray_enabled,
     python_runtime_advisory,
+    running_in_flatpak,
 )
 from nvbroadcast.core.resources import find_ui_css
+from nvbroadcast.core.recordings import recordings_directory
 from nvbroadcast.core.dependency_installer import DependencyInstaller
 from nvbroadcast.core.meeting_store import (
     create_session, save_session, list_sessions, MeetingSession, cleanup_old_sessions,
 )
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
-from nvbroadcast.audio.meeting_capture import MeetingAudioCapture
+from nvbroadcast.audio.meeting_capture import (
+    MeetingAudioCapture,
+    has_recorded_meeting_audio,
+)
 from nvbroadcast.audio.virtual_mic import has_virtual_mic_backend
 from nvbroadcast.ui.window import NVBroadcastWindow
 from nvbroadcast import __version__
@@ -168,7 +173,7 @@ class NVBroadcastApp(Adw.Application):
             final_model_size=final_transcriber_model,
         )
         self._summarizer = MeetingSummarizer()
-        self._dependency_installer = DependencyInstaller()
+        self._dependency_installer = DependencyInstaller(self.config.compute_gpu)
         self._meeting_capture = None
         self._meeting_session_id = ""
         self._meeting_session_dir = None
@@ -176,6 +181,7 @@ class NVBroadcastApp(Adw.Application):
         self._meeting_video_path = ""
         self._meeting_active = False
         self._meeting_finalizing = False
+        self._recording_start_error = ""
         self._transcriber_preload_started = False
         self._vcam_device = None
         self._vcam_available = False
@@ -209,7 +215,7 @@ class NVBroadcastApp(Adw.Application):
         startup_trace.mark("do_startup begin")
         Adw.Application.do_startup(self)
         self._register_global_hotkeys()
-        Gst.init(None)
+        Gst.init([])
         startup_trace.mark("Gst.init done")
         cleanup_old_sessions()
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.DEFAULT)
@@ -269,9 +275,9 @@ class NVBroadcastApp(Adw.Application):
         """
         if not IS_LINUX:
             return False
-        if os.environ.get("SNAP"):
-            # Strict snaps cannot execute the host's systemctl. Continue with
-            # virtual-camera setup instead of aborting application startup.
+        if os.environ.get("SNAP") or running_in_flatpak():
+            # Sandboxed packages cannot execute the host's systemctl. Continue
+            # with virtual-camera setup instead of aborting startup.
             return False
 
         service = "nvbroadcast-vcam.service"
@@ -403,29 +409,39 @@ class NVBroadcastApp(Adw.Application):
         """Called when first-run wizard finishes."""
         from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
         if profile_name == "auto":
-            self.config.compute_gpu = gpu_index
+            gpu_changed = gpu_index != self.config.compute_gpu
+            self.set_compute_gpu(gpu_index)
             self.config.first_run = False
             self.config.current_profile = "Auto"
-            self._video_effects._gpu_index = gpu_index
-            self.set_auto_mode_enabled(True)
+            if gpu_changed:
+                # The selected-device worker will finish this choice after its
+                # CUDA/TensorRT results are cached.  Running Auto selection now
+                # would put the bounded provider probe back on GTK.
+                self.config.auto_mode = True
+                self.config.compute_focus = "auto"
+                self._pending_auto_mode_gpu = gpu_index
+            else:
+                self.set_auto_mode_enabled(True)
             save_config(self.config)
             self._window.rebuild_mode_selector(
                 self.config.compositing, self.config.performance_profile
             )
             if hasattr(self._window, '_gpu_selector') and self._window._gpu_selector:
                 self._window._gpu_selector.set_selected_index(gpu_index)
-            self._window.set_status("Auto mode enabled")
+            self._window.set_status(
+                "Checking selected GPU before enabling Auto mode..."
+                if gpu_changed else "Auto mode enabled"
+            )
             return
 
         # Apply profile
         apply_performance_profile(self.config, profile_name)
-        self.config.compute_gpu = gpu_index
+        self.set_compute_gpu(gpu_index)
         self.config.compositing = compositing
         self.config.first_run = False
         self.config.current_profile = profile_name
 
         # Apply to effects engine
-        self._video_effects._gpu_index = gpu_index
         self._video_effects._apply_edge_config(self.config.video.edge)
         self._video_effects.set_compositing(compositing)
         self._beautifier.set_compositing(compositing)
@@ -1009,7 +1025,7 @@ class NVBroadcastApp(Adw.Application):
         # Restore model and quality preset
         self._video_effects._model_type = c.video.model
         self._video_effects._quality = c.video.quality_preset
-        self._video_effects._gpu_index = c.compute_gpu
+        self._video_effects.set_gpu_index(c.compute_gpu)
         self._perf_monitor.set_gpu_index(c.compute_gpu)
         self._video_effects.set_compositing(c.compositing)
         self._beautifier.set_compositing(c.compositing)
@@ -1185,6 +1201,11 @@ class NVBroadcastApp(Adw.Application):
 
     # --- Video Pipeline ---
 
+    def _sync_tray_status(self, status: str):
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            tray.update_status(bool(self._streaming), status)
+
     def _clear_finished_teardown(self):
         if self._pipeline_teardown and self._pipeline_teardown._teardown_done:
             self._pipeline_teardown = None
@@ -1251,6 +1272,7 @@ class NVBroadcastApp(Adw.Application):
             message = "No usable camera found. Connect a camera and try again."
             if self._window:
                 self._window.set_status(message)
+            self._sync_tray_status(message)
             print(f"[NV Broadcast] {message}", flush=True)
             return False
         if resolved_camera != camera_device:
@@ -1310,6 +1332,7 @@ class NVBroadcastApp(Adw.Application):
 
         self._video_pipeline.set_effect_callback(self._process_frame)
         self._video_pipeline.set_alpha_callback(self._update_alpha)
+        self._video_pipeline.set_recording_error_callback(self._on_recording_error)
         self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
         self._sync_gpu_frame_path(output_format)
         startup_trace.mark("gpu frame path ready")
@@ -1338,6 +1361,7 @@ class NVBroadcastApp(Adw.Application):
             self._video_pipeline.start()
             startup_trace.mark("pipeline started")
             self._streaming = True
+            self._video_pipeline.prepare_recording_codecs()
 
             w, h = self.config.video.width, self.config.video.height
             status = f"Streaming: {camera_device} {w}x{h}@{self.config.video.fps}fps"
@@ -1353,14 +1377,16 @@ class NVBroadcastApp(Adw.Application):
             self.config.video.output_format = output_format
             save_config(self.config)
 
-            if self._tray and self._tray.available:
-                self._tray.update_status(True, status)
+            self._sync_tray_status(status)
 
         except Exception as e:
             if self._video_pipeline:
                 self._video_pipeline.stop()
                 self._video_pipeline = None
-            self._window.set_status(f"Pipeline error: {e}")
+            self._streaming = False
+            error_status = f"Pipeline error: {e}"
+            self._window.set_status(error_status)
+            self._sync_tray_status(error_status)
             print(f"[NV Broadcast] Pipeline failed: {e}")
 
         return self._streaming  # True on success, False on failure
@@ -1382,6 +1408,7 @@ class NVBroadcastApp(Adw.Application):
                 self._pipeline_teardown = pipeline
             self._video_pipeline = None
         self._streaming = False
+        self._sync_tray_status("idle")
 
     def _update_alpha(self, frame_data: bytes, width: int, height: int) -> None:
         """Background thread — only updates the alpha mask."""
@@ -1766,12 +1793,28 @@ class NVBroadcastApp(Adw.Application):
 
     def _available_auto_modes(self) -> list[str]:
         """Return the stable modes that are usable on this machine right now."""
+        snapshot = getattr(self, "_mode_availability_snapshot", None)
+        snapshot_modes = (
+            snapshot.get("modes", {})
+            if isinstance(snapshot, dict)
+            and int(snapshot.get("gpu_index", -1)) == self.config.compute_gpu
+            else {}
+        )
         modes: list[str] = []
         for mode_key in _AUTO_MODE_ORDER:
-            if self._dependency_installer.unsupported_reason_for_mode(mode_key):
-                continue
-            if self._dependency_installer.missing_for_mode(mode_key):
-                continue
+            state = (
+                snapshot_modes.get(mode_key)
+                if isinstance(snapshot_modes, dict)
+                else None
+            )
+            if isinstance(state, dict):
+                if state.get("unsupported") or state.get("missing"):
+                    continue
+            else:
+                if self._dependency_installer.unsupported_reason_for_mode(mode_key):
+                    continue
+                if self._dependency_installer.missing_for_mode(mode_key):
+                    continue
             modes.append(mode_key)
 
         focus = self._compute_focus()
@@ -1788,7 +1831,15 @@ class NVBroadcastApp(Adw.Application):
         """Pick the best stable starting mode for the current hardware."""
         from nvbroadcast.core.config import detect_system_capabilities
 
-        caps = detect_system_capabilities()
+        caps_snapshot = getattr(self, "_mode_capabilities_snapshot", None)
+        if (
+            isinstance(caps_snapshot, tuple)
+            and len(caps_snapshot) == 2
+            and caps_snapshot[0] == self.config.compute_gpu
+        ):
+            caps = caps_snapshot[1]
+        else:
+            caps = detect_system_capabilities(self.config.compute_gpu)
         available = self._available_auto_modes()
         focus = self._compute_focus()
 
@@ -1961,7 +2012,7 @@ class NVBroadcastApp(Adw.Application):
 
         from nvbroadcast.core.config import detect_system_capabilities
 
-        caps = detect_system_capabilities()
+        caps = detect_system_capabilities(self.config.compute_gpu)
         if not self._is_very_weak_device(caps):
             return False
 
@@ -2065,6 +2116,7 @@ class NVBroadcastApp(Adw.Application):
         if (
             not self._streaming
             or self._dependency_installer.busy
+            or getattr(self, "_mode_availability_refresh_in_flight", False)
             or self._pending_start is not None
             or self._pipeline_teardown is not None
             or not self._any_video_effects_active()
@@ -2170,6 +2222,12 @@ class NVBroadcastApp(Adw.Application):
     def set_compute_gpu(self, gpu_index: int):
         """Switch the GPU used for AI compute."""
         if gpu_index == self.config.compute_gpu:
+            # Keep dependent components aligned even when setup re-applies the
+            # saved device.  VideoEffects also treats same-device selection as
+            # an explicit retry if a previous backend build failed.
+            self._dependency_installer.set_compute_gpu(gpu_index)
+            self._video_effects.set_gpu_index(gpu_index)
+            self._perf_monitor.set_gpu_index(gpu_index)
             return
 
         # Detach first and wait for callbacks that captured the old processor.
@@ -2181,13 +2239,24 @@ class NVBroadcastApp(Adw.Application):
         self._gpu_frame_path = None
         self._gpu_frame_path_failed = False
 
+        if self._window is not None:
+            self._window._mode_retry_generation += 1
+            self._window._mode_retry_in_flight = False
+            self._window._mode_availability_ready = False
+            self._window._mode_availability_gpu = gpu_index
+            self._window._mode_availability_snapshot = None
+        if getattr(self, "_pending_auto_mode_gpu", None) is not None:
+            self._pending_auto_mode_gpu = gpu_index
+        pending_focus = getattr(self, "_pending_compute_focus", None)
+        if pending_focus is not None:
+            self._pending_compute_focus = (pending_focus[0], gpu_index)
+        self._mode_availability_snapshot = None
+        self._mode_capabilities_snapshot = None
+
         self.config.compute_gpu = gpu_index
-        self._video_effects._gpu_index = gpu_index
+        self._dependency_installer.set_compute_gpu(gpu_index)
+        self._video_effects.set_gpu_index(gpu_index)
         self._perf_monitor.set_gpu_index(gpu_index)
-        # Reload the model on the new GPU
-        if self._video_effects.available:
-            self._video_effects._cleanup_backend()
-            self._video_effects.initialize()
         self._sync_gpu_frame_path()
         save_config(self.config)
         from nvbroadcast.core.gpu import detect_gpus
@@ -2195,7 +2264,125 @@ class NVBroadcastApp(Adw.Application):
         name = gpus[gpu_index].name if gpu_index < len(gpus) else f"GPU {gpu_index}"
         if self._window:
             self._window._update_gpu_info()
-            self._window.set_status(f"Compute GPU: {name}")
+            self._window.rebuild_mode_selector(
+                self.config.compositing,
+                self.config.performance_profile,
+            )
+            self._window.set_status(
+                f"Compute GPU: {name}. Rechecking processing modes..."
+            )
+            self._refresh_mode_availability_async(gpu_index)
+
+    def _refresh_mode_availability_async(self, gpu_index: int) -> None:
+        """Warm selected-GPU probes off GTK, then rebuild the mode list."""
+        generation = getattr(self, "_mode_availability_generation", 0) + 1
+        self._mode_availability_generation = generation
+        self._mode_availability_refresh_in_flight = True
+        installer = self._dependency_installer
+
+        def _worker() -> None:
+            snapshot = None
+            capabilities = None
+            error = ""
+            try:
+                snapshot = installer.mode_availability_snapshot(gpu_index)
+                from nvbroadcast.core.config import detect_system_capabilities
+                capabilities = detect_system_capabilities(
+                    gpu_index, probe_cuda=not installer.restart_pending("cupy")
+                )
+            except Exception as exc:
+                error = f"Processing-mode check failed: {exc}"
+            GLib.idle_add(
+                self._finish_mode_availability_refresh,
+                generation,
+                gpu_index,
+                snapshot,
+                capabilities,
+                error,
+            )
+
+        threading.Thread(
+            target=_worker,
+            name="nvbroadcast-mode-availability",
+            daemon=True,
+        ).start()
+
+    def _invalidate_mode_availability(self, gpu_index: int | None = None) -> None:
+        """Discard completed mode decisions before a runtime mutation."""
+        target_gpu = (
+            self.config.compute_gpu
+            if gpu_index is None
+            else max(0, int(gpu_index))
+        )
+        self._mode_availability_generation = (
+            getattr(self, "_mode_availability_generation", 0) + 1
+        )
+        self._mode_availability_refresh_in_flight = False
+        self._mode_availability_snapshot = None
+        self._mode_capabilities_snapshot = None
+        if self._window is not None:
+            self._window._cancel_mode_runtime_retry()
+            self._window._mode_availability_ready = False
+            self._window._mode_availability_gpu = target_gpu
+            self._window._mode_availability_snapshot = None
+            self._window.rebuild_mode_selector(
+                self.config.compositing,
+                self.config.performance_profile,
+            )
+
+    def _finish_mode_availability_refresh(
+        self,
+        generation: int,
+        gpu_index: int,
+        availability_snapshot: dict[str, object] | None = None,
+        capabilities: dict[str, object] | None = None,
+        error: str = "",
+    ) -> bool:
+        if (
+            generation != getattr(self, "_mode_availability_generation", 0)
+            or gpu_index != self.config.compute_gpu
+        ):
+            return False
+        self._mode_availability_refresh_in_flight = False
+        if availability_snapshot is None:
+            if self._window is not None:
+                self._window.set_status(
+                    error or "Processing-mode check did not complete"
+                )
+            return False
+        self._mode_availability_snapshot = availability_snapshot
+        if capabilities is not None:
+            self._mode_capabilities_snapshot = (gpu_index, capabilities)
+        if self._window is not None:
+            self._window._mode_availability_ready = True
+            self._window._mode_availability_gpu = gpu_index
+            self._window._mode_availability_snapshot = availability_snapshot
+            pending_auto = (
+                getattr(self, "_pending_auto_mode_gpu", None) == gpu_index
+            )
+            pending_focus = getattr(self, "_pending_compute_focus", None)
+            self._window.rebuild_mode_selector(
+                self.config.compositing,
+                self.config.performance_profile,
+                availability_snapshot=availability_snapshot,
+            )
+            if pending_focus is not None and pending_focus[1] == gpu_index:
+                self._pending_compute_focus = None
+                self._pending_auto_mode_gpu = None
+                self.set_compute_focus(pending_focus[0])
+                pending_auto = False
+            elif pending_auto:
+                self._pending_auto_mode_gpu = None
+                self.set_auto_mode_enabled(True)
+            if hasattr(self._window, "_complete_pending_mode_after_refresh"):
+                self._window._complete_pending_mode_after_refresh()
+            if pending_focus is None or pending_focus[1] != gpu_index:
+                self._window.set_status(
+                    "Auto mode enabled"
+                    if pending_auto
+                    else f"Processing modes refreshed for GPU {gpu_index}"
+                )
+        return False
 
     def set_model(self, model: str):
         """Switch segmentation model."""
@@ -2447,28 +2634,124 @@ class NVBroadcastApp(Adw.Application):
 
     # --- Recording ---
 
+    @staticmethod
+    def _recording_start_failure_message(error: Exception, fallback: str) -> str:
+        """Translate codec-selection failures consistently for Rec and Meeting."""
+        if str(error) == "Recording codec check is still running":
+            return "Recording codecs are still preparing; try again shortly"
+        if str(error) in {
+            "No H.264 recording encoder is installed",
+            "No usable H.264 recording encoder is available",
+            "H.264 recording encoder check timed out",
+        }:
+            return "H.264 encoder unavailable"
+        return fallback
+
     def start_recording(self):
-        """Start recording to ~/Videos/NVBroadcast_<timestamp>.mp4."""
+        """Start recording in the desktop's user-visible Videos directory."""
         import time
-        from pathlib import Path
-        videos_dir = Path.home() / "Videos"
-        videos_dir.mkdir(exist_ok=True)
+        self._recording_start_error = ""
+        if (self._video_pipeline and self._video_pipeline.recording_finalizing
+                and self._video_pipeline.recording_audio_error):
+            self._recording_start_error = (
+                "Recording cleanup is still running; restart the app if this persists"
+            )
+            return ""
+        if self._meeting_active or self._meeting_finalizing or (self._video_pipeline and (
+            self._video_pipeline.is_recording or self._video_pipeline.recording_finalizing
+        )):
+            self._recording_start_error = "Another recording is active"
+            print("[NV Broadcast] Stop the current recording before starting Rec", flush=True)
+            return ""
+        videos_dir = recordings_directory()
+        try:
+            videos_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._recording_start_error = f"Cannot create recordings folder: {videos_dir}"
+            print(f"[NV Broadcast] {self._recording_start_error}: {exc}", flush=True)
+            return ""
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filepath = str(videos_dir / f"NVBroadcast_{timestamp}.mp4")
         if self._idle_active:
             self._exit_idle("recording started")
-        if self._video_pipeline:
-            self._video_pipeline.start_recording(filepath)
+        if not self._video_pipeline:
+            self._recording_start_error = "Camera pipeline unavailable"
+            return ""
+        try:
+            self._video_pipeline.start_recording(
+                filepath, wait_for_codecs=False, mic_device=self.config.audio.mic_device
+            )
+            self._video_pipeline.set_recording_finalize_callback(
+                lambda success, error: self._on_recording_finalized(
+                    "rec", success, error
+                )
+            )
+        except Exception as exc:
+            self._recording_start_error = NVBroadcastApp._recording_start_failure_message(
+                exc, "Recording could not start"
+            )
+            print(f"[NV Broadcast] Recording could not start: {exc}", flush=True)
+            return ""
         self._last_recording_path = filepath
         return filepath
 
-    def stop_recording(self):
+    def stop_recording(self, *, wait: bool = False):
+        if self._meeting_active:
+            print("[NV Broadcast] End the meeting before stopping its recording", flush=True)
+            return False
         if self._video_pipeline:
-            self._video_pipeline.stop_recording()
+            return self._video_pipeline.stop_recording(wait=wait)
+        return False
+
+    def _on_recording_error(self, message: str):
+        self._last_recording_path = ""
+        if self._meeting_active:
+            self._meeting_video_path = ""
+        if self._window:
+            self._window.on_recording_error(message)
+
+    def _on_recording_finalized(self, owner: str, success: bool, error: str):
+        if (owner == "rec" and self._window and not self._meeting_active
+                and not self._meeting_finalizing and not self.is_recording):
+            self._window.on_recording_finalized(success, error)
+        return False
+
+    @property
+    def last_recording_path(self) -> str:
+        return getattr(self, "_last_recording_path", "")
 
     @property
     def is_recording(self) -> bool:
         return self._video_pipeline and self._video_pipeline.is_recording
+
+    @property
+    def recording_has_audio(self) -> bool:
+        return bool(self._video_pipeline and self._video_pipeline.recording_has_audio)
+
+    @property
+    def recording_finalizing(self) -> bool:
+        return bool(self._video_pipeline and self._video_pipeline.recording_finalizing)
+
+    @property
+    def recording_start_error(self) -> str:
+        return self._recording_start_error
+
+    @property
+    def meeting_audio_capture_present(self) -> bool:
+        return bool(self._meeting_capture and self._meeting_capture.running)
+
+    @property
+    def meeting_audio_route_warning(self) -> str:
+        return self._meeting_capture.route_warning if self._meeting_capture else ""
+
+    def _on_meeting_capture_error(self, capture, error: str) -> None:
+        if capture is not self._meeting_capture:
+            return
+        print(f"[NV Broadcast] Meeting transcription audio stopped: {error}")
+        if self._meeting_active and self._window:
+            self._window.set_status(
+                "Meeting transcription audio stopped; check audio devices"
+            )
 
     # --- Meeting (Recording + AI Transcription) ---
 
@@ -2476,17 +2759,52 @@ class NVBroadcastApp(Adw.Application):
         """Start meeting: records video+audio and transcribes speech."""
         from pathlib import Path
 
+        self._recording_start_error = ""
+        if (self._video_pipeline and self._video_pipeline.recording_finalizing
+                and self._video_pipeline.recording_audio_error):
+            self._recording_start_error = (
+                "Recording cleanup is still running; restart the app if this persists"
+            )
+            return ""
+        if self._meeting_finalizing or not self._video_pipeline or \
+                self._video_pipeline.is_recording or \
+                self._video_pipeline.recording_finalizing:
+            self._recording_start_error = "Camera unavailable or another recording is active"
+            print("[NV Broadcast] Stop the current recording before starting Meeting",
+                  flush=True)
+            return ""
         self._meeting_session_id, self._meeting_session_dir = create_session()
         self._meeting_video_path = str(self._meeting_session_dir / "meeting.mp4")
         self._meeting_audio_path = str(self._meeting_session_dir / "meeting_audio.wav")
 
         filepath = self._meeting_video_path
-        if self._video_pipeline:
-            self._video_pipeline.start_recording(filepath)
+        try:
+            self._video_pipeline.start_recording(
+                filepath, wait_for_codecs=False, mic_device=self.config.audio.mic_device
+            )
+            self._video_pipeline.set_recording_finalize_callback(
+                lambda success, error: self._on_recording_finalized(
+                    "meeting", success, error
+                )
+            )
+        except Exception as exc:
+            self._recording_start_error = NVBroadcastApp._recording_start_failure_message(
+                exc, "Meeting video could not start"
+            )
+            print(f"[NV Broadcast] Meeting video could not start: {exc}", flush=True)
+            self._meeting_session_id = ""
+            self._meeting_session_dir = None
+            self._meeting_audio_path = ""
+            self._meeting_video_path = ""
+            return ""
         self._last_recording_path = filepath
 
         self._meeting_capture = MeetingAudioCapture()
         self._meeting_capture.set_sample_callback(self._transcriber.feed_audio)
+        capture = self._meeting_capture
+        capture.set_error_callback(
+            lambda error: self._on_meeting_capture_error(capture, error)
+        )
         speaker_device = self.config.audio.speaker_device
         if self._window and getattr(self._window, "_speaker_selector", None):
             selected_speaker = self._window._speaker_selector.get_selected_device()
@@ -2501,7 +2819,12 @@ class NVBroadcastApp(Adw.Application):
             self._meeting_capture.start()
         except Exception as exc:
             print(f"[NV Broadcast] Meeting audio capture unavailable: {exc}")
-            self._meeting_capture = None
+            try:
+                self._meeting_capture.stop()
+            except Exception as cleanup_exc:
+                print(f"[NV Broadcast] Meeting audio cleanup failed: {cleanup_exc}")
+            finally:
+                self._meeting_capture = None
 
         if not self._transcriber.start():
             if self._meeting_capture:
@@ -2526,16 +2849,20 @@ class NVBroadcastApp(Adw.Application):
         import time
         from pathlib import Path
         self._meeting_active = False
-        self.stop_recording()
+        self.stop_recording(wait=True)
         if self._meeting_capture:
             self._meeting_capture.stop()
             self._meeting_capture = None
         segments = self._transcriber.stop()
-        if self._meeting_audio_path and Path(self._meeting_audio_path).exists():
+        audio_path = (
+            self._meeting_audio_path
+            if has_recorded_meeting_audio(self._meeting_audio_path) else ""
+        )
+        if audio_path:
             try:
                 if self._window:
                     self._window.set_status("Finalizing high-accuracy meeting transcript...")
-                final_segments = self._transcriber.transcribe_file(self._meeting_audio_path)
+                final_segments = self._transcriber.transcribe_file(audio_path)
                 if final_segments:
                     segments = final_segments
                     self._transcriber.replace_segments(final_segments)
@@ -2567,7 +2894,7 @@ class NVBroadcastApp(Adw.Application):
                 notes_path=notes_path,
                 transcript_path=transcript_path,
                 transcript_srt_path=transcript_srt_path,
-                audio_path=self._meeting_audio_path,
+                audio_path=audio_path,
                 video_path=self._meeting_video_path,
             )
             save_session(session)
@@ -2593,14 +2920,17 @@ class NVBroadcastApp(Adw.Application):
         meeting_session_dir = self._meeting_session_dir
         meeting_audio_path = self._meeting_audio_path
         meeting_video_path = self._meeting_video_path
+        video_pipeline = self._video_pipeline
 
         self._meeting_active = False
         self._meeting_finalizing = True
-        self.stop_recording()
+        self.stop_recording(wait=False)
         if self._meeting_capture:
             self._meeting_capture.stop()
             self._meeting_capture = None
         segments = self._transcriber.stop()
+        if not has_recorded_meeting_audio(meeting_audio_path):
+            meeting_audio_path = ""
 
         self._meeting_session_id = ""
         self._meeting_session_dir = None
@@ -2609,7 +2939,13 @@ class NVBroadcastApp(Adw.Application):
 
         def _worker():
             result_path = ""
-            status = "Meeting ended"
+            video_warning = ""
+            if video_pipeline and not video_pipeline.wait_for_recording_finalization(5):
+                video_warning = "; meeting video may be incomplete"
+            status = (
+                "Meeting ended" if meeting_audio_path
+                else "Meeting ended without a usable transcription WAV"
+            )
             session = None
             try:
                 result_path, session = self._finalize_meeting_outputs(
@@ -2619,7 +2955,11 @@ class NVBroadcastApp(Adw.Application):
                     meeting_video_path,
                     segments,
                 )
-                status = f"Meeting saved: {result_path}" if result_path else "Meeting ended"
+                if result_path:
+                    status = f"Meeting saved: {result_path}"
+                    if not meeting_audio_path:
+                        status += "; transcription WAV unavailable"
+                status += video_warning
             except Exception as exc:
                 print(f"[NV Broadcast] Meeting finalization failed: {exc}")
                 status = "Meeting ended, but transcript finalization failed"
@@ -2651,7 +2991,9 @@ class NVBroadcastApp(Adw.Application):
         if meeting_session_dir is None:
             return "", None
 
-        if meeting_audio_path and Path(meeting_audio_path).exists():
+        if not has_recorded_meeting_audio(meeting_audio_path):
+            meeting_audio_path = ""
+        if meeting_audio_path:
             try:
                 final_segments = self._transcriber.transcribe_file(meeting_audio_path)
                 if final_segments:
@@ -2792,7 +3134,7 @@ class NVBroadcastApp(Adw.Application):
         from nvbroadcast.audio.devices import resolve_pipewire_target
         from nvbroadcast.audio.virtual_mic import virtual_mic_backend
 
-        if IS_LINUX and virtual_mic_backend() == "pulse":
+        if IS_MACOS or (IS_LINUX and virtual_mic_backend() == "pulse"):
             return self.config.audio.mic_device
         return resolve_pipewire_target(self.config.audio.mic_device)
 
@@ -2954,6 +3296,11 @@ class NVBroadcastApp(Adw.Application):
         return self._speaker_monitor
 
     def _refresh_speaker_monitor(self):
+        if IS_MACOS:
+            self.config.audio.speaker_denoise = False
+            if self._speaker_monitor:
+                self._speaker_monitor.stop()
+            return
         if not self.config.audio.speaker_denoise:
             if self._speaker_monitor:
                 self._speaker_monitor.stop()
@@ -2969,7 +3316,14 @@ class NVBroadcastApp(Adw.Application):
         monitor.start()
 
     def set_speaker_denoise(self, enabled: bool):
-        self.config.audio.speaker_denoise = enabled
+        self.config.audio.speaker_denoise = enabled and not IS_MACOS
+        if IS_MACOS:
+            if self._speaker_monitor:
+                self._speaker_monitor.stop()
+            if self._window:
+                self._window.set_status("Speaker noise removal is unavailable on macOS.")
+            save_config(self.config)
+            return
         if enabled:
             self._refresh_speaker_monitor()
         else:
@@ -2981,6 +3335,8 @@ class NVBroadcastApp(Adw.Application):
 
     def do_shutdown(self):
         save_config(self.config)
+        if self._window is not None and hasattr(self._window, "stop_camera_refresh"):
+            self._window.stop_camera_refresh(shutdown=True)
         if self._hotkey_manager is not None:
             self._hotkey_manager.close()
             self._hotkey_manager = None

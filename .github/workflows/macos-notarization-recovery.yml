@@ -1,0 +1,260 @@
+name: macOS Notarization Recovery
+
+on:
+  workflow_call:
+    secrets:
+      MACOS_NOTARY_APPLE_ID:
+        required: true
+      MACOS_NOTARY_APP_PASSWORD:
+        required: true
+      MACOS_TEAM_ID:
+        required: true
+    inputs:
+      operation:
+        type: string
+        required: true
+      submission_id:
+        type: string
+        default: ''
+      source_run_id:
+        type: string
+        default: ''
+      source_attempt:
+        type: string
+        default: ''
+      source_sha256:
+        type: string
+        default: ''
+      signed_sha256:
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Query an existing submission, or verify a retained accepted package without submitting again'
+        type: choice
+        options: [status, resume]
+        default: status
+      submission_id:
+        description: 'Apple submission UUID (status operation only)'
+        type: string
+      source_run_id:
+        description: 'Original Build Packages run ID (resume operation only)'
+        type: string
+      source_attempt:
+        description: 'Original signing attempt with the retained checkpoint (resume only)'
+        type: string
+      source_sha256:
+        description: 'Independently verified original unsigned PKG SHA-256 (resume only)'
+        type: string
+      signed_sha256:
+        description: 'Independently verified pre-staple signed upload SHA-256 (resume only)'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONNOUSERSITE: '1'
+
+jobs:
+  recover:
+    runs-on: macos-15
+    timeout-minutes: 20
+    environment: macos-signing
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: '3.13'
+
+      - name: Validate the recovery request
+        env:
+          OPERATION: ${{ inputs.operation }}
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ATTEMPT: ${{ inputs.source_attempt }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          SIGNED_SHA256: ${{ inputs.signed_sha256 }}
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import re
+          import uuid
+          operation = os.environ['OPERATION']
+          if operation == 'status':
+              supplied = os.environ['SUBMISSION_ID']
+              if str(uuid.UUID(supplied)) != supplied:
+                  raise SystemExit('Use a canonical submission UUID.')
+          elif operation == 'resume':
+              if os.environ['SUBMISSION_ID']:
+                  raise SystemExit('Resume uses the retained submission ID, not a replacement UUID.')
+              for name in ('SOURCE_RUN_ID', 'SOURCE_ATTEMPT'):
+                  if not re.fullmatch(r'[1-9][0-9]*', os.environ[name]):
+                      raise SystemExit(f'{name} must be a positive integer.')
+              for name in ('SOURCE_SHA256', 'SIGNED_SHA256'):
+                  if not re.fullmatch(r'[0-9a-f]{64}', os.environ[name]):
+                      raise SystemExit(f'{name} must be an independently verified SHA-256.')
+          else:
+              raise SystemExit('Unknown recovery operation.')
+          PYTHON
+
+      - name: Fetch and verify the original package and checkpoint
+        if: inputs.operation == 'resume'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ATTEMPT: ${{ inputs.source_attempt }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          SIGNED_SHA256: ${{ inputs.signed_sha256 }}
+        run: |
+          mkdir -p dist/macos-recovery
+          python3 scripts/prepare_macos_notarization_resume.py \
+            --repo "$GITHUB_REPOSITORY" --run-id "$SOURCE_RUN_ID" \
+            --attempt "$SOURCE_ATTEMPT" --expected-source-sha "$GITHUB_SHA" \
+            --source-sha256 "$SOURCE_SHA256" --signed-sha256 "$SIGNED_SHA256" \
+            --output-dir dist/macos-recovery/downloads
+
+      - name: Configure an isolated notarization keychain
+        env:
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_APP_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for name in MACOS_NOTARY_APPLE_ID MACOS_NOTARY_APP_PASSWORD MACOS_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing macos-signing environment secret: $name"
+              exit 1
+            fi
+          done
+          if [[ ! "$MACOS_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo '::error::MACOS_TEAM_ID must be the ten-character Apple Developer team identifier.'
+            exit 1
+          fi
+          signing_temp="$(mktemp -d "$RUNNER_TEMP/nvbroadcast-signing.XXXXXX")"
+          printf 'MACOS_SIGNING_TEMP=%s\n' "$signing_temp" >> "$GITHUB_ENV"
+          keychain="$signing_temp/installer.keychain-db"
+          keychain_password="$(/usr/bin/openssl rand -base64 32)"
+          printf '::add-mask::%s\n' "$keychain_password"
+          /usr/bin/security create-keychain -p "$keychain_password" "$keychain"
+          /usr/bin/security set-keychain-settings -lut 3600 "$keychain"
+          /usr/bin/security unlock-keychain -p "$keychain_password" "$keychain"
+          /usr/bin/xcrun notarytool store-credentials nvbroadcast-notary \
+            --apple-id "$MACOS_NOTARY_APPLE_ID" --team-id "$MACOS_TEAM_ID" \
+            --password "$MACOS_NOTARY_APP_PASSWORD" --keychain "$keychain"
+          printf 'MACOS_SIGNING_KEYCHAIN=%s\nMACOS_SIGNING_TEAM_ID=%s\n' "$keychain" "$MACOS_TEAM_ID" >> "$GITHUB_ENV"
+
+      - name: Query the existing Apple submission
+        if: inputs.operation == 'status'
+        env:
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          evidence = Path('dist/macos-recovery/status')
+          evidence.mkdir(parents=True)
+          arguments = [
+              '/usr/bin/xcrun', 'notarytool', 'info', os.environ['SUBMISSION_ID'],
+              '--keychain-profile', 'nvbroadcast-notary',
+              '--keychain', os.environ['MACOS_SIGNING_KEYCHAIN'], '--output-format', 'json',
+          ]
+          failure = None
+          try:
+              result = subprocess.run(arguments, capture_output=True, text=True, timeout=300, check=False)
+          except (OSError, subprocess.TimeoutExpired) as error:
+              failure = str(error)
+              def retained_text(value):
+                  return value.decode('utf-8', errors='replace') if isinstance(value, bytes) else value or ''
+              result = subprocess.CompletedProcess(arguments, None,
+                  retained_text(getattr(error, 'stdout', None)), retained_text(getattr(error, 'stderr', None)))
+          (evidence / 'notary-info.stdout.json').write_text(result.stdout)
+          (evidence / 'notary-info.stderr.txt').write_text(result.stderr)
+          (evidence / 'command.json').write_text(json.dumps({
+              'submission_id': os.environ['SUBMISSION_ID'], 'returncode': result.returncode,
+              'distribution_verified': False,
+              'error': failure,
+          }, indent=2) + '\n')
+          if result.returncode != 0:
+              raise SystemExit('Apple status query failed; see the retained evidence.')
+          response = json.loads(result.stdout)
+          if response.get('id') != os.environ['SUBMISSION_ID']:
+              raise SystemExit('Apple returned a different submission ID.')
+          status = response.get('status')
+          if status not in ('In Progress', 'Accepted', 'Invalid', 'Rejected'):
+              raise SystemExit('Apple returned an unrecognized submission status.')
+          print(f'Apple submission status: {status}')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(f'Apple submission status: **{status}**. This query does not verify a distribution package.\n')
+          PYTHON
+
+      - name: Verify the retained accepted archive without signing or uploading
+        if: inputs.operation == 'resume'
+        env:
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          SIGNED_SHA256: ${{ inputs.signed_sha256 }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(dist/macos-recovery/downloads/unsigned/*.pkg)
+          if (( ${#packages[@]} != 1 )); then
+            echo '::error::Expected exactly one verified original package.'
+            exit 1
+          fi
+          mkdir -p dist/pkg-signed
+          python3 scripts/sign_macos_package.py \
+            --resume-from dist/macos-recovery/downloads/checkpoint \
+            --input "${packages[0]}" --output "dist/pkg-signed/$(basename "${packages[0]}")" \
+            --source-sha256 "$SOURCE_SHA256" --signed-sha256 "$SIGNED_SHA256" \
+            --team-id "$MACOS_SIGNING_TEAM_ID" --keychain "$MACOS_SIGNING_KEYCHAIN" \
+            --notary-profile nvbroadcast-notary --evidence-dir dist/macos-recovery/evidence
+
+      - name: Upload the verified recovered package
+        if: inputs.operation == 'resume'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-recovered-signed-packages-attempt-${{ github.run_attempt }}
+          path: dist/pkg-signed/*.pkg
+          if-no-files-found: error
+
+      - name: Upload recovery verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-notarization-recovery-evidence-attempt-${{ github.run_attempt }}
+          path: |
+            dist/macos-recovery/status
+            dist/macos-recovery/evidence
+            dist/macos-recovery/downloads/provenance.json
+          if-no-files-found: ignore
+
+      - name: Remove signing material
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -n "${MACOS_SIGNING_TEMP:-}" ]]; then
+            case "$MACOS_SIGNING_TEMP" in
+              "$RUNNER_TEMP"/nvbroadcast-signing.*) ;;
+              *) echo '::error::Unexpected signing temporary directory'; exit 1 ;;
+            esac
+            keychain="$MACOS_SIGNING_TEMP/installer.keychain-db"
+            cleanup_status=0
+            if [[ -f "$keychain" ]]; then
+              /usr/bin/security delete-keychain "$keychain" || cleanup_status=$?
+            fi
+            if [[ "$(dirname "$MACOS_SIGNING_TEMP")" != "$RUNNER_TEMP" || -L "$MACOS_SIGNING_TEMP" ]]; then
+              echo '::error::Refusing redirected signing cleanup directory'
+              exit 1
+            fi
+            rm -rf -- "$MACOS_SIGNING_TEMP" || cleanup_status=$?
+            exit "$cleanup_status"
+          fi

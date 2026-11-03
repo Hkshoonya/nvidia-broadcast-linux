@@ -1,0 +1,12 @@
+# Non-release feasibility builder. Native repository versions are recorded by
+# the runner; this image is not a claim of a reproducible native toolchain.
+FROM ubuntu@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential pkg-config libcairo2-dev libgirepository1.0-dev \
+    ca-certificates python3 gir1.2-gtk-4.0 gir1.2-adw-1 \
+    gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+    libgomp1 libsndfile1 libportaudio2 xvfb xauth dbus-x11 \
+    && rm -rf /var/lib/apt/lists/*

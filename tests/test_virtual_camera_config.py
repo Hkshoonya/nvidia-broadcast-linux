@@ -53,6 +53,22 @@ class VirtualCameraConfigTests(unittest.TestCase):
         self.assertIn("/dev/video11", message)
         self.assertIn("video_nr=11", message)
 
+    def test_flatpak_missing_device_reports_host_setup_without_lsmod(self):
+        with mock.patch.object(
+            virtual_camera, "IS_MACOS", False
+        ), mock.patch.object(
+            virtual_camera, "running_in_flatpak", return_value=True
+        ), mock.patch(
+            "nvbroadcast.video.virtual_camera.os.path.exists",
+            return_value=False,
+        ), mock.patch.object(
+            virtual_camera, "is_v4l2loopback_loaded"
+        ) as is_loaded:
+            with self.assertRaisesRegex(RuntimeError, "host terminal"):
+                virtual_camera.ensure_virtual_camera("/dev/video11")
+
+        is_loaded.assert_not_called()
+
     def test_invalid_preferred_device_is_rejected_before_probing(self):
         with mock.patch.object(virtual_camera, "IS_MACOS", False), mock.patch(
             "nvbroadcast.video.virtual_camera.get_virtual_camera_device",
@@ -118,6 +134,29 @@ class VirtualCameraConfigTests(unittest.TestCase):
 
         self.assertFalse(ok)
         run_mock.assert_not_called()
+
+    def test_flatpak_reset_does_not_try_to_reload_host_module(self):
+        with mock.patch.object(
+            virtual_camera, "running_in_flatpak", return_value=True
+        ), mock.patch(
+            "nvbroadcast.video.virtual_camera.subprocess.run"
+        ) as run_mock:
+            ok = virtual_camera.reset_virtual_camera("/dev/video10")
+
+        self.assertFalse(ok)
+        run_mock.assert_not_called()
+
+    def test_flatpak_does_not_write_host_firefox_profiles(self):
+        with mock.patch.object(
+            virtual_camera, "running_in_flatpak", return_value=True
+        ), mock.patch.object(
+            virtual_camera, "get_firefox_profiles"
+        ) as get_profiles:
+            ok, message = virtual_camera.set_firefox_pipewire(disabled=True)
+
+        self.assertFalse(ok)
+        self.assertIn("unavailable inside Flatpak", message)
+        get_profiles.assert_not_called()
 
     def test_video_zero_is_not_replaced_by_the_default_device_number(self):
         command = virtual_camera.v4l2loopback_modprobe_command("/dev/video0")

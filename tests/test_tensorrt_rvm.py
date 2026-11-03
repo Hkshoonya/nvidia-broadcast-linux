@@ -3,7 +3,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-import cv2
 import numpy as np
 import onnx
 from onnx import TensorProto, helper, numpy_helper
@@ -221,7 +220,61 @@ class TensorrtRvmTests(unittest.TestCase):
         self.assertTrue(backend._trt_requested)
         self.assertFalse(backend._active_trt)
         self.assertEqual(backend._trt_model_path, base_model.with_name("rvm_trt.onnx"))
-        create_session.assert_called_once_with(base_model, 1, use_tensorrt=False)
+        create_session.assert_called_once_with(
+            base_model, 1, use_tensorrt=False, cpu_only=False
+        )
+
+    def test_cpu_mode_loads_rvm_with_only_the_cpu_provider(self):
+        backend = _RVMBackend(1)
+        fake_session = mock.Mock()
+        fake_session.get_providers.return_value = ["CPUExecutionProvider"]
+        base_model = Path("/tmp/rvm.onnx")
+
+        with mock.patch(
+            "nvbroadcast.video.effects._download_model", return_value=base_model
+        ), mock.patch(
+            "nvbroadcast.video.effects._create_session", return_value=fake_session
+        ) as create_session:
+            msg = backend.load("quality", use_tensorrt=True, cpu_only=True)
+
+        self.assertTrue(backend._cpu_only)
+        self.assertFalse(backend._trt_requested)
+        self.assertIn("loaded on CPU", msg)
+        self.assertNotIn("TensorRT", msg)
+        create_session.assert_called_once_with(
+            base_model, 1, use_tensorrt=False, cpu_only=True
+        )
+
+    def test_startup_cuda_allocation_failure_loads_cpu_and_defers_gpu_retry(self):
+        for use_trt in (False, True):
+            with self.subTest(use_trt=use_trt):
+                backend = _RVMBackend(1)
+                cpu = mock.Mock()
+                cpu.get_providers.return_value = ["CPUExecutionProvider"]
+                with mock.patch("nvbroadcast.video.effects._download_model", return_value=Path("/tmp/rvm.onnx")), \
+                     mock.patch("nvbroadcast.video.effects._create_session", side_effect=[
+                         RuntimeError("BFCArena::AllocateRawInternal Failed to allocate memory"), cpu
+                     ]) as create:
+                    message = backend.load("quality", use_tensorrt=use_trt)
+                self.assertIs(backend.session, cpu)
+                self.assertFalse(backend._cpu_only)  # Preserve requested GPU policy.
+                self.assertTrue(backend._trt_disabled)
+                self.assertIn("CPU fallback", message)
+                self.assertEqual(create.call_count, 2)
+                self.assertTrue(create.call_args.kwargs["cpu_only"])
+                with mock.patch("nvbroadcast.video.effects._create_session") as retry:
+                    backend._ensure_trt_state(np.zeros((1, 3, 4, 4), dtype=np.float32), 4, 4)
+                retry.assert_not_called()
+
+    def test_startup_does_not_retry_cpu_or_invalid_model_errors(self):
+        for cpu_only, error in [(True, "BFCArena::AllocateRawInternal"), (False, "Invalid model graph")]:
+            with self.subTest(cpu_only=cpu_only):
+                backend = _RVMBackend(0)
+                with mock.patch("nvbroadcast.video.effects._download_model", return_value=Path("/tmp/rvm.onnx")), \
+                     mock.patch("nvbroadcast.video.effects._create_session", side_effect=RuntimeError(error)) as create:
+                    with self.assertRaisesRegex(RuntimeError, error):
+                        backend.load("quality", cpu_only=cpu_only)
+                create.assert_called_once()
 
     def test_rvm_backend_promotes_trt_once_per_resolution(self):
         backend = _RVMBackend(1)
@@ -299,6 +352,25 @@ class TensorrtRvmTests(unittest.TestCase):
         create_session.assert_called_once_with(Path("/tmp/base.onnx"), 1, use_tensorrt=False)
         release_session.assert_called_once_with(trt_session)
 
+    def test_cpu_backend_ignores_tensorrt_reselection_without_recreating_session(self):
+        backend = _RVMBackend(1)
+        backend._cpu_only = True
+        backend._base_model_path = Path("/tmp/base.onnx")
+        cpu_session = mock.Mock()
+        cpu_session.get_providers.return_value = ["CPUExecutionProvider"]
+        backend.session = cpu_session
+
+        with mock.patch("nvbroadcast.video.effects._create_session") as create_session, \
+             mock.patch("nvbroadcast.video.effects._release_session") as release_session:
+            backend.set_tensorrt_requested(False)
+            backend.set_tensorrt_requested(True)
+
+        self.assertFalse(backend._trt_requested)
+        self.assertTrue(backend._trt_disabled)
+        self.assertIs(backend.session, cpu_session)
+        create_session.assert_not_called()
+        release_session.assert_not_called()
+
     def test_sync_runtime_provider_state_marks_runtime_demote(self):
         backend = _RVMBackend(1)
         backend._active_trt = True
@@ -334,7 +406,6 @@ class TensorrtRvmTests(unittest.TestCase):
         backend = _RVMBackend(1)
         backend.session = mock.Mock()
         outputs = [
-            np.zeros((1, 3, 480, 640), dtype=np.float32),
             np.zeros((1, 1, 480, 640), dtype=np.float32),
             np.zeros((1, 16, 90, 120), dtype=np.float32),
             np.zeros((1, 32, 45, 60), dtype=np.float32),
@@ -357,7 +428,34 @@ class TensorrtRvmTests(unittest.TestCase):
         self.assertEqual(alpha.shape, (480, 640))
         reset_state.assert_called_once()
         backend.session.run.assert_called_once()
+        self.assertEqual(
+            backend.session.run.call_args.args[0],
+            ["pha", "r1o", "r2o", "r3o", "r4o"],
+        )
         self.assertEqual(backend._state_input_shape, (640, 480))
+
+    def test_infer_fetches_only_matte_and_preserves_recurrent_state_order(self):
+        backend = _RVMBackend(0)
+        backend.session = mock.Mock()
+        backend.session.get_providers.return_value = ["CUDAExecutionProvider"]
+        backend._downsample_ratio = np.array([0.5], dtype=np.float32)
+        backend.reset_state(log=False)
+        states = [np.full((1, i, 2, 3), i, dtype=np.float32) for i in range(1, 5)]
+        matte = np.full((1, 1, 8, 12), 0.5, dtype=np.float32)
+        backend.session.run.return_value = [matte, *states]
+        frame = np.full((8, 12, 4), 80, dtype=np.uint8)
+
+        for _ in range(2):
+            result = backend.infer(frame, 12, 8)
+            np.testing.assert_array_equal(result, matte[0, 0])
+            for name, state in zip(("_r1", "_r2", "_r3", "_r4"), states):
+                self.assertIs(getattr(backend, name), state)
+
+        for call in backend.session.run.call_args_list:
+            self.assertEqual(call.args[0], ["pha", "r1o", "r2o", "r3o", "r4o"])
+        next_inputs = backend.session.run.call_args.args[1]
+        for name, state in zip(("r1i", "r2i", "r3i", "r4i"), states):
+            self.assertIs(next_inputs[name], state)
 
     def test_infer_generic_runtime_error_does_not_reset_state(self):
         backend = _RVMBackend(1)
@@ -383,7 +481,6 @@ class TensorrtRvmTests(unittest.TestCase):
         original_session = mock.Mock()
         rebuilt_session = mock.Mock()
         outputs = [
-            np.zeros((1, 3, 360, 640), dtype=np.float32),
             np.zeros((1, 1, 360, 640), dtype=np.float32),
             np.zeros((1, 16, 68, 120), dtype=np.float32),
             np.zeros((1, 32, 34, 60), dtype=np.float32),
@@ -418,6 +515,10 @@ class TensorrtRvmTests(unittest.TestCase):
 
         self.assertEqual(alpha.shape, (360, 640))
         self.assertIs(backend.session, rebuilt_session)
+        self.assertEqual(
+            rebuilt_session.run.call_args.args[0],
+            ["pha", "r1o", "r2o", "r3o", "r4o"],
+        )
         create_session.assert_called_once_with(Path("/tmp/base.onnx"), 1, use_tensorrt=False)
         release_session.assert_called_once_with(original_session)
         reset_state.assert_called_once()
@@ -455,10 +556,27 @@ class TensorrtRvmTests(unittest.TestCase):
         )
         release_session.assert_called_once_with(original_session)
 
+    def test_cpu_only_backend_never_recovers_allocation_failure_on_cuda(self):
+        backend = _RVMBackend(1)
+        backend._cpu_only = True
+        backend._base_model_path = Path("/tmp/base.onnx")
+        cpu_session = mock.Mock()
+        backend.session = cpu_session
+
+        with mock.patch("nvbroadcast.video.effects._create_session") as create_session, \
+             mock.patch("nvbroadcast.video.effects._release_session") as release_session:
+            recovered = backend._recover_cuda_session(
+                RuntimeError("BFCArena::AllocateRawInternal")
+            )
+
+        self.assertFalse(recovered)
+        self.assertIs(backend.session, cpu_session)
+        create_session.assert_not_called()
+        release_session.assert_not_called()
+
     def test_infer_shape_transition_error_resets_once_and_recovers(self):
         backend = _RVMBackend(1)
         outputs = [
-            np.zeros((1, 3, 360, 640), dtype=np.float32),
             np.zeros((1, 1, 360, 640), dtype=np.float32),
             np.zeros((1, 16, 68, 120), dtype=np.float32),
             np.zeros((1, 32, 34, 60), dtype=np.float32),
@@ -482,6 +600,9 @@ class TensorrtRvmTests(unittest.TestCase):
 
         self.assertEqual(alpha.shape, (360, 640))
         reset_state.assert_called_once()
+        self.assertEqual(backend.session.run.call_count, 2)
+        for call in backend.session.run.call_args_list:
+            self.assertEqual(call.args[0], ["pha", "r1o", "r2o", "r3o", "r4o"])
 
 
 if __name__ == "__main__":

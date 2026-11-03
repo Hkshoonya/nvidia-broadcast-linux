@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -25,6 +26,33 @@ from nvbroadcast.runtime.probe import (
 
 
 class RuntimeProbeTests(unittest.TestCase):
+    def test_cuda_numeric_out_of_memory_code_is_retryable(self):
+        for detail in (
+            "CUDA error 2: allocation failed while creating the provider",
+            "CUDA failure 2: allocation failed while creating the provider",
+            "CUDNN_STATUS_ALLOC_FAILED",
+            "cudaErrorMemoryAllocation",
+        ):
+            with self.subTest(detail=detail):
+                result = RuntimeProbeResult.failure(
+                    ProbeProvider.CUDA,
+                    detail,
+                )
+
+                self.assertTrue(result.resource_exhausted)
+                self.assertTrue(result.temporarily_unavailable)
+
+    def test_cuda_error_with_code_starting_in_two_is_not_memory_pressure(self):
+        for wording in ("error", "failure"):
+            with self.subTest(wording=wording):
+                result = RuntimeProbeResult.failure(
+                    ProbeProvider.CUDA,
+                    f"CUDA {wording} 209: no kernel image is available",
+                )
+
+                self.assertFalse(result.resource_exhausted)
+                self.assertFalse(result.temporarily_unavailable)
+
     def tearDown(self):
         clear_runtime_probe_cache()
 
@@ -114,7 +142,21 @@ class RuntimeProbeTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["env"]["PYTHONNOUSERSITE"], "1")
         self.assertTrue(run.call_args.kwargs["capture_output"])
         self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
-        self.assertEqual(run.call_args.kwargs["timeout"], 30.0)
+        self.assertEqual(run.call_args.kwargs["timeout"], 120.0)
+
+    def test_provider_defaults_allow_cold_gpu_execution_and_preserve_overrides(self):
+        for provider, explicit, expected in (
+            (ProbeProvider.CPU, None, 30.0),
+            (ProbeProvider.CUDA, None, 120.0),
+            (ProbeProvider.TENSORRT, None, 120.0),
+            (ProbeProvider.CUDA, 3.0, 3.0),
+            (ProbeProvider.TENSORRT, 5.0, 5.0),
+        ):
+            with self.subTest(provider=provider, timeout=explicit), mock.patch.object(
+                probe, "_run_provider_probe"
+            ) as run:
+                probe_execution_provider(provider, timeout=explicit, use_cache=False)
+                self.assertEqual(run.call_args.args[2], expected)
 
     def test_trusted_import_roots_support_nix_without_forwarding_arbitrary_paths(self):
         package_root = Path("/nix/store/nvbroadcast/lib/python/site-packages")
@@ -295,6 +337,44 @@ class RuntimeProbeTests(unittest.TestCase):
 
         self.assertIs(probe._root_exception(fallback_error), provider_error)
 
+    def test_cuda_memory_pressure_is_classified_as_temporary_resource_exhaustion(self):
+        for detail in (
+            "CUBLAS_STATUS_ALLOC_FAILED",
+            "CUDA_ERROR_OUT_OF_MEMORY",
+            "BFCArena::AllocateRawInternal: Available memory of 1024 is smaller than requested bytes of 2048",
+        ):
+            with self.subTest(detail=detail):
+                result = RuntimeProbeResult.failure(ProbeProvider.CUDA, detail)
+                self.assertTrue(result.resource_exhausted)
+                self.assertTrue(result.temporarily_unavailable)
+
+    def test_busy_or_timed_out_gpu_is_retryable_without_claiming_low_memory(self):
+        for detail in (
+            "provider execution probe timed out after 30 seconds",
+            "cudaErrorDevicesUnavailable: CUDA-capable devices are busy or unavailable",
+        ):
+            with self.subTest(detail=detail):
+                result = RuntimeProbeResult.failure(ProbeProvider.CUDA, detail)
+                self.assertFalse(result.resource_exhausted)
+                self.assertTrue(result.temporarily_unavailable)
+
+    def test_cpu_probe_timeout_is_not_a_retryable_gpu_capacity_failure(self):
+        result = RuntimeProbeResult.failure(
+            ProbeProvider.CPU,
+            "provider execution probe timed out after 30 seconds",
+        )
+
+        self.assertFalse(result.temporarily_unavailable)
+
+    def test_missing_cuda_library_is_not_classified_as_resource_exhaustion(self):
+        result = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA,
+            "Failed to load libonnxruntime_providers_cuda.so: libcudnn.so.9 not found",
+        )
+
+        self.assertFalse(result.resource_exhausted)
+        self.assertFalse(result.temporarily_unavailable)
+
     def test_probe_results_are_cached_until_environment_mutation(self):
         success = RuntimeProbeResult(
             provider=ProbeProvider.CPU,
@@ -308,6 +388,54 @@ class RuntimeProbeTests(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
             clear_runtime_probe_cache()
             probe_execution_provider(ProbeProvider.CPU)
+            self.assertEqual(run.call_count, 2)
+
+    def test_provider_probe_cache_is_separate_per_device(self):
+        success = RuntimeProbeResult(
+            provider=ProbeProvider.CUDA,
+            success=True,
+        )
+        clear_runtime_probe_cache()
+        with mock.patch.object(
+            probe, "_run_provider_probe", return_value=success
+        ) as run:
+            probe_execution_provider(ProbeProvider.CUDA, device_id=0)
+            probe_execution_provider(ProbeProvider.CUDA, device_id=1)
+            probe_execution_provider(ProbeProvider.CUDA, device_id=0)
+
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].args[1], 0)
+        self.assertEqual(run.call_args_list[1].args[1], 1)
+
+    def test_cache_clear_during_inflight_probe_cannot_restore_stale_result(self):
+        started = threading.Event()
+        release = threading.Event()
+        stale = RuntimeProbeResult.failure(ProbeProvider.CUDA, "stale busy result")
+        fresh = RuntimeProbeResult(provider=ProbeProvider.CUDA, success=True)
+
+        def execute(*_args):
+            if not started.is_set():
+                started.set()
+                self.assertTrue(release.wait(1.0))
+                return stale
+            return fresh
+
+        clear_runtime_probe_cache()
+        result = []
+        with mock.patch.object(probe, "_run_provider_probe", side_effect=execute) as run:
+            worker = threading.Thread(
+                target=lambda: result.append(
+                    probe_execution_provider(ProbeProvider.CUDA)
+                )
+            )
+            worker.start()
+            self.assertTrue(started.wait(1.0))
+            clear_runtime_probe_cache()
+            release.set()
+            worker.join(1.0)
+
+            self.assertIs(result[0], stale)
+            self.assertIs(probe_execution_provider(ProbeProvider.CUDA), fresh)
             self.assertEqual(run.call_count, 2)
 
     def test_real_cpu_provider_executes_in_fresh_process(self):
@@ -336,6 +464,36 @@ class RuntimeProbeTests(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("CUDA session creation failed", stderr.getvalue())
         self.assertIn("libcudnn.so.9", stderr.getvalue())
+
+    def test_cpu_named_cuda_still_requires_successful_execution(self):
+        runtime = mock.Mock()
+        runtime.get_available_providers.return_value = [
+            "CPUExecutionProvider", "CUDAExecutionProvider"
+        ]
+        failed = RuntimeProbeResult.failure(
+            ProbeProvider.CUDA, "CUDA session creation failed"
+        )
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            mock.patch(
+                "nvbroadcast.runtime.variants.current_distribution_inventory",
+                return_value={"onnxruntime": ("1.29.0",)},
+            ),
+            mock.patch.dict(sys.modules, {"onnxruntime": runtime}),
+            mock.patch.object(
+                runtime_main, "probe_execution_provider", return_value=failed
+            ) as execute,
+            mock.patch.object(sys, "argv", ["nvbroadcast.runtime", "--variant", "cuda"]),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            return_code = runtime_main.main()
+
+        execute.assert_called_once_with(ProbeProvider.CUDA, use_cache=False)
+        self.assertEqual(return_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("CUDA session creation failed", stderr.getvalue())
 
 
 if __name__ == "__main__":

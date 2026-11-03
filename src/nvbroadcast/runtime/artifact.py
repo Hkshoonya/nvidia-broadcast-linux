@@ -126,87 +126,89 @@ class ArtifactEnvironment:
         substitutions: Mapping[str, str] | None = None,
         *,
         roots: Iterable[str] | None = None,
+        root_extras: Mapping[str, Iterable[str]] | None = None,
     ) -> list[str]:
-        """Return unsatisfied or malformed active distribution requirements."""
+        """Check base and requested-extra requirements throughout the closure.
+
+        ``root_extras`` selects extras for named dependency roots. Extras on a
+        Requires-Dist edge apply to that dependency, not to its parent or other
+        packages. A dependency is revisited when another edge requests more
+        extras, so cycles and shared dependencies retain their full closure.
+        """
         substitutions = {
             canonicalize_name(name): canonicalize_name(provider)
             for name, provider in (substitutions or {}).items()
         }
-        problems: list[str] = []
+        problems: set[str] = set()
 
         distributions_by_name: dict[str, list[metadata.Distribution]] = {}
         for distribution in self.distributions:
             name = distribution.metadata.get("Name")
-            if name:
-                distributions_by_name.setdefault(
-                    canonicalize_name(name), []
-                ).append(distribution)
+            distributions_by_name.setdefault(
+                canonicalize_name(name) if name else "<unknown>", []
+            ).append(distribution)
 
-        if roots is None:
-            selected_distributions = self.distributions
-        else:
-            selected: list[metadata.Distribution] = []
-            pending = {canonicalize_name(root) for root in roots}
-            missing_roots = sorted(
-                root for root in pending if root not in distributions_by_name
+        selected_roots = (
+            set(distributions_by_name)
+            if roots is None
+            else {canonicalize_name(root) for root in roots}
+        )
+        requested_extras: dict[str, set[str]] = {}
+        for name, extras in (root_extras or {}).items():
+            name = canonicalize_name(name)
+            selected_roots.add(name)
+            requested_extras.setdefault(name, set()).update(
+                canonicalize_name(extra) for extra in extras
             )
-            problems.extend(
-                f"required dependency root is missing: {root}"
-                for root in missing_roots
-            )
-            visited: set[str] = set()
-            while pending:
-                distribution_name = pending.pop()
-                if distribution_name in visited:
-                    continue
-                visited.add(distribution_name)
-                distributions = distributions_by_name.get(distribution_name, ())
-                selected.extend(distributions)
-                for distribution in distributions:
-                    for raw_requirement in distribution.requires or ():
-                        try:
-                            requirement = Requirement(raw_requirement)
-                        except InvalidRequirement:
-                            continue
-                        if requirement.marker and not requirement.marker.evaluate(
-                            self.markers
-                        ):
-                            continue
-                        requirement_name = canonicalize_name(requirement.name)
-                        provided_name = substitutions.get(
-                            requirement_name, requirement_name
+        problems.update(
+            f"required dependency root is missing: {root}"
+            for root in selected_roots - distributions_by_name.keys()
+        )
+        pending = set(selected_roots)
+        visited: dict[str, frozenset[str]] = {}
+        while pending:
+            distribution_name = pending.pop()
+            extras = frozenset(requested_extras.get(distribution_name, ()))
+            if visited.get(distribution_name) == extras:
+                continue
+            visited[distribution_name] = extras
+            for distribution in distributions_by_name.get(distribution_name, ()):
+                owner = distribution.metadata.get("Name", "<unknown>")
+                for raw_requirement in distribution.requires or ():
+                    try:
+                        requirement = Requirement(raw_requirement)
+                    except InvalidRequirement as error:
+                        problems.add(
+                            f"{owner} has invalid requirement {raw_requirement!r}: {error}"
                         )
-                        if self.installed.get(provided_name):
-                            pending.add(provided_name)
-            selected_distributions = tuple(selected)
-
-        for distribution in selected_distributions:
-            owner = distribution.metadata.get("Name", "<unknown>")
-            for raw_requirement in distribution.requires or ():
-                try:
-                    requirement = Requirement(raw_requirement)
-                except InvalidRequirement as error:
-                    problems.append(
-                        f"{owner} has invalid requirement {raw_requirement!r}: {error}"
+                        continue
+                    # Base requirements always remain active alongside extras.
+                    # Override extra per package; it must not leak from a caller's
+                    # marker environment into unrelated distributions.
+                    if requirement.marker and not any(
+                        requirement.marker.evaluate({**self.markers, "extra": extra})
+                        for extra in {"", *extras}
+                    ):
+                        continue
+                    requirement_name = canonicalize_name(requirement.name)
+                    provided_name = substitutions.get(
+                        requirement_name, requirement_name
                     )
-                    continue
-                if requirement.marker and not requirement.marker.evaluate(self.markers):
-                    continue
-
-                requirement_name = canonicalize_name(requirement.name)
-                provided_name = substitutions.get(
-                    requirement_name, requirement_name
-                )
-                versions = self.installed.get(provided_name, ())
-                if not versions:
-                    problems.append(f"{owner} requires missing package {requirement}")
-                elif requirement.specifier and not any(
-                    version in requirement.specifier for version in versions
-                ):
-                    problems.append(
-                        f"{owner} requires {requirement}, found {', '.join(versions)}"
-                    )
-        return sorted(set(problems))
+                    versions = self.installed.get(provided_name, ())
+                    if not versions:
+                        problems.add(f"{owner} requires missing package {requirement}")
+                    elif requirement.specifier and not any(
+                        version in requirement.specifier for version in versions
+                    ):
+                        problems.add(
+                            f"{owner} requires {requirement}, found {', '.join(versions)}"
+                        )
+                    if versions:
+                        requested_extras.setdefault(provided_name, set()).update(
+                            canonicalize_name(extra) for extra in requirement.extras
+                        )
+                        pending.add(provided_name)
+        return sorted(problems)
 
     def import_problems(self, module_names: tuple[str, ...]) -> list[str]:
         """Verify imports resolve from this artifact rather than the host."""

@@ -3,15 +3,74 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NV Broadcast - NVIDIA Broadcast for Linux by Doczeus</title>
-<meta name="description" content="AI-powered virtual camera with background removal, eye contact correction, relighting, recording, AI meeting transcription, voice effects, mic selection, and video enhancement for Linux. 9 processing modes with 5 built-in profiles.">
+<title>NV Broadcast - AI Camera Effects for Linux &amp; macOS</title>
+<meta name="description" content="Open-source AI camera and microphone effects for Linux and macOS: background blur and replacement, auto framing, noise removal, and local meeting transcription.">
 <meta name="author" content="Doczeus">
-<meta name="keywords" content="nvidia broadcast, linux, virtual camera, background removal, noise cancellation, doczeus">
-<meta property="og:title" content="NV Broadcast - NVIDIA Broadcast for Linux">
-<meta property="og:description" content="AI-powered virtual camera with background removal, eye contact, relighting, recording, AI meeting transcription, voice effects, and mic selection. 9 GPU/CPU modes. Open source by Doczeus.">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta name="theme-color" content="#111111">
+<link rel="canonical" href="https://nvbroadcast.com/">
+<meta property="og:site_name" content="NV Broadcast">
+<meta property="og:title" content="NV Broadcast - AI Virtual Camera for Linux &amp; macOS">
+<meta property="og:description" content="Open-source AI camera and microphone effects: background effects, auto framing, noise removal, and local meeting transcription.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://hkshoonya.github.io/nvidia-broadcast-linux/">
+<meta property="og:url" content="https://nvbroadcast.com/">
+<meta property="og:image" content="https://nvbroadcast.com/og-image.png">
+<meta property="og:image:secure_url" content="https://nvbroadcast.com/og-image.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="NV Broadcast AI virtual camera for Linux and macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NV Broadcast - AI Virtual Camera for Linux &amp; macOS">
+<meta name="twitter:description" content="Open-source AI background effects, auto framing, noise removal, and local meeting transcription for Linux and macOS.">
+<meta name="twitter:image" content="https://nvbroadcast.com/og-image.png">
+<meta name="twitter:image:alt" content="NV Broadcast AI virtual camera for Linux and macOS">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='20' fill='%23111'/%3E%3Ccircle cx='64' cy='70' r='6' fill='%2376b900'/%3E%3C/svg%3E">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://nvbroadcast.com/#website",
+      "url": "https://nvbroadcast.com/",
+      "name": "NV Broadcast",
+      "description": "Open-source AI camera and microphone effects for Linux and macOS",
+      "publisher": { "@id": "https://nvbroadcast.com/#author" }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nvbroadcast.com/#software",
+      "name": "NV Broadcast",
+      "url": "https://nvbroadcast.com/",
+      "downloadUrl": "https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4",
+      "softwareVersion": "1.5.4",
+      "operatingSystem": "Linux, macOS 15 or later on Apple Silicon",
+      "applicationCategory": "MultimediaApplication",
+      "description": "AI virtual camera with background effects, auto framing, eye contact, noise removal, recording, and local meeting transcription",
+      "image": "https://nvbroadcast.com/og-image.png",
+      "author": { "@id": "https://nvbroadcast.com/#author" },
+      "license": "https://spdx.org/licenses/GPL-3.0-or-later.html",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "sameAs": [
+        "https://github.com/Hkshoonya/nvidia-broadcast-linux",
+        "https://snapcraft.io/nvbroadcast"
+      ]
+    },
+    {
+      "@type": "Person",
+      "@id": "https://nvbroadcast.com/#author",
+      "name": "Doczeus",
+      "url": "https://github.com/Hkshoonya"
+    }
+  ]
+}
+</script>
 <style>
 /* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,13 +83,14 @@
   --surface-raised: #ffffff;
   --text: #111111;
   --text-secondary: #555555;
-  --text-muted: #777777;
+  --text-muted: #666666;
   --border: #d8d8d8;
   --border-subtle: #e8e8e8;
   --accent: #76b900;
   --accent-hover: #8ad400;
   --accent-text: #4a7400;
   --accent-surface: #76b90012;
+  --sponsor-text: #a12a6a;
   --code-bg: #f0f0f0;
   --code-text: #1a1a1a;
   --terminal-bg: #111111;
@@ -50,13 +110,14 @@
     --surface-raised: #1c1c1c;
     --text: #e8e8e8;
     --text-secondary: #999999;
-    --text-muted: #666666;
+    --text-muted: #888888;
     --border: #2a2a2a;
     --border-subtle: #222222;
     --accent: #76b900;
     --accent-hover: #8ad400;
     --accent-text: #76b900;
     --accent-surface: #76b90010;
+    --sponsor-text: #db61a2;
     --code-bg: #1a1a1a;
     --code-text: #d4d4d4;
     --terminal-bg: #0a0a0a;
@@ -102,7 +163,7 @@ nav .container {
   text-decoration: none; color: var(--text);
 }
 .nav-brand svg { width: 32px; height: 32px; }
-.nav-brand span { font-weight: 700; font-size: 15px; letter-spacing: 0.5px; }
+.nav-brand span { font-weight: 700; font-size: 15px; letter-spacing: 0; }
 .nav-links { display: flex; align-items: center; gap: 28px; }
 .nav-links a {
   font-size: 14px; font-weight: 500; color: var(--text-secondary);
@@ -132,11 +193,11 @@ nav .container {
 .hero h1 {
   font-size: clamp(2rem, 5vw, 3.2rem);
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   line-height: 1.15;
   margin-bottom: 16px;
 }
-.hero h1 .accent { color: var(--accent); }
+.hero h1 .accent { color: var(--accent-text); }
 
 /* macOS text reveal — starts hidden, JS adds .animate to trigger */
 .macos-reveal {
@@ -219,7 +280,7 @@ nav .container {
 .terminal-dot.g { background: #28c840; }
 .terminal-bar span {
   flex: 1; text-align: center;
-  font-size: 12px; color: #666; font-weight: 500;
+  font-size: 12px; color: #909090; font-weight: 500;
 }
 .terminal-body {
   padding: 16px 20px;
@@ -229,7 +290,7 @@ nav .container {
   color: var(--terminal-text);
   min-height: 80px;
 }
-.terminal-line { white-space: nowrap; overflow: hidden; }
+.terminal-line { white-space: normal; overflow-wrap: anywhere; }
 .terminal-line .prompt { color: var(--accent); }
 .terminal-line .cmd { color: #e8e8e8; }
 .terminal-line .comment { color: #555; }
@@ -283,7 +344,7 @@ nav .container {
   bottom: 10px; left: 0; right: 0;
   text-align: center;
   font-size: 10px; font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -443,12 +504,12 @@ nav .container {
 /* ── Section headers ── */
 .section-tag {
   font-size: 13px; font-weight: 700; color: var(--accent-text);
-  text-transform: uppercase; letter-spacing: 2px;
+  text-transform: uppercase; letter-spacing: 0;
   margin-bottom: 12px;
 }
 .section-title {
   font-size: clamp(1.5rem, 3.5vw, 2.2rem);
-  font-weight: 800; letter-spacing: -0.02em;
+  font-weight: 800; letter-spacing: 0;
   margin-bottom: 12px;
 }
 .section-desc {
@@ -601,7 +662,7 @@ nav .container {
   color: #fff;
   font-size: 10px; font-weight: 700;
   padding: 3px 8px; border-radius: 4px;
-  letter-spacing: 1px;
+  letter-spacing: 0;
   animation: rec-blink 1.6s ease-in-out infinite;
 }
 .preview-video .badge-mode {
@@ -610,7 +671,7 @@ nav .container {
   color: #000;
   font-size: 10px; font-weight: 700;
   padding: 3px 10px; border-radius: 4px;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
 }
 .preview-video .badge-fps {
   position: absolute; bottom: 12px; right: 12px;
@@ -633,7 +694,7 @@ nav .container {
 }
 .preview-ctrl .label {
   font-size: 10px; color: #76b900; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 1px;
+  text-transform: uppercase; letter-spacing: 0;
   margin-bottom: 4px;
 }
 .preview-ctrl .value {
@@ -685,7 +746,7 @@ nav .container {
   font-size: 10px; font-weight: 700;
   color: var(--accent);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0;
   margin-bottom: 10px;
 }
 .mode-fps {
@@ -818,9 +879,9 @@ nav .container {
   border-radius: 8px;
   padding: 20px;
 }
-.req-card h4 {
-  font-size: 13px; font-weight: 700; color: var(--accent);
-  text-transform: uppercase; letter-spacing: 1px;
+.req-card h3 {
+  font-size: 13px; font-weight: 700; color: var(--accent-text);
+  text-transform: uppercase; letter-spacing: 0;
   margin-bottom: 8px;
 }
 .req-card ul {
@@ -844,12 +905,15 @@ footer {
 .footer-brand svg { margin: 0 auto; }
 .footer-links {
   display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap;
   gap: 24px; margin-bottom: 16px;
 }
 .footer-links a {
   font-size: 13px; font-weight: 500; color: var(--text-secondary);
 }
 .footer-links a:hover { color: var(--accent); }
+.sponsor-link,
+.sponsor-link:hover { color: var(--sponsor-text) !important; }
 .footer-copy {
   font-size: 12px; color: var(--text-muted);
 }
@@ -936,7 +1000,7 @@ button:focus-visible, a:focus-visible {
       <a href="#modes">Modes</a>
       <a href="#install">Install</a>
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_site" target="_blank" rel="noopener" style="color:#db61a2">Sponsor</a>
+      <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_site" target="_blank" rel="noopener" class="sponsor-link">Sponsor</a>
       <a href="#install" class="nav-cta">Download</a>
     </div>
   </div>
@@ -985,10 +1049,10 @@ button:focus-visible, a:focus-visible {
     </div>
 
     <h1 class="reveal reveal-delay-1">
-      NVIDIA Broadcast<br>for <span class="accent">Linux</span> <span class="macos-reveal">&amp; <span class="accent">macOS</span></span>
+      NV Broadcast<br>for <span class="accent">Linux</span> <span class="macos-reveal">&amp; <span class="accent">macOS</span></span>
     </h1>
     <p class="subtitle reveal reveal-delay-2">
-      AI-powered virtual camera with background removal, eye contact correction, face relighting, recording, AI meeting transcription, voice studio, and video enhancement. 9 GPU/CPU modes. Linux and macOS.
+      Open-source AI camera and microphone effects: background removal, blur and replacement, auto framing, eye contact, noise removal, recording, and local meeting transcription.
     </p>
 
     <div class="hero-ctas reveal reveal-delay-3">
@@ -1332,30 +1396,30 @@ button:focus-visible, a:focus-visible {
         <span class="mode-tag gpu">GPU</span>
       </div>
 
-      <div class="mode-card reveal" aria-label="CPU Quality mode: 15 frames per second at 1080p">
+      <div class="mode-card reveal" aria-label="CPU Quality mode using CPU-only inference">
         <div class="mode-name">CPU Quality</div>
-        <div class="mode-badge">720p OpenCV</div>
-        <div class="mode-fps">15</div>
-        <div class="mode-fps-label">fps @ 1080p</div>
-        <div class="mode-detail">66 ms frame time<br>SIMD optimized</div>
+        <div class="mode-badge">CPU provider</div>
+        <div class="mode-fps">Varies</div>
+        <div class="mode-fps-label">by hardware</div>
+        <div class="mode-detail">True CPU inference<br>Highest CPU cost</div>
         <span class="mode-tag cpu">CPU</span>
       </div>
 
-      <div class="mode-card reveal reveal-delay-1" aria-label="CPU Light mode: 33 frames per second at 1080p">
+      <div class="mode-card reveal reveal-delay-1" aria-label="CPU Light mode using CPU-only inference">
         <div class="mode-name">CPU Light</div>
-        <div class="mode-badge">720p skip 2</div>
-        <div class="mode-fps">33</div>
-        <div class="mode-fps-label">fps @ 1080p</div>
-        <div class="mode-detail">30 ms avg<br>Frame reuse</div>
+        <div class="mode-badge">CPU provider</div>
+        <div class="mode-fps">Varies</div>
+        <div class="mode-fps-label">by hardware</div>
+        <div class="mode-detail">Reduced CPU cost<br>Lower edge quality</div>
         <span class="mode-tag cpu">CPU</span>
       </div>
 
-      <div class="mode-card reveal reveal-delay-2" aria-label="CPU Low End mode: 37 frames per second at 1080p">
+      <div class="mode-card reveal reveal-delay-2" aria-label="CPU Low End mode using CPU-only inference">
         <div class="mode-name">CPU Low End</div>
-        <div class="mode-badge">720p skip 3</div>
-        <div class="mode-fps">37</div>
-        <div class="mode-fps-label">fps @ 1080p</div>
-        <div class="mode-detail">27 ms avg<br>Maximum skip</div>
+        <div class="mode-badge">CPU provider</div>
+        <div class="mode-fps">Varies</div>
+        <div class="mode-fps-label">by hardware</div>
+        <div class="mode-detail">Maximum frame reuse<br>Lowest CPU cost</div>
         <span class="mode-tag cpu">CPU</span>
       </div>
 
@@ -1391,7 +1455,7 @@ button:focus-visible, a:focus-visible {
             <span>bash</span>
           </div>
           <div class="terminal-body" role="code">
-            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('source')">Copy</button>
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('source', this)">Copy</button>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd nvidia-broadcast-linux</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">./install.sh</span></div>
@@ -1410,15 +1474,23 @@ button:focus-visible, a:focus-visible {
             <span>bash</span>
           </div>
           <div class="terminal-body" role="code">
-            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('deb')">Copy</button>
-            <div class="terminal-line"><span class="comment"># Download the .deb from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.4.0-1_all.deb</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dpkg -i nvbroadcast_1.4.0-1_all.deb</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo apt-get install -f</span></div>
-            <div class="terminal-line"><span class="comment"># v1.4.0 and older: use the verified release helper for future upgrades</span></div>
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('deb', this)">Copy</button>
+            <div class="terminal-line"><span class="comment"># Download and verify v1.5.4</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">(</span></div>
+            <div class="terminal-line"><span class="cmd">set -euo pipefail</span></div>
+            <div class="terminal-line"><span class="cmd">WORKDIR=$(mktemp -d)</span></div>
+            <div class="terminal-line"><span class="cmd">cd "$WORKDIR"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">BASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.4</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">PACKAGE=nvbroadcast_1.5.4-1_all.deb</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">awk -v package="$PACKAGE" '$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }' SHA256SUMS.packages | sha256sum -c -</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">chmod 755 nvbroadcast-native-upgrade</span></div>
+            <div class="terminal-line"><span class="comment"># Protected upgrade when installed; normal package-manager path when clean</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">if dpkg-query -W -f='${db:Status-Abbrev}' nvbroadcast 2&gt;/dev/null | grep -q '^i'; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo apt-get install --yes --no-remove "./$PACKAGE"; fi</span></div>
+            <div class="terminal-line"><span class="cmd">)</span></div>
           </div>
         </div>
-        <p class="install-note">For Ubuntu, Debian, Pop!_OS, Linux Mint, and derivatives. Native v1.4.0 and older installations must use the checksum-verified upgrade helper included with v1.5.2 and later releases. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/RELEASE_VERIFICATION.md" target="_blank" rel="noopener">Read the verified upgrade steps</a></p>
+        <p class="install-note">For Ubuntu, Debian, Pop!_OS, Linux Mint, and derivatives. The commands above verify both downloads and automatically protect native v1.4.0-and-older upgrades with the release-bound helper. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/RELEASE_VERIFICATION.md" target="_blank" rel="noopener">Read the verification details</a></p>
       </div>
 
       <!-- RPM -->
@@ -1431,14 +1503,23 @@ button:focus-visible, a:focus-visible {
             <span>bash</span>
           </div>
           <div class="terminal-body" role="code">
-            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('rpm')">Copy</button>
-            <div class="terminal-line"><span class="comment"># Download the .rpm from GitHub Releases</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.4.0-1.noarch.rpm</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo dnf install ./nvbroadcast-1.4.0-1.noarch.rpm</span></div>
-            <div class="terminal-line"><span class="comment"># v1.4.0 and older: use the verified release helper for future upgrades</span></div>
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('rpm', this)">Copy</button>
+            <div class="terminal-line"><span class="comment"># Download and verify v1.5.4</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">(</span></div>
+            <div class="terminal-line"><span class="cmd">set -euo pipefail</span></div>
+            <div class="terminal-line"><span class="cmd">WORKDIR=$(mktemp -d)</span></div>
+            <div class="terminal-line"><span class="cmd">cd "$WORKDIR"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">BASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.4</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">PACKAGE=nvbroadcast-1.5.4-1.noarch.rpm</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">wget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">awk -v package="$PACKAGE" '$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }' SHA256SUMS.packages | sha256sum -c -</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">chmod 755 nvbroadcast-native-upgrade</span></div>
+            <div class="terminal-line"><span class="comment"># Protected upgrade when installed; normal package-manager path when clean</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">if rpm -q nvbroadcast &gt;/dev/null 2&gt;&amp;1; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo dnf install --assumeyes "./$PACKAGE"; fi</span></div>
+            <div class="terminal-line"><span class="cmd">)</span></div>
           </div>
         </div>
-        <p class="install-note">For Fedora, RHEL, CentOS, and Rocky. Native v1.4.0 and older installations must use the checksum-verified upgrade helper included with v1.5.2 and later releases. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/RELEASE_VERIFICATION.md" target="_blank" rel="noopener">Read the verified upgrade steps</a></p>
+        <p class="install-note">For Fedora, RHEL, CentOS, and Rocky. The commands above verify both downloads and automatically protect native v1.4.0-and-older upgrades with the release-bound helper. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/RELEASE_VERIFICATION.md" target="_blank" rel="noopener">Read the verification details</a></p>
       </div>
 
       <!-- Snap -->
@@ -1451,13 +1532,13 @@ button:focus-visible, a:focus-visible {
             <span>bash</span>
           </div>
           <div class="terminal-body" role="code">
-            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('snap')">Copy</button>
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('snap', this)">Copy</button>
             <div class="terminal-line"><span class="comment"># Snap Store (released separately after validation)</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo snap install nvbroadcast</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo snap refresh nvbroadcast</span></div>
           </div>
         </div>
-        <p class="install-note">For systems with Snap support. Snap Store updates are released separately after artifact inspection, Store policy approval, and strict-confinement testing. When `1.4.0` reaches the stable channel, `snap refresh nvbroadcast` upgrades in place with rebindable global effect hotkeys, optional Gaze Lock, live camera switching, low-latency virtual microphone startup, and reliable background processing during quality or mode changes.</p>
+        <p class="install-note">For systems with Snap support. Snap Store updates are released separately after artifact inspection, provenance verification, Store review, and candidate testing. Check the <a href="https://snapcraft.io/nvbroadcast" target="_blank" rel="noopener">Store channel version</a>; <code>snap refresh nvbroadcast</code> upgrades to the current stable revision in place. The arm64 Snap remains CPU-only.</p>
       </div>
 
       <!-- Arch -->
@@ -1470,7 +1551,7 @@ button:focus-visible, a:focus-visible {
             <span>bash</span>
           </div>
           <div class="terminal-body" role="code">
-            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('arch')">Copy</button>
+            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('arch', this)">Copy</button>
             <div class="terminal-line"><span class="comment"># Install system deps then run the installer</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils</span></div>
             <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh</span></div>
@@ -1481,7 +1562,7 @@ button:focus-visible, a:focus-visible {
 
       <!-- macOS -->
       <div class="install-pane" id="pane-macos">
-        <div class="terminal" role="region" aria-label="Terminal command">
+        <div class="terminal" role="region" aria-label="macOS package download and verification">
           <div class="terminal-bar">
             <div class="terminal-dot r" aria-hidden="true"></div>
             <div class="terminal-dot y" aria-hidden="true"></div>
@@ -1489,17 +1570,47 @@ button:focus-visible, a:focus-visible {
             <span>zsh</span>
           </div>
           <div class="terminal-body" role="code">
-            <button class="copy-btn" aria-label="Copy install command" onclick="copyCommand('macos')">Copy</button>
-            <div class="terminal-line"><span class="comment"># macOS (Apple Silicon)</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd nvidia-broadcast-linux</span></div>
-            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">./install_macos.sh</span></div>
-            <div class="terminal-line"><span class="comment"># Upgrade later: install the newer .pkg after this one-time source setup</span></div>
+            <button class="copy-btn" aria-label="Copy macos package download and verification" onclick="copyCommand('macos', this)">Copy</button>
+            <div class="terminal-line"><span class="comment">Signed v1.5.4 PKG</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">(</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">set -euo pipefail</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">INSTALL_DIR=$(mktemp -d)</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">cd "$INSTALL_DIR"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">BASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.4</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">PACKAGE=NVBroadcast-1.5.4-1.pkg</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">curl --fail --location --proto '=https' --proto-redir '=https' --remote-name "$BASE/$PACKAGE"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">printf '%s  %s\n' 'f0fb2bec7035a5ec336168ab0523ffeebec5d5d9cf5fd0d526c4c37936aa2b6f' "$PACKAGE" | shasum -a 256 -c -</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">pkgutil --check-signature "$PACKAGE"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">xcrun stapler validate "$PACKAGE"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">spctl --assess --type install --verbose=4 "$PACKAGE"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">open "$PACKAGE"</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">)</span></div>
           </div>
         </div>
         <p class="install-note">
-          Existing configured installs can download the update package: <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/NVBroadcast-1.4.0-1.pkg" target="_blank" rel="noopener">NVBroadcast-1.4.0-1.pkg</a><br>
-          Requires Apple Silicon, macOS 13+, Homebrew, Python 3.11-3.13, and OBS Studio. After installing OBS, open it once, start and stop Virtual Camera, then close OBS. Intel macOS is not included in v1.4.0 because a secure current MediaPipe wheel is unavailable.
+          <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.4/NVBroadcast-1.5.4-1.pkg">Download the signed macOS PKG</a> for Apple Silicon macOS 15+. Its Developer ID Installer identity is <strong>WeMakeSense LLC (T39RXSKKZ6)</strong>; notarization and a stapled ticket are verified. The commands above check the exact package checksum, signing identity and Gatekeeper before opening Installer. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.4/SHA256SUMS.packages">Package checksums</a> · <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/RELEASE_VERIFICATION.md#verify-build-provenance" target="_blank" rel="noopener">Build provenance</a>.<br>
+          Finish Installer, then run the setup below as your regular user. Install <a href="https://brew.sh" target="_blank" rel="noopener">Apple Silicon Homebrew</a> at <code>/opt/homebrew</code> first. Runtime setup requires network access and compatible Python 3.11-3.13 bindings; do not run Homebrew, setup or Broadcast with sudo.
+        </p>
+        <div class="terminal" role="region" aria-label="macOS runtime setup and launch">
+          <div class="terminal-bar">
+            <div class="terminal-dot r" aria-hidden="true"></div>
+            <div class="terminal-dot y" aria-hidden="true"></div>
+            <div class="terminal-dot g" aria-hidden="true"></div>
+            <span>zsh</span>
+          </div>
+          <div class="terminal-body" role="code">
+            <button class="copy-btn" aria-label="Copy macos runtime setup and launch" onclick="copyCommand('macos-setup', this)">Copy</button>
+            <div class="terminal-line"><span class="comment">After Installer</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">/opt/homebrew/bin/brew update &amp;&amp;</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">/opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer pkgconf ninja &amp;&amp;</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">/opt/homebrew/bin/brew upgrade python@3.13 &amp;&amp;</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">/opt/nvbroadcast/scripts/setup_macos_runtime.sh &amp;&amp;</span></div>
+            <div class="terminal-line"><span class="prompt">$ </span><span class="cmd">/usr/local/bin/nvbroadcast</span></div>
+          </div>
+        </div>
+        <p class="install-note">
+          Use <code>/usr/local/bin/nvbroadcast</code> so an older source launcher cannot shadow the package. CPU processing is supported; CoreML acceleration is not qualified. OBS Studio provides virtual-camera output: open it once, start and stop Virtual Camera, then close OBS. The proprietary Camera Extension prototype is not installed by this PKG.<br>
+          Microphone recording, Mic Test and microphone-only Meeting are supported; system-audio loopback and processed virtual-microphone output are unavailable on macOS. <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/docs/MACOS_SIGNING.md#test-the-signed-installer-on-your-mac" target="_blank" rel="noopener">Package setup and acceptance details</a>. Intel macOS and Homebrew runtime setup on macOS 13/14 remain unsupported. Existing source installations remain separate; see the <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/README.md#macos--source-install" target="_blank" rel="noopener">source installation instructions</a>.
         </p>
       </div>
 
@@ -1508,7 +1619,7 @@ button:focus-visible, a:focus-visible {
     <!-- Requirements -->
     <div class="req-grid reveal">
       <div class="req-card">
-        <h4>Linux</h4>
+        <h3>Linux</h3>
         <ul>
           <li>Any distro (Ubuntu, Fedora, Arch, Pop!_OS...)</li>
           <li>NVIDIA GTX 1060+ for GPU modes</li>
@@ -1517,17 +1628,17 @@ button:focus-visible, a:focus-visible {
         </ul>
       </div>
       <div class="req-card">
-        <h4>macOS</h4>
+        <h3>macOS</h3>
         <ul>
-          <li>macOS 13 Ventura or newer</li>
+          <li>macOS 15 Sequoia or newer for supported Homebrew setup</li>
           <li>Apple Silicon (M1+) required</li>
-          <li>Homebrew, Python 3.11-3.13</li>
+          <li>Apple Silicon Homebrew at /opt/homebrew; Python 3.11-3.13 with compatible bindings</li>
           <li>OBS Studio for virtual-camera output</li>
           <li>CPU modes (no NVIDIA needed)</li>
         </ul>
       </div>
       <div class="req-card">
-        <h4>Camera + Audio</h4>
+        <h3>Camera + Audio</h3>
         <ul>
           <li>USB webcam, 720p+ recommended</li>
           <li>Any microphone (USB, built-in)</li>
@@ -1566,14 +1677,14 @@ button:focus-visible, a:focus-visible {
       <svg viewBox="0 0 200 48" width="140" height="34" aria-hidden="true">
         <rect x="2" y="8" width="32" height="32" rx="8" fill="none" stroke="#76b900" stroke-width="3"/>
         <circle cx="18" cy="24" r="6" fill="#76b900"/>
-        <text x="40" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="currentColor" letter-spacing="1">oczeus</text>
-        <text x="40" y="46" font-family="system-ui, sans-serif" font-size="9" fill="#76b900" letter-spacing="2">AI POWERED</text>
+        <text x="40" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="currentColor" letter-spacing="0">oczeus</text>
+        <text x="40" y="46" font-family="system-ui, sans-serif" font-size="9" fill="#76b900" letter-spacing="0">AI POWERED</text>
       </svg>
     </div>
     <div class="footer-links">
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues" target="_blank" rel="noopener">Issues</a>
-      <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_site" target="_blank" rel="noopener" style="color:#db61a2">Sponsor</a>
+      <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_site" target="_blank" rel="noopener" class="sponsor-link">Sponsor</a>
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
       <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
     </div>
@@ -1696,17 +1807,17 @@ document.querySelectorAll('.install-tab').forEach(tab => {
 /* ── Copy command ── */
 const commands = {
   source: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
-  deb: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast_1.4.0-1_all.deb && sudo dpkg -i nvbroadcast_1.4.0-1_all.deb && sudo apt-get install -f',
-  rpm: 'wget https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/latest/download/nvbroadcast-1.4.0-1.noarch.rpm && sudo dnf install ./nvbroadcast-1.4.0-1.noarch.rpm',
+  deb: '(\nset -euo pipefail\nWORKDIR=$(mktemp -d)\ncd "$WORKDIR"\nBASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.4\nPACKAGE=nvbroadcast_1.5.4-1_all.deb\nwget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"\nawk -v package="$PACKAGE" \'$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }\' SHA256SUMS.packages | sha256sum -c -\nchmod 755 nvbroadcast-native-upgrade\nif dpkg-query -W -f=\'${db:Status-Abbrev}\' nvbroadcast 2>/dev/null | grep -q \'^i\'; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo apt-get install --yes --no-remove "./$PACKAGE"; fi\n)',
+  rpm: '(\nset -euo pipefail\nWORKDIR=$(mktemp -d)\ncd "$WORKDIR"\nBASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.4\nPACKAGE=nvbroadcast-1.5.4-1.noarch.rpm\nwget --https-only "$BASE/$PACKAGE" "$BASE/nvbroadcast-native-upgrade" "$BASE/SHA256SUMS.packages"\nawk -v package="$PACKAGE" \'$2 == package || $2 == "nvbroadcast-native-upgrade" { print; found++ } END { exit found != 2 }\' SHA256SUMS.packages | sha256sum -c -\nchmod 755 nvbroadcast-native-upgrade\nif rpm -q nvbroadcast >/dev/null 2>&1; then sudo ./nvbroadcast-native-upgrade "./$PACKAGE"; else sudo dnf install --assumeyes "./$PACKAGE"; fi\n)',
   snap: 'sudo snap install nvbroadcast || sudo snap refresh nvbroadcast',
   arch: 'sudo pacman -S python gtk4 libadwaita gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad v4l-utils && git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install.sh',
-  macos: 'git clone https://github.com/Hkshoonya/nvidia-broadcast-linux.git && cd nvidia-broadcast-linux && ./install_macos.sh'
+  macos: "(\nset -euo pipefail\nINSTALL_DIR=$(mktemp -d)\ncd \"$INSTALL_DIR\"\nBASE=https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/download/v1.5.4\nPACKAGE=NVBroadcast-1.5.4-1.pkg\ncurl --fail --location --proto '=https' --proto-redir '=https' --remote-name \"$BASE/$PACKAGE\"\nprintf '%s  %s\\n' 'f0fb2bec7035a5ec336168ab0523ffeebec5d5d9cf5fd0d526c4c37936aa2b6f' \"$PACKAGE\" | shasum -a 256 -c -\npkgutil --check-signature \"$PACKAGE\"\nxcrun stapler validate \"$PACKAGE\"\nspctl --assess --type install --verbose=4 \"$PACKAGE\"\nopen \"$PACKAGE\"\n)",
+  'macos-setup': "/opt/homebrew/bin/brew update &&\n/opt/homebrew/bin/brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer pkgconf ninja &&\n/opt/homebrew/bin/brew upgrade python@3.13 &&\n/opt/nvbroadcast/scripts/setup_macos_runtime.sh &&\n/usr/local/bin/nvbroadcast"
 };
 
-function copyCommand(type) {
+function copyCommand(type, btn) {
   const text = commands[type];
   navigator.clipboard.writeText(text).then(() => {
-    const btn = event.target;
     btn.textContent = 'Copied';
     btn.classList.add('copied');
     setTimeout(() => {

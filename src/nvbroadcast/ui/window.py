@@ -1,19 +1,25 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """Main window - NVIDIA Broadcast layout."""
+
+import threading
+import weakref
+from pathlib import Path
+from typing import NamedTuple
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gtk, Adw, Gio, GLib, Gdk
+gi.require_version("Pango", "1.0")
+from gi.repository import Gtk, Adw, Gio, GLib, Gdk, Pango
 
 from nvbroadcast.contributors import app_contributor_credits
-from nvbroadcast.core.constants import APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
+from nvbroadcast.core.constants import APP_ID, APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
 from nvbroadcast.core.config import save_config
 from nvbroadcast.core.gpu import detect_gpus, select_compute_gpu
 from nvbroadcast.ui.video_preview import VideoPreview
@@ -26,17 +32,102 @@ from nvbroadcast.ui.controls import (
 )
 from nvbroadcast.ui.device_selector import DeviceSelector
 from nvbroadcast.video.virtual_camera import (
-    list_camera_devices, list_camera_modes,
+    clear_camera_probe_cache, list_camera_devices, list_camera_modes,
+    select_camera_mode,
     get_firefox_profiles, is_firefox_pipewire_disabled, set_firefox_pipewire,
 )
-from nvbroadcast.core.platform import IS_LINUX, has_tensorrt_runtime, supports_tensorrt_python
+from nvbroadcast.core.platform import IS_LINUX, IS_MACOS, supports_tensorrt_python
 from nvbroadcast.core.resources import find_app_icon
+from nvbroadcast.core.recordings import recordings_directory, legacy_recordings_directory
 
 
 # Keep project authorship and financial sponsorship separate.
 _APP_SPONSORS = [
     "Mattsky — GitHub Sponsor https://github.com/Mattsky",
 ]
+
+_CAMERA_REFRESH_RETRY_SECONDS = 3
+_CAMERA_RETRY_STATUS = "No usable camera found. Retrying discovery..."
+_RESOLUTION_LABELS = {
+    (640, 360): "360p",
+    (640, 480): "480p",
+    (800, 600): "600p",
+    (1024, 576): "576p",
+    (960, 720): "720p 4:3",
+    (1280, 720): "720p",
+    (1280, 960): "960p",
+    (1920, 1080): "1080p",
+    (2560, 1440): "1440p",
+    (3840, 2160): "4K",
+}
+
+
+class _CameraModeSnapshot(NamedTuple):
+    width: int
+    height: int
+    fps: tuple[int, ...]
+
+
+class _CameraCapabilitySnapshot(NamedTuple):
+    device: str
+    modes: tuple[_CameraModeSnapshot, ...]
+    display_mode: tuple[int, int, int]
+
+
+class _CameraRefreshSnapshot(NamedTuple):
+    cameras: tuple[tuple[str, str], ...]
+    capabilities: tuple[_CameraCapabilitySnapshot, ...]
+    requested_mode: tuple[int, int, int]
+
+
+def _probe_camera_refresh(
+    requested_mode: tuple[int, int, int],
+) -> _CameraRefreshSnapshot:
+    """Collect immutable camera identities and capabilities off the GTK thread."""
+    clear_camera_probe_cache()
+    cameras = list_camera_devices()
+    identities = tuple(
+        (camera["name"], camera["device"])
+        for camera in cameras
+    )
+    width, height, fps = requested_mode
+    capabilities = []
+    for _name, device in identities:
+        probed_modes = list_camera_modes(device)
+        modes = tuple(
+            _CameraModeSnapshot(
+                int(mode["width"]),
+                int(mode["height"]),
+                tuple(int(value) for value in mode["fps"]),
+            )
+            for mode in probed_modes
+        )
+        display_mode = requested_mode
+        if modes:
+            supported = select_camera_mode(device, width, height, fps)
+            display_mode = (
+                int(supported["width"]),
+                int(supported["height"]),
+                int(supported["fps"]),
+            )
+        capabilities.append(
+            _CameraCapabilitySnapshot(device, modes, display_mode)
+        )
+    return _CameraRefreshSnapshot(
+        identities,
+        tuple(capabilities),
+        requested_mode,
+    )
+
+
+def _supports_responsive_breakpoints(window):
+    """Older supported libadwaita releases predate the 1.4 breakpoint API."""
+    return all((
+        hasattr(Adw, "Breakpoint"),
+        hasattr(Adw, "BreakpointCondition"),
+        hasattr(window, "add_breakpoint"),
+        hasattr(window, "get_current_breakpoint"),
+    ))
 
 
 def _collapsible_card(
@@ -93,19 +184,58 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title=APP_NAME)
         self.set_default_size(1280, 900)
+        # Libadwaita breakpoints remove the inferred minimum size. Keep a
+        # tested compact size that fits the controls and the folded sidebar.
+        self._responsive_breakpoints = _supports_responsive_breakpoints(self)
+        self.set_size_request(
+            430 if self._responsive_breakpoints else 730,
+            540 if self._responsive_breakpoints else 420,
+        )
         self._app = app
         self._streaming = False
         self._installer = None
         self._install_pulse_id = 0
         self._pending_mode_key = ""
+        self._mode_retry_in_flight = False
+        self._mode_retry_generation = 0
+        # A GPU switch refreshes provider execution off the GTK thread.  Keep
+        # the prior mode rows out of use until that selected-device check ends.
+        self._mode_availability_ready = True
+        self._mode_availability_gpu = max(0, int(app.config.compute_gpu))
+        self._mode_availability_snapshot = None
         self._pending_meeting_start = False
         self._shown_advisories: set[str] = set()
         self._updating_hotkeys = False
         self._card_revealers: dict[str, Gtk.Revealer] = {}
         self._card_chevrons: dict[str, Gtk.Image] = {}
         self._card_defaults: dict[str, bool] = {}
+        self._active_section = "camera"
+        self._compact_controls = False
+        self._switching_section = False
+        self._profile_name = "Default"
+        self._meeting_button_state = "idle"
+        self._layout_reconcile_pending = False
+        self._tiny_preview_active = False
+        self._preview_auto_hidden = False
+        self._applying_auto_preview = False
+        self._update_full_label = "Update Available"
+        self._camera_refresh_source_id = 0
+        self._camera_refresh_generation = 0
+        self._camera_refresh_in_flight = False
+        self._camera_refresh_pending_reason: str | None = None
+        self._camera_refresh_mapped = False
+        self._camera_refresh_shutdown = False
         self._build_ui()
-        self._populate_devices()
+        self.connect("map", self._on_camera_refresh_mapped)
+        self.connect("unmap", self._on_camera_refresh_unmapped)
+
+    def _set_profile_name(self, name: str) -> None:
+        self._profile_name = name
+        self._profile_text.set_text(
+            name if getattr(self, "_compact_controls", False)
+            else f"Profile: {name}"
+        )
+        self._profile_btn.set_tooltip_text(f"Current profile: {name}. Switch profile")
 
     def _card_expanded(self, key: str, default: bool) -> bool:
         value = self._app.config.ui_card_expanded.get(key)
@@ -157,11 +287,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         header.add_css_class("flat")
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
         title_lbl = Gtk.Label(label=APP_NAME)
+        title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        title_lbl.set_max_width_chars(12)
         title_lbl.add_css_class("app-title")
         title_box.append(title_lbl)
         sub_lbl = Gtk.Label(label=APP_SUBTITLE)
         sub_lbl.add_css_class("app-subtitle")
         title_box.append(sub_lbl)
+        title_box.set_tooltip_text(f"{APP_NAME} — {APP_SUBTITLE}")
+        self._subtitle_label = sub_lbl
         header.set_title_widget(title_box)
 
         self._stream_btn = Gtk.Button(label="Start Broadcast")
@@ -175,13 +309,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._meeting_btn.add_css_class("idle")
         self._meeting_btn.set_tooltip_text("Record + transcribe meeting")
         self._meeting_btn.connect("clicked", self._on_meeting_toggle)
-        header.pack_end(self._meeting_btn)
 
         self._notes_sidebar_btn = Gtk.ToggleButton(label="Meeting Notes")
         self._notes_sidebar_btn.add_css_class("flat")
         self._notes_sidebar_btn.set_tooltip_text("Show or hide live transcript and meeting history")
         self._notes_sidebar_btn.connect("toggled", self._on_meeting_sidebar_toggled)
-        header.pack_end(self._notes_sidebar_btn)
 
         # Record button (video only)
         self._record_btn = Gtk.Button(label="Rec")
@@ -189,11 +321,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._record_btn.add_css_class("idle")
         self._record_btn.set_tooltip_text("Record to MP4")
         self._record_btn.connect("clicked", self._on_record_toggle)
-        header.pack_end(self._record_btn)
 
         # Profile selector
-        self._profile_btn = Gtk.MenuButton(label="Profile")
-        self._profile_btn.set_tooltip_text("Switch profile")
+        self._profile_btn = Gtk.MenuButton()
+        profile_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._profile_text = Gtk.Label()
+        self._profile_text.set_ellipsize(Pango.EllipsizeMode.END)
+        self._profile_text.set_max_width_chars(15)
+        profile_content.append(self._profile_text)
+        profile_content.append(Gtk.Image.new_from_icon_name("pan-down-symbolic"))
+        self._profile_btn.set_child(profile_content)
+        self._set_profile_name("Default")
         self._profile_popover = Gtk.Popover()
         self._profile_popover_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._profile_popover_box.set_margin_top(8)
@@ -223,7 +361,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._update_btn.set_visible(False)
         self._update_btn.set_tooltip_text("Open the recommended upgrade target")
         self._update_btn.connect("clicked", self._open_update_release)
-        header.pack_end(self._update_btn)
 
         gpu_btn = Gtk.MenuButton(icon_name="applications-graphics-symbolic",
                                  tooltip_text="GPU Information")
@@ -237,12 +374,76 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._gpu_popover.set_child(self._gpu_label)
         gpu_btn.set_popover(self._gpu_popover)
         header.pack_start(gpu_btn)
+        # Keep the desktop header intact. On a narrow window the secondary
+        # icons move into one menu, leaving the profile and broadcast action
+        # at readable sizes instead of imposing the desktop header's width.
+        compact_menu = Gtk.MenuButton(
+            icon_name="open-menu-symbolic", tooltip_text="More options"
+        )
+        compact_menu.set_visible(False)
+        compact_popover = Gtk.Popover()
+        compact_items = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        compact_items.set_margin_top(10)
+        compact_items.set_margin_bottom(10)
+        compact_items.set_margin_start(10)
+        compact_items.set_margin_end(10)
+        self._compact_gpu_label = Gtk.Label(xalign=0)
+        self._compact_gpu_label.add_css_class("gpu-label")
+        self._compact_gpu_label.set_wrap(True)
+        self._compact_gpu_label.set_max_width_chars(32)
+        compact_items.append(self._compact_gpu_label)
+        compact_items.append(Gtk.Separator())
+        compact_about = Gtk.Button(label="About")
+        def show_compact_about(button):
+            compact_popover.popdown()
+            self._show_about(button)
+        compact_about.connect("clicked", show_compact_about)
+        compact_items.append(compact_about)
+        compact_quit = Gtk.Button(label="Quit")
+        compact_quit.connect("clicked", lambda _: self._app.quit())
+        compact_items.append(compact_quit)
+        compact_popover.set_child(compact_items)
+        compact_menu.set_popover(compact_popover)
+        self._compact_menu = compact_menu
+        self._compact_popover = compact_popover
+        header.pack_end(compact_menu)
+
         self._update_gpu_info()
         main_box.append(header)
 
-        body_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        # Keep secondary actions in the existing row on desktop. The primary
+        # broadcast button gets its own row on compact screens; update status
+        # gets a separate row only when present, so neither widens the window.
+        header_actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        header_actions.set_margin_start(16)
+        header_actions.set_margin_end(16)
+        header_actions.set_margin_top(4)
+        header_actions.set_margin_bottom(4)
+        compact_stream_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        compact_stream_row.set_halign(Gtk.Align.END)
+        compact_stream_row.set_visible(False)
+        header_actions.append(compact_stream_row)
+        secondary_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        secondary_actions.set_halign(Gtk.Align.END)
+        secondary_actions.append(self._record_btn)
+        secondary_actions.append(self._notes_sidebar_btn)
+        secondary_actions.append(self._meeting_btn)
+        header_actions.append(secondary_actions)
+        update_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        update_row.set_halign(Gtk.Align.END)
+        update_row.set_visible(False)
+        update_row.append(self._update_btn)
+        self._update_btn.connect(
+            "notify::visible",
+            lambda button, _pspec: update_row.set_visible(button.get_visible()),
+        )
+        header_actions.append(update_row)
+        main_box.append(header_actions)
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        self._preview_paned = paned
+        self._responsive_preview_position = 450
+        self._preview_restore_position = 450
         paned.set_vexpand(True)
         paned.set_shrink_start_child(True)
         paned.set_shrink_end_child(False)
@@ -258,13 +459,14 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         preview_frame.set_margin_top(8)
         self._preview = VideoPreview()
         self._preview.set_vexpand(True)
-        self._preview.set_size_request(-1, 200)  # Minimum height
+        self._preview.set_size_request(-1, 160)
         preview_frame.set_child(self._preview)
         self._preview_frame = preview_frame
         preview_box.append(preview_frame)
 
         # Preview controls bar
         preview_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        preview_bar.set_hexpand(True)
         preview_bar.set_margin_end(16)
         preview_bar.set_margin_top(2)
         preview_bar.append(Gtk.Box(hexpand=True))
@@ -290,29 +492,102 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
 
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        # Desktop keeps both sections in columns. At compact widths, switch
+        # directly between Camera and Audio instead of scrolling past every
+        # Camera card to reach the first Audio control.
+        controls = Gtk.FlowBox()
+        controls.set_selection_mode(Gtk.SelectionMode.NONE)
+        controls.set_min_children_per_line(1)
+        controls.set_max_children_per_line(2)
+        controls.set_column_spacing(16)
+        controls.set_row_spacing(16)
         controls.set_margin_start(16)
         controls.set_margin_end(16)
         controls.set_margin_top(12)
         controls.set_margin_bottom(8)
+        self._controls_flow = controls
 
         cam = self._build_camera_section()
         cam.set_hexpand(True)
         controls.append(cam)
-        controls.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         aud = self._build_audio_section()
         aud.set_hexpand(True)
         controls.append(aud)
+        self._camera_flow_child = controls.get_child_at_index(0)
+        self._audio_flow_child = controls.get_child_at_index(1)
+        self._camera_flow_child.set_focusable(False)
+        self._audio_flow_child.set_focusable(False)
+        self._camera_flow_child.set_hexpand(True)
+        self._audio_flow_child.set_hexpand(True)
 
         scroll.set_child(controls)
-        paned.set_end_child(scroll)
+        self._controls_scroll = scroll
+        section_nav = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        section_nav.set_homogeneous(True)
+        section_nav.set_margin_start(16)
+        section_nav.set_margin_end(16)
+        section_nav.set_margin_top(6)
+        section_nav.set_margin_bottom(2)
+        self._camera_section_btn = Gtk.ToggleButton(label="Camera")
+        self._camera_section_btn.add_css_class("section-tab")
+        self._camera_section_btn.set_active(True)
+        self._camera_section_btn.connect(
+            "toggled", self._on_section_selected, "camera"
+        )
+        section_nav.append(self._camera_section_btn)
+        self._audio_section_btn = Gtk.ToggleButton(label="Audio")
+        self._audio_section_btn.add_css_class("section-tab")
+        self._audio_section_btn.set_group(self._camera_section_btn)
+        self._audio_section_btn.connect(
+            "toggled", self._on_section_selected, "audio"
+        )
+        section_nav.append(self._audio_section_btn)
+        section_nav.set_visible(False)
+        self._section_nav = section_nav
+        controls_pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        controls_pane.append(section_nav)
+        controls_pane.append(scroll)
+        paned.set_end_child(controls_pane)
 
         paned.set_position(450)
-        body_box.append(paned)
-
+        # These regions are mutually exclusive, so a resize cannot leave an
+        # old header state or divider position active. Portrait and short
+        # windows reserve space for controls; wide landscape keeps the large
+        # desktop preview and the user can still drag the divider in any mode.
+        layout_regions = (
+            ("max-width: 960sp and min-height: 701px", True, 300),
+            (
+                "min-width: 960sp and min-height: 701px "
+                "and max-aspect-ratio: 4/3", False, 300,
+            ),
+            ("max-height: 700px and min-width: 960sp", False, 220),
+            (
+                "min-height: 601px and max-height: 700px "
+                "and max-width: 960sp", True, 220,
+            ),
+            ("max-height: 600px and max-width: 960sp", True, 160),
+        )
+        breakpoints = []
+        if self._responsive_breakpoints:
+            for condition, compact, preview_position in layout_regions:
+                breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(condition))
+                self.add_breakpoint(breakpoint)
+                breakpoints.append((breakpoint, compact, preview_position))
         self._meeting_sidebar = self._build_meeting_sidebar()
-        body_box.append(self._meeting_sidebar)
-        main_box.append(body_box)
+        # Flap folds the notes over the content below their combined minimum
+        # width and remains available on older libadwaita installations.
+        self._body_flap = Adw.Flap()
+        self._body_flap.set_content(paned)
+        self._body_flap.set_flap(self._meeting_sidebar)
+        self._body_flap.set_flap_position(Gtk.PackType.END)
+        self._body_flap.set_fold_policy(Adw.FlapFoldPolicy.AUTO)
+        self._body_flap.set_fold_threshold_policy(Adw.FoldThresholdPolicy.MINIMUM)
+        self._body_flap.set_locked(True)
+        self._body_flap.set_modal(True)
+        self._body_flap.set_reveal_flap(False)
+        self._body_flap.connect("notify::reveal-flap", self._sync_meeting_flap_state)
+        self._body_flap.connect("notify::folded", self._sync_meeting_flap_state)
+        main_box.append(self._body_flap)
 
         footer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
@@ -360,8 +635,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._status_bar.set_ellipsize(3)
         status_box.append(self._status_bar)
 
+        self._recordings_menu = Gtk.MenuButton(icon_name="folder-open-symbolic")
+        self._recordings_menu.add_css_class("recordings-menu")
+        self._recordings_menu.add_css_class("flat")
+        self._recordings_menu.set_tooltip_text("Recordings — open saved files and folder")
+        self._recordings_menu.set_popover(self._build_recordings_popover())
+        status_box.append(self._recordings_menu)
+
         self._perf_label = Gtk.Label(label="")
         self._perf_label.add_css_class("status-gpu")
+        # Live GPU/VRAM text can be wider than the compact window. Allow the
+        # label to give that space back instead of making every row overflow;
+        # the tooltip below retains the complete reading.
+        self._perf_label.set_ellipsize(Pango.EllipsizeMode.END)
         status_box.append(self._perf_label)
 
         credit = Gtk.Label(label="by doczeus")
@@ -374,11 +660,225 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         def _update_perf():
             if self.get_mapped():
                 pm = self._app.perf_monitor
-                self._perf_label.set_text(pm.format_status())
+                status = pm.format_status()
+                self._perf_label.set_text(status)
+                self._perf_label.set_tooltip_text(status or None)
             return True
         GLib.timeout_add_seconds(1, _update_perf)
 
         self.set_content(main_box)
+
+        # Reconcile from libadwaita's current breakpoint. The callbacks do
+        # not infer state from apply/unapply order, so a late unapply cannot
+        # restore an obsolete header or divider state during resizing.
+        def apply_layout():
+            current = self.get_current_breakpoint()
+            compact, preview_position = next(
+                (
+                    (compact, preview_position)
+                    for breakpoint, compact, preview_position in breakpoints
+                    if breakpoint == current
+                ),
+                (False, 450),
+            )
+            self._set_compact_header(
+                compact, header, compact_stream_row, secondary_actions,
+                gpu_btn, about_btn, quit_btn, compact_menu,
+            )
+            self._set_compact_sections(compact)
+            # The tiny-preview transition may toggle the hide button while
+            # the compact flag is changing. Refresh once more after the
+            # section state is settled so its short label cannot be replaced
+            # by the desktop label during that signal batch.
+            self._refresh_freeze_button_label(compact)
+            self._refresh_hide_button_label(compact)
+            tiny_preview = compact and preview_position == 160
+            self._preview.set_size_request(-1, 100 if tiny_preview else 160)
+            if tiny_preview:
+                self._preview.add_css_class("compact-tiny")
+            else:
+                self._preview.remove_css_class("compact-tiny")
+            if preview_position != self._responsive_preview_position:
+                self._preview_restore_position = preview_position
+            self._responsive_preview_position = preview_position
+            self._set_tiny_preview(tiny_preview)
+            paned.set_position(40 if self._hide_btn.get_active() else preview_position)
+
+        def reconcile_layout(*_args):
+            apply_layout()
+            if self._layout_reconcile_pending:
+                return
+            # Apply/unapply may run before the selected breakpoint changes.
+            # Re-read it after the signal batch so the final resize cannot
+            # retain the previous divider position.
+            self._layout_reconcile_pending = True
+
+            def after_signal_batch():
+                self._layout_reconcile_pending = False
+                apply_layout()
+                return GLib.SOURCE_REMOVE
+
+            GLib.idle_add(after_signal_batch)
+
+        if self._responsive_breakpoints:
+            self.connect("notify::current-breakpoint", reconcile_layout)
+            self.connect("map", reconcile_layout)
+            for breakpoint, _compact, _position in breakpoints:
+                breakpoint.connect("apply", reconcile_layout)
+                breakpoint.connect("unapply", reconcile_layout)
+
+    def _set_tiny_preview(self, tiny):
+        if tiny == self._tiny_preview_active:
+            return
+        self._tiny_preview_active = tiny
+        if tiny and not self._hide_btn.get_active():
+            # A short window needs the first selector more than a 100px video
+            # thumbnail. The visible Show Preview control lets users opt in.
+            self._applying_auto_preview = True
+            try:
+                self._hide_btn.set_active(True)
+            finally:
+                self._applying_auto_preview = False
+            self._preview_auto_hidden = True
+        elif not tiny and self._preview_auto_hidden:
+            self._applying_auto_preview = True
+            try:
+                self._hide_btn.set_active(False)
+            finally:
+                self._applying_auto_preview = False
+            self._preview_auto_hidden = False
+
+    def _set_compact_header(
+        self, compact, header, stream_row, secondary_actions,
+        gpu_btn, about_btn, quit_btn, menu_btn
+    ):
+        if compact and self._stream_btn.get_parent() is not stream_row:
+            header.remove(self._stream_btn)
+            stream_row.append(self._stream_btn)
+        elif not compact and self._stream_btn.get_parent() is stream_row:
+            stream_row.remove(self._stream_btn)
+            header.pack_end(self._stream_btn)
+        stream_row.set_visible(compact)
+        stream_row.set_halign(Gtk.Align.FILL if compact else Gtk.Align.END)
+        self._stream_btn.set_hexpand(compact)
+        secondary_actions.set_halign(Gtk.Align.FILL if compact else Gtk.Align.END)
+        self._notes_sidebar_btn.set_label("Notes" if compact else "Meeting Notes")
+        self._subtitle_label.set_visible(not compact)
+        self._profile_text.set_text(
+            self._profile_name if compact else f"Profile: {self._profile_name}"
+        )
+        self._refresh_update_button_label(compact)
+        self._refresh_meeting_button_label(compact)
+        for button in (
+            self._record_btn, self._notes_sidebar_btn, self._meeting_btn
+        ):
+            # Let the compact row use each button's natural width. Expanding
+            # all three buttons makes their combined minimum exceed the
+            # 430px content target under newer GTK font metrics, clipping the
+            # right edge of the Meeting action on a portrait window.
+            button.set_hexpand(False)
+        self._refresh_freeze_button_label(compact)
+        self._refresh_hide_button_label(compact)
+        for button in (gpu_btn, about_btn, quit_btn):
+            button.set_visible(not compact)
+        menu_btn.set_visible(compact)
+
+    def _refresh_freeze_button_label(self, compact=None):
+        if compact is None:
+            compact = self._compact_controls
+        self._freeze_btn.set_label(
+            ("Resume" if self._preview_frozen else "Pause")
+            if compact
+            else ("Resume View" if self._preview_frozen else "Pause View")
+        )
+
+    def _refresh_hide_button_label(self, compact=None):
+        # Keep the action name explicit even in compact mode; the companion
+        # Pause button uses the short label when space is tight, leaving this
+        # primary control unambiguous and still inside the preview bar.
+        self._hide_btn.set_label(
+            "Show Preview" if self._hide_btn.get_active() else "Hide Preview"
+        )
+
+    def _refresh_meeting_button_label(self, compact):
+        labels = {
+            "idle": ("Start Meeting", "Meeting", "Start meeting recording and transcription"),
+            "active": ("End Meeting", "End", "End meeting and save the transcript"),
+            "finalizing": ("Finalizing...", "Saving", "Saving meeting transcript"),
+        }
+        full, short, description = labels[self._meeting_button_state]
+        self._meeting_btn.set_label(short if compact else full)
+        self._meeting_btn.set_tooltip_text(description)
+        self._meeting_btn.update_property(
+            [Gtk.AccessibleProperty.LABEL], [description]
+        )
+
+    def _set_meeting_button_state(self, state):
+        self._meeting_button_state = state
+        self._refresh_meeting_button_label(self._compact_controls)
+
+    def _refresh_update_button_label(self, compact):
+        self._update_btn.set_label("Update" if compact else self._update_full_label)
+        self._update_btn.update_property(
+            [Gtk.AccessibleProperty.LABEL], [self._update_full_label]
+        )
+
+    def _set_compact_sections(self, compact):
+        previous_focus = self.get_focus()
+        entering_compact = compact and not self._compact_controls
+        if compact and not self._compact_controls:
+            if previous_focus is not None and previous_focus.is_ancestor(
+                self._audio_flow_child
+            ):
+                self._active_section = "audio"
+            elif previous_focus is not None and previous_focus.is_ancestor(
+                self._camera_flow_child
+            ):
+                self._active_section = "camera"
+        self._compact_controls = compact
+        self._controls_flow.set_margin_start(4 if compact else 16)
+        self._controls_flow.set_margin_end(4 if compact else 16)
+        self._controls_flow.set_min_children_per_line(1 if compact else 2)
+        self._controls_flow.set_max_children_per_line(1 if compact else 2)
+        # A hidden Audio child can still contribute its natural width to a
+        # homogeneous FlowBox on newer GTK. Compact mode shows one section at
+        # a time, so avoid homogeneous measurement there and let the active
+        # section use the available row width.
+        self._controls_flow.set_homogeneous(False)
+        self._switching_section = True
+        try:
+            self._camera_section_btn.set_active(self._active_section == "camera")
+            self._audio_section_btn.set_active(self._active_section == "audio")
+        finally:
+            self._switching_section = False
+        self._section_nav.set_visible(compact)
+        self._camera_flow_child.set_visible(
+            not compact or self._active_section == "camera"
+        )
+        self._audio_flow_child.set_visible(
+            not compact or self._active_section == "audio"
+        )
+        if entering_compact and previous_focus is not None:
+            selected_child = (
+                self._audio_flow_child if self._active_section == "audio"
+                else self._camera_flow_child
+            )
+            if previous_focus.is_ancestor(selected_child):
+                # The section tab remains visible through reallocation and
+                # gives keyboard users a direct next stop in their section.
+                selected_tab = (
+                    self._audio_section_btn if self._active_section == "audio"
+                    else self._camera_section_btn
+                )
+                selected_tab.grab_focus()
+
+    def _on_section_selected(self, button, section):
+        if self._switching_section or not button.get_active():
+            return
+        self._active_section = section
+        if self._compact_controls:
+            self._set_compact_sections(True)
+            self._controls_scroll.get_vadjustment().set_value(0)
 
     def _build_camera_section(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -391,9 +891,19 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Input settings in a compact card
         input_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
 
+        camera_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self._camera_selector = DeviceSelector("Source")
+        self._camera_selector.set_hexpand(True)
         self._camera_selector.connect("device-changed", self._on_camera_changed)
-        input_card.append(self._camera_selector)
+        camera_row.append(self._camera_selector)
+        self._camera_refresh_btn = Gtk.Button(
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Refresh cameras",
+        )
+        self._camera_refresh_btn.add_css_class("flat")
+        self._camera_refresh_btn.connect("clicked", self._on_camera_refresh_clicked)
+        camera_row.append(self._camera_refresh_btn)
+        input_card.append(camera_row)
 
         # Query camera capabilities
         cam_device = self._app.config.video.camera_device
@@ -402,31 +912,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Resolution selector (from camera capabilities)
         self._res_selector = DeviceSelector("Resolution")
-        res_devices = []
-        _RES_LABELS = {
-            (640, 360): "360p", (640, 480): "480p", (800, 600): "600p",
-            (1024, 576): "576p", (960, 720): "720p 4:3",
-            (1280, 720): "720p", (1280, 960): "960p",
-            (1920, 1080): "1080p", (2560, 1440): "1440p",
-            (3840, 2160): "4K",
-        }
-        for mode in self._camera_modes:
-            w, h = mode["width"], mode["height"]
-            label = _RES_LABELS.get((w, h), f"{w}x{h}")
-            max_fps = max(mode["fps"]) if mode["fps"] else 30
-            res_devices.append({
-                "name": f"{label} ({w}x{h}) {max_fps}fps",
-                "device": f"{w}x{h}",
-            })
-        if not res_devices:
-            res_devices = [{"name": "1280x720", "device": "1280x720"}]
+        res_devices = self._camera_resolution_devices()
         self._res_selector.set_devices(res_devices)
         # Select current resolution
         current_res = f"{self._app.config.video.width}x{self._app.config.video.height}"
-        for i, d in enumerate(res_devices):
-            if d["device"] == current_res:
-                self._res_selector.set_selected_index(i)
-                break
+        self._res_selector.set_selected_device(current_res)
         self._res_selector.connect("device-changed", self._on_resolution_changed)
         input_card.append(self._res_selector)
 
@@ -842,6 +1332,17 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._mic_selector = DeviceSelector("Microphone")
         self._mic_selector.connect("device-changed", self._on_mic_changed)
         mic_card.append(self._mic_selector)
+        if IS_MACOS:
+            audio_note = Gtk.Label(label=(
+                "Recordings and Mic Test use the original microphone on macOS. "
+                "Processed virtual microphone output and speaker noise removal are unavailable."
+            ))
+            audio_note.set_wrap(True)
+            audio_note.set_xalign(0)
+            audio_note.set_margin_start(16)
+            audio_note.set_margin_end(16)
+            audio_note.add_css_class("device-label")
+            mic_card.append(audio_note)
 
         # VU meter (progress bar showing mic level)
         vu_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -928,7 +1429,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
         # Mic Test card
         test_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        test_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        test_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         test_row.set_margin_start(16)
         test_row.set_margin_end(16)
 
@@ -943,10 +1444,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         test_row.append(self._test_duration_selector)
 
         self._test_source_selector = DeviceSelector("Source")
-        self._test_source_selector.set_devices([
+        test_sources = [
             {"name": "Processed", "device": "processed"},
             {"name": "Original", "device": "original"},
-        ])
+        ]
+        self._test_source_selector.set_devices(test_sources[1:] if IS_MACOS else test_sources)
         self._test_source_selector.set_selected_index(0)
         self._test_source_selector.connect("device-changed", self._on_test_source_changed)
         test_row.append(self._test_source_selector)
@@ -954,13 +1456,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._test_rec_btn = Gtk.Button(label="Record 30s")
         self._test_rec_btn.add_css_class("flat")
         self._test_rec_btn.connect("clicked", self._on_test_record)
-        test_row.append(self._test_rec_btn)
+        test_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        test_buttons.append(self._test_rec_btn)
 
         self._test_play_btn = Gtk.Button(label="Play Back")
         self._test_play_btn.add_css_class("flat")
         self._test_play_btn.set_sensitive(False)
         self._test_play_btn.connect("clicked", self._on_test_play)
-        test_row.append(self._test_play_btn)
+        test_buttons.append(self._test_play_btn)
+        test_row.append(test_buttons)
 
         self._test_status = Gtk.Label(label="Ready")
         self._test_status.add_css_class("device-label")
@@ -979,7 +1483,10 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._speaker_selector.connect("device-changed", self._on_speaker_changed)
         spk_card.append(self._speaker_selector)
 
-        self._speaker_toggle = EffectToggle("Noise Removal", "Remove noise from incoming audio")
+        self._speaker_toggle = EffectToggle(
+            "Noise Removal", "Unavailable on macOS" if IS_MACOS else "Remove noise from incoming audio"
+        )
+        self._speaker_toggle.set_sensitive(not IS_MACOS)
         self._speaker_toggle.connect("toggled", self._on_speaker_toggled)
         spk_card.append(self._speaker_toggle)
         box.append(self._build_collapsible_card("speakers", "Speakers", spk_card, expanded=True))
@@ -993,11 +1500,6 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         return box
 
     def _build_meeting_sidebar(self) -> Gtk.Widget:
-        self._meeting_sidebar_revealer = Gtk.Revealer()
-        self._meeting_sidebar_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_LEFT)
-        self._meeting_sidebar_revealer.set_transition_duration(180)
-        self._meeting_sidebar_revealer.set_reveal_child(False)
-
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         outer.set_margin_top(8)
         outer.set_margin_bottom(8)
@@ -1047,8 +1549,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         history_scroll.set_child(self._meeting_history)
         outer.append(history_scroll)
 
-        self._meeting_sidebar_revealer.set_child(outer)
-        return self._meeting_sidebar_revealer
+        sidebar_scroll = Gtk.ScrolledWindow()
+        sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar_scroll.set_min_content_width(380)
+        sidebar_scroll.set_max_content_width(380)
+        sidebar_scroll.set_child(outer)
+        return sidebar_scroll
 
     # --- Signals ---
     def _on_stream_toggle(self, btn):
@@ -1285,15 +1791,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         }
         return messages.get(mode_key, "")
 
-    def _build_mode_devices(self) -> list[dict[str, str]]:
-        from nvbroadcast.core.config import detect_compositing_backends
-
-        backends = detect_compositing_backends()
-        has_cuda = backends.get("cupy", False)
-        has_trt = has_tensorrt_runtime()
-        devices: list[dict[str, str]] = []
-        devices.append({"name": "Auto - Adaptive", "device": "auto"})
-        for mode_key, label in [
+    def _build_mode_devices(
+        self,
+        availability_snapshot: dict[str, object] | None = None,
+    ) -> list[dict[str, str]]:
+        mode_rows = [
             ("doczeus", "DocZeus - Best Quality GPU"),
             ("cuda_max", "CUDA - High Quality"),
             ("cuda_balanced", "CUDA - Balanced"),
@@ -1303,15 +1805,60 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             ("cpu_quality", "CPU - High Quality"),
             ("cpu_light", "CPU - Fast"),
             ("cpu_low", "CPU - Low End"),
-        ]:
-            unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
-            missing = self._app.dependency_installer.missing_for_mode(mode_key)
+        ]
+        gpu_modes = {
+            "doczeus", "cuda_max", "cuda_balanced", "zeus", "killer",
+            "cuda_perf",
+        }
+        if not self._mode_availability_ready and availability_snapshot is None:
+            cpu_devices = [
+                {"name": label, "device": mode_key}
+                for mode_key, label in mode_rows
+                if mode_key not in gpu_modes
+            ]
+            checking_devices = [
+                {
+                    "name": f"{label} (checking selected GPU...)",
+                    "device": mode_key,
+                }
+                for mode_key, label in mode_rows
+                if mode_key in gpu_modes
+            ]
+            return [
+                {"name": "Auto - Adaptive", "device": "auto"},
+                *cpu_devices,
+                *checking_devices,
+            ]
+
+        if availability_snapshot is None:
+            availability_snapshot = (
+                self._app.dependency_installer.mode_availability_snapshot(
+                    self._app.config.compute_gpu
+                )
+            )
+            self._mode_availability_snapshot = availability_snapshot
+        has_cuda = bool(availability_snapshot.get("has_cuda", False))
+        has_trt = bool(availability_snapshot.get("has_tensorrt", False))
+        mode_states = availability_snapshot.get("modes", {})
+        if not isinstance(mode_states, dict):
+            mode_states = {}
+        available_devices: list[dict[str, str]] = []
+        unavailable_devices: list[dict[str, str]] = []
+        for mode_key, label in mode_rows:
+            state = mode_states.get(mode_key, {})
+            if not isinstance(state, dict):
+                state = {}
+            unsupported = str(state.get("unsupported", "") or "")
+            temporary = str(state.get("temporary", "") or "")
+            missing = list(state.get("missing", ()) or ())
             if unsupported:
-                if mode_key in ("zeus", "killer") and not has_trt and not supports_tensorrt_python():
-                    label += " (requires Python 3.8-3.13)"
+                if temporary:
+                    label += " (GPU busy - select to retry)"
+                elif mode_key in ("zeus", "killer") and not has_trt and not supports_tensorrt_python():
+                    label += " (requires Python 3.11-3.14)"
                 else:
                     label += " (not available on this system)"
-                devices.append({"name": label, "device": mode_key})
+                unavailable_devices.append({"name": label, "device": mode_key})
                 continue
             if not has_cuda and mode_key.startswith(("doczeus", "cuda_", "zeus", "killer")):
                 missing = sorted(set(missing + ["cupy"]))
@@ -1322,8 +1869,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                     self._app.dependency_installer.describe(dep)["title"] for dep in missing
                 )
                 label += f" (installs {readable})"
-            devices.append({"name": label, "device": mode_key})
-        return devices
+            available_devices.append({"name": label, "device": mode_key})
+        return [
+            {"name": "Auto - Adaptive", "device": "auto"},
+            *available_devices,
+            *unavailable_devices,
+        ]
 
     def _sync_mode_selector(self):
         if self._app.config.auto_mode:
@@ -1358,23 +1909,103 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _on_compute_focus_changed(self, selector, focus):
         if getattr(self._app, '_restoring', False):
             return
+        self._cancel_mode_runtime_retry()
+        self._pending_mode_key = ""
+        if not self._mode_availability_ready:
+            self._app._pending_compute_focus = (
+                focus,
+                max(0, int(self._app.config.compute_gpu)),
+            )
+            self._app._pending_auto_mode_gpu = None
+            self._sync_compute_focus_selector()
+            self.set_status("Selected GPU runtime check is already in progress")
+            return
+        self._app._pending_auto_mode_gpu = None
+        self._app._pending_compute_focus = None
         self._app.set_compute_focus(focus)
+
+    def _snapshot_mode_state(self, mode_key: str) -> dict[str, object] | None:
+        snapshot = getattr(self, "_mode_availability_snapshot", None)
+        if (
+            not self._mode_availability_ready
+            or not isinstance(snapshot, dict)
+            or int(snapshot.get("gpu_index", -1))
+            != max(0, int(self._app.config.compute_gpu))
+        ):
+            return None
+        modes = snapshot.get("modes", {})
+        if not isinstance(modes, dict):
+            return None
+        state = modes.get(mode_key)
+        return state if isinstance(state, dict) else None
 
     def _on_mode_changed_selector(self, selector, mode_key):
         if getattr(self._app, '_restoring', False):
             return
+        self._cancel_mode_runtime_retry()
+        if mode_key == "auto" and not self._mode_availability_ready:
+            self._pending_mode_key = ""
+            self._app._pending_auto_mode_gpu = max(
+                0, int(self._app.config.compute_gpu)
+            )
+            self._app._pending_compute_focus = None
+            self._sync_mode_selector()
+            self.set_status("Selected GPU runtime check is already in progress")
+            return
         if mode_key == "auto":
+            self._pending_mode_key = ""
+            self._app._pending_auto_mode_gpu = None
+            self._app._pending_compute_focus = None
             self._app.set_auto_mode_enabled(True)
             msg = self._mode_status_message(mode_key)
             if msg:
                 self.set_status(msg)
             return
-        unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
+        # A concrete mode is the newest user intent.  Do not let a deferred
+        # Auto/focus choice or optional-install continuation override it when
+        # the selected-GPU worker finishes.
+        self._app._pending_auto_mode_gpu = None
+        self._app._pending_compute_focus = None
+        if getattr(self, "_pending_mode_key", "") != mode_key:
+            self._pending_mode_key = ""
+        if (
+            mode_key in self._MODE_MAP
+            and mode_key not in {"cpu_quality", "cpu_light", "cpu_low"}
+            and not self._mode_availability_ready
+        ):
+            self._sync_mode_selector()
+            self.set_status("Selected GPU runtime check is already in progress")
+            return
+        state = self._snapshot_mode_state(mode_key)
+        if state is None:
+            unsupported = self._app.dependency_installer.unsupported_reason_for_mode(
+                mode_key
+            )
+            temporary = (
+                self._app.dependency_installer.temporary_unavailable_reason_for_mode(
+                    mode_key
+                )
+                if unsupported
+                else None
+            )
+            missing = self._app.dependency_installer.missing_for_mode(mode_key)
+        else:
+            unsupported = str(state.get("unsupported", "") or "")
+            temporary = str(state.get("temporary", "") or "")
+            missing = list(state.get("missing", ()) or ())
         if unsupported:
+            if temporary:
+                self._retry_temporarily_unavailable_mode(mode_key)
+                return
             self._sync_mode_selector()
             self.set_status(unsupported)
             return
-        install_key = self._app.dependency_installer.install_key_for_mode(mode_key)
+        if set(missing) == {"cupy", "tensorrt"}:
+            install_key = "premium_gpu_stack"
+        elif len(missing) == 1:
+            install_key = missing[0]
+        else:
+            install_key = None
         if install_key:
             self._pending_mode_key = mode_key
             self._sync_mode_selector()
@@ -1394,34 +2025,165 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         if mode_key in self._MODE_MAP:
             self._app.apply_mode_key(mode_key)
 
+    def _cancel_mode_runtime_retry(self) -> None:
+        if getattr(self, "_mode_retry_in_flight", False):
+            self._mode_retry_generation += 1
+            self._mode_retry_in_flight = False
+
+    def _retry_temporarily_unavailable_mode(self, mode_key: str) -> None:
+        """Retry a transient provider probe without blocking GTK."""
+        self._sync_mode_selector()
+        if self._mode_retry_in_flight:
+            self.set_status("GPU runtime check is already in progress")
+            return
+
+        self._mode_retry_in_flight = True
+        self._mode_retry_generation += 1
+        retry_generation = self._mode_retry_generation
+        gpu_index = max(0, int(self._app.config.compute_gpu))
+        self.set_status("Rechecking selected GPU runtime...")
+        window_ref = weakref.ref(self)
+        installer = self._app.dependency_installer
+
+        def _probe() -> None:
+            snapshot = None
+            capabilities = None
+            try:
+                reason = installer.retry_mode_runtime(
+                    mode_key,
+                    gpu_index=gpu_index,
+                )
+                snapshot = installer.mode_availability_snapshot(gpu_index)
+                from nvbroadcast.core.config import detect_system_capabilities
+                capabilities = detect_system_capabilities(
+                    gpu_index, probe_cuda=not installer.restart_pending("cupy")
+                )
+            except Exception as exc:
+                reason = f"GPU runtime check failed: {exc}"
+            window = window_ref()
+            if window is not None:
+                GLib.idle_add(
+                    window._finish_mode_runtime_retry,
+                    mode_key,
+                    reason or "",
+                    retry_generation,
+                    gpu_index,
+                    snapshot,
+                    capabilities,
+                )
+
+        threading.Thread(
+            target=_probe,
+            name="nvbroadcast-mode-runtime-retry",
+            daemon=True,
+        ).start()
+
+    def _finish_mode_runtime_retry(
+        self,
+        mode_key: str,
+        reason: str,
+        retry_generation: int,
+        gpu_index: int,
+        availability_snapshot: dict[str, object] | None = None,
+        capabilities: dict[str, object] | None = None,
+    ) -> bool:
+        if (
+            retry_generation != self._mode_retry_generation
+            or max(0, int(self._app.config.compute_gpu)) != gpu_index
+        ):
+            return False
+        self._mode_retry_in_flight = False
+        if availability_snapshot is None:
+            self._mode_availability_ready = False
+            self.set_status(reason or "GPU runtime check did not complete")
+            return False
+        self._mode_availability_ready = True
+        self._mode_availability_gpu = gpu_index
+        self._mode_availability_snapshot = availability_snapshot
+        self._app._mode_availability_snapshot = availability_snapshot
+        if capabilities is not None:
+            self._app._mode_capabilities_snapshot = (gpu_index, capabilities)
+        self.rebuild_mode_selector(
+            self._app.config.compositing,
+            self._app.config.performance_profile,
+            availability_snapshot=availability_snapshot,
+        )
+        if reason:
+            self._sync_mode_selector()
+            self.set_status(reason)
+            return False
+
+        for index, device in enumerate(self._mode_devices):
+            if device["device"] == mode_key:
+                self._profile_selector.set_selected_index(index)
+                break
+        self._on_mode_changed_selector(self._profile_selector, mode_key)
+        return False
+
     def _on_gpu_changed(self, selector, gpu_str):
-        self._app.set_compute_gpu(int(gpu_str))
+        gpu_index = max(0, int(gpu_str))
+        if gpu_index != max(0, int(self._app.config.compute_gpu)):
+            # Invalidate a probe for the previous GPU.  Its worker may finish,
+            # but the generation/device guard prevents it from changing UI or
+            # activating a mode for the newly selected device.
+            self._mode_retry_generation += 1
+            self._mode_retry_in_flight = False
+            self._mode_availability_ready = False
+            self._mode_availability_gpu = gpu_index
+        self._app.set_compute_gpu(gpu_index)
 
     def _on_camera_changed(self, selector, device):
         if self._updating_ui or getattr(self._app, "_restoring", False):
             return
         self._app.switch_camera(device)
 
-    def _refresh_fps_options(self):
+    def _camera_resolution_devices(self) -> list[dict[str, str]]:
+        devices = []
+        for mode in self._camera_modes:
+            width, height = mode["width"], mode["height"]
+            label = _RESOLUTION_LABELS.get(
+                (width, height),
+                f"{width}x{height}",
+            )
+            max_fps = max(mode["fps"]) if mode["fps"] else 30
+            devices.append({
+                "name": f"{label} ({width}x{height}) {max_fps}fps",
+                "device": f"{width}x{height}",
+            })
+        return devices or [{"name": "1280x720", "device": "1280x720"}]
+
+    def _refresh_fps_options(
+        self,
+        width: int | None = None,
+        height: int | None = None,
+        fps: int | None = None,
+    ):
         """Rebuild FPS dropdown for the current resolution. Blocks signal cascade."""
-        w, h = self._app.config.video.width, self._app.config.video.height
+        w = self._app.config.video.width if width is None else width
+        h = self._app.config.video.height if height is None else height
         available_fps = [30]
         for mode in self._camera_modes:
             if mode["width"] == w and mode["height"] == h:
                 available_fps = mode["fps"]
                 break
+        was_updating = self._updating_ui
         self._updating_ui = True  # Block signal cascade
-        devices = [{"name": f"{fps} fps", "device": str(fps)} for fps in available_fps]
-        self._fps_selector.set_devices(devices)
-        # Select current fps or highest available
-        current = self._app.config.video.fps
-        best_idx = len(devices) - 1  # Default to highest
-        for i, d in enumerate(devices):
-            if int(d["device"]) == current:
-                best_idx = i
-                break
-        self._fps_selector.set_selected_index(best_idx)
-        self._updating_ui = False
+        try:
+            devices = [
+                {"name": f"{fps} fps", "device": str(fps)}
+                for fps in available_fps
+            ]
+            self._fps_selector.set_devices(devices)
+            # Select current fps or highest available
+            current = self._app.config.video.fps if fps is None else fps
+            best_idx = len(devices) - 1  # Default to highest
+            for i, d in enumerate(devices):
+                if int(d["device"]) == current:
+                    best_idx = i
+                    break
+            self._fps_selector.set_selected_index(best_idx)
+        finally:
+            self._updating_ui = was_updating
 
     def _on_resolution_changed(self, selector, res_str):
         if self._updating_ui:
@@ -1592,24 +2354,27 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             return
 
         if self._app.meeting_active:
-            self._meeting_btn.set_label("Finalizing...")
+            self._set_meeting_button_state("finalizing")
             self._meeting_btn.set_sensitive(False)
             self.set_status("Finalizing high-accuracy meeting transcript...")
 
             def _on_finished(notes_path: str, status: str):
                 self._meeting_btn.set_sensitive(True)
-                self._meeting_btn.set_label("Start Meeting")
+                self._set_meeting_button_state("idle")
                 self._meeting_btn.add_css_class("idle")
                 self._meeting_btn.remove_css_class("recording-btn")
                 self.set_status(status)
 
             if not self._app.stop_meeting_async(_on_finished):
                 self._meeting_btn.set_sensitive(True)
-                self._meeting_btn.set_label("Start Meeting")
+                self._set_meeting_button_state("idle")
                 self._meeting_btn.add_css_class("idle")
                 self._meeting_btn.remove_css_class("recording-btn")
                 self.set_status("Meeting ended")
         else:
+            if self._app.is_recording or self._app.recording_finalizing:
+                self.set_status("Stop or finish Rec before starting a meeting")
+                return
             if not self._app.dependency_installer.is_available("whisper"):
                 block_reason = self._app.dependency_installer.install_block_reason("whisper")
                 if block_reason:
@@ -1627,12 +2392,24 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 return
             filepath = self._app.start_meeting()
             if not filepath:
-                self.set_status("Meeting transcription could not start")
+                self.set_status(self._app.recording_start_error or "Meeting could not start")
                 return
-            self._meeting_btn.set_label("End Meeting")
+            self._set_meeting_button_state("active")
             self._meeting_btn.remove_css_class("idle")
             self._meeting_btn.add_css_class("recording-btn")
-            self.set_status(f"Meeting recording: {filepath}")
+            self.set_status(self._meeting_recording_status(filepath))
+
+    def _meeting_recording_status(self, filepath: str) -> str:
+        if not self._app.meeting_audio_capture_present:
+            return "Meeting started without transcription audio; check audio devices"
+        if not self._app.recording_has_audio:
+            status = "Meeting MP4 is video only; verify the separate audio capture"
+            if self._app.meeting_audio_route_warning:
+                status += f"; {self._app.meeting_audio_route_warning}"
+            return status
+        if self._app.meeting_audio_route_warning:
+            return f"Meeting audio: {self._app.meeting_audio_route_warning}"
+        return f"Meeting MP4 recording: {filepath}; transcription audio unverified"
 
     # --- Mic Selection ---
     def _populate_mics(self):
@@ -1685,7 +2462,15 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self.set_status(f"Speaker: {device}")
 
     def _on_meeting_sidebar_toggled(self, btn):
-        self._meeting_sidebar_revealer.set_reveal_child(btn.get_active())
+        self._body_flap.set_reveal_flap(btn.get_active())
+
+    def _sync_meeting_flap_state(self, flap, _param):
+        self._notes_sidebar_btn.set_active(flap.get_reveal_flap())
+        # Libadwaita's modal overlay blocks pointer input, but GTK can still
+        # tab to covered controls unless the content is insensitive.
+        flap.get_content().set_sensitive(not (
+            flap.get_folded() and flap.get_reveal_flap()
+        ))
 
     def reset_live_meeting_view(self):
         self._notes_sidebar_btn.set_active(True)
@@ -1804,6 +2589,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         duration = int(self._test_duration_selector.get_selected_device() or "30")
         source_mode = self._test_source_selector.get_selected_device() or "processed"
         if source_mode == "processed":
+            if IS_MACOS:
+                self._test_status.set_text("Processed microphone output is unavailable on macOS. Select Original.")
+                return
             if not (self._app.config.audio.noise_removal or self._app.config.audio.voice_fx_enabled):
                 self._test_status.set_text("Enable Noise Removal or Voice Effects for Processed test.")
                 return
@@ -1817,10 +2605,16 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         def on_done():
             self._test_rec_btn.set_sensitive(True)
             self._test_rec_btn.set_label(f"Record {duration}s")
-            self._test_play_btn.set_sensitive(True)
-            self._test_status.set_text(f"{label} sample ready. Click Play.")
+            error = self._mic_test.last_error
+            self._test_play_btn.set_sensitive(not error)
+            self._test_status.set_text(
+                f"Recording failed: {error}" if error else f"{label} sample ready. Click Play."
+            )
 
         self._mic_test.start_recording(mic, duration=duration, on_complete=on_done)
+        if not self._mic_test.is_recording:
+            self._test_rec_btn.set_label(f"Record {duration}s")
+            self._test_status.set_text(f"Recording failed: {self._mic_test.last_error}")
 
     def _on_test_play(self, btn):
         if not hasattr(self, '_mic_test'):
@@ -1836,9 +2630,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._test_rec_btn.set_sensitive(True)
             self._test_rec_btn.set_label(f"Record {current_duration}s")
             self._test_play_btn.set_sensitive(True)
-            self._test_status.set_text("Ready")
+            error = self._mic_test.last_error
+            self._test_status.set_text(f"Playback failed: {error}" if error else "Ready")
 
         self._mic_test.play_recording(speaker_device=speaker, on_complete=on_done)
+        if not self._mic_test.is_playing:
+            on_done()
 
     def _sync_voice_fx_ui_from_config(self):
         a = self._app.config.audio
@@ -1899,19 +2696,114 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         save_config(self._app.config)
 
     # --- Recording ---
+    def _build_recordings_popover(self):
+        popover = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        for edge in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{edge}")(12)
+        title = Gtk.Label(label="Recordings", xalign=0)
+        title.add_css_class("heading")
+        box.append(title)
+        location = Gtk.Label(label=str(recordings_directory()), xalign=0)
+        location.set_wrap(True)
+        location.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        location.set_max_width_chars(28)
+        location.set_selectable(True)
+        box.append(location)
+        self._saved_recording_path = ""
+        self._open_recording_btn = Gtk.Button(label="Open last recording")
+        self._open_recording_btn.set_sensitive(False)
+        self._open_recording_btn.connect(
+            "clicked", lambda _: self._open_recording_location(self._saved_recording_path)
+        )
+        box.append(self._open_recording_btn)
+        folder = Gtk.Button(label="Open recordings folder")
+        folder.connect("clicked", lambda _: self._open_recording_location(
+            str(recordings_directory()), create_directory=True
+        ))
+        box.append(folder)
+        legacy = legacy_recordings_directory()
+        if legacy:
+            previous = Gtk.Button(label="Open previous Snap recordings")
+            previous.connect("clicked", lambda _: self._open_recording_location(str(legacy)))
+            box.append(previous)
+        popover.set_child(box)
+        return popover
+
+    def _open_recording_location(self, path: str, *, create_directory=False):
+        self._recordings_menu.popdown()
+        if not path:
+            return
+        try:
+            if create_directory:
+                Path(path).mkdir(parents=True, exist_ok=True)
+            if not Path(path).exists():
+                self.set_status(f"Recording location no longer exists: {path}")
+                return
+            launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(path))
+            launcher.launch(self, None, self._on_recording_location_opened)
+        except (OSError, GLib.Error) as exc:
+            self.set_status(f"Could not open recording location: {exc}")
+
+    def _on_recording_location_opened(self, launcher, result):
+        try:
+            launcher.launch_finish(result)
+        except GLib.Error as exc:
+            self.set_status(f"Could not open recording location: {exc.message}")
+
+    def on_recording_error(self, _message: str):
+        if self._app.meeting_active:
+            self.set_status("Meeting video failed; end the meeting to save available audio")
+            return
+        self._record_btn.set_label("Rec")
+        self._record_btn.add_css_class("idle")
+        self._record_btn.remove_css_class("recording-btn")
+        self.set_status(
+            "Recording stopped after an audio/video error; "
+            "restart the app if Rec remains unavailable"
+        )
+
+    def on_recording_finalized(self, success: bool, _error: str):
+        path = self._app.last_recording_path
+        if success and path:
+            self._saved_recording_path = path
+            self._open_recording_btn.set_sensitive(True)
+            self._open_recording_btn.set_tooltip_text(path)
+            self.set_status(f"Saved: {path}")
+        else:
+            self.set_status("Recording saved" if success else "Recording may be incomplete")
+
     def _on_record_toggle(self, btn):
+        if self._app.meeting_active or self._app.meeting_finalizing:
+            self.set_status("End the meeting before using Rec")
+            return
+        if self._app.recording_finalizing:
+            self.set_status("Recording is still finalizing")
+            return
         if self._app.is_recording:
-            self._app.stop_recording()
+            finalized = self._app.stop_recording()
             self._record_btn.set_label("Rec")
             self._record_btn.add_css_class("idle")
             self._record_btn.remove_css_class("recording-btn")
-            self.set_status("Recording saved")
+            if finalized:
+                self.on_recording_finalized(True, "")
+            else:
+                self.set_status(
+                    "Finalizing recording" if self._app.recording_finalizing else
+                    "Recording may be incomplete"
+                )
         else:
             filepath = self._app.start_recording()
+            if not filepath:
+                self.set_status(self._app.recording_start_error or "Recording could not start")
+                return
             self._record_btn.set_label("Stop Rec")
             self._record_btn.remove_css_class("idle")
             self._record_btn.add_css_class("recording-btn")
-            self.set_status(f"Recording to {filepath}")
+            if self._app.recording_has_audio:
+                self.set_status(f"Recording to {filepath}")
+            else:
+                self.set_status("Recording video only; audio unavailable")
 
     # --- Profiles ---
     def _rebuild_profile_popover(self):
@@ -1971,7 +2863,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.config.current_profile = name
         save_config(self._app.config)
         self._app.restore_current_config()
-        self._profile_btn.set_label(f"Profile: {name}")
+        self._set_profile_name(name)
         popover.popdown()
         self.set_status(f"Switched to {name} profile")
 
@@ -1989,7 +2881,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._app.restore_current_config()
             if loaded.auto_mode:
                 self._app.set_auto_mode_enabled(True)
-            self._profile_btn.set_label(f"Profile: {name}")
+            self._set_profile_name(name)
             popover.popdown()
             self.set_status(f"Switched to {name} profile")
             # The application owns pipeline state. Keep the controls aligned
@@ -2037,7 +2929,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 save_profile(name, self._app.config)
                 self._app.config.current_profile = name
                 save_config(self._app.config)
-                self._profile_btn.set_label(f"Profile: {name}")
+                self._set_profile_name(name)
                 self.set_status(f"Profile saved: {name}")
                 self._rebuild_profile_popover()
         dialog.destroy()
@@ -2051,7 +2943,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.restore_current_config()
         if reset.auto_mode:
             self._app.set_auto_mode_enabled(True)
-        self._profile_btn.set_label("Profile: Default")
+        self._set_profile_name("Default")
         popover.popdown()
         self.set_status("Settings reset to defaults")
 
@@ -2119,7 +3011,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # toggle off = pin the classic RNNoise engine.
         self._noise_ai_toggle.active = a.noise_engine in ("auto", "deepfilter")
         self._noise_ai_toggle.set_sensitive(a.noise_removal)
-        self._speaker_toggle.active = a.speaker_denoise
+        self._speaker_toggle.active = a.speaker_denoise and not IS_MACOS
         self._vfx_toggle.active = a.voice_fx_enabled
         self._vfx_preset.set_sensitive(a.voice_fx_enabled)
         self._vfx_gpu_toggle.active = a.voice_fx_use_gpu
@@ -2137,7 +3029,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 if speaker["device"] == a.speaker_device:
                     self._speaker_selector.set_selected_index(i)
                     break
-        self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
+        self._set_profile_name(config.current_profile or "Default")
         self._app._update_pipeline_mode()
         print(f"[NV Broadcast] Profile applied: bg={v.background_removal}, eye={v.eye_contact}, relight={v.relighting}, beauty={v.beauty.enabled}")
 
@@ -2164,10 +3056,201 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._app.set_speaker_denoise(active)
 
     # --- Public ---
-    def _populate_devices(self):
-        cameras = list_camera_devices()
-        if cameras:
-            self._camera_selector.set_devices(cameras)
+    def _apply_camera_devices(self, snapshot: _CameraRefreshSnapshot) -> bool:
+        """Reconcile a completed camera probe on the GTK main thread."""
+        cameras = [
+            {"name": name, "device": device}
+            for name, device in snapshot.cameras
+        ]
+        capabilities = {
+            capability.device: capability
+            for capability in snapshot.capabilities
+        }
+        selected = self._camera_selector.get_selected_device()
+        self._camera_selector.set_devices(cameras)
+        available = {camera["device"] for camera in cameras}
+
+        desired = ""
+        if selected in available:
+            desired = selected
+        elif self._app.config.video.camera_device in available:
+            desired = self._app.config.video.camera_device
+        elif cameras:
+            desired = cameras[0]["device"]
+
+        if desired:
+            self._camera_selector.set_selected_device(desired)
+            # Replacing a selector model intentionally blocks its callback, so
+            # synchronize camera capabilities here instead of switching the
+            # live pipeline or overwriting the user's saved preferred camera.
+            capability = capabilities[desired]
+            self.sync_video_input_controls(
+                self._app.config,
+                camera_device=desired,
+                camera_modes=capability.modes,
+                supported_mode=capability.display_mode,
+            )
+        return bool(cameras)
+
+    def _request_camera_refresh(self, reason: str) -> bool:
+        """Start one serialized camera probe outside the GTK main thread."""
+        if self._camera_refresh_shutdown or not self._camera_refresh_mapped:
+            return False
+        if self._camera_refresh_in_flight:
+            # Preserve an explicit user request when map/retry requests overlap.
+            if self._camera_refresh_pending_reason != "manual" or reason == "manual":
+                self._camera_refresh_pending_reason = reason
+            return False
+
+        self._camera_refresh_in_flight = True
+        generation = self._camera_refresh_generation
+        requested_mode = (
+            int(self._app.config.video.width),
+            int(self._app.config.video.height),
+            int(self._app.config.video.fps),
+        )
+        window_ref = weakref.ref(self)
+
+        def _probe() -> None:
+            try:
+                snapshot = _probe_camera_refresh(requested_mode)
+            except Exception as exc:
+                print(f"[NV Broadcast] Camera enumeration failed: {exc}")
+                snapshot = _CameraRefreshSnapshot((), (), requested_mode)
+
+            window = window_ref()
+            if window is not None:
+                GLib.idle_add(
+                    window._finish_camera_refresh,
+                    generation,
+                    reason,
+                    snapshot,
+                )
+
+        threading.Thread(
+            target=_probe,
+            name="nvbroadcast-camera-refresh",
+            daemon=True,
+        ).start()
+        return True
+
+    def _finish_camera_refresh(
+        self,
+        generation: int,
+        reason: str,
+        snapshot: _CameraRefreshSnapshot,
+    ) -> bool:
+        """Apply a worker result unless its window lifecycle is stale."""
+        self._camera_refresh_in_flight = False
+        pending_reason = self._camera_refresh_pending_reason
+        self._camera_refresh_pending_reason = None
+
+        current = (
+            generation == self._camera_refresh_generation
+            and self._camera_refresh_mapped
+            and not self._camera_refresh_shutdown
+        )
+        requested_mode = (
+            int(self._app.config.video.width),
+            int(self._app.config.video.height),
+            int(self._app.config.video.fps),
+        )
+        if current and snapshot.requested_mode != requested_mode:
+            # A control change made this worker's capability choice obsolete.
+            # Queue a fresh worker instead of probing from GTK or applying an
+            # old supported-mode choice to the current controls.
+            current = False
+            pending_reason = pending_reason or reason
+        found = False
+        had_cameras = bool(getattr(self._camera_selector, "_devices", []))
+        if current:
+            found = self._apply_camera_devices(snapshot)
+            if reason == "manual":
+                if found:
+                    self.set_status("Camera list refreshed")
+                else:
+                    self.set_status(_CAMERA_RETRY_STATUS)
+            elif (
+                found
+                and not had_cameras
+                and (
+                    reason == "retry"
+                    or (
+                        reason == "map"
+                        and self._status_bar.get_text() == _CAMERA_RETRY_STATUS
+                    )
+                )
+            ):
+                self.set_status("Camera detected. Source list refreshed.")
+
+        if (
+            pending_reason is not None
+            and self._camera_refresh_mapped
+            and not self._camera_refresh_shutdown
+        ):
+            self._request_camera_refresh(pending_reason)
+        elif current and not found:
+            self._schedule_camera_refresh()
+        return False
+
+    def _schedule_camera_refresh(self) -> None:
+        if (
+            self._camera_refresh_source_id
+            or self._camera_refresh_shutdown
+            or not self._camera_refresh_mapped
+        ):
+            return
+
+        window_ref = weakref.ref(self)
+
+        def _retry() -> bool:
+            window = window_ref()
+            if window is None:
+                return False
+            window._camera_refresh_source_id = 0
+            return window._retry_camera_refresh()
+
+        self._camera_refresh_source_id = GLib.timeout_add_seconds(
+            _CAMERA_REFRESH_RETRY_SECONDS,
+            _retry,
+        )
+
+    def _retry_camera_refresh(self) -> bool:
+        self._request_camera_refresh("retry")
+        return False
+
+    def _on_camera_refresh_mapped(self, *_args) -> None:
+        if self._camera_refresh_shutdown:
+            return
+        self._camera_refresh_mapped = True
+        self._camera_refresh_generation += 1
+        self._cancel_camera_refresh_timer()
+        self._request_camera_refresh("map")
+
+    def _on_camera_refresh_unmapped(self, *_args) -> None:
+        self._camera_refresh_mapped = False
+        self.stop_camera_refresh()
+
+    def _on_camera_refresh_clicked(self, _button) -> None:
+        self._cancel_camera_refresh_timer()
+        if self._camera_refresh_shutdown or not self._camera_refresh_mapped:
+            return
+        self.set_status("Refreshing camera list...")
+        self._request_camera_refresh("manual")
+
+    def _cancel_camera_refresh_timer(self) -> None:
+        if self._camera_refresh_source_id:
+            GLib.source_remove(self._camera_refresh_source_id)
+            self._camera_refresh_source_id = 0
+
+    def stop_camera_refresh(self, *, shutdown: bool = False) -> None:
+        """Invalidate scheduled and in-flight discovery for this lifecycle."""
+        self._cancel_camera_refresh_timer()
+        self._camera_refresh_generation += 1
+        self._camera_refresh_pending_reason = None
+        if shutdown:
+            self._camera_refresh_shutdown = True
+            self._camera_refresh_mapped = False
 
     def _update_gpu_info(self):
         gpus = detect_gpus()
@@ -2181,6 +3264,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._gpu_label.set_text("\n".join(lines))
         else:
             self._gpu_label.set_text("No NVIDIA GPUs detected")
+        self._compact_gpu_label.set_text(self._gpu_label.get_text())
 
     def restore_settings(self, config):
         """Restore saved settings to all UI controls."""
@@ -2266,7 +3350,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._noise_toggle.active = True
             self._noise_slider.set_sensitive(True)
 
-        if a.speaker_denoise:
+        if a.speaker_denoise and not IS_MACOS:
             self._speaker_toggle.active = True
         self._vfx_toggle.active = a.voice_fx_enabled
         self._vfx_preset.set_sensitive(a.voice_fx_enabled)
@@ -2313,56 +3397,62 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         # Mirror
         self._mirror_toggle.active = v.mirror
         self._power_save_toggle.active = getattr(config, "auto_idle", True)
-        self._profile_btn.set_label(f"Profile: {config.current_profile or 'Default'}")
+        self._set_profile_name(config.current_profile or "Default")
         self.sync_hotkey_settings()
 
-    def sync_video_input_controls(self, config):
+    def sync_video_input_controls(
+        self,
+        config,
+        camera_device: str | None = None,
+        *,
+        camera_modes: tuple[_CameraModeSnapshot, ...] | None = None,
+        supported_mode: tuple[int, int, int] | None = None,
+    ):
         """Sync camera, resolution, FPS, and format selectors from config."""
         self._updating_ui = True
         try:
-            camera_device = config.video.camera_device
-            for i, d in enumerate(getattr(self._camera_selector, "_devices", [])):
-                if d["device"] == camera_device:
-                    self._camera_selector.set_selected_index(i)
-                    break
+            camera_device = camera_device or config.video.camera_device
+            self._camera_selector.set_selected_device(camera_device)
 
-            self._camera_modes = list_camera_modes(camera_device)
-            res_devices = []
-            for mode in self._camera_modes:
-                w, h = mode["width"], mode["height"]
-                label = {
-                    (640, 360): "360p",
-                    (640, 480): "480p",
-                    (800, 600): "600p",
-                    (1024, 576): "576p",
-                    (960, 720): "720p 4:3",
-                    (1280, 720): "720p",
-                    (1280, 960): "960p",
-                    (1920, 1080): "1080p",
-                    (2560, 1440): "1440p",
-                    (3840, 2160): "4K",
-                }.get((w, h), f"{w}x{h}")
-                max_fps = max(mode["fps"]) if mode["fps"] else 30
-                res_devices.append({
-                    "name": f"{label} ({w}x{h}) {max_fps}fps",
-                    "device": f"{w}x{h}",
-                })
-            if not res_devices:
-                res_devices = [{"name": "1280x720", "device": "1280x720"}]
+            if camera_modes is None:
+                self._camera_modes = list_camera_modes(camera_device)
+            else:
+                self._camera_modes = [
+                    {
+                        "width": mode.width,
+                        "height": mode.height,
+                        "fps": list(mode.fps),
+                    }
+                    for mode in camera_modes
+                ]
+            control_width = config.video.width
+            control_height = config.video.height
+            control_fps = config.video.fps
+            if supported_mode is not None:
+                control_width, control_height, control_fps = supported_mode
+            elif self._camera_modes:
+                supported = select_camera_mode(
+                    camera_device,
+                    control_width,
+                    control_height,
+                    control_fps,
+                )
+                control_width = supported["width"]
+                control_height = supported["height"]
+                control_fps = supported["fps"]
+
+            res_devices = self._camera_resolution_devices()
             self._res_selector.set_devices(res_devices)
+            self._res_selector.set_selected_device(
+                f"{control_width}x{control_height}"
+            )
 
-            current_res = f"{config.video.width}x{config.video.height}"
-            for i, d in enumerate(res_devices):
-                if d["device"] == current_res:
-                    self._res_selector.set_selected_index(i)
-                    break
-
-            self._refresh_fps_options()
-            current_fps = str(config.video.fps)
-            for i, d in enumerate(getattr(self._fps_selector, "_devices", [])):
-                if d["device"] == current_fps:
-                    self._fps_selector.set_selected_index(i)
-                    break
+            self._refresh_fps_options(
+                width=control_width,
+                height=control_height,
+                fps=control_fps,
+            )
+            self._fps_selector.set_selected_device(str(control_fps))
 
             fmt_map = {"YUY2": 0, "I420": 1, "NV12": 2}
             if config.video.output_format in fmt_map:
@@ -2375,7 +3465,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _show_about(self, button):
         # Load app icon from installed assets or source tree.
         icon_path = find_app_icon()
-        icon_name = "com.doczeus.NVBroadcast"
+        icon_name = APP_ID
         if icon_path is not None and icon_path.exists():
             # Register the icon with GTK's icon theme so AboutWindow can find it
             display = self.get_display()
@@ -2389,7 +3479,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             application_icon=icon_name,
             version=__import__("nvbroadcast").__version__,
             developer_name="doczeus",
-            website="https://github.com/Hkshoonya/nvidia-broadcast-linux",
+            website="https://nvbroadcast.com",
             support_url="https://github.com/sponsors/Hkshoonya",
             issue_url="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues",
             license_type=Gtk.License.GPL_3_0,
@@ -2422,31 +3512,53 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def set_update_available(self, version: str, label: str, tooltip: str, url: str):
         self._update_url = url
         if version and version not in label:
-            self._update_btn.set_label(f"{label} v{version}")
+            self._update_full_label = f"{label} v{version}"
         else:
-            self._update_btn.set_label(label)
-        self._update_btn.set_tooltip_text(tooltip)
+            self._update_full_label = label
+        self._refresh_update_button_label(self._compact_controls)
+        self._update_btn.set_tooltip_text(f"{self._update_full_label}. {tooltip}")
         self._update_btn.set_visible(True)
 
-    def rebuild_mode_selector(self, compositing: str, profile: str):
+    def rebuild_mode_selector(
+        self,
+        compositing: str,
+        profile: str,
+        *,
+        availability_snapshot: dict[str, object] | None = None,
+    ):
         """Rebuild the Mode dropdown with currently available backends."""
         _ = compositing, profile
-        self._mode_devices = self._build_mode_devices()
+        if availability_snapshot is not None:
+            self._mode_availability_snapshot = availability_snapshot
+        self._mode_devices = self._build_mode_devices(availability_snapshot)
         self._profile_selector.set_devices(self._mode_devices)
         self._sync_mode_selector()
 
     def _on_freeze_toggled(self, btn):
         self._preview_frozen = btn.get_active()
-        btn.set_label("Resume View" if self._preview_frozen else "Pause View")
+        self._refresh_freeze_button_label()
         # Pause the actual pipeline (freeze vcam output + skip processing)
         if self._app._video_pipeline:
             self._app._video_pipeline.set_paused(self._preview_frozen)
 
     def _on_hide_toggled(self, btn):
         hidden = btn.get_active()
+        if self._tiny_preview_active and not self._applying_auto_preview:
+            # A manual choice takes precedence when this short layout ends.
+            self._preview_auto_hidden = False
+        if hidden and not self._applying_auto_preview:
+            self._preview_restore_position = self._preview_paned.get_position()
         self._preview_frame.set_visible(not hidden)
-        btn.set_label("Show Preview" if hidden else "Hide Preview")
+        self._refresh_hide_button_label()
+        # A hidden preview cannot be paused. Removing the disabled secondary
+        # action gives the primary Show Preview button the full compact row,
+        # including on the packaged GTK runtime where the content width is
+        # tighter than the host layout test.
+        self._freeze_btn.set_visible(not hidden)
         self._freeze_btn.set_sensitive(not hidden)
+        self._preview_paned.set_position(
+            40 if hidden else self._preview_restore_position
+        )
 
     def update_preview(self, texture):
         if not self._preview_frozen:
@@ -2454,6 +3566,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     def set_status(self, text: str):
         self._status_bar.set_text(text)
+        self._status_bar.set_tooltip_text(text)
 
     def bind_dependency_installer(self, installer):
         self._installer = installer
@@ -2528,6 +3641,9 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             self._install_pulse_id = 0
 
     def _on_install_job_started(self, _installer, key: str, text: str):
+        invalidate = getattr(self._app, "_invalidate_mode_availability", None)
+        if callable(invalidate):
+            invalidate(self._app.config.compute_gpu)
         meta = self._app.dependency_installer.describe(key)
         self._install_title.set_text(meta["title"])
         self._install_detail.set_text(text)
@@ -2552,31 +3668,52 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         self._install_detail.set_text(text)
         self._install_close_btn.set_sensitive(True)
         self.set_status(text)
-        self.rebuild_mode_selector(self._app.config.compositing, self._app.config.performance_profile)
 
         restart_pending = success and _installer.restart_pending(_key)
         if restart_pending:
             self._pending_mode_key = ""
-        elif success and self._pending_mode_key:
-            pending_mode = self._pending_mode_key
+        elif not success:
             self._pending_mode_key = ""
-            for i, d in enumerate(self._mode_devices):
-                if d["device"] == pending_mode:
-                    self._profile_selector.set_selected_index(i)
-                    break
-            self._on_mode_changed_selector(self._profile_selector, pending_mode)
+
+        refresh = getattr(self._app, "_refresh_mode_availability_async", None)
+        if callable(refresh):
+            refresh(self._app.config.compute_gpu)
         else:
-            self._pending_mode_key = ""
+            self.rebuild_mode_selector(
+                self._app.config.compositing,
+                self._app.config.performance_profile,
+            )
 
         if success and not restart_pending and self._pending_meeting_start:
             self._pending_meeting_start = False
+            if self._app.is_recording or self._app.recording_finalizing:
+                self.set_status("Stop or finish Rec before starting a meeting")
+                return
             filepath = self._app.start_meeting()
             if not filepath:
-                self.set_status("Meeting transcription could not start")
+                self.set_status(self._app.recording_start_error or "Meeting could not start")
                 return
-            self._meeting_btn.set_label("End Meeting")
+            self._set_meeting_button_state("active")
             self._meeting_btn.remove_css_class("idle")
             self._meeting_btn.add_css_class("recording-btn")
-            self.set_status(f"Meeting recording: {filepath}")
+            self.set_status(self._meeting_recording_status(filepath))
         else:
             self._pending_meeting_start = False
+
+    def _complete_pending_mode_after_refresh(self) -> None:
+        """Resume a successful optional-runtime selection from its snapshot."""
+        pending_mode = self._pending_mode_key
+        if not pending_mode:
+            return
+        state = self._snapshot_mode_state(pending_mode)
+        if state is None:
+            return
+        self._pending_mode_key = ""
+        if state.get("unsupported") or state.get("missing"):
+            self._sync_mode_selector()
+            return
+        for index, device in enumerate(self._mode_devices):
+            if device["device"] == pending_mode:
+                self._profile_selector.set_selected_index(index)
+                break
+        self._on_mode_changed_selector(self._profile_selector, pending_mode)

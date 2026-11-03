@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-05",
+  "scope": "non-release linux-x86_64-cp313-cpu feasibility",
+  "application_revision": "0421712e8930d5c7ff9159e67c6cf3dd789ba084",
+  "input_manifest_sha256": "dd0122ed35a6d9480eba32040cb7d012695ee4125b84375a68360fd76031875c",
+  "locks": {
+    "pylock.build.toml": "7a5bf5ed999ab8d77c48fd4244a2623df86c6686df1de716508a18bc21420990",
+    "pylock.linux-x86_64-cp313-cpu.toml": "e4bd83252682065f0ab02a90584a8503d6ae36285162512a02513aa0e540d3f2"
+  },
+  "builder_image_id": "sha256:7295102d8391699de28d86df555bddae343c5540c32bb21cbd5af10f92fc07ad",
+  "builder_native_inventory_sha256": "e3f176890e16d54c14ba29f7a56d0058aa6bc8e1a28bb234ad9afa9e569edc32",
+  "local_wheels": [
+    {
+      "name": "nvbroadcast-1.5.2-py3-none-any.whl",
+      "sha256": "0e3d8c668f14dc108447125b9bf7861ea0e1d28ae4b43be27adc6f734537eaa7",
+      "independent_builds": 2,
+      "identical": true
+    },
+    {
+      "name": "pycairo-1.29.0-cp313-cp313-linux_x86_64.whl",
+      "sha256": "17d70cfab91cf47c0c0f1e522284b34bc9f2a3a87cc8e3428d4363f83c7ebe79",
+      "independent_builds": 2,
+      "identical": true
+    },
+    {
+      "name": "pygobject-3.48.2-cp313-cp313-linux_x86_64.whl",
+      "sha256": "f00be51f85f8fc9c52f1418fe54963dc5c1d3765ba93d571109e0dfa0f5cd19c",
+      "independent_builds": 2,
+      "identical": true
+    }
+  ],
+  "runtime": {
+    "independent_assemblies": 2,
+    "identical_manifests": true,
+    "manifest_sha256": "1d0e9fd8fa4a2115e1e9af8616875d6ecc3196c38a02ec1e3f18c7537cdaec58",
+    "manifest_entries": 16556,
+    "regular_files": 13880,
+    "regular_file_bytes": 1383528327,
+    "reference_tar_zstd_bytes": 389835041,
+    "reference_tar_zstd_sha256": "467d6360275377a7fedf1b7299372ca99f74701b96e08d64f652c7a5ff403d12",
+    "reference_compression": "tar --sort=name --mtime=@1791218687 --owner=0 --group=0 --numeric-owner; zstd 1.5.5 -T2 -8; archive reproducibility not tested",
+    "unchanged_after_probes": true
+  },
+  "matrix": [
+    {
+      "name": "debian12",
+      "base": "debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
+      "family": "deb",
+      "status": "pass",
+      "image_id": "sha256:11f90416c857b08c22702273fb66146f66a1b4416c119c918ad84acea3f2bf47",
+      "native_package_inventory_sha256": "be102f336cade82e6c3e7035a36a286343a12f618ab50a2d6344b2266e1fabce",
+      "os_version": "12",
+      "glibc": "2.36",
+      "python": "3.13.16",
+      "gtk": "4.8.3",
+      "adwaita": "1.2.2",
+      "gstreamer": "GStreamer 1.22.0",
+      "video_and_audio_pipelines": "eos",
+      "gtk_window_mapped": true,
+      "application_python_files_verified": 62,
+      "python_distributions_verified": 59,
+      "cpu_execution": "runtime variant validated: cpu; CPUExecutionProvider executed pinned model 2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527"
+    },
+    {
+      "name": "debian13",
+      "base": "debian@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a",
+      "family": "deb",
+      "status": "pass",
+      "image_id": "sha256:7bf4e3845ff78cef51e5915e0c4a392549e6ed153a10309eb3bbae200047f6d8",
+      "native_package_inventory_sha256": "c91f2a1d12c5654f3a85d14ffc709c69aec448dc36042b7f132ddd7cbbe32b26",
+      "os_version": "13",
+      "glibc": "2.41",
+      "python": "3.13.16",
+      "gtk": "4.18.6",
+      "adwaita": "1.7.6",
+      "gstreamer": "GStreamer 1.26.2",
+      "video_and_audio_pipelines": "eos",
+      "gtk_window_mapped": true,
+      "application_python_files_verified": 62,
+      "python_distributions_verified": 59,
+      "cpu_execution": "runtime variant validated: cpu; CPUExecutionProvider executed pinned model 2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527"
+    },
+    {
+      "name": "fedora43",
+      "base": "fedora@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42",
+      "family": "rpm",
+      "status": "pass",
+      "image_id": "sha256:b5df1eed06d5c5a2749b7f19107f9dfbe8c09a57dd6a0216d21787949b9c8d11",
+      "native_package_inventory_sha256": "33cd54d8ff5255e115bfd5089eb667ad082a52547420100abd6faae9fb50fd28",
+      "os_version": "43",
+      "glibc": "2.42",
+      "python": "3.13.16",
+      "gtk": "4.20.4",
+      "adwaita": "1.8.8",
+      "gstreamer": "GStreamer 1.26.11",
+      "video_and_audio_pipelines": "eos",
+      "gtk_window_mapped": true,
+      "application_python_files_verified": 62,
+      "python_distributions_verified": 59,
+      "cpu_execution": "runtime variant validated: cpu; CPUExecutionProvider executed pinned model 2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527"
+    },
+    {
+      "name": "fedora44",
+      "base": "fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80",
+      "family": "rpm",
+      "status": "pass",
+      "image_id": "sha256:dae331982d87963f355dee40a008c2ec16fcdb734fc32a9fc174c29f82d7c381",
+      "native_package_inventory_sha256": "35a78a04afb24dff36080673f95d38903cb1af15a5a5602026322ee42aca2884",
+      "os_version": "44",
+      "glibc": "2.43",
+      "python": "3.13.16",
+      "gtk": "4.22.5",
+      "adwaita": "1.9.4",
+      "gstreamer": "GStreamer 1.28.7",
+      "video_and_audio_pipelines": "eos",
+      "gtk_window_mapped": true,
+      "application_python_files_verified": 62,
+      "python_distributions_verified": 59,
+      "cpu_execution": "runtime variant validated: cpu; CPUExecutionProvider executed pinned model 2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527"
+    },
+    {
+      "name": "rocky9",
+      "base": "rockylinux@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6",
+      "family": "rpm",
+      "status": "image-build-failed",
+      "failure": "Default Rocky 9 BaseOS/AppStream/Extras repositories: No match for argument: portaudio. Application probe not run."
+    },
+    {
+      "name": "ubuntu22",
+      "base": "ubuntu@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401",
+      "family": "deb",
+      "status": "pass",
+      "image_id": "sha256:e52312e8a6e2e83a8214aa4470bd1a08fdaa830e7b4f57851716160383546c14",
+      "native_package_inventory_sha256": "961eabf8fb47d3438817be96bccc64666ab29f1474377736e5f75e036b8ca7e0",
+      "os_version": "22.04",
+      "glibc": "2.35",
+      "python": "3.13.16",
+      "gtk": "4.6.9",
+      "adwaita": "1.1.7",
+      "gstreamer": "GStreamer 1.20.3",
+      "video_and_audio_pipelines": "eos",
+      "gtk_window_mapped": true,
+      "application_python_files_verified": 62,
+      "python_distributions_verified": 59,
+      "cpu_execution": "runtime variant validated: cpu; CPUExecutionProvider executed pinned model 2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527"
+    },
+    {
+      "name": "ubuntu24",
+      "base": "ubuntu@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55",
+      "family": "deb",
+      "status": "pass",
+      "image_id": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "native_package_inventory_sha256": "16d24a7c1ba3c0825496dd976ed0423f2cb521ac9eac05f1c04c180d064808aa",
+      "os_version": "24.04",
+      "glibc": "2.39",
+      "python": "3.13.16",
+      "gtk": "4.14.5",
+      "adwaita": "1.5.0",
+      "gstreamer": "GStreamer 1.24.2",
+      "video_and_audio_pipelines": "eos",
+      "gtk_window_mapped": true,
+      "application_python_files_verified": 62,
+      "python_distributions_verified": 59,
+      "cpu_execution": "runtime variant validated: cpu; CPUExecutionProvider executed pinned model 2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527"
+    },
+    {
+      "name": "ubuntu26",
+      "base": "ubuntu@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7",
+      "family": "deb",
+      "status": "pass",
+      "image_id": "sha256:a44afcd74880d314054c35913e8a7cadbdc9e1d4cbca02e88cd4ce0b0be383aa",
+      "native_package_inventory_sha256": "9ab1dd87fed371463767656fc4e0429c7573697fcc437ae5dce125a896e63a62",
+      "os_version": "26.04",
+      "glibc": "2.43",
+      "python": "3.13.16",
+      "gtk": "4.22.4",
+      "adwaita": "1.9.1",
+      "gstreamer": "GStreamer 1.28.2",
+      "video_and_audio_pipelines": "eos",
+      "gtk_window_mapped": true,
+      "application_python_files_verified": 62,
+      "python_distributions_verified": 59,
+      "cpu_execution": "runtime variant validated: cpu; CPUExecutionProvider executed pinned model 2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527"
+    }
+  ],
+  "local_tests": {
+    "passed": 931,
+    "skipped": 38,
+    "subtests_passed": 971,
+    "command": "PYTHONPATH=src CUDA_VISIBLE_DEVICES= python -m pytest -q --ignore=tests/test_integration.py"
+  },
+  "dependency_audit": {
+    "known_vulnerabilities": 0,
+    "audited_public_python_distributions": 58,
+    "skipped": [
+      "nvbroadcast (local application not found on PyPI)"
+    ],
+    "bundled_native_libraries_audited": false
+  },
+  "qualification_limits": [
+    "Synthetic offline container checks; no host media devices or hardware acceptance",
+    "Rocky 9 unqualified: native dependency missing",
+    "Not a native package lifecycle, production launcher, CUDA, signature, SBOM, or license-clearance result",
+    "Native apt/dnf repository snapshots remain unpinned; repeat builds used the same recorded builder image"
+  ]
+}

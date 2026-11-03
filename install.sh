@@ -11,12 +11,19 @@ trap 'rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit cod
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_PREFIX="${HOME}/.local"
 VENV_DIR="${SCRIPT_DIR}/.venv"
+RUNTIME_HELPER="$SCRIPT_DIR/scripts/source_runtime.py"
+CANDIDATE_VENV=""
+ROLLBACK_RUNTIME=false
 RUNTIME_REQUEST="auto"
 WITH_MEETING=false
 PYTHON_REQUEST=""
+EXPERIMENTAL_PYTHON315=false
+PYTHON315_WHEELHOUSE=""
+TENSORRT_REQUIREMENT="tensorrt-cu12-libs==10.16.0.72"
+TENSORRT_INDEX_URL="https://pypi.nvidia.com"
 
 usage() {
-    echo "Usage: $0 [--runtime auto|cpu|cuda] [--with-meeting] [--python /path/to/python]"
+    echo "Usage: $0 [--runtime auto|cpu|cuda] [--with-meeting] [--python /path/to/python] [--rollback-runtime] [--experimental-python315 --wheelhouse DIR]"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -30,9 +37,22 @@ while [ "$#" -gt 0 ]; do
             RUNTIME_REQUEST="${1#*=}"
             shift
             ;;
+        --rollback-runtime)
+            ROLLBACK_RUNTIME=true
+            shift
+            ;;
         --with-meeting)
             WITH_MEETING=true
             shift
+            ;;
+        --experimental-python315)
+            EXPERIMENTAL_PYTHON315=true
+            shift
+            ;;
+        --wheelhouse)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "ERROR: --wheelhouse requires a directory."; exit 2; }
+            PYTHON315_WHEELHOUSE="$2"
+            shift 2
             ;;
         --python)
             [ "$#" -ge 2 ] || { echo "ERROR: --python requires an interpreter path."; exit 2; }
@@ -57,6 +77,10 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ "$ROLLBACK_RUNTIME" = true ]; then
+    exec "${PYTHON_REQUEST:-python3}" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" rollback
+fi
+
 case "$RUNTIME_REQUEST" in
     auto|cpu|cuda) ;;
     *) echo "ERROR: Invalid runtime '$RUNTIME_REQUEST'; expected auto, cpu, or cuda."; exit 2 ;;
@@ -69,14 +93,14 @@ guard_source_environment() {
     fi
 
     local guard_status
-    if "$PYTHON_BIN" "$SCRIPT_DIR/scripts/check_source_venv_processes.py" --venv "$VENV_DIR"; then
+    if "$PYTHON_BIN" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" guard; then
         return
     else
         guard_status=$?
     fi
 
     if [ "$guard_status" -eq 1 ]; then
-        echo "Stop NVBroadcast and the virtual-camera service, then rerun this installer."
+        echo "Stop NVBroadcast and any audio or virtual-camera service, then rerun this installer."
         if command -v systemctl &>/dev/null; then
             echo "For the user service: systemctl --user stop nvbroadcast-vcam.service"
         fi
@@ -143,7 +167,7 @@ get_packages() {
             # Debian, Ubuntu, Pop!_OS, Linux Mint
             PKGS_VIRTUAL_CAM="v4l-utils v4l2loopback-dkms"
             PKGS_GTK="gir1.2-gtk-4.0 gir1.2-adw-1"
-            PKGS_GST="gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad"
+            PKGS_GST="gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly"
             PKGS_PYTHON="python3-gi python3-gi-cairo"
             PKGS_TRAY="gir1.2-ayatanaappindicator3-0.1"
             PKGS_TOOLS="psmisc"  # provides fuser (camera power save)
@@ -164,7 +188,7 @@ get_packages() {
             PKGS_VIRTUAL_CAM="v4l-utils v4l2loopback"
             PKGS_GTK="gtk4-devel libadwaita-devel"
             PKGS_GST="gstreamer1-devel gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free"
-            PKGS_PYTHON="python3-gobject python3-gobject-cairo"
+            PKGS_PYTHON="python3-gobject python3-cairo"
             PKGS_TRAY="libayatana-appindicator-gtk3"
             PKGS_TOOLS="psmisc"
             PKGS_PULSE="pulseaudio-utils"
@@ -231,6 +255,32 @@ install_packages() {
     esac
 }
 
+install_optional_recording_codecs() {
+    case "$PKG_MANAGER" in
+        dnf|yum) ;;
+        *) return 0 ;;
+    esac
+    local pkg
+    local codecs=()
+    for pkg in gstreamer1-plugin-openh264 openh264; do
+        if is_pkg_installed "$pkg"; then
+            continue
+        fi
+        if "$PKG_MANAGER" -q list --available "$pkg" >/dev/null 2>&1; then
+            codecs+=("$pkg")
+        else
+            echo "  Optional recording codec unavailable in enabled repositories: $pkg"
+        fi
+    done
+    if [ ${#codecs[@]} -gt 0 ]; then
+        # Codec repositories differ across Fedora/RHEL derivatives. Their
+        # availability must not break the main desktop dependency transaction.
+        if ! install_packages "${codecs[*]}"; then
+            echo "  WARNING: Optional H.264 codecs could not be installed. Recording needs an available encoder."
+        fi
+    fi
+}
+
 # Check if a package is installed
 is_pkg_installed() {
     local pkg="$1"
@@ -257,6 +307,9 @@ select_python_interpreter() {
     if [ -n "$PYTHON_REQUEST" ]; then
         selector_args+=(--python "$PYTHON_REQUEST")
     fi
+    if [ "$EXPERIMENTAL_PYTHON315" = true ]; then
+        selector_args+=(--experimental-python315)
+    fi
     if [ "$require_desktop_bindings" = true ]; then
         selector_args+=(--require-desktop-bindings)
     fi
@@ -273,6 +326,22 @@ select_python_interpreter() {
 if ! select_python_interpreter false; then
     exit 1
 fi
+
+check_experimental_python315() {
+    if [ "$PY_VER" != "3.15" ]; then return; fi
+    if [ -z "$PYTHON315_WHEELHOUSE" ]; then
+        echo "ERROR: Experimental Python 3.15 requires --wheelhouse DIR. See docs/PYTHON315.md."
+        exit 1
+    fi
+    if [ "$RUNTIME_REQUEST" = "cuda" ]; then
+        echo "ERROR: Experimental Python 3.15 supports the CPU runtime only. Use --runtime cpu."
+        exit 1
+    fi
+    "$PYTHON_BIN" "$SCRIPT_DIR/scripts/python315_runtime.py" check --wheelhouse "$PYTHON315_WHEELHOUSE"
+    RUNTIME_REQUEST="cpu"
+    echo "  Experimental Python 3.15: source-built CPU runtime (CUDA/TensorRT disabled)."
+}
+check_experimental_python315
 
 # Refuse before system or environment mutations while an existing source
 # process can still import code from the installer-owned environment.
@@ -292,7 +361,8 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     ERRORS+=("This installer only supports Linux")
 fi
 
-# The selector accepts only CPython 3.11-3.13 and validates venv support.
+# The selector accepts CPython 3.11-3.14, or opt-in experimental 3.15.
+# Desktop-binding compatibility is checked after installing distro packages.
 echo "  Python $PY_VER ($PYTHON_BIN) ... OK"
 
 # Recheck venv and its pip bootstrap defensively in case the selected
@@ -413,6 +483,8 @@ else
     fi
 fi
 
+install_optional_recording_codecs
+
 # System PyGObject packages are interpreter-specific. Re-evaluate after those
 # packages are present so an automatic selection cannot create a venv whose
 # GUI, GStreamer, or Libadwaita imports will fail at first launch.
@@ -421,6 +493,7 @@ INITIAL_PYTHON_VER="$PY_VER"
 if ! select_python_interpreter true; then
     exit 1
 fi
+check_experimental_python315
 if [ "$PYTHON_BIN" != "$INITIAL_PYTHON_BIN" ]; then
     echo "  Python $INITIAL_PYTHON_VER lacks compatible desktop bindings; using Python $PY_VER ($PYTHON_BIN)."
 else
@@ -587,50 +660,31 @@ fi
 echo ""
 echo "[3/7] Setting up Python environment..."
 
-installed_runtime_variant() {
-    if [ ! -x "$VENV_DIR/bin/python" ]; then
-        echo "none"
-        return
-    fi
-    "$VENV_DIR/bin/python" - <<'PY' 2>/dev/null || echo "unknown"
-from nvbroadcast.runtime.variants import detect_runtime_variant
-variant = detect_runtime_variant()
-print(variant.value if variant else "mixed-or-missing")
-PY
-}
-
-installed_python_base() {
-    if [ ! -x "$VENV_DIR/bin/python" ]; then
-        echo "none"
-        return
-    fi
-    "$VENV_DIR/bin/python" -I - <<'PY' 2>/dev/null || echo "unknown"
-import os
-import sys
-print(os.path.realpath(getattr(sys, "_base_executable", sys.executable)))
-PY
-}
-
-CURRENT_RUNTIME_VARIANT="$(installed_runtime_variant)"
-CURRENT_PYTHON_BASE="$(installed_python_base)"
-SELECTED_PYTHON_BASE="$("$PYTHON_BIN" -I -c 'import os, sys; print(os.path.realpath(sys.executable))')"
-
-# Recheck immediately before removing or upgrading the environment. This
-# narrows the window in which a source process could start during preflight.
+# Build each update at its permanent path. Active and previous environments
+# stay untouched, including same-variant upgrades. Concurrent candidates are
+# rejected at activation if another installer has changed the selection.
 guard_source_environment
 
-REPLACE_VENV=false
-if [ -d "$VENV_DIR" ] && [ "$CURRENT_PYTHON_BASE" != "$SELECTED_PYTHON_BASE" ]; then
-    echo "Replacing environment created by ${CURRENT_PYTHON_BASE} with selected interpreter ${SELECTED_PYTHON_BASE}..."
-    REPLACE_VENV=true
-fi
-if [ "$CURRENT_RUNTIME_VARIANT" != "none" ] && [ "$CURRENT_RUNTIME_VARIANT" != "$SELECTED_RUNTIME_VARIANT" ]; then
-    echo "Replacing ${CURRENT_RUNTIME_VARIANT} environment with ${SELECTED_RUNTIME_VARIANT} runtime variant..."
-    REPLACE_VENV=true
-fi
-if [ "$REPLACE_VENV" = true ]; then
-    rm -rf -- "$VENV_DIR"
-fi
+# Preserve optional capabilities on ordinary upgrades. An explicit runtime
+# change can still choose CPU, and the TensorRT prompt allows opting out.
+PREVIOUS_FEATURES="$("$PYTHON_BIN" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" features)"
+IFS=$'\t' read -r MEETING_BACKENDS PRESERVE_TENSORRT <<< "$PREVIOUS_FEATURES"
+if [ "$WITH_MEETING" = true ]; then MEETING_BACKENDS="all"; fi
+
+prepare_candidate() {
+    CANDIDATE_VENV="$("$PYTHON_BIN" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" prepare)"
+    VENV_DIR="$CANDIDATE_VENV"
+}
+
+cleanup_candidate() {
+    if [ -n "$CANDIDATE_VENV" ]; then
+        "$PYTHON_BIN" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" discard "$CANDIDATE_VENV" || true
+    fi
+}
+trap cleanup_candidate EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+prepare_candidate
 
 create_virtual_environment() {
     "$PYTHON_BIN" -m venv "$VENV_DIR" --system-site-packages
@@ -638,23 +692,23 @@ create_virtual_environment() {
 }
 
 prepare_virtual_environment() {
-    if [ ! -d "$VENV_DIR" ]; then
-        create_virtual_environment
-    fi
-    "$VENV_DIR/bin/pip" install --upgrade \
-        "pip>=26.2" "setuptools>=83.0.0" wheel -q
+    create_virtual_environment
+    # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+    "$VENV_DIR/bin/pip" install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" -q
+    "$VENV_DIR/bin/pip" install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel -q
 }
 
 prepare_virtual_environment
 
 install_runtime_variant() {
-    local meeting_backends="none"
-    if [ "$WITH_MEETING" = true ]; then
-        meeting_backends="all"
+    local meeting_backends="$MEETING_BACKENDS"
+    local experimental_args=()
+    if [ "$PY_VER" = "3.15" ]; then
+        experimental_args+=(--python315-wheelhouse "$PYTHON315_WHEELHOUSE")
     fi
     "$VENV_DIR/bin/python" "$SCRIPT_DIR/scripts/install_runtime_variant.py" \
         --project "$SCRIPT_DIR" --variant "$1" \
-        --meeting-backends "$meeting_backends"
+        --meeting-backends "$meeting_backends" "${experimental_args[@]}"
 }
 
 CUDA_EXTRA_INSTALLED=false
@@ -662,7 +716,9 @@ CUDA_ACCEL_AVAILABLE=false
 if ! install_runtime_variant "$SELECTED_RUNTIME_VARIANT"; then
     if [ "$RUNTIME_REQUEST" = "auto" ] && [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
         echo "WARNING: CUDA runtime installation failed. Recreating clean CPU environment."
-        rm -rf -- "$VENV_DIR"
+        cleanup_candidate
+        CANDIDATE_VENV=""
+        prepare_candidate
         SELECTED_RUNTIME_VARIANT="cpu"
         prepare_virtual_environment
         install_runtime_variant "$SELECTED_RUNTIME_VARIANT"
@@ -672,7 +728,7 @@ if ! install_runtime_variant "$SELECTED_RUNTIME_VARIANT"; then
     fi
 fi
 if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then CUDA_EXTRA_INSTALLED=true; fi
-if [ "$WITH_MEETING" = true ]; then
+if [ "$MEETING_BACKENDS" != "none" ]; then
     echo "Core packages, meeting backends, and ${SELECTED_RUNTIME_VARIANT} runtime installed."
 else
     echo "Core packages and ${SELECTED_RUNTIME_VARIANT} runtime installed."
@@ -708,7 +764,8 @@ fi
 
 if [ ${#FAILED_PY[@]} -gt 0 ]; then
     echo ""
-    echo "WARNING: Some packages failed: ${FAILED_PY[*]}"
+    echo "ERROR: Required packages failed: ${FAILED_PY[*]}. Previous runtime is unchanged."
+    exit 1
 fi
 
 # Verify GPU acceleration
@@ -761,21 +818,21 @@ else
                     else
                         echo "  WARNING: CuPy installed but verification returned unexpected output."
                         echo "  Output: $CUPY_TEST"
-                        echo "  You can retry later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12"
+                    echo "  To retry, rerun ./install.sh --runtime cuda and select the optional package."
                     fi
                 else
                     echo "  WARNING: CuPy installed but verification failed."
                     if [ -n "${CUPY_TEST:-}" ]; then
                         echo "  Output: $CUPY_TEST"
                     fi
-                    echo "  You can retry later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12"
+                    echo "  To retry, rerun ./install.sh --runtime cuda and select the optional package."
                 fi
             else
                 echo "  WARNING: CuPy installation failed. Skipping."
-                echo "  Retry later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
+                    echo "  To retry, rerun ./install.sh --runtime cuda and select the optional package."
             fi
         else
-            echo "  Skipped. Install later: $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
+                    echo "  To retry, rerun ./install.sh --runtime cuda and select the optional package."
         fi
     else
         echo "  [skipped] No NVIDIA GPU detected."
@@ -792,7 +849,7 @@ verify_tensorrt_execution() {
         return 0
     fi
 
-    echo "  WARNING: TensorRT is importable, but its execution provider failed the pinned-model probe."
+    echo "  WARNING: TensorRT libraries are present, but their execution provider failed the pinned-model probe."
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         echo "    $line"
@@ -804,11 +861,12 @@ TRT_INSTALLED=false
 TRT_SUPPORTED=false
 TRT_PROBE_FAILED=false
 TRT_UNVERIFIED=false
-if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 8 ] && [ "$PY_MINOR" -le 13 ]; then
+if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 11 ] && [ "$PY_MINOR" -le 14 ]; then
     TRT_SUPPORTED=true
 fi
 
-if "$VENV_DIR/bin/python" -c "import tensorrt" 2>/dev/null; then
+TRT_LIBS_VERSION="$("$VENV_DIR/bin/python" -c "from importlib.metadata import version; print(version('tensorrt-cu12-libs'))" 2>/dev/null || true)"
+if [ -n "$TRT_LIBS_VERSION" ]; then
     if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
         if verify_tensorrt_execution; then
             echo "  [installed] TensorRT — provider execution verified for Zeus/Killer modes"
@@ -820,18 +878,28 @@ if "$VENV_DIR/bin/python" -c "import tensorrt" 2>/dev/null; then
         echo "  [detected] TensorRT package — execution not verified without the CUDA runtime variant"
         TRT_UNVERIFIED=true
     fi
-else
-    echo "  2) TensorRT (~4GB) — Unlocks:"
-    echo "     - Optimized model inference (future TRT engine support)"
-    echo "     - Potential 2-5x inference speedup on supported models"
+fi
+
+# A failed probe with the pinned libraries needs its CUDA/driver diagnostic,
+# not another 4.3 GB download. Offer installation for missing or wrong-ABI libs.
+if [ "$TRT_INSTALLED" = false ] && [ "$TRT_UNVERIFIED" = false ] && [ "$TRT_LIBS_VERSION" != "10.16.0.72" ]; then
+    echo "  2) TensorRT libraries (~4.3GB) — Unlocks:"
+    echo "     - Optimized ONNX Runtime inference for Zeus and Killer"
+    echo "     - Cached engines for later runs at the same model and frame size"
     echo ""
     if [ "$SELECTED_RUNTIME_VARIANT" = "cuda" ]; then
         if [ "$TRT_SUPPORTED" = true ]; then
-            read -rp "  Install TensorRT? [y/N] " install_trt
-            install_trt="${install_trt:-N}"
+            if [ "$PRESERVE_TENSORRT" = true ]; then
+                read -rp "  Keep TensorRT from the previous runtime? [Y/n] " install_trt
+                install_trt="${install_trt:-Y}"
+            else
+                read -rp "  Install TensorRT? [y/N] " install_trt
+                install_trt="${install_trt:-N}"
+            fi
             if [[ "$install_trt" =~ ^[Yy]$ ]]; then
-                echo "  Installing TensorRT (this may take several minutes)..."
-                if "$VENV_DIR/bin/pip" install tensorrt-cu12 onnx -q 2>&1; then
+                echo "  Downloading TensorRT from NVIDIA (~4.3GB; this may take several minutes)..."
+                if "$VENV_DIR/bin/pip" install --index-url "$TENSORRT_INDEX_URL" \
+                    --only-binary tensorrt-cu12-libs "$TENSORRT_REQUIREMENT" 2>&1; then
                     if verify_tensorrt_execution; then
                         echo "  TensorRT installed and its execution provider was verified!"
                         TRT_INSTALLED=true
@@ -840,15 +908,15 @@ else
                     fi
                 else
                     echo "  WARNING: TensorRT installation failed. Skipping."
-                    echo "  Retry later: $VENV_DIR/bin/pip install tensorrt-cu12"
+                    echo "  To retry, rerun ./install.sh --runtime cuda and select the optional package."
                 fi
             else
-                echo "  Skipped. Install later: $VENV_DIR/bin/pip install tensorrt-cu12"
+                    echo "  To retry, rerun ./install.sh --runtime cuda and select the optional package."
             fi
         else
-            echo "  [skipped] TensorRT wheels are not available for Python $PY_VER yet."
-            echo "            Supported Python versions: 3.8-3.13"
-            echo "            Use DocZeus or CUDA modes, or install Python 3.13 for TensorRT."
+            echo "  [skipped] TensorRT library runtime is not validated for Python $PY_VER."
+            echo "            Supported Python versions: 3.11-3.14"
+            echo "            Use DocZeus or CUDA modes instead."
         fi
     else
         echo "  [skipped] The CUDA runtime variant is not selected."
@@ -881,7 +949,7 @@ elif [ "$TRT_UNVERIFIED" = true ]; then
 elif [ "$TRT_SUPPORTED" = true ]; then
     echo "    TensorRT: NOT INSTALLED (optional for Zeus/Killer)"
 else
-    echo "    TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
+    echo "    TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.11-3.14)"
 fi
 
 # Set compositing based on what's installed
@@ -945,23 +1013,7 @@ mkdir -p "$INSTALL_PREFIX/bin"
 # Remove old BluCast launchers
 rm -f "$INSTALL_PREFIX/bin/blucast" "$INSTALL_PREFIX/bin/blucast-vcam" 2>/dev/null
 
-cat > "$INSTALL_PREFIX/bin/nvbroadcast" << 'LAUNCHER'
-#!/usr/bin/env bash
-export PYTHONNOUSERSITE=1
-NVBROADCAST_DIR="PLACEHOLDER_DIR"
-exec "$NVBROADCAST_DIR/.venv/bin/python" -m nvbroadcast "$@"
-LAUNCHER
-sed -i "s|PLACEHOLDER_DIR|${SCRIPT_DIR}|g" "$INSTALL_PREFIX/bin/nvbroadcast"
-chmod +x "$INSTALL_PREFIX/bin/nvbroadcast"
-
-cat > "$INSTALL_PREFIX/bin/nvbroadcast-vcam" << 'LAUNCHER'
-#!/usr/bin/env bash
-export PYTHONNOUSERSITE=1
-NVBROADCAST_DIR="PLACEHOLDER_DIR"
-exec "$NVBROADCAST_DIR/.venv/bin/python" -m nvbroadcast.vcam_service "$@"
-LAUNCHER
-sed -i "s|PLACEHOLDER_DIR|${SCRIPT_DIR}|g" "$INSTALL_PREFIX/bin/nvbroadcast-vcam"
-chmod +x "$INSTALL_PREFIX/bin/nvbroadcast-vcam"
+"$PYTHON_BIN" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" launchers "$INSTALL_PREFIX"
 
 echo "Installed: $INSTALL_PREFIX/bin/nvbroadcast"
 echo "Installed: $INSTALL_PREFIX/bin/nvbroadcast-vcam"
@@ -1093,6 +1145,14 @@ Hidden=false
 EOF
 echo "Autostart entry installed (launches on login)"
 
+# Recheck dependency closure and actual provider execution after all optional
+# installs, then commit active/previous together. A failure leaves the old
+# selection intact; the EXIT trap only removes unselected candidates.
+"$PYTHON_BIN" "$RUNTIME_HELPER" --project "$SCRIPT_DIR" activate "$CANDIDATE_VENV" \
+    --variant "$SELECTED_RUNTIME_VARIANT" --meeting "$MEETING_BACKENDS"
+CANDIDATE_VENV=""
+echo "Verified runtime selected. Roll back with: ./install.sh --rollback-runtime"
+
 echo ""
 echo "========================================="
 echo "  Installation Complete! v$APP_VERSION"
@@ -1119,7 +1179,7 @@ elif [ "$TRT_UNVERIFIED" = true ]; then
 elif [ "$TRT_SUPPORTED" = true ]; then
     echo "  TensorRT: NO (install later for Zeus/Killer optimization)"
 else
-    echo "  TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
+    echo "  TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.11-3.14)"
 fi
 if [ -n "$PY_RUNTIME_NOTICE" ]; then
     echo ""
@@ -1161,8 +1221,8 @@ echo "    Resolution Safety        — save changes without hanging the stream"
 echo ""
 echo "  To install optional packages later:"
 echo "    Runtime switch: stop NVBroadcast, then run $SCRIPT_DIR/install.sh --runtime cpu|cuda"
-echo "    CuPy:     $VENV_DIR/bin/pip install 'cupy-cuda12x>=14.1.1,<15' nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12"
-echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt-cu12"
+echo "    CuPy/TensorRT: rerun ./install.sh --runtime cuda and choose the requested options."
+echo "    Meeting: rerun ./install.sh --with-meeting"
 echo ""
 echo "  First run:"
 if [[ ":$PATH:" != *":$INSTALL_PREFIX/bin:"* ]]; then

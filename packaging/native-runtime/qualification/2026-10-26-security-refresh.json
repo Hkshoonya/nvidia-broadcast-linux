@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-26",
+  "recorded_at": "2026-10-26T20:57:50.749056+00:00",
+  "status": "pass-local-development-qualification",
+  "scope": "Fresh unsigned CPU/CUDA revision8 builds with refreshed security inputs; isolated Ubuntu/Fedora installation, switching, CPU execution and two selected GPU cases. No release promotion.",
+  "application_and_adapter_source": "0721ae7080f8eef4d2f58e1eb6034dd1c5a38d2b",
+  "source_tree": "03f25c8afd5996b59ea80dc4c8bb096fe1f67c8e",
+  "package_revision": 8,
+  "versions": [
+    "1.5.3-8.cpu",
+    "1.5.3-8.cuda"
+  ],
+  "qualification_tool_sources": {
+    "no_gpu": "0721ae7080f8eef4d2f58e1eb6034dd1c5a38d2b",
+    "gpu": "5d78452f1768907f264c60dfbddfe66f1ceacc06",
+    "native_probe_code_identical": true
+  },
+  "later_prototype_correction": {
+    "commit": "5d78452f1768907f264c60dfbddfe66f1ceacc06",
+    "scope": "Only two Stage0 local application-wheel hashes changed because setuptools84.1.0 changed WHEEL generator metadata. All native recipe inputs and the dynamically built native application are unchanged.",
+    "relabels_revision8_packages": false
+  },
+  "build": {
+    "fresh_private_interpreter_and_runtime": true,
+    "previous_runtime_payload_reused": false,
+    "network_during_build_and_assembly": "none",
+    "builder_images": {
+      "bindings": "sha256:7295102d8391699de28d86df555bddae343c5540c32bb21cbd5af10f92fc07ad",
+      "deb": "sha256:1275fea2392e54fa240ca3e3917b5a050cbcd081797f1208ec7a9feff9204e4b",
+      "rpm": "sha256:e494d493b7f5a50fbcf741b86c46ca6f1c25a9bb90016068ff76bcfb4c78708c"
+    },
+    "interpreter": {
+      "version": "3.13.18",
+      "release": "20261026",
+      "archive_sha256": "f003449a05408c2e4b184f2a7abd1ea277081ff1a9100289075243ab5ed81207",
+      "supplied_pip": "26.2.2"
+    },
+    "tool_pins": {
+      "setuptools": "84.1.0",
+      "uv": "0.13.4",
+      "uv_archive_sha256": "2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f"
+    },
+    "recipe_pin_sha256": {
+      "packaging/native-runtime/builders.json": "ab0df4d7ae6cc6d4a85091f3d92a4fcf8912175e31564fc5ee3bf8ec198216a5",
+      "packaging/runtime-prototype/inputs.json": "54191e3ac75ae49cbef28ebc6c0507ee83d7d2ce797085508976022d5cec536a",
+      "packaging/runtime-prototype/pylock.build.toml": "743d886195f04a15b7ab7bcf400932d2312a194995dd1f5050b869852ae4c4aa",
+      "packaging/native-runtime/pylock.linux-x86_64-cp313-cpu.toml": "f083d42b59840179e3151d34b82372fb3bca1060d7d88e9ce3dcdfc4f08d656c",
+      "packaging/native-runtime/pylock.linux-x86_64-cp313-cuda.toml": "872852776168144786831367d91d3858eefe538a0bc4f848d61ce2bc97e41784"
+    },
+    "runtime_security_versions": {
+      "certifi": "2026.10.19",
+      "filelock": "4.2.1",
+      "pillow": "13.0.0",
+      "pip": "26.2.2",
+      "urllib3": "2.8.0"
+    },
+    "variant_manifests": {
+      "cpu": {
+        "packages_manifest_sha256": "d3f2e537b9afd5d7ab30f83aedf1fb8131f6705974f29561443d7d20ff92de37",
+        "runtime_manifest_sha256": "d850cbe3ad504075de8e3efaf004c7f8ea183353226ae040aafc9d9f21aae394",
+        "assembled_lock_sha256": "d5ebdfb37f5e2a1fb65ee8b7e7744659a58c67b23a5316f3485bb32e0344950e",
+        "locked_packages_including_application": 58,
+        "additional_interpreter_pip": 1
+      },
+      "cuda": {
+        "packages_manifest_sha256": "aeac8869d756aaa5fbde49581645afdbb72a4b3ebcaa1f7a259ce4d4ee69b244",
+        "runtime_manifest_sha256": "3c5d8414b0ae4c3d8176e7b31d87ea7c1bb7c3855129beb9f4e264ff3996e7cf",
+        "assembled_lock_sha256": "99805962cfbf78f62f438e6a6cbba65819930989e851517366839d1312f5f405",
+        "locked_packages_including_application": 69,
+        "additional_interpreter_pip": 1
+      }
+    },
+    "release_asset_limit_exclusive_bytes": 2147483648,
+    "all_four_unsigned_archives_below_limit": true
+  },
+  "artifacts": [
+    {
+      "variant": "cpu",
+      "family": "deb",
+      "filename": "nvbroadcast_1.5.3-8.cpu_amd64.deb",
+      "bytes": 392895612,
+      "sha256": "88e0aa1898e1706b827ef81b436b25045f811e0b2ebc5660a268c1b811a03f2e",
+      "native_content_manifest_sha256": "ad47fd01bceb0ed918662cff6f78b277709b604d89ef80b9d26a69054aca61fa"
+    },
+    {
+      "variant": "cpu",
+      "family": "rpm",
+      "filename": "nvbroadcast-1.5.3-8.cpu.x86_64.rpm",
+      "bytes": 392452227,
+      "sha256": "cd07babeb8de394d786a8073f12c94383b3cfdf9e9d99518aafa1fc80ab85551",
+      "native_content_manifest_sha256": "e1d2ce7a89c81c617de9e6c899bc353875011540de003cc9c1800c0e9c23ccdd"
+    },
+    {
+      "variant": "cuda",
+      "family": "deb",
+      "filename": "nvbroadcast_1.5.3-8.cuda_amd64.deb",
+      "bytes": 2073968316,
+      "sha256": "ea5f35e60215e0d0e894cbb2db20c3ed81568305fa1edb4c80b6f9dec5654ab5",
+      "native_content_manifest_sha256": "c6f743e00a8531481b65a94ee84d821b4d88c8c67783977207d7709dc753613d"
+    },
+    {
+      "variant": "cuda",
+      "family": "rpm",
+      "filename": "nvbroadcast-1.5.3-8.cuda.x86_64.rpm",
+      "bytes": 2060929302,
+      "sha256": "78f636c580b9dd5ac885bd99430eee5135c8177c1b12c6167e99ba98be669a96",
+      "native_content_manifest_sha256": "c5fb262c2fc4e326f7a2fc0af5e2bcaa72b1d50040871d46d98313df1f18cec6"
+    }
+  ],
+  "qualification": {
+    "all_cases_status": "pass",
+    "cases": [
+      {
+        "case": "cpu-deb-smoke",
+        "fixture_image": "sha256:c4c2ab9cc88a82f96600618674503999965116a4ada871f8a7c3d90f3c34bf00",
+        "gpu": "none",
+        "steps": 14,
+        "runtime_reports": 1,
+        "recordings": 1,
+        "result_sha256": "ad564b5e5070308db53f41df2fb18505fa936e418fcaacc5ef1fa57bbd0cc20d"
+      },
+      {
+        "case": "cpu-cuda-deb-switching",
+        "fixture_image": "sha256:c4c2ab9cc88a82f96600618674503999965116a4ada871f8a7c3d90f3c34bf00",
+        "gpu": "none",
+        "steps": 46,
+        "runtime_reports": 5,
+        "recordings": 3,
+        "result_sha256": "d37fa834347bb0dee106576021b11ea47ac08bad4a393a90b51ae0a470e47846"
+      },
+      {
+        "case": "cpu-cuda-rpm-switching",
+        "fixture_image": "sha256:a224af7e3729d6ddca17e81bb3df4acc5cd5e85a3d792eccfd1aee9089497fcb",
+        "gpu": "none",
+        "steps": 46,
+        "runtime_reports": 5,
+        "recordings": 3,
+        "result_sha256": "afaef1f602fc467da1b8ce983b4e94303943db3ae34ca550bdad0c4ebe779eeb"
+      },
+      {
+        "case": "ubuntu24.04-deb-gpu-switching",
+        "fixture_image": "sha256:c4c2ab9cc88a82f96600618674503999965116a4ada871f8a7c3d90f3c34bf00",
+        "gpu": "NVIDIA GeForce RTX 3080",
+        "driver": "595.91.07",
+        "steps": 46,
+        "runtime_reports": 5,
+        "actual_cuda_and_cupy_reports": 2,
+        "recordings": 3,
+        "result_sha256": "15e31e04b4d7f06737fc9f667f1a9d4644da062a8e8d1a45aa6f63b9ab17a9c1"
+      },
+      {
+        "case": "fedora44-rpm-gpu-switching",
+        "fixture_image": "sha256:a224af7e3729d6ddca17e81bb3df4acc5cd5e85a3d792eccfd1aee9089497fcb",
+        "gpu": "NVIDIA GeForce RTX 5070",
+        "driver": "595.91.07",
+        "steps": 46,
+        "runtime_reports": 5,
+        "actual_cuda_and_cupy_reports": 2,
+        "recordings": 3,
+        "result_sha256": "f49c8ec1607566ee6595212e8ff3e3edfa855e53807b073d48a083cffd1c210a"
+      }
+    ],
+    "total_steps": 198,
+    "no_gpu_steps": 106,
+    "gpu_steps": 92,
+    "runtime_reports": 21,
+    "application_python_files_compared_per_report": 62,
+    "required_module_imports_per_report": 17,
+    "actual_cuda_and_cupy_reports": 4,
+    "synthetic_recordings": 13,
+    "decoded_video_frames_each": 24,
+    "decoded_audio_sample_counts": [
+      49152,
+      51200
+    ],
+    "behavior": [
+      "Complete runtime integrity and exact source/adapter identities",
+      "CPU pip check passes; CUDA closure permits only the existing faster-whisper onnxruntime-to-onnxruntime-gpu distribution substitution",
+      "CPU inference and GTK mapping; real CUDA provider execution and fresh CuPy kernel in selected GPU cases",
+      "Running-launcher switch refusals, CPU/CUDA switching and rollback",
+      "Generated video/audio decode, removal and preservation of settings, recordings, system Python and runtime lock"
+    ],
+    "isolation": "No networking or host camera, microphone, home, display or audio sockets. Private synthetic display/audio and read-only package/probe mounts. GPU cases expose only one explicit compute/utility GPU at a time.",
+    "all_step_log_hashes_verified": 198,
+    "all_disposable_containers_removed": true
+  },
+  "reproduction": {
+    "fresh_cpu_and_cuda_binding_application_wheels_match": true,
+    "wheel_sha256": {
+      "pycairo-1.29.0-cp313-cp313-linux_x86_64.whl": "bb12333fbd4c047ee8f88b5ae091a4d495bf8730e7526fa35f6605326176fea1",
+      "pygobject-3.48.2-cp313-cp313-linux_x86_64.whl": "ebfbcb4a688e59766018f1431c533d68e060b4a4128ee1f74cd18c3185d0e588",
+      "nvbroadcast-1.5.3-py3-none-any.whl": "25bd16362f810e46f699a09135f05d38688bcc0bdc793ea4c2334101ed8fb289"
+    },
+    "full_native_archive_rebuild_comparison": false
+  },
+  "known_pypi_advisory_check": {
+    "checked_at": "2026-10-26T20:40:39.869355+00:00",
+    "exact_versions": 108,
+    "active_advisories": 0,
+    "errors": 0,
+    "input_files": 10,
+    "scope": "All active exact Python pinsets, including native pins; known PyPI release advisories only. Not a full native/system library, codec, model or OS trust-store audit."
+  },
+  "retained_local_receipts": [
+    {
+      "name": "security-native-build-review.json",
+      "sha256": "99f3e16efa552804f8ad78b08279d75dcaab88908c95f584486c75949825144a"
+    },
+    {
+      "name": "security-native-build-gpu-review.json",
+      "sha256": "5bfdd1f63fa0b8bb3f70e4306ef6eb5166d32bfb9bbc1101fc11bad6faaaa9ee"
+    },
+    {
+      "name": "security-native-build-installed-metadata.json",
+      "sha256": "9f146f94ba3105db513ac562ecb56496ff8cb3781dbb83b4ef5daa713909d4ff"
+    },
+    {
+      "name": "security-native-build-pip-closure.json",
+      "sha256": "8f5cf8f544b3722ef395c1ed6cb5b6857ecad1e73059b46c4f987d1cf7275e4e"
+    },
+    {
+      "name": "security-native-build-wheel-comparison.json",
+      "sha256": "4918a0269334cc1155a7180cd12cfb0632f2b91b86b94be7218e8b736eedd217"
+    },
+    {
+      "name": "security-prototype-repro/review.json",
+      "sha256": "797f781c4b2986e5d6c85cbc0b1cc8abb6076ca28a410159254a73e3116c483d"
+    },
+    {
+      "name": "security-prototype-repro/native-input-comparison.json",
+      "sha256": "b1a4de0238cd9d331c7a4b40b202e6450faeef0f63a732d2d966191151077d70"
+    },
+    {
+      "name": "security-prototype-repro/exact-pin-audit.json",
+      "sha256": "d4b578848312098c3f794622f13149f7da7ef34af31274b5c31e8d0bda1df779"
+    }
+  ],
+  "previous_revision7_hold": {
+    "record": "2026-10-26-clean-vm.json",
+    "record_sha256": "36b1d2a3b292fb388a8dcd651ea701bcd755067e409cde46b3006c3dd1d9b4f4",
+    "preserved": true,
+    "superseded_by_this_record": false
+  },
+  "remaining_gates": [
+    "Only Ubuntu24.04/RTX3080 and Fedora44/RTX5070 GPU cases; not the full platform/GPU Cartesian matrix.",
+    "Refreshed signing, protected hosted build/finalization, clean-VM and physical camera/microphone acceptance remain separate.",
+    "No new production-model quality, interactive desktop, sustained performance/FPS or power-loss/interruption acceptance.",
+    "Full native archive reproducibility was not repeated. Pinned historical builders do not independently rebuild OS dependencies.",
+    "No installed Snap, other application, driver, daemon, Store channel or frozen v1.5.3 artifact changed; no release promotion."
+  ]
+}

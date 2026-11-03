@@ -1,9 +1,9 @@
 Name:           nvbroadcast
-Version:        1.5.2
+Version:        1.5.4
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
-URL:            https://github.com/Hkshoonya/nvidia-broadcast-linux
+URL:            https://nvbroadcast.com
 Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      noarch
@@ -23,6 +23,8 @@ Requires:       v4l-utils
 Requires:       psmisc
 
 Recommends:     libayatana-appindicator-gtk3
+Recommends:     gstreamer1-plugin-openh264
+Recommends:     openh264
 
 %description
 NV Broadcast is an unofficial NVIDIA Broadcast for Linux and other OS.
@@ -50,12 +52,13 @@ Requires NVIDIA GPU with driver 525+ for GPU acceleration.
 
 %prep
 %autosetup -n %{name}-%{version}
-chmod 644 LICENSE README.md
+chmod 644 LICENSE NOTICE README.md CONTRIBUTORS.md
 
 %install
 # Application
 install -d %{buildroot}/opt/nvbroadcast
-cp -r src pyproject.toml LICENSE README.md %{buildroot}/opt/nvbroadcast/
+cp -r src pyproject.toml LICENSE NOTICE README.md CONTRIBUTORS.md \
+    %{buildroot}/opt/nvbroadcast/
 install -Dm 755 scripts/install_runtime_variant.py \
     %{buildroot}/opt/nvbroadcast/scripts/install_runtime_variant.py
 install -d %{buildroot}/opt/nvbroadcast/models
@@ -118,6 +121,18 @@ echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclus
 install -d %{buildroot}/etc/modules-load.d
 echo 'v4l2loopback' > %{buildroot}/etc/modules-load.d/nvbroadcast-v4l2loopback.conf
 
+# Clamping alone leaves generated mtimes variable before a future release epoch.
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    # RPM copies relative %doc/%license files after this section. Prepopulate
+    # their usual paths so those copies do not create entries with new mtimes.
+    DOC_DIR="%{buildroot}%{_docdir}/%{expand:%{?_docdir_fmt}%{!?_docdir_fmt:%{name}-%{version}}}"
+    LICENSE_DIR="%{buildroot}%{_licensedir}/%{expand:%{?_docdir_fmt}%{!?_docdir_fmt:%{name}-%{version}}}"
+    install -d "$DOC_DIR" "$LICENSE_DIR"
+    cp -p README.md CONTRIBUTORS.md "$DOC_DIR/"
+    cp -p LICENSE NOTICE "$LICENSE_DIR/"
+    find %{buildroot} -exec touch --no-dereference --date "@$SOURCE_DATE_EPOCH" -- {} +
+fi
+
 %pre
 pkill -f '^/opt/nvbroadcast/\.venv/bin/python -m nvbroadcast(\.vcam_service)?( |$)' 2>/dev/null || true
 
@@ -133,10 +148,11 @@ case "$(uname -m)" in
 esac
 
 install_runtime() {
-  rm -rf -- /opt/nvbroadcast/.venv
-  python3 -m venv /opt/nvbroadcast/.venv --system-site-packages
-  /opt/nvbroadcast/.venv/bin/pip install --upgrade \
-    "pip>=26.2" "setuptools>=83.0.0" wheel -q
+  rm -rf -- /opt/nvbroadcast/.venv || return
+  python3 -m venv /opt/nvbroadcast/.venv --system-site-packages || return
+  # Bootstrap the trust-store fix from the PSF-published wheel hash before resolving packages.
+  /opt/nvbroadcast/.venv/bin/pip install --upgrade --no-deps "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" -q || return
+  /opt/nvbroadcast/.venv/bin/pip install --upgrade "pip>=26.2.2" "setuptools>=84.1.0" "certifi>=2026.10.19" wheel -q || return
   /opt/nvbroadcast/.venv/bin/python /opt/nvbroadcast/scripts/install_runtime_variant.py \
     --project /opt/nvbroadcast --variant "$1" --meeting-backends faster
 }
@@ -147,7 +163,10 @@ if ! install_runtime "$RUNTIME_VARIANT"; then
   fi
   echo "NV Broadcast: CUDA runtime failed; recreating clean CPU environment."
   RUNTIME_VARIANT="cpu"
-  install_runtime "$RUNTIME_VARIANT"
+  if ! install_runtime "$RUNTIME_VARIANT"; then
+    echo "NV Broadcast: CPU runtime setup failed; installation cannot complete." >&2
+    exit 1
+  fi
 fi
 
 # pip's local project build can leave metadata beside package-owned sources.
@@ -180,9 +199,24 @@ fi
 %config(noreplace) /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
 %config(noreplace) /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
 %license LICENSE
-%doc README.md
+%license NOTICE
+%doc README.md CONTRIBUTORS.md
 
 %changelog
+* Wed Oct 28 2026 doczeus <harshit@kshoonya.com> - 1.5.4-1
+- Refresh affected Python dependencies and certificate bundles.
+- Keep Eye Contact tracking fresh and recognize live Arch CUDA runtimes.
+- Stop runtime setup on prerequisite or CPU fallback failure.
+- Keep managed protobuf visible with Fedora’s legacy google namespace hook.
+
+* Sat Oct 10 2026 doczeus <harshit@kshoonya.com> - 1.5.3-1
+- Keep Camera, Audio, and preview controls usable in small windows
+- Preserve MP4 video and audio across capture changes and expose saved recordings
+- Recover CPU/GPU availability and discover cameras connected after startup
+- Improve moving matte edges and verify pinned meeting-model downloads
+- Preserve source runtimes through failed upgrades and rollback
+- Initialize GStreamer compatibly with newer typelibs
+
 * Fri Sep 04 2026 doczeus <harshit@kshoonya.com> - 1.5.2-1
 - Retry exact camera modes with a working advertised encoding at startup
 - Select and validate a fully supported Python for source installations

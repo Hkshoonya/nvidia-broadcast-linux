@@ -1,0 +1,8 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN dnf -y install ca-certificates gtk4 libadwaita gstreamer1-plugins-base \
+    gstreamer1-plugins-good libgomp libsndfile portaudio mesa-libGL \
+    gobject-introspection libglvnd-gles \
+    xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon pulseaudio shadow-utils \
+    && dnf clean all
+RUN getent passwd 1000 >/dev/null || useradd -M -u 1000 -d /tmp/nvb-home nvb-probe

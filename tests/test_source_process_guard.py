@@ -77,6 +77,18 @@ class SourceProcessGuardTests(unittest.TestCase):
                     None,
                     {"VIRTUAL_ENV": str(venv)},
                 ),
+                (
+                    112,
+                    [
+                        str(venv / "bin/python"),
+                        "-m",
+                        "nvbroadcast.audio.service",
+                        "--parent-pid",
+                        "101",
+                    ],
+                    None,
+                    None,
+                ),
             )
             for pid, arguments, cwd, environment in cases:
                 self._write_process(
@@ -96,6 +108,7 @@ class SourceProcessGuardTests(unittest.TestCase):
                     SourceProcess(104, "nvbroadcast.vcam_service"),
                     SourceProcess(105, "nvbroadcast"),
                     SourceProcess(106, "nvbroadcast.vcam_service"),
+                    SourceProcess(112, "nvbroadcast.audio.service"),
                 ],
             )
 
@@ -193,7 +206,6 @@ class SourceProcessGuardTests(unittest.TestCase):
 
             cases = (
                 (201, [str(foreign_venv / "bin/python"), "-m", "nvbroadcast"]),
-                (202, [str(venv / "bin/python"), "-m", "nvbroadcast.audio.service"]),
                 (203, [str(venv / "bin/python"), "-m", "nvbroadcast.vcam_service.extra"]),
                 (204, [str(venv / "bin/python"), "-c", "import nvbroadcast"]),
                 (205, [str(venv / "bin/not-python"), "-m", "nvbroadcast"]),

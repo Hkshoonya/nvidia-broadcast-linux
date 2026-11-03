@@ -78,6 +78,8 @@ echo "Remove them manually only if you are sure nothing else on the system needs
 echo ""
 echo "[6/6] Removing Python virtual environment..."
 
+python3 "$SCRIPT_DIR/scripts/source_runtime.py" --project "$SCRIPT_DIR" remove
+
 if [ -d "$SCRIPT_DIR/.venv" ]; then
     rm -rf "$SCRIPT_DIR/.venv"
     echo "Virtual environment removed"
@@ -105,6 +107,6 @@ echo "    - Shared desktop/runtime packages (GTK4, GStreamer, PipeWire, Python G
 echo "    - These may be used by other applications and by your desktop session"
 echo ""
 echo "  The source code in $SCRIPT_DIR is untouched."
-echo "  Standard installs now live inside $SCRIPT_DIR/.venv, not as an editable source link."
+echo "  Source runtime generations and the legacy .venv are removed; system Python is unchanged."
 echo "  You can safely delete the source tree after uninstall if no longer needed."
 echo ""

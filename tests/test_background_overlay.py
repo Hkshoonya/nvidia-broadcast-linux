@@ -52,6 +52,17 @@ def _install_fake_onnxruntime() -> None:
 
 @unittest.skipIf(np is None or cv2 is None, "numpy/cv2 not installed")
 class BackgroundOverlayTests(unittest.TestCase):
+    def test_constructor_falls_back_from_saved_cupy_setting_without_cupy(self):
+        from nvbroadcast.video.effects import VideoEffects
+
+        with mock.patch.dict(sys.modules, {"cupy": None}):
+            effects = VideoEffects(compositing="cupy")
+        self.assertEqual(effects._compositing, "cpu")
+        self.assertTrue(effects._cpu_inference)
+        self.assertFalse(effects._engine_reload_in_progress)
+        self.assertIsNone(effects._backend)
+        self.assertTrue(all(refiner._cpu_only for refiner in effects._learned_refiners.values()))
+
     @classmethod
     def setUpClass(cls):
         _install_fake_onnxruntime()
@@ -68,6 +79,20 @@ class BackgroundOverlayTests(unittest.TestCase):
         effects._bg_image[:, :, 0] = 240
         effects._bg_image[:, :, 3] = 255
         return effects
+
+    def test_cpu_compositing_fallback_does_not_retry_fused_cuda_each_frame(self):
+        effects = self._make_effects()
+        effects._compositing = "cpu"
+        effects._use_fused_kernel = True
+        effects._cupy = types.SimpleNamespace(ndarray=type("DeviceArray", (), {}))
+        frame = np.zeros((4, 4, 4), dtype=np.uint8)
+        alpha = np.ones((4, 4), dtype=np.float32)
+        with mock.patch.object(effects, "_final_matte", return_value=alpha), \
+             mock.patch.object(effects, "_apply_replace", return_value=frame), \
+             mock.patch.object(effects, "_composite_fused", return_value=None) as fused:
+            effects._composite_array(frame, alpha, 4, 4)
+            effects._composite_array(frame, alpha, 4, 4)
+        fused.assert_not_called()
 
     class _FakeCupy:
         float32 = np.float32 if np is not None else float
@@ -178,6 +203,512 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertEqual(result, "cpu")
         effects._blend_cpu.assert_called_once()
         effects._blend_cupy.assert_not_called()
+
+    def test_cpu_processing_builds_rvm_with_cpu_inference(self):
+        effects = self.VideoEffects(compositing="cpu")
+        backend = mock.Mock()
+        backend.load.return_value = "RVM loaded on CPU"
+
+        with mock.patch.object(
+            self.effects_module, "_RVMBackend", return_value=backend
+        ):
+            built, message = effects._build_backend()
+
+        self.assertIs(built, backend)
+        self.assertEqual(message, "RVM loaded on CPU")
+        backend.load.assert_called_once_with(
+            "quality", use_tensorrt=False, cpu_only=True
+        )
+
+    def test_cpu_processing_builds_single_frame_model_with_cpu_inference(self):
+        effects = self.VideoEffects(compositing="cpu")
+        effects._model_type = "isnet"
+        backend = mock.Mock()
+        backend.load.return_value = "IS-Net loaded on CPU"
+
+        with mock.patch.object(
+            self.effects_module, "_SingleFrameBackend", return_value=backend
+        ) as backend_type:
+            built, message = effects._build_backend()
+
+        self.assertIs(built, backend)
+        self.assertEqual(message, "IS-Net loaded on CPU")
+        backend_type.assert_called_once_with(0, "isnet", cpu_only=True)
+
+    def test_live_cpu_mode_change_reloads_gpu_inference_backend(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._cpu_inference = False
+        effects._compositing = "cupy"
+        backend = mock.Mock()
+        backend._MAX_INFER_HEIGHT = 720
+        backend._trt_requested = False
+        backend._quality = effects._quality
+        backend._cpu_only = False
+        effects._backend = backend
+        effects._schedule_engine_reload = mock.Mock()
+
+        effects.set_compositing("cpu")
+        effects.set_engine_mode(False, False)
+
+        self.assertTrue(effects._cpu_inference)
+        effects._schedule_engine_reload.assert_called_once_with(False, 720)
+
+    def test_live_cpu_mode_change_reloads_single_frame_inference_backend(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._model_type = "isnet"
+        effects._cpu_inference = False
+        effects._compositing = "cupy"
+        backend = mock.Mock(spec=[])
+        backend._cpu_only = False
+        effects._backend = backend
+        effects._schedule_engine_reload = mock.Mock()
+
+        effects.set_compositing("cpu")
+        effects.set_engine_mode(False, False)
+
+        self.assertTrue(effects._cpu_inference)
+        effects._schedule_engine_reload.assert_called_once_with(False, 720)
+
+    def test_edge_refiner_cleanup_waits_for_inflight_inference(self):
+        refiner = self.effects_module.EdgeRefiner(0)
+        infer_started = threading.Event()
+        release_infer = threading.Event()
+        backend = mock.Mock()
+        backend.infer.side_effect = lambda *_args: (
+            infer_started.set(),
+            release_infer.wait(1.0),
+            np.ones((2, 2), dtype=np.float32),
+        )[-1]
+        refiner._backend = backend
+        refiner._initialized = True
+
+        refine_thread = threading.Thread(
+            target=refiner.refine,
+            args=(
+                np.zeros((2, 2, 4), dtype=np.uint8),
+                np.zeros((2, 2), dtype=np.float32),
+                2,
+                2,
+            ),
+        )
+        cleanup_thread = threading.Thread(target=refiner.cleanup)
+        refine_thread.start()
+        self.assertTrue(infer_started.wait(1.0))
+        cleanup_thread.start()
+        time.sleep(0.03)
+        backend.cleanup.assert_not_called()
+
+        release_infer.set()
+        refine_thread.join(1.0)
+        cleanup_thread.join(1.0)
+
+        backend.cleanup.assert_called_once_with()
+        self.assertFalse(refiner._initialized)
+
+    def test_gpu_index_change_retargets_main_and_optional_refiners(self):
+        effects = self._make_effects()
+        effects._initialized = False
+        effects._edge_refiner.set_gpu_index = mock.Mock(return_value=True)
+        for refiner in effects._learned_refiners.values():
+            refiner.set_gpu_index = mock.Mock(return_value=True)
+
+        self.assertTrue(effects.set_gpu_index(1))
+
+        self.assertEqual(effects._gpu_index, 1)
+        effects._edge_refiner.set_gpu_index.assert_called_once_with(1)
+        for refiner in effects._learned_refiners.values():
+            refiner.set_gpu_index.assert_called_once_with(1)
+
+    def test_gpu_index_change_invalidates_old_device_state_before_reload(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._bg_removal_enabled = True
+        effects._cpu_inference = False
+        effects._compositing = "cupy"
+        effects._cupy = object()
+        effects._use_fused_kernel = True
+
+        class _Backend:
+            def __init__(self, gpu_index):
+                self._gpu_index = gpu_index
+                self._cpu_only = False
+                self._MAX_INFER_HEIGHT = 720
+                self._trt_requested = False
+                self._quality = effects._quality
+                self.session = mock.Mock()
+                self.session.get_providers.return_value = ["CUDAExecutionProvider"]
+                self.infer_calls = 0
+                self.cleaned = False
+
+            def infer(self, *_args):
+                self.infer_calls += 1
+                return None
+
+            def reset_state(self):
+                return None
+
+            def cleanup(self):
+                self.cleaned = True
+
+        active = _Backend(0)
+        candidate = _Backend(1)
+        effects._backend = active
+        effects._cached_alpha = object()
+        effects._cached_source_alpha = object()
+        effects._prev_alpha_gpu = object()
+        effects._latest_final_matte_u8_gpu = object()
+        effects._pending_frame_gpu = (object(), object())
+        effects._fused_bg_gpu = object()
+        effects._fused_green_bg_gpu = object()
+        effects._fused_face_mask_gpu = object()
+        effects._fused_vignette_gpu = object()
+        effects._gpu_morph_footprints = {3: object()}
+        build_started = threading.Event()
+        release_build = threading.Event()
+
+        def build_backend():
+            build_started.set()
+            self.assertTrue(release_build.wait(1.0))
+            return candidate, "ready"
+
+        effects._build_backend = build_backend
+        try:
+            self.assertTrue(effects.set_gpu_index(1))
+            self.assertTrue(build_started.wait(1.0))
+
+            self.assertTrue(effects._engine_reload_in_progress)
+            self.assertFalse(effects.gpu_output_eligible())
+            self.assertIsNone(effects._cached_alpha)
+            self.assertIsNone(effects._cached_source_alpha)
+            self.assertIsNone(effects._prev_alpha_gpu)
+            self.assertIsNone(effects._latest_final_matte_u8_gpu)
+            self.assertIsNone(effects._pending_frame_gpu)
+            self.assertIsNone(effects._fused_bg_gpu)
+            self.assertIsNone(effects._fused_green_bg_gpu)
+            self.assertIsNone(effects._fused_face_mask_gpu)
+            self.assertIsNone(effects._fused_vignette_gpu)
+            self.assertEqual(effects._gpu_morph_footprints, {})
+
+            frame = np.zeros((4, 4, 4), dtype=np.uint8)
+            self.assertIsNone(
+                effects._run_inference(frame, 4, 4, effects._matte_version)
+            )
+            self.assertEqual(active.infer_calls, 0)
+        finally:
+            release_build.set()
+
+        deadline = time.monotonic() + 1.0
+        while effects._engine_reload_in_progress and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertIs(effects._backend, candidate)
+        self.assertTrue(active.cleaned)
+
+    def test_provider_reload_failure_never_restores_incompatible_gpu_backend(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        active = mock.Mock()
+        active._cpu_only = False
+        active._gpu_index = 0
+        active._MAX_INFER_HEIGHT = 720
+        active._trt_requested = False
+        active._quality = effects._quality
+        effects._backend = active
+        effects._build_backend = mock.Mock(side_effect=RuntimeError("CPU load failed"))
+
+        effects.set_compositing("cpu")
+        effects.set_engine_mode(False, False)
+        deadline = time.monotonic() + 1.0
+        while effects._engine_reload_in_progress and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        self.assertFalse(effects._engine_reload_in_progress)
+        self.assertIsNone(effects._backend)
+        self.assertFalse(effects._initialized)
+        active.cleanup.assert_called_once_with()
+
+    def test_mode_reselection_retries_after_incompatible_reload_failure(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._bg_removal_enabled = True
+        effects._cpu_inference = False
+        effects._compositing = "cupy"
+        effects._cupy = object()
+
+        class _Backend:
+            def __init__(self, cpu_only):
+                self._cpu_only = cpu_only
+                self._gpu_index = 0
+                self._MAX_INFER_HEIGHT = 720
+                self._trt_requested = False
+                self._quality = effects._quality
+                self.cleaned = False
+
+            def reset_state(self):
+                return None
+
+            def cleanup(self):
+                self.cleaned = True
+
+        active = _Backend(False)
+        recovered = _Backend(True)
+        effects._backend = active
+        effects._build_backend = mock.Mock(
+            side_effect=[RuntimeError("CPU load failed"), (recovered, "ready")]
+        )
+
+        effects.set_compositing("cpu")
+        effects.set_engine_mode(False, False)
+        deadline = time.monotonic() + 1.0
+        while effects._engine_reload_in_progress and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertIsNone(effects._backend)
+        self.assertFalse(effects._initialized)
+
+        effects.set_engine_mode(False, False)
+        deadline = time.monotonic() + 1.0
+        while effects._engine_reload_in_progress and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        self.assertIs(effects._backend, recovered)
+        self.assertTrue(effects._initialized)
+        self.assertEqual(effects._build_backend.call_count, 2)
+
+    def test_gpu_mode_reselection_retries_actual_cpu_fallback(self):
+        effects = self._make_effects()
+        effects._cpu_inference = False
+        effects._backend = types.SimpleNamespace(
+            _cpu_only=False,
+            _MAX_INFER_HEIGHT=720,
+            _trt_requested=False,
+            _quality=effects._quality,
+            session=mock.Mock(),
+        )
+        effects._backend.session.get_providers.return_value = ["CPUExecutionProvider"]
+        with mock.patch.object(effects, "_schedule_engine_reload") as reload_backend:
+            effects.set_engine_mode(False, True)
+        reload_backend.assert_called_once()
+
+    def test_explicit_cpu_mode_does_not_retry_cuda(self):
+        effects = self._make_effects()
+        effects._cpu_inference = True
+        effects._backend = types.SimpleNamespace(
+            _cpu_only=True,
+            _MAX_INFER_HEIGHT=effects._resolve_max_infer_height(),
+            _trt_requested=False,
+            _quality=effects._quality,
+            session=mock.Mock(),
+        )
+        effects._backend.session.get_providers.return_value = ["CPUExecutionProvider"]
+        with mock.patch.object(effects, "_schedule_engine_reload") as reload_backend:
+            effects.set_engine_mode(False, False)
+        reload_backend.assert_not_called()
+
+    def test_device_reselection_retries_after_incompatible_reload_failure(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._bg_removal_enabled = True
+        effects._cpu_inference = False
+        effects._compositing = "cupy"
+        effects._cupy = object()
+
+        class _Backend:
+            def __init__(self, gpu_index):
+                self._cpu_only = False
+                self._gpu_index = gpu_index
+                self._MAX_INFER_HEIGHT = 720
+                self._trt_requested = False
+                self._quality = effects._quality
+
+            def reset_state(self):
+                return None
+
+            def cleanup(self):
+                return None
+
+        effects._backend = _Backend(0)
+        recovered = _Backend(1)
+        effects._build_backend = mock.Mock(
+            side_effect=[RuntimeError("GPU load failed"), (recovered, "ready")]
+        )
+
+        effects.set_gpu_index(1)
+        deadline = time.monotonic() + 1.0
+        while effects._engine_reload_in_progress and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertIsNone(effects._backend)
+        self.assertFalse(effects._initialized)
+
+        self.assertTrue(effects.set_gpu_index(1))
+        deadline = time.monotonic() + 1.0
+        while effects._engine_reload_in_progress and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        self.assertIs(effects._backend, recovered)
+        self.assertTrue(effects._initialized)
+        self.assertEqual(effects._build_backend.call_count, 2)
+
+    def test_compositing_provider_change_blocks_inference_until_reload_barrier(self):
+        effects = self._make_effects()
+        effects._initialized = True
+        effects._bg_removal_enabled = True
+        effects._cpu_inference = True
+        effects._compositing = "cpu"
+        effects._cupy = object()
+        effects._use_fused_kernel = True
+        effects._use_tensorrt = False
+        infer_started = threading.Event()
+        release_infer = threading.Event()
+        compositing_set = threading.Event()
+        allow_engine_mode = threading.Event()
+        switch_done = threading.Event()
+        build_started = threading.Event()
+        release_build = threading.Event()
+        built_policies = []
+
+        class _Backend:
+            def __init__(self, cpu_only):
+                self._cpu_only = cpu_only
+                self._gpu_index = 0
+                self._MAX_INFER_HEIGHT = 720
+                self._trt_requested = False
+                self._quality = effects._quality
+                self.infer_calls = 0
+                self.infer_gpu_calls = 0
+
+            def infer(self, *_args):
+                self.infer_calls += 1
+                infer_started.set()
+                release_infer.wait(1.0)
+                return None
+
+            def infer_gpu(self, *_args):
+                self.infer_gpu_calls += 1
+                return None
+
+            def reset_state(self):
+                return None
+
+            def cleanup(self):
+                return None
+
+        active = _Backend(True)
+        candidate = _Backend(False)
+        effects._backend = active
+
+        def build_backend():
+            built_policies.append(
+                (effects._use_tensorrt, effects._use_fused_kernel, effects._quality)
+            )
+            build_started.set()
+            self.assertTrue(release_build.wait(1.0))
+            return candidate, "ready"
+
+        def switch_compositing_and_engine():
+            effects.set_compositing("cupy")
+            compositing_set.set()
+            self.assertTrue(allow_engine_mode.wait(1.0))
+            effects.set_engine_mode(True, True, quality="performance")
+            switch_done.set()
+
+        effects._build_backend = build_backend
+        frame = np.zeros((4, 4, 4), dtype=np.uint8)
+        infer_thread = threading.Thread(
+            target=effects._run_inference,
+            args=(frame, 4, 4, effects._matte_version),
+        )
+        switch_thread = threading.Thread(
+            target=switch_compositing_and_engine
+        )
+
+        infer_thread.start()
+        self.assertTrue(infer_started.wait(1.0))
+        switch_thread.start()
+        time.sleep(0.03)
+        self.assertFalse(switch_done.is_set())
+
+        release_infer.set()
+        infer_thread.join(1.0)
+        self.assertTrue(compositing_set.wait(1.0))
+        self.assertTrue(effects._engine_reload_in_progress)
+        self.assertIsNone(effects._engine_reload_target)
+        self.assertFalse(build_started.wait(0.05))
+        self.assertIsNone(
+            effects._run_inference(frame, 4, 4, effects._matte_version)
+        )
+        self.assertEqual(active.infer_calls, 1)
+        self.assertEqual(active.infer_gpu_calls, 0)
+
+        allow_engine_mode.set()
+        switch_thread.join(1.0)
+        self.assertTrue(switch_done.is_set())
+        self.assertTrue(build_started.wait(1.0))
+        self.assertEqual(built_policies, [(True, True, "performance")])
+
+        release_build.set()
+        deadline = time.monotonic() + 1.0
+        while effects._engine_reload_in_progress and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertIs(effects._backend, candidate)
+
+    def test_rapid_provider_reversal_cancels_stale_reload(self):
+        for start_cpu in (False, True):
+            with self.subTest(start_cpu=start_cpu):
+                effects = self._make_effects()
+                effects._initialized = True
+                effects._cupy = object()
+
+                class _Backend:
+                    def __init__(self, cpu_only):
+                        self._cpu_only = cpu_only
+                        self._gpu_index = 0
+                        self._MAX_INFER_HEIGHT = 720
+                        self._trt_requested = False
+                        self._quality = effects._quality
+                        self.cleaned = False
+
+                    def cleanup(self):
+                        self.cleaned = True
+
+                    def reset_state(self):
+                        return None
+
+                active = _Backend(start_cpu)
+                effects._backend = active
+                effects._cpu_inference = start_cpu
+                effects._compositing = "cpu" if start_cpu else "cupy"
+                first_build_started = threading.Event()
+                release_first_build = threading.Event()
+                built = []
+
+                def build_backend():
+                    candidate = _Backend(effects._cpu_inference)
+                    built.append(candidate)
+                    if len(built) == 1:
+                        first_build_started.set()
+                        self.assertTrue(release_first_build.wait(1.0))
+                    return candidate, "ready"
+
+                effects._build_backend = build_backend
+                first_target = "cupy" if start_cpu else "cpu"
+                final_target = "cpu" if start_cpu else "cupy"
+
+                effects.set_compositing(first_target)
+                effects.set_engine_mode(False, False)
+                self.assertTrue(first_build_started.wait(1.0))
+                effects.set_compositing(final_target)
+                effects.set_engine_mode(False, False)
+                release_first_build.set()
+
+                deadline = time.monotonic() + 1.0
+                while effects._engine_reload_in_progress and time.monotonic() < deadline:
+                    time.sleep(0.01)
+
+                self.assertFalse(effects._engine_reload_in_progress)
+                self.assertEqual(effects._backend._cpu_only, start_cpu)
+                self.assertGreaterEqual(len(built), 2)
+                self.assertTrue(built[0].cleaned)
 
     def test_engine_mode_switch_waits_for_inflight_inference(self):
         effects = self._make_effects()
@@ -537,7 +1068,7 @@ class BackgroundOverlayTests(unittest.TestCase):
             "replacement temporal smoothing should not keep narrow gaps shut after they open",
         )
 
-    def test_quality_replace_matte_reopens_gap_more_tightly_than_performance(self):
+    def test_quality_and_performance_replace_mattes_reopen_fine_gaps(self):
         quality = self._make_effects()
         quality._bg_mode = "replace"
         quality._quality = "quality"
@@ -557,11 +1088,13 @@ class BackgroundOverlayTests(unittest.TestCase):
         quality_gap = quality._replacement_matte(alpha_open)
         performance_gap = performance._replacement_matte(alpha_open)
 
-        self.assertLess(
-            float(quality_gap[4, 7]),
-            float(performance_gap[4, 7]),
-            "quality replace mode should preserve fine reopened gaps more tightly than performance mode",
-        )
+        for preset, matte in (("quality", quality_gap), ("performance", performance_gap)):
+            with self.subTest(preset=preset):
+                self.assertLess(
+                    float(matte[4, 7]), 0.12,
+                    "both presets should reopen a detected background gap",
+                )
+                self.assertGreater(float(matte[10, 7]), 0.90)
 
     def test_refine_alpha_preserves_narrow_exterior_finger_gap(self):
         effects = self._make_effects()
@@ -768,10 +1301,13 @@ class BackgroundOverlayTests(unittest.TestCase):
             return cleaned
         effects._prepare_replace_foreground = prepare_replace
 
+        kernel_calls = []
+
         def fake_kernel(_grid, _block, args):
             fg_gpu = args[0]
-            output_gpu = args[5]
+            output_gpu = args[6]
             output_gpu[:] = fg_gpu
+            kernel_calls.append(int(args[12]))
 
         original_kernel = self.effects_module._get_fused_kernel
         self.effects_module._get_fused_kernel = lambda: fake_kernel
@@ -781,8 +1317,112 @@ class BackgroundOverlayTests(unittest.TestCase):
             self.effects_module._get_fused_kernel = original_kernel
 
         self.assertEqual(calls, [((4, 4, 4), (4, 4))])
+        self.assertEqual(kernel_calls, [0])
         self.assertIsNotNone(out)
         self.assertEqual(int(out[2, 2, 2]), 220)
+
+    def test_fused_remove_enables_gpu_fringe_cleanup(self):
+        effects = self._make_effects()
+        effects._bg_mode = "remove"
+        effects._cupy = self._FakeCupy()
+
+        fg = np.zeros((4, 4, 4), dtype=np.uint8)
+        fg[:, :, 2] = 40
+        fg[:, :, 3] = 255
+        alpha = np.ones((4, 4), dtype=np.float32)
+
+        clean_color = np.zeros((2, 2, 4), dtype=np.uint8)
+        clean_color[:, :, 2] = 220
+        clean_color[:, :, 3] = 255
+        reference_calls = []
+        kernel_calls = []
+
+        def gpu_clean_reference(fg_arg, alpha_arg):
+            reference_calls.append((fg_arg.shape, alpha_arg.shape))
+            return clean_color, 2
+
+        effects._gpu_clean_color_reference = gpu_clean_reference
+
+        def fake_kernel(_grid, _block, args):
+            fg_gpu = args[0]
+            output_gpu = args[6]
+            output_gpu[:] = fg_gpu
+            kernel_calls.append(
+                {
+                    "clean_color": args[3],
+                    "frame_width": int(args[8]),
+                    "clean_width": int(args[9]),
+                    "clean_height": int(args[10]),
+                    "clean_scale": int(args[11]),
+                    "despill": int(args[12]),
+                }
+            )
+            if int(args[12]):
+                output_gpu[:, :, 2] = args[3][0, 0, 2]
+
+        original_kernel = self.effects_module._get_fused_kernel
+        self.effects_module._get_fused_kernel = lambda: fake_kernel
+        try:
+            out = effects._composite_fused(fg, alpha, 4, 4)
+        finally:
+            self.effects_module._get_fused_kernel = original_kernel
+
+        self.assertEqual(reference_calls, [((4, 4, 4), (4, 4))])
+        self.assertEqual(len(kernel_calls), 1)
+        self.assertIs(kernel_calls[0]["clean_color"], clean_color)
+        argument_names = (
+            "frame_width",
+            "clean_width",
+            "clean_height",
+            "clean_scale",
+            "despill",
+        )
+        self.assertEqual(
+            {key: kernel_calls[0][key] for key in argument_names},
+            {
+                "frame_width": 4,
+                "clean_width": 2,
+                "clean_height": 2,
+                "clean_scale": 2,
+                "despill": 1,
+            },
+        )
+        self.assertIsNotNone(out)
+        self.assertEqual(int(out[2, 2, 2]), 220)
+
+    def test_fused_blur_preserves_soft_edge_without_gpu_fringe_cleanup(self):
+        effects = self._make_effects()
+        effects._bg_mode = "blur"
+        effects._cupy = self._FakeCupy()
+        effects._gpu_blur_bgra = lambda fg_arg, _sigma: np.zeros_like(fg_arg)
+
+        fg = np.zeros((4, 4, 4), dtype=np.uint8)
+        fg[:, :, 3] = 255
+        alpha = np.ones((4, 4), dtype=np.float32)
+        clean_color = np.zeros((2, 2, 4), dtype=np.uint8)
+        reference_calls = []
+        kernel_flags = []
+
+        def gpu_clean_reference(fg_arg, alpha_arg):
+            reference_calls.append((fg_arg.shape, alpha_arg.shape))
+            return clean_color, 2
+
+        effects._gpu_clean_color_reference = gpu_clean_reference
+
+        def fake_kernel(_grid, _block, args):
+            args[6][:] = args[0]
+            kernel_flags.append(int(args[12]))
+
+        original_kernel = self.effects_module._get_fused_kernel
+        self.effects_module._get_fused_kernel = lambda: fake_kernel
+        try:
+            out = effects._composite_fused(fg, alpha, 4, 4)
+        finally:
+            self.effects_module._get_fused_kernel = original_kernel
+
+        self.assertEqual(reference_calls, [])
+        self.assertEqual(kernel_flags, [0])
+        self.assertIsNotNone(out)
 
     def test_edge_aware_replace_matte_hardens_transition_on_real_edges(self):
         effects = self._make_effects()
@@ -861,6 +1501,42 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertLess(float(refined[280, 510]), float(matte[280, 510]), "ROI edge should still tighten entry fringe")
         self.assertGreater(float(refined[280, 512]), float(matte[280, 512]), "ROI edge should still harden exit fringe")
         self.assertEqual(float(refined[12, 12]), float(matte[12, 12]), "solid pixels outside the ROI must be untouched")
+
+    def test_edge_refinement_is_local_with_sparse_or_dense_partial_opacity(self):
+        effects = self._make_effects()
+        frame = np.zeros((64, 96, 4), dtype=np.uint8)
+        frame[:, 48:, :3] = 230
+        frame[:, :, 3] = 255
+        sparse = np.zeros((64, 96), dtype=np.float32)
+        sparse[:, 48:] = 1.0
+        sparse[:, 44:52] = np.array(
+            [0.02, 0.07, 0.11, 0.34, 0.66, 0.82, 0.97, 0.99], dtype=np.float32,
+        )
+        dense = sparse.copy()
+        dense[:, :44] = 0.25
+        dense[:, 52:] = 0.75
+        # Unrelated partial-opacity pixels must not change the shared edge.
+        # Read-only inputs also catch accidental in-place cleanup.
+        frame.setflags(write=False)
+        sparse.setflags(write=False)
+        dense.setflags(write=False)
+        for preserve_detail in (False, True):
+            for downsample in (False, True):
+                with self.subTest(detail=preserve_detail, downsample=downsample):
+                    results = []
+                    for matte in (sparse, dense):
+                        transition = (matte > 0.05) & (matte < 0.95)
+                        results.append(effects._edge_aware_replace_matte_region(
+                            frame, matte, transition, preserve_detail, downsample,
+                        ))
+                    np.testing.assert_allclose(
+                        results[0][:, 44:52], results[1][:, 44:52],
+                        rtol=0, atol=1e-7,
+                    )
+                    self.assertTrue(np.all(results[0][:, :44] == 0))
+                    self.assertTrue(np.all(results[0][:, 52:] == 1))
+                    self.assertTrue(np.all(sparse[:, :44] == 0))
+                    self.assertTrue(np.all(dense[:, :44] == 0.25))
 
     def test_greenscreen_matte_is_tighter_than_replace_matte(self):
         effects = self._make_effects()

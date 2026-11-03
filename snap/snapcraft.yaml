@@ -1,48 +1,40 @@
 name: nvbroadcast
 title: NV Broadcast
 base: core24
-version: '1.5.2'
-summary: Reliable camera startup, verified runtimes, and safe upgrades
+version: '1.5.4'
+summary: AI virtual camera with background effects and noise removal for Linux
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
 
-  What's new in v1.5.2:
-  - Recovers when a camera's preferred MJPEG mode fails before its first frame
-    by retrying another advertised format at the same resolution and frame rate.
-  - Gives local meeting transcription workers a private Snap shared-memory namespace.
-  - Selects a fully supported Python 3.11-3.13 interpreter for source installs,
-    validates matching desktop bindings, and fails with targeted guidance.
-  - Pins every Snap Store review, candidate, and stable dispatch to a validated
-    release tag and source commit before any build or upload can begin.
-  - Shows cumulative contributor credits in the About window and validates that
-    accepted external contributors remain credited in future releases.
-  - Carries the complete tested v1.5.1 native-upgrade, runtime, device-recovery,
-    and provenance work; v1.5.0 and v1.5.1 were not public stable releases.
-  - Adds a hash-bound GitHub native-package helper that safely migrates known
-    legacy DEB and RPM removal scripts before installing exact artifacts.
-  - Removes installer-generated runtime and build files on final DEB/RPM
-    uninstall, including clean package-only removal paths.
-  - Enforces exactly one CPU or CUDA ONNX Runtime distribution owner in source,
-    native-package, macOS, and Snap environments.
-  - Verifies CPU, CUDA, and TensorRT readiness with pinned fresh-process model
-    execution, rejects silent CPU fallback, and retains provider diagnostics.
-  - Adds explicit source runtime selection with clean CPU recovery for failed
-    automatic CUDA setup and restart-gated runtime changes.
-  - Restores the saved microphone shown in the selector and rebuilds a running
-    audio pipeline when the capture device changes.
-  - Stops GUI and headless startup cleanly when no usable camera is available
-    instead of constructing a broken capture pipeline.
-  - Makes profile auto-start an explicit per-profile opt-in and keeps controls
-    aligned when a busy or missing camera prevents startup.
-  - Adds MediaPipe 1.0.0 face effects on Linux arm64 and raises OpenCV,
-    Protobuf, Pillow, pip, and pytest security floors.
-  - Strengthens strict Snap dependency closure, launcher validation, reviewed
-    revision promotion, rollback, and post-promotion metadata refresh.
-  - Publishes checksums for attached release assets and GitHub provenance,
-    while stable promotion verifies both architectures against the release tag.
+  What's new in v1.5.4:
+  - Updates Python certificate bundles and dependencies affected by recent
+    security advisories, and audits frozen package versions in CI.
+  - Keeps Eye Contact tracking current when camera frame objects are reused,
+    preserving the existing blink and occlusion limits.
+
+  Recent reliability improvements:
+  - Keeps Camera, Audio, and preview controls usable in small windows.
+  - Preserves video and microphone audio in MP4 recordings, including when
+    effects are disabled or changed during capture.
+  - Saves recordings in the desktop Videos folder and provides folder actions.
+  - Recovers processing choices after temporary GPU memory pressure and allows
+    first-use GPU checks to finish compiling their kernels.
+  - Discovers cameras connected after startup and improves moving finger gaps
+    and background edges at the tested settings.
+  - Verifies pinned meeting-model downloads and supports TensorRT libraries
+    with Python 3.14 on supported Linux systems.
+
+  Retained reliability features:
+  - Retries advertised camera formats when the preferred mode cannot start.
+  - Restores the selected microphone and keeps Start/Stop controls aligned
+    with the actual broadcast state.
+  - Verifies runtime ownership and real inference before enabling GPU modes.
+  - Provides local meeting transcription and cumulative contributor credits.
+  - Supplies checksums, build provenance, and a helper for affected legacy
+    native-package upgrades.
 
   Recent quality updates:
   - v1.4.0 adds rebindable global effect shortcuts, Gaze Lock, live camera
@@ -70,16 +62,16 @@ description: |
 
   For install guides, release downloads, feature breakdowns, and upgrade
   instructions, visit the official website:
-  https://nvbroadcast.domjarvis.com
+  https://nvbroadcast.com
 
 grade: stable
 confinement: strict
-license: GPL-3.0
+license: GPL-3.0-or-later
 icon: data/icons/com.doczeus.NVBroadcast.svg
-website: https://nvbroadcast.domjarvis.com
+website: https://nvbroadcast.com
 source-code: https://github.com/Hkshoonya/nvidia-broadcast-linux
 issues: https://github.com/Hkshoonya/nvidia-broadcast-linux/issues
-contact: https://nvbroadcast.domjarvis.com
+contact: https://nvbroadcast.com
 
 platforms:
   amd64:
@@ -125,11 +117,17 @@ parts:
   nvbroadcast:
     plugin: python
     source: .
+    # Some destructive-mode builders expose their own Python packages through
+    # PYTHONPATH. Preserve that path only for the craftctl RPC client, while
+    # isolating both Python-plugin pip passes from build-host distributions.
+    build-environment:
+      - CRAFTCTL_PYTHONPATH: "$PYTHONPATH"
+      - PYTHONPATH: ""
     python-packages:
       - numpy
       - opencv-contrib-python>=4.8.1.78,<5
       - packaging>=26.0
-      - setuptools>=83.0.0
+      - setuptools>=84.1.0
       - protobuf>=6.33.5,<7
       - onnx>=1.22.0
       - click>=8.3.3
@@ -145,7 +143,10 @@ parts:
       - sympy
       - pyrnnoise
       - psutil
-      - Pillow>=12.3.0
+      - Pillow>=13.0.0
+      - certifi>=2026.10.19
+      - filelock>=4.2.1
+      - urllib3>=2.8.0
       - requests
     stage-packages:
       - pipewire-bin
@@ -153,7 +154,14 @@ parts:
       - v4l-utils
       - gnome-settings-daemon-common
     override-build: |
-      craftctl default
+      # The SDK's ensurepip can seed an older CA bundle. Repair the plugin's
+      # build venv before either online resolver pass; its repeated venv setup
+      # preserves this newer pip. Runtime pip is still removed below.
+      "${PARTS_PYTHON_INTERPRETER:-python3}" -m venv "$CRAFT_PART_INSTALL" || exit $?
+      "$CRAFT_PART_INSTALL/bin/python3" -m pip --isolated install --upgrade --no-deps \
+        --disable-pip-version-check \
+        "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" || exit $?
+      PYTHONPATH="$CRAFTCTL_PYTHONPATH" craftctl default
       # The GNOME build extension puts its SDK interpreter first on PATH.
       # That SDK is not mounted under strict confinement, so make the venv use
       # core24's runtime Python and remove build-host provenance before packing.
@@ -178,7 +186,7 @@ parts:
       case "${CRAFT_ARCH_BUILD_FOR:-$(uname -m)}" in
         amd64|x86_64)
           echo "Installing sole amd64 CUDA runtime owner into Snap..."
-          python3 -m pip install --no-cache-dir --upgrade \
+          "$CRAFT_PART_INSTALL/bin/python3" -m pip install --no-cache-dir --upgrade \
             --timeout 120 \
             --retries 5 \
             --no-deps \
@@ -199,7 +207,7 @@ parts:
           ;;
         *)
           echo "Installing sole arm64 CPU runtime owner into Snap..."
-          python3 -m pip install --no-cache-dir --upgrade \
+          "$CRAFT_PART_INSTALL/bin/python3" -m pip install --no-cache-dir --upgrade \
             --no-deps \
             --target "$SNAP_PYTHON_SITE" \
             onnxruntime==1.24.4
@@ -207,7 +215,7 @@ parts:
       esac
       # faster-whisper declares the CPU distribution name. Install its code
       # without dependencies so amd64 keeps onnxruntime-gpu as sole owner.
-      python3 -m pip install --no-cache-dir --upgrade \
+      "$CRAFT_PART_INSTALL/bin/python3" -m pip install --no-cache-dir --upgrade \
         --no-deps \
         --target "$SNAP_PYTHON_SITE" \
         faster-whisper==1.2.1
@@ -236,16 +244,62 @@ parts:
         *) TRIPLET="x86_64-linux-gnu" ;;
       esac
       PLATFORM_LIB="$SNAP/gnome-platform/usr/lib/$TRIPLET"
-      export GST_PLUGIN_PATH="$PLATFORM_LIB/gstreamer-1.0${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}"
+      APP_GST_PLUGINS="$SNAP/usr/lib/$TRIPLET/gstreamer-1.0"
+      export GST_PLUGIN_PATH="$APP_GST_PLUGINS:$PLATFORM_LIB/gstreamer-1.0"
       export GI_TYPELIB_PATH="$PLATFORM_LIB/girepository-1.0:$SNAP/gnome-platform/usr/lib/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
       CUDA_RUNTIME="$SNAP/lib/python3/dist-packages/nvidia/cuda_runtime"
       if [ -z "${CUDA_PATH:-}" ] && [ -f "$CUDA_RUNTIME/include/cuda_runtime.h" ]; then
         export CUDA_PATH="$CUDA_RUNTIME"
       fi
       cd $SNAP
+      if [ "${1:-}" = "--recording-smoke" ]; then
+        shift
+        exec python3 -m nvbroadcast.video.recording_smoke "$@"
+      fi
       exec python3 -m nvbroadcast "$@"
       EOF
       chmod +x $CRAFT_PART_INSTALL/bin/nvbroadcast-wrapper
+
+  # The GNOME content snap supplies the GStreamer core, muxers, and shared
+  # codec libraries but no recording encoders or H.264 parser. Prime only the
+  # required Core24 plugins and their software codec libraries; do not
+  # duplicate the full plugins-bad payload from the content snap.
+  recording-codecs:
+    plugin: nil
+    stage-packages:
+      - gstreamer1.0-plugins-bad
+      - libfaad2
+      - libopenh264-7
+      - libvo-aacenc0
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgstnvcodec.so
+      - usr/lib/*/gstreamer-1.0/libgstfaad.so
+      - usr/lib/*/gstreamer-1.0/libgstopenh264.so
+      - usr/lib/*/gstreamer-1.0/libgstvideoparsersbad.so
+      - usr/lib/*/gstreamer-1.0/libgstvoaacenc.so
+      - usr/lib/*/libfaad.so.2*
+      - usr/lib/*/libopenh264.so.*
+      - usr/lib/*/libvo-aacenc.so.0*
+      - usr/share/doc/gstreamer1.0-plugins-bad/copyright
+      - usr/share/doc/libfaad2/copyright
+      - usr/share/doc/libopenh264-7/copyright
+      - usr/share/doc/libvo-aacenc0/copyright
+      - usr/share/doc/libvo-aacenc0/NOTICE.gz
+    prime:
+      - usr/lib/*/gstreamer-1.0/libgstnvcodec.so
+      - usr/lib/*/gstreamer-1.0/libgstfaad.so
+      - usr/lib/*/gstreamer-1.0/libgstopenh264.so
+      - usr/lib/*/gstreamer-1.0/libgstvideoparsersbad.so
+      - usr/lib/*/gstreamer-1.0/libgstvoaacenc.so
+      - usr/lib/*/libfaad.so.2*
+      - usr/lib/*/libopenh264.so.*
+      - usr/lib/*/libvo-aacenc.so.0*
+      - usr/share/doc/gstreamer1.0-plugins-bad/copyright
+      - usr/share/doc/libfaad2/copyright
+      - usr/share/doc/libopenh264-7/copyright
+      - usr/share/doc/libvo-aacenc0/copyright
+      - usr/share/doc/libvo-aacenc0/NOTICE.gz
+    after: [nvbroadcast]
 
   # NVIDIA GPU support (for users with NVIDIA drivers)
   nvidia-support:

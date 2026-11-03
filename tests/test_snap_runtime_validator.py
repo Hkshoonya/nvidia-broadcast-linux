@@ -8,6 +8,7 @@ from scripts.validate_snap_runtime import (
     discover_package_roots,
     platform_shadow_problems,
     python_runtime_problems,
+    recording_codec_problems,
 )
 
 
@@ -67,6 +68,15 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
         )
         runtime_owner = "onnxruntime-gpu" if variant == "cuda" else "onnxruntime"
         self._add_distribution(runtime_owner, "1.24.4")
+        if variant == "cuda":
+            self._add_distribution("cupy-cuda12x", "14.2.0")
+            self._add_distribution("cuda-pathfinder", "1.3.4")
+            for name in (
+                "nvidia-cublas-cu12", "nvidia-cuda-runtime-cu12", "nvidia-cudnn-cu12",
+                "nvidia-curand-cu12", "nvidia-cufft-cu12", "nvidia-nvjitlink-cu12",
+                "nvidia-cuda-nvrtc-cu12",
+            ):
+                self._add_distribution(name, "12.0")
 
     def _add_valid_python_runtime(self) -> None:
         (self.snap_root / "pyvenv.cfg").write_text(
@@ -89,6 +99,36 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
             "Icon=${SNAP}/meta/gui/icon.svg\n"
             "Type=Application\n"
         )
+
+    def _add_valid_recording_codecs(self, triplet="x86_64-linux-gnu") -> None:
+        library_dir = self.snap_root / "usr/lib" / triplet
+        plugin_dir = library_dir / "gstreamer-1.0"
+        plugin_dir.mkdir(parents=True)
+        for name in (
+            "libgstfaad.so",
+            "libgstnvcodec.so",
+            "libgstopenh264.so",
+            "libgstvideoparsersbad.so",
+            "libgstvoaacenc.so",
+        ):
+            (plugin_dir / name).touch()
+        (library_dir / "libfaad.so.2.11.1").touch()
+        (library_dir / "libfaad.so.2").symlink_to("libfaad.so.2.11.1")
+        (library_dir / "libopenh264.so.2.4.1").touch()
+        (library_dir / "libopenh264.so.7").symlink_to(
+            "libopenh264.so.2.4.1"
+        )
+        (library_dir / "libvo-aacenc.so.0").touch()
+        for relative in (
+            "usr/share/doc/gstreamer1.0-plugins-bad/copyright",
+            "usr/share/doc/libfaad2/copyright",
+            "usr/share/doc/libopenh264-7/copyright",
+            "usr/share/doc/libvo-aacenc0/copyright",
+            "usr/share/doc/libvo-aacenc0/NOTICE.gz",
+        ):
+            path = self.snap_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
 
     def test_discovers_snap_python_roots(self):
         self.assertEqual(discover_package_roots(self.snap_root), [self.site_packages])
@@ -150,6 +190,32 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
                 "Snap shadows a GNOME platform library: "
                 "usr/lib/x86_64-linux-gnu/libgtk-4.so.1"
             ],
+        )
+
+    def test_accepts_narrow_recording_codec_payload(self):
+        self._add_valid_recording_codecs()
+
+        self.assertEqual(
+            recording_codec_problems(self.snap_root, "amd64"), []
+        )
+
+    def test_rejects_missing_and_unrelated_recording_plugins(self):
+        self._add_valid_recording_codecs("aarch64-linux-gnu")
+        plugin_dir = (
+            self.snap_root /
+            "usr/lib/aarch64-linux-gnu/gstreamer-1.0"
+        )
+        (plugin_dir / "libgstopenh264.so").unlink()
+        (plugin_dir / "libgstunrelated.so").touch()
+
+        problems = recording_codec_problems(self.snap_root, "arm64")
+
+        self.assertIn(
+            "Snap is missing recording plugin: libgstopenh264.so", problems
+        )
+        self.assertIn(
+            "Snap primes unrelated app-owned GStreamer plugin: libgstunrelated.so",
+            problems,
         )
 
     def test_accepts_packaged_desktop_launcher(self):
@@ -293,6 +359,56 @@ class SnapRuntimeValidatorTests(unittest.TestCase):
 
         self.assertTrue(any("onnxruntime-gpu" in problem for problem in problems))
         self.assertTrue(any("unexpected runtime distribution" in problem for problem in problems))
+
+    def test_cuda_profile_rejects_missing_selected_cupy_and_native_root(self):
+        self._add_valid_runtime("cuda")
+        for name, version in (("cupy-cuda12x", "14.2.0"),
+                              ("nvidia-cudnn-cu12", "12.0")):
+            directory = self.site_packages / f"{name.replace('-', '_')}-{version}.dist-info"
+            (directory / "METADATA").unlink()
+            directory.rmdir()
+        _, problems = dependency_problems(
+            self.snap_root, "amd64", ("CPUExecutionProvider", "CUDAExecutionProvider")
+        )
+        self.assertTrue(any("missing: cupy-cuda12x" in p for p in problems))
+        self.assertTrue(any("missing: nvidia-cudnn-cu12" in p for p in problems))
+
+    def test_cuda_profile_rejects_incompatible_cupy(self):
+        self._add_valid_runtime("cuda")
+        metadata = self.site_packages / "cupy_cuda12x-14.2.0.dist-info/METADATA"
+        metadata.write_text(metadata.read_text().replace("Version: 14.2.0", "Version: 15.0"))
+        _, problems = dependency_problems(
+            self.snap_root, "amd64", ("CPUExecutionProvider", "CUDAExecutionProvider")
+        )
+        self.assertTrue(any("cupy-cuda12x versions 15.0 do not satisfy" in p for p in problems))
+
+    def test_snap_selects_meeting_support_but_not_full_cuda_or_openai_extra(self):
+        self._add_valid_runtime("cuda")
+        metadata = self.site_packages / "nvbroadcast-1.4.0.dist-info/METADATA"
+        with metadata.open("a") as stream:
+            stream.write('Requires-Dist: soundfile; extra == "meeting-support"\n'
+                         'Requires-Dist: nvidia-nvjpeg-cu12; extra == "cuda"\n')
+        _, problems = dependency_problems(
+            self.snap_root, "amd64", ("CPUExecutionProvider", "CUDAExecutionProvider")
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("missing package soundfile", problems[0])
+        self._add_distribution("soundfile", "0.13.1")
+        _, problems = dependency_problems(
+            self.snap_root, "amd64", ("CPUExecutionProvider", "CUDAExecutionProvider")
+        )
+        self.assertEqual(problems, [])
+
+    def test_snap_propagates_transitive_extra_requirements(self):
+        self._add_valid_runtime()
+        metadata = self.site_packages / "faster_whisper-1.2.1.dist-info/METADATA"
+        with metadata.open("a") as stream:
+            stream.write("Requires-Dist: backend[feature]\n")
+        self._add_distribution("backend", "1.0", ('required-leaf; extra == "feature"',))
+        _, problems = dependency_problems(
+            self.snap_root, "arm64", ("CPUExecutionProvider",)
+        )
+        self.assertTrue(any("missing package required-leaf" in p for p in problems))
 
 
 if __name__ == "__main__":

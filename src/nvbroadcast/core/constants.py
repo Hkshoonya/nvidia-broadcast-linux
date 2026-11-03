@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """Application constants."""
@@ -8,7 +8,13 @@
 import os
 from pathlib import Path
 
-APP_ID = "com.doczeus.NVBroadcast"
+from nvbroadcast.core.platform import running_in_flatpak
+
+APP_ID = (
+    "com.nvbroadcast.NVBroadcast"
+    if running_in_flatpak()
+    else "com.doczeus.NVBroadcast"
+)
 APP_NAME = "NV Broadcast"
 APP_SUBTITLE = "by doczeus | AI Powered"
 

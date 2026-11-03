@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 #
 """Release update checks against GitHub Releases."""
 
@@ -14,6 +14,8 @@ import time
 from dataclasses import dataclass, field
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+
+from nvbroadcast.core.platform import running_in_flatpak
 
 
 LATEST_RELEASE_URL = "https://api.github.com/repos/Hkshoonya/nvidia-broadcast-linux/releases/latest"
@@ -77,6 +79,16 @@ def resolve_update_target(release: ReleaseInfo) -> UpdateTarget:
             button_label="Open Snap Update",
             tooltip="Open the Snap Store page for the latest stable refresh",
             url=SNAP_STORE_URL,
+        )
+
+    if running_in_flatpak():
+        return UpdateTarget(
+            button_label="Open Release Notes",
+            tooltip=(
+                f"Open release notes for v{release.version}; "
+                "Flatpak updates depend on your installation source"
+            ),
+            url=release.html_url or LATEST_RELEASE_URL,
         )
 
     if sys.platform == "darwin":

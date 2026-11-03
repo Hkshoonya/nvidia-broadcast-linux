@@ -1,7 +1,17 @@
+import json
+import os
 import re
+import shlex
+import shutil
 import stat
+import struct
+import subprocess
+import sys
+import tempfile
+import time
 import tomllib
 import unittest
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
@@ -17,7 +27,7 @@ class PackagingMetadataTests(unittest.TestCase):
         return "\n".join(line[2:] if line.startswith("  ") else line for line in lines)
 
     def test_release_version_metadata_is_current(self):
-        current = "1.5.2"
+        current = "1.5.4"
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
@@ -34,29 +44,214 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn(f"version: '{current}'", snapcraft)
         self.assertIn("title: NV Broadcast", snapcraft)
         self.assertIn(f"Version:        {current}", rpm_spec)
-        self.assertIn(f'<release version="{current}" date="2026-09-04">', metainfo)
+        self.assertIn(f'<release version="{current}" date="2026-10-28">', metainfo)
         self.assertIn(f"## v{current}", changelog)
         self.assertIn("See [CHANGELOG.md](./CHANGELOG.md)", readme)
-        # Direct website downloads follow the latest published release until
-        # the candidate is promoted, so release preparation cannot create 404s.
-        published = "1.4.0"
+        # Website native downloads are updated after release publication;
+        # Snap channel availability is reported separately.
+        published = "1.5.4"
         self.assertIn(f"nvbroadcast_{published}-1_all.deb", docs_index)
         self.assertIn(f"nvbroadcast-{published}-1.noarch.rpm", docs_index)
         self.assertIn(f"NVBroadcast-{published}-1.pkg", docs_index)
+        self.assertIn("docs/MACOS_SIGNING.md#test-the-signed-installer-on-your-mac", docs_index)
+        self.assertIn("/opt/nvbroadcast/scripts/setup_macos_runtime.sh", docs_index)
+        self.assertIn("/usr/local/bin/nvbroadcast", docs_index)
         self.assertIn(f"such as v{current}", snap_workflow)
         self.assertIn(f"# NV Broadcast v{current}", release_notes)
+
+    def test_debian_paths_install_cpu_recording_encoder(self):
+        control = (REPO_ROOT / "packaging" / "debian" / "control").read_text()
+        package_builder = (REPO_ROOT / "build-packages.sh").read_text()
+        source_installer = (REPO_ROOT / "install.sh").read_text()
+        dependency_setup = (REPO_ROOT / "setup_deps.sh").read_text()
+
+        for path, contents in (
+            ("packaging/debian/control", control),
+            ("build-packages.sh", package_builder),
+            ("install.sh", source_installer),
+            ("setup_deps.sh", dependency_setup),
+        ):
+            self.assertIn("gstreamer1.0-plugins-ugly", contents, path)
+
+    def test_fedora_paths_install_cpu_recording_encoder(self):
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        source_installer = (REPO_ROOT / "install.sh").read_text()
+
+        self.assertNotIn("Requires:       gstreamer1-plugin-openh264", rpm_spec)
+        self.assertIn("Recommends:     gstreamer1-plugin-openh264", rpm_spec)
+        self.assertIn("Recommends:     openh264", rpm_spec)
+        self.assertIn("gstreamer1-plugin-openh264", source_installer)
+
+    def test_optional_recording_codecs_do_not_break_core_install(self):
+        source = (REPO_ROOT / "install.sh").read_text()
+        function = source.split("install_optional_recording_codecs() {", 1)[1].split(
+            "\n# Check if a package is installed", 1
+        )[0]
+        function = "install_optional_recording_codecs() {" + function
+        for available in (False, True):
+            with self.subTest(available=available):
+                script = "set -e\nPKG_MANAGER=dnf\n"
+                script += "is_pkg_installed() { return 1; }\n"
+                script += f"dnf() {{ return {0 if available else 1}; }}\n"
+                script += "install_packages() { echo CODEC_TRANSACTION; return 1; }\n"
+                script += function + "\ninstall_optional_recording_codecs\necho CORE_INSTALL_CONTINUES\n"
+                result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("CORE_INSTALL_CONTINUES", result.stdout)
+                self.assertEqual("CODEC_TRANSACTION" in result.stdout, available)
+
+    def test_fedora_binding_packages_do_not_cancel_core_dependency_transaction(self):
+        source = (REPO_ROOT / "install.sh").read_text()
+        functions = source.split("get_packages() {", 1)[1].split(
+            "\ninstall_optional_recording_codecs() {", 1
+        )[0]
+        functions = "get_packages() {" + functions
+        for manager in ("dnf", "yum"):
+            with self.subTest(package_manager=manager):
+                # DNF rejects the complete transaction when any requested name
+                # is absent. Model the obsolete name without changing the host.
+                script = "set -e\n" + functions
+                script += """
+sudo() { "$@"; }
+repo_install() {
+    for arg in "$@"; do
+        if [ "$arg" = "python3-gobject-cairo" ]; then
+            echo "No match for argument: $arg" >&2
+            return 1
+        fi
+    done
+    printf 'INSTALLED %s\\n' "$@"
+}
+dnf() { repo_install "$@"; }
+yum() { repo_install "$@"; }
+"""
+                script += f"PKG_MANAGER={manager}\nget_packages\n"
+                script += 'install_packages "$PKGS_PYTHON $PKGS_GTK $PKGS_GST"\n'
+                script += "echo CORE_DEPENDENCIES_INSTALLED\n"
+                result = subprocess.run(
+                    ["bash", "-c", script], capture_output=True, text=True
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("INSTALLED python3-gobject", result.stdout)
+                self.assertIn("INSTALLED python3-cairo", result.stdout)
+                self.assertIn("INSTALLED gtk4-devel", result.stdout)
+                self.assertIn("INSTALLED gstreamer1-devel", result.stdout)
+                self.assertIn("CORE_DEPENDENCIES_INSTALLED", result.stdout)
+
+    def test_published_native_downloads_protect_legacy_upgrades(self):
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+        commands = website.split("const commands = {", 1)[1].split("};", 1)[0]
+        commands = commands.split("\n  snap:", 1)[0]
+
+        self.assertNotIn("sudo dpkg -i", commands)
+        self.assertIn("nvbroadcast-native-upgrade", commands)
+        self.assertIn("SHA256SUMS.packages | sha256sum -c -", commands)
+        self.assertEqual(commands.count("set -euo pipefail"), 2)
+        self.assertEqual(commands.count("WORKDIR=$(mktemp -d)"), 2)
+        self.assertEqual(commands.count("wget --https-only"), 2)
+        self.assertIn("if dpkg-query", commands)
+        self.assertIn("if rpm -q nvbroadcast", commands)
+        self.assertIn("sudo apt-get install --yes --no-remove", commands)
+        self.assertIn("sudo dnf install --assumeyes", commands)
+
+    def test_public_homepage_and_search_metadata_are_canonical(self):
+        canonical = "https://nvbroadcast.com"
+        retired = "nvbroadcast.domjarvis.com"
+        homepage_files = (
+            "README.md",
+            "pyproject.toml",
+            "build-packages.sh",
+            "packaging/debian/control",
+            "packaging/rpm/nvbroadcast.spec",
+            "snap/snapcraft.yaml",
+            "data/com.doczeus.NVBroadcast.metainfo.xml",
+            "src/nvbroadcast/__init__.py",
+            "src/nvbroadcast/ui/window.py",
+            "docs/index.html",
+        )
+
+        for relative in homepage_files:
+            content = (REPO_ROOT / relative).read_text()
+            self.assertIn(canonical, content, relative)
+            self.assertNotIn(retired, content, relative)
+
+        self.assertEqual((REPO_ROOT / "docs" / "CNAME").read_text().strip(), "nvbroadcast.com")
+
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+        self.assertIn('<link rel="canonical" href="https://nvbroadcast.com/">', website)
+        self.assertIn('<meta property="og:url" content="https://nvbroadcast.com/">', website)
+        self.assertIn(
+            '<meta property="og:image" content="https://nvbroadcast.com/og-image.png">',
+            website,
+        )
+        self.assertIn('<meta name="twitter:card" content="summary_large_image">', website)
+        self.assertNotIn('<meta name="keywords"', website)
+
+        structured = website.split('<script type="application/ld+json">', 1)[1].split(
+            "</script>", 1
+        )[0]
+        graph = json.loads(structured)["@graph"]
+        nodes = {node["@type"]: node for node in graph}
+        self.assertEqual(nodes["WebSite"]["url"], f"{canonical}/")
+        application = nodes["SoftwareApplication"]
+        self.assertEqual(application["softwareVersion"], "1.5.4")
+        self.assertEqual(application["applicationCategory"], "MultimediaApplication")
+        self.assertEqual(application["offers"]["price"], "0")
+
+        robots = (REPO_ROOT / "docs" / "robots.txt").read_text()
+        self.assertIn("User-agent: *\nAllow: /", robots)
+        self.assertIn(f"Sitemap: {canonical}/sitemap.xml", robots)
+
+        sitemap = ET.parse(REPO_ROOT / "docs" / "sitemap.xml").getroot()
+        namespace = {"sitemap": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        self.assertEqual(
+            sitemap.findtext("sitemap:url/sitemap:loc", namespaces=namespace),
+            f"{canonical}/",
+        )
+
+        image = (REPO_ROOT / "docs" / "og-image.png").read_bytes()
+        self.assertEqual(image[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(struct.unpack(">II", image[16:24]), (1200, 630))
 
     def test_snap_description_stays_within_store_limit(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         description = self._snap_description(snapcraft)
         self.assertLessEqual(len(description), 4096)
 
+    def test_snap_summary_stays_descriptive_between_releases(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        summary = re.search(r"^summary: (.+)$", snapcraft, flags=re.MULTILINE).group(1)
+
+        self.assertLessEqual(len(summary), 79)
+        self.assertIn("virtual camera", summary.lower())
+        self.assertIn("background", summary.lower())
+        self.assertNotRegex(summary, r"\bv?\d+\.\d+")
+
     def test_install_script_uses_supported_tensorrt_command(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertIn("pip install tensorrt-cu12", install_script)
+        pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        wheel_requirement = (
+            "tensorrt-cu12-libs @ https://pypi.nvidia.com/tensorrt-cu12-libs/"
+            "tensorrt_cu12_libs-10.16.0.72-py3-none-manylinux_2_28_x86_64.whl"
+            "#sha256=a337c55b2ab34c097e14bd8be3e11bce67ee6705a4083604736ee6573f102bf5"
+            " ; sys_platform == 'linux' and platform_machine == 'x86_64'"
+        )
+        self.assertEqual(
+            pyproject["project"]["optional-dependencies"]["tensorrt"],
+            [wheel_requirement],
+        )
+        self.assertIn('TENSORRT_INDEX_URL="https://pypi.nvidia.com"', install_script)
+        self.assertIn(
+            'pip\" install --index-url "$TENSORRT_INDEX_URL"',
+            install_script,
+        )
+        self.assertIn('--only-binary tensorrt-cu12-libs "$TENSORRT_REQUIREMENT"', install_script)
+        self.assertIn("version('tensorrt-cu12-libs')", install_script)
+        self.assertIn("rerun ./install.sh --runtime cuda", install_script)
         self.assertNotIn("tensorrt-cu12-bindings", install_script)
-        self.assertNotIn("tensorrt-cu12-libs", install_script)
-        self.assertIn("requires Python 3.8-3.13", install_script)
+        self.assertNotIn("pip\" install tensorrt-cu12 onnx", install_script)
+        self.assertIn("requires Python 3.11-3.14", install_script)
+        self.assertIn("--variant cuda --provider tensorrt", install_script)
         self.assertIn("Python runtime notice", install_script)
         self.assertIn("some premium paths use safer defaults", install_script)
         self.assertIn('rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $rc)"', install_script)
@@ -72,14 +267,16 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--require-desktop-bindings", install_script)
         self.assertIn("Python desktop bindings ... OK", install_script)
         self.assertIn('"$PYTHON_BIN" -m venv "$VENV_DIR"', install_script)
-        self.assertIn("SELECTED_PYTHON_BASE", install_script)
+        self.assertIn("source_runtime.py", install_script)
         self.assertIn('--variant "$1"', install_script)
         self.assertIn('--meeting-backends "$meeting_backends"', install_script)
         self.assertLess(
             install_script.index('install_runtime_variant "$SELECTED_RUNTIME_VARIANT"'),
             install_script.index("Verifying GPU acceleration"),
         )
-        self.assertIn('rm -rf -- "$VENV_DIR"', install_script)
+        self.assertNotIn('rm -rf -- "$VENV_DIR"', install_script)
+        self.assertIn('prepare_candidate', install_script)
+        self.assertIn('activate "$CANDIDATE_VENV"', install_script)
         self.assertIn("CUDA_ACCEL_AVAILABLE=true", install_script)
         self.assertIn("CUDA execution probe ... OK", install_script)
         self.assertIn("--variant cuda --provider tensorrt", install_script)
@@ -180,17 +377,14 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertLess(guard_calls[0], install_script.index("# ─── Step 1:"))
 
         environment_step = install_script.index("# ─── Step 3:")
-        first_environment_mutation = min(
-            install_script.index('rm -rf -- "$VENV_DIR"', environment_step),
-            install_script.index(
-                '"$VENV_DIR/bin/pip" install --upgrade', environment_step
-            ),
+        first_environment_mutation = install_script.index(
+            '"$VENV_DIR/bin/pip" install --upgrade', environment_step
         )
         self.assertGreater(guard_calls[1], environment_step)
         self.assertLess(guard_calls[1], first_environment_mutation)
-        self.assertIn("check_source_venv_processes.py", install_script)
+        self.assertIn('"$RUNTIME_HELPER" --project "$SCRIPT_DIR" guard', install_script)
         self.assertIn(
-            "Stop NVBroadcast and the virtual-camera service", install_script
+            "Stop NVBroadcast and any audio or virtual-camera service", install_script
         )
         self.assertIn(
             "systemctl --user stop nvbroadcast-vcam.service", install_script
@@ -203,7 +397,7 @@ class PackagingMetadataTests(unittest.TestCase):
             "setup_deps.sh",
             "install.sh",
             "install_macos.sh",
-            "build-packages.sh",
+            "scripts/setup_macos_runtime.sh",
             "packaging/debian/postinst",
             "packaging/rpm/nvbroadcast.spec",
             ".github/workflows/pr-checks.yml",
@@ -215,16 +409,16 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn("PYTHONNOUSERSITE", content, relative)
 
         install_script = (REPO_ROOT / "install.sh").read_text()
-        self.assertGreaterEqual(
-            install_script.count("export PYTHONNOUSERSITE=1"),
-            3,
-        )
+        self.assertIn("export PYTHONNOUSERSITE=1", install_script)
+        # Generated source launchers are executed in the behavioral runtime tests.
+        helper = (REPO_ROOT / "scripts/source_runtime.py").read_text()
+        self.assertIn('os.environ["PYTHONNOUSERSITE"] = "1"', helper)
         self.assertIn("Environment=PYTHONNOUSERSITE=1", install_script)
 
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
         self.assertGreaterEqual(
             build_script.count("export PYTHONNOUSERSITE=1"),
-            4,
+            3,
         )
         self.assertIn("Environment=PYTHONNOUSERSITE=1", build_script)
 
@@ -294,7 +488,7 @@ class PackagingMetadataTests(unittest.TestCase):
         for content in (pyproject, snapcraft, build_workflow):
             self.assertIn("opencv-contrib-python>=4.8.1.78,<5", content)
             self.assertNotIn("opencv-python-headless", content)
-            self.assertIn("Pillow>=12.3.0", content)
+            self.assertIn("Pillow>=13.0.0", content)
 
         self.assertIn("pyvirtualcam>=0.14", pyproject)
         self.assertIn('"packaging>=26.0"', pyproject)
@@ -313,12 +507,16 @@ class PackagingMetadataTests(unittest.TestCase):
             REPO_ROOT / "setup_deps.sh",
             REPO_ROOT / "packaging" / "debian" / "postinst",
             REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec",
-            REPO_ROOT / "build-packages.sh",
+            REPO_ROOT / "scripts" / "setup_macos_runtime.sh",
         )
         for installer in installers:
-            self.assertIn("pip>=26.2", installer.read_text(), str(installer))
+            self.assertIn("pip>=26.2.2", installer.read_text(), str(installer))
+            contents = installer.read_text()
+            fixed_wheel = "pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+            self.assertIn(fixed_wheel, contents, str(installer))
+            self.assertLess(contents.index(fixed_wheel), contents.index("pip>=26.2.2"), str(installer))
             self.assertIn(
-                "setuptools>=83.0.0", installer.read_text(), str(installer)
+                "setuptools>=84.1.0", installer.read_text(), str(installer)
             )
 
         install_script = (REPO_ROOT / "install.sh").read_text()
@@ -326,9 +524,9 @@ class PackagingMetadataTests(unittest.TestCase):
             "CORE_PY_MODULES=(numpy cv2 onnxruntime PIL psutil onnx mediapipe)",
             install_script,
         )
-        self.assertIn('requires = ["setuptools>=83.0.0", "wheel"]', pyproject)
-        self.assertIn("pip>=26.2", build_workflow)
-        self.assertIn("setuptools>=83.0.0", build_workflow)
+        self.assertIn('requires = ["setuptools>=84.1.0", "wheel"]', pyproject)
+        self.assertIn("pip>=26.2.2", build_workflow)
+        self.assertIn("setuptools>=84.1.0", build_workflow)
 
     def test_native_package_payloads_use_safe_ownership_and_permissions(self):
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
@@ -343,10 +541,191 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("packaging/debian/changelog", build_script)
         self.assertIn("/^#DEBHELPER#$/d", build_script)
         self.assertIn("%{buildroot}/opt/nvbroadcast -type f -exec chmod 644 {} +", rpm_spec)
-        self.assertIn("chmod 644 LICENSE README.md", rpm_spec)
+        self.assertIn(
+            "chmod 644 LICENSE NOTICE README.md CONTRIBUTORS.md",
+            rpm_spec,
+        )
 
-        for relative in ("LICENSE", "README.md"):
+        for relative in ("LICENSE", "NOTICE", "README.md", "CONTRIBUTORS.md"):
             self.assertEqual((REPO_ROOT / relative).stat().st_mode & stat.S_IXUSR, 0, relative)
+
+    @unittest.skipUnless(
+        sys.platform == "linux"
+        and shutil.which("dpkg-deb"),
+        "requires Linux dpkg-deb",
+    )
+    def test_direct_deb_builds_are_reproducible(self):
+        with tempfile.TemporaryDirectory(prefix="nvbroadcast-repro-deb-") as directory:
+            project = Path(directory)
+            for name in ("src", "data", "configs", "packaging", "scripts"):
+                shutil.copytree(REPO_ROOT / name, project / name)
+            for name in (
+                "build-packages.sh", "pyproject.toml", "LICENSE", "NOTICE",
+                "README.md", "CONTRIBUTORS.md",
+            ):
+                shutil.copy2(REPO_ROOT / name, project / name)
+
+            environment = os.environ.copy()
+            environment.pop("SOURCE_DATE_EPOCH", None)
+
+            def build() -> bytes:
+                subprocess.run(
+                    ["bash", "build-packages.sh", "deb"],
+                    cwd=project,
+                    env=environment,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                packages = list((project / "dist" / "deb").glob("nvbroadcast_*.deb"))
+                self.assertEqual(len(packages), 1)
+                return packages[0].read_bytes()
+
+            first = build()
+            time.sleep(1.1)
+            self.assertEqual(first, build())
+
+            environment["SOURCE_DATE_EPOCH"] = "4102444800"
+            future = build()
+            time.sleep(1.1)
+            self.assertEqual(future, build())
+
+            environment["SOURCE_DATE_EPOCH"] = "1600000000"
+            self.assertNotEqual(first, build())
+            environment["SOURCE_DATE_EPOCH"] = "invalid"
+            with self.assertRaises(subprocess.CalledProcessError):
+                build()
+
+    @unittest.skipUnless(
+        sys.platform == "linux"
+        and shutil.which("rpmbuild")
+        and shutil.which("rpm"),
+        "requires Linux rpmbuild and rpm",
+    )
+    def test_direct_rpm_builds_are_reproducible(self):
+        with tempfile.TemporaryDirectory(prefix="nvbroadcast-repro-rpm-") as directory:
+            project = Path(directory)
+            for name in ("src", "data", "configs", "packaging", "scripts"):
+                shutil.copytree(REPO_ROOT / name, project / name)
+            for name in (
+                "build-packages.sh", "pyproject.toml", "LICENSE", "NOTICE",
+                "README.md", "CONTRIBUTORS.md",
+            ):
+                shutil.copy2(REPO_ROOT / name, project / name)
+
+            environment = os.environ.copy()
+            environment.pop("SOURCE_DATE_EPOCH", None)
+
+            def build() -> tuple[bytes, Path]:
+                subprocess.run(
+                    ["bash", "build-packages.sh", "rpm"],
+                    cwd=project,
+                    env=environment,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                packages = list((project / "dist" / "rpm").glob("nvbroadcast-*.rpm"))
+                self.assertEqual(len(packages), 1)
+                return packages[0].read_bytes(), packages[0]
+
+            first, package = build()
+            time.sleep(1.1)
+            self.assertEqual(first, build()[0])
+            header = subprocess.check_output(
+                ["rpm", "-qp", "--qf", "%{BUILDTIME} %{BUILDHOST}", str(package)],
+                text=True,
+            )
+            self.assertEqual(header.split()[1], "nvbroadcast")
+
+            environment["SOURCE_DATE_EPOCH"] = "4102444800"
+            future, _ = build()
+            time.sleep(1.1)
+            self.assertEqual(future, build()[0])
+
+            environment["SOURCE_DATE_EPOCH"] = "1600000000"
+            self.assertNotEqual(first, build()[0])
+            environment["SOURCE_DATE_EPOCH"] = "invalid"
+            with self.assertRaises(subprocess.CalledProcessError):
+                build()
+
+    @unittest.skipUnless(sys.platform == "linux", "requires Linux shell tools")
+    def test_explicit_rpm_build_requires_tool_and_new_artifact(self):
+        with tempfile.TemporaryDirectory(prefix="nvbroadcast-rpm-errors-") as directory:
+            root = Path(directory)
+            missing_tool = root / "missing-tool"
+            missing_tool.mkdir()
+            for name in ("build-packages.sh", "pyproject.toml"):
+                shutil.copy2(REPO_ROOT / name, missing_tool / name)
+
+            limited_path = root / "limited-path"
+            limited_path.mkdir()
+            for name in ("bash", "dirname", "python3"):
+                (limited_path / name).symlink_to(shutil.which(name))
+            environment = os.environ.copy()
+            environment["PATH"] = str(limited_path)
+            result = subprocess.run(
+                ["bash", "build-packages.sh", "rpm"],
+                cwd=missing_tool,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("rpmbuild not found", result.stderr)
+
+            no_artifact = root / "no-artifact"
+            no_artifact.mkdir()
+            for name in ("src", "data", "configs", "packaging", "scripts"):
+                shutil.copytree(REPO_ROOT / name, no_artifact / name)
+            for name in (
+                "build-packages.sh", "pyproject.toml", "LICENSE", "NOTICE",
+                "README.md", "CONTRIBUTORS.md",
+            ):
+                shutil.copy2(REPO_ROOT / name, no_artifact / name)
+            stale = no_artifact / "dist" / "rpm" / "nvbroadcast-stale.rpm"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"old RPM")
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            fake_rpmbuild = fake_bin / "rpmbuild"
+            fake_rpmbuild.write_text("#!/bin/sh\nexit 0\n")
+            fake_rpmbuild.chmod(0o755)
+            environment["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
+            environment.pop("SOURCE_DATE_EPOCH", None)
+            result = subprocess.run(
+                ["bash", "build-packages.sh", "rpm"],
+                cwd=no_artifact,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("produced no RPM artifact", result.stderr)
+            self.assertEqual(stale.read_bytes(), b"old RPM")
+
+    def test_canonical_notice_and_contributors_ship_in_package_payloads(self):
+        records = ("NOTICE", "CONTRIBUTORS.md")
+        manifest = (REPO_ROOT / "MANIFEST.in").read_text()
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        build_script = (REPO_ROOT / "build-packages.sh").read_text()
+        debian_rules = (REPO_ROOT / "packaging" / "debian" / "rules").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        macos_installer = (REPO_ROOT / "install_macos.sh").read_text()
+        build_workflow = (
+            REPO_ROOT / ".github" / "workflows" / "build-packages.yml"
+        ).read_text()
+
+        self.assertIn('"share/doc/nvbroadcast"', pyproject)
+        for record in records:
+            with self.subTest(record=record):
+                self.assertIn(f"include {record}", manifest)
+                self.assertIn(f'"{record}"', pyproject)
+                self.assertIn(record, build_script)
+                self.assertIn(record, debian_rules)
+                self.assertIn(record, rpm_spec)
+                self.assertIn(record, macos_installer)
+                self.assertIn(f"/opt/nvbroadcast/{record}", build_workflow)
 
     def test_advertised_shell_entrypoints_are_executable(self):
         for relative in ("build-packages.sh", "install.sh", "install_macos.sh"):
@@ -371,7 +750,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("build_upgrade_helper()", build_script)
         self.assertIn("render_native_upgrade_helper.py", build_script)
         self.assertGreaterEqual(
-            workflow.count("artifacts/linux-packages/nvbroadcast-native-upgrade"),
+            workflow.count("artifacts/linux-signed-packages/nvbroadcast-native-upgrade"),
             3,
         )
         self.assertIn("dist/nvbroadcast-native-upgrade", workflow)
@@ -466,8 +845,11 @@ class PackagingMetadataTests(unittest.TestCase):
             "  release:", 1
         )[0]
         snap_builder = snap_workflow.split("  build-snap:", 1)[1].split(
-            "  attach-release:", 1
+            "  attest-snap-checksums:", 1
         )[0]
+        snap_checksums = snap_workflow.split(
+            "  attest-snap-checksums:", 1
+        )[1].split("  attach-release:", 1)[0]
 
         for builder in (attestation_job, snap_builder):
             self.assertIn("attestations: write", builder)
@@ -477,16 +859,21 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertIn(attest_action, builder)
 
         self.assertIn(
-            "needs: [build-linux, build-macos, test-macos, test-linux, test-python]",
+            "needs: [build-linux, build-macos, test-macos, test-macos-runtime, test-linux, test-python, sign-linux, sign-macos]",
             attestation_job,
         )
-        self.assertIn("artifacts/linux-packages/deb/*.deb", attestation_job)
-        self.assertIn("artifacts/linux-packages/rpm/*.rpm", attestation_job)
-        self.assertIn("artifacts/macos-packages/*.pkg", attestation_job)
+        self.assertIn("artifacts/linux-signed-packages/deb/*.deb", attestation_job)
+        self.assertIn("artifacts/linux-signed-packages/rpm/*.rpm", attestation_job)
+        self.assertIn("artifacts/macos-signed-packages/*.pkg", attestation_job)
         self.assertIn("artifacts/SHA256SUMS.packages", attestation_job)
         self.assertIn("steps.snapcraft.outputs.snap", snap_builder)
         self.assertEqual(build_workflow.count(attest_action), 1)
-        self.assertEqual(snap_workflow.count(attest_action), 1)
+        self.assertEqual(snap_workflow.count(attest_action), 2)
+        self.assertIn("subject-path: SHA256SUMS.snap", snap_checksums)
+        self.assertIn("attestations: write", snap_checksums)
+        self.assertIn("contents: read", snap_checksums)
+        self.assertIn("id-token: write", snap_checksums)
+        self.assertNotIn("contents: write", snap_checksums)
 
     def test_release_workflows_publish_deterministic_checksum_manifests(self):
         build_workflow = (
@@ -515,19 +902,28 @@ class PackagingMetadataTests(unittest.TestCase):
         )
         self.assertIn("needs: attest-release", native_release)
 
+        snap_checksums = snap_workflow.split(
+            "  attest-snap-checksums:", 1
+        )[1].split("  attach-release:", 1)[0]
         snap_release = snap_workflow.split("  attach-release:", 1)[1]
-        self.assertIn("--output release-assets/SHA256SUMS.snap", snap_release)
+        self.assertIn("--output SHA256SUMS.snap", snap_checksums)
+        self.assertIn('"${SNAP_FILES[@]}"', snap_checksums)
+        self.assertIn("ARCH_FILES=(artifacts/snap-package-", snap_checksums)
+        self.assertIn("name: snap-release-checksums", snap_checksums)
+        self.assertIn("needs: attest-snap-checksums", snap_release)
         self.assertIn("release-assets/SHA256SUMS.snap", snap_release)
+        self.assertIn("Release asset staging directory must be empty", snap_release)
         self.assertIn("Duplicate Snap release asset name", snap_release)
+        self.assertIn("Snap artifact differs from its attested checksum manifest", snap_release)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", snap_release)
+        self.assertLess(
+            snap_release.index("- name: Refuse stale Snap assets"),
+            snap_release.index("- name: Attach snaps to GitHub Release"),
+        )
         snap_attachment = snap_release.split(
             "- name: Attach snaps to GitHub Release", 1
         )[1]
-        self.assertIn("release-assets/nvbroadcast_*.snap", snap_attachment)
-        self.assertNotIn("release-assets/*.snap", snap_attachment)
-        self.assertEqual(
-            snap_attachment.count("release-assets/SHA256SUMS.snap"),
-            1,
-        )
+        self.assertIn("files: release-assets/*", snap_attachment)
 
         self.assertIn("docs/RELEASE_VERIFICATION.md", readme)
         self.assertIn("gh attestation verify", verification)
@@ -540,7 +936,7 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_snap_store_actions_are_pinned_to_the_release_tag(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
         build_job = workflow.split("  build-snap:", 1)[1].split(
-            "  attach-release:", 1
+            "  attest-snap-checksums:", 1
         )[0]
         attach_job = workflow.split("  attach-release:", 1)[1]
         release_target = build_job.split(
@@ -589,7 +985,7 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_snap_build_does_not_receive_release_write_permission(self):
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
         build_job = workflow.split("  build-snap:", 1)[1].split(
-            "  attach-release:", 1
+            "  attest-snap-checksums:", 1
         )[0]
         attach_job = workflow.split("  attach-release:", 1)[1]
 
@@ -698,10 +1094,10 @@ class PackagingMetadataTests(unittest.TestCase):
         workflow = (REPO_ROOT / ".github" / "workflows" / "build-packages.yml").read_text()
         release_job = workflow.split("  release:", 1)[1]
 
-        self.assertIn("artifacts/linux-packages/deb/*.deb", release_job)
-        self.assertIn("artifacts/linux-packages/rpm/*.rpm", release_job)
-        self.assertIn("artifacts/macos-packages/*.pkg", release_job)
-        self.assertNotIn("artifacts/macos-packages/pkg/*.pkg", release_job)
+        self.assertIn("artifacts/linux-signed-packages/deb/*.deb", release_job)
+        self.assertIn("artifacts/linux-signed-packages/rpm/*.rpm", release_job)
+        self.assertIn("artifacts/macos-signed-packages/*.pkg", release_job)
+        self.assertNotIn("artifacts/macos-signed-packages/pkg/*.pkg", release_job)
         self.assertIn("fail_on_unmatched_files: true", release_job)
 
     def test_macos_ci_installs_the_actual_project_dependency_set(self):
@@ -781,6 +1177,147 @@ class PackagingMetadataTests(unittest.TestCase):
             self.assertNotIn('[cuda]"', postinst)
         self.assertIn("pkill -f", rpm_spec.split("%pre", 1)[1].split("%post", 1)[0])
         self.assertNotIn('pkill -f "nvbroadcast"', rpm_spec)
+
+    @staticmethod
+    def _run_native_postinstall(
+        postinstall, *, gpu, cuda_status, cpu_status, shell="/bin/sh",
+        fail_stage="", fail_once=False,
+    ):
+        with tempfile.TemporaryDirectory(prefix="nvb-native-postinstall-") as tmp:
+            root = Path(tmp)
+            commands = root / "commands"
+            commands.mkdir()
+            calls = root / "calls"
+            calls.touch()
+            for name in ("modprobe.d", "modules-load.d"):
+                (root / name).mkdir()
+            for name in ("mkdir", "cp", "grep"):
+                (commands / name).symlink_to(shutil.which(name))
+            stage_check = (
+                'record_stage() {\n'
+                '  [ -n "$NVB_TEST_FAIL_STAGE" ] || return 0\n'
+                '  printf "%s\\n" "$1" >> "$NVB_TEST_CALLS"\n'
+                '  if [ "$1" = "$NVB_TEST_FAIL_STAGE" ] && {\n'
+                '    [ "$NVB_TEST_FAIL_ONCE" != 1 ] || [ ! -f "$NVB_TEST_FAILED" ];\n'
+                '  }; then\n'
+                '    : > "$NVB_TEST_FAILED"\n'
+                '    return 42\n'
+                '  fi\n'
+                '}\n'
+            )
+            stubs = {
+                "rm": (
+                    'if [ "$3" = "$NVB_TEST_VENV" ]; then\n'
+                    '  record_stage cleanup || exit $?\n'
+                    'fi\n'
+                    f'exec {shlex.quote(shutil.which("rm"))} "$@"\n'
+                ),
+                "uname": "printf '%s\\n' x86_64\n",
+                "modprobe": 'printf "%s\\n" integration >> "$NVB_TEST_CALLS"\n',
+                "python3": (
+                    # A failed venv command can leave usable files behind.
+                    'mkdir -p "$3/bin"\n'
+                    'cp "$NVB_TEST_PIP" "$3/bin/pip"\n'
+                    'cp "$NVB_TEST_PYTHON" "$3/bin/python"\n'
+                    'record_stage venv || exit $?\n'
+                ),
+                "pip": (
+                    'case "$*" in\n'
+                    '  *pip-26.2.2-py3-none-any.whl#sha256=*) record_stage trust-bootstrap || exit $? ;;\n'
+                    '  *) record_stage bootstrap || exit $? ;;\n'
+                    'esac\nexit 0\n'
+                ),
+                "python": (
+                    'while [ "$1" != "--variant" ]; do shift; done\n'
+                    'printf "%s\\n" "$2" >> "$NVB_TEST_CALLS"\n'
+                    'case "$2" in\n'
+                    '  cuda) exit "$NVB_TEST_CUDA_STATUS" ;;\n'
+                    '  cpu) exit "$NVB_TEST_CPU_STATUS" ;;\n'
+                    "esac\n"
+                ),
+            }
+            if gpu:
+                stubs["nvidia-smi"] = "exit 0\n"
+            for name, body in stubs.items():
+                stub = commands / name
+                stub.write_text("#!/bin/sh\n" + stage_check + body)
+                stub.chmod(0o755)
+            script = postinstall.replace(
+                "/opt/nvbroadcast", shlex.quote(str(root / "application"))
+            ).replace("/etc/modprobe.d", shlex.quote(str(root / "modprobe.d")))
+            script = script.replace(
+                "/etc/modules-load.d", shlex.quote(str(root / "modules-load.d"))
+            ).replace("/usr/share/", str(root / "share") + "/")
+            assert "/opt/nvbroadcast" not in script
+            assert "/etc/" not in script
+            assert "/usr/share/" not in script
+            environment = dict(
+                os.environ,
+                PATH=str(commands),
+                NVB_TEST_CALLS=str(calls),
+                NVB_TEST_PIP=str(commands / "pip"),
+                NVB_TEST_PYTHON=str(commands / "python"),
+                NVB_TEST_CUDA_STATUS=str(cuda_status),
+                NVB_TEST_CPU_STATUS=str(cpu_status),
+                NVB_TEST_VENV=str(root / "application" / ".venv"),
+                NVB_TEST_FAIL_STAGE=fail_stage,
+                NVB_TEST_FAIL_ONCE="1" if fail_once else "0",
+                NVB_TEST_FAILED=str(root / "failed"),
+            )
+            result = subprocess.run(
+                [shell, "-c", script],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return result, calls.read_text().splitlines()
+
+    def test_rpm_postinstall_propagates_failed_cpu_fallback(self):
+        spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        postinstall = spec.split("\n%post\n", 1)[1].split("\n%preun\n", 1)[0]
+        cases = (
+            (True, 1, 1, 1, ["cuda", "cpu"]),
+            (True, 1, 0, 0, ["cuda", "cpu", "integration"]),
+            (True, 0, 1, 0, ["cuda", "integration"]),
+            (False, 0, 1, 1, ["cpu"]),
+            (False, 0, 0, 0, ["cpu", "integration"]),
+        )
+        for gpu, cuda_status, cpu_status, expected_status, expected_calls in cases:
+            with self.subTest(gpu=gpu, cuda_status=cuda_status, cpu_status=cpu_status):
+                result, calls = self._run_native_postinstall(
+                    postinstall, gpu=gpu, cuda_status=cuda_status, cpu_status=cpu_status
+                )
+                self.assertEqual(result.returncode, expected_status, result.stderr)
+                self.assertEqual(calls, expected_calls)
+                if gpu and cuda_status and cpu_status:
+                    self.assertIn("CPU runtime setup failed", result.stderr)
+
+    def test_native_postinstalls_stop_after_failed_runtime_stage(self):
+        deb_postinstall = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
+        spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        rpm_postinstall = spec.split("\n%post\n", 1)[1].split("\n%preun\n", 1)[0]
+        stages = ["cleanup", "venv", "trust-bootstrap", "bootstrap"]
+        for package, postinstall, shell in (
+            ("DEB", deb_postinstall, "/bin/bash"),
+            ("RPM", rpm_postinstall, "/bin/sh"),
+        ):
+            for index, fail_stage in enumerate(stages):
+                failed_attempt = stages[:index + 1]
+                for gpu, fail_once in ((False, False), (True, False), (True, True)):
+                    with self.subTest(package=package, stage=fail_stage,
+                                      gpu=gpu, fail_once=fail_once):
+                        result, calls = self._run_native_postinstall(
+                            postinstall, gpu=gpu, cuda_status=0, cpu_status=0,
+                            shell=shell, fail_stage=fail_stage, fail_once=fail_once,
+                        )
+                        if fail_once:
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            expected = failed_attempt + stages + ["cpu", "integration"]
+                        else:
+                            self.assertNotEqual(result.returncode, 0, result.stdout)
+                            expected = failed_attempt * (2 if gpu else 1)
+                        self.assertEqual(calls, expected, result.stderr)
 
     def test_virtual_camera_label_is_nvbroadcast_everywhere(self):
         constants = (REPO_ROOT / "src" / "nvbroadcast" / "core" / "constants.py").read_text()
@@ -892,13 +1429,22 @@ class PackagingMetadataTests(unittest.TestCase):
             spec,
         )
 
-    def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
+    def test_macos_pkg_requires_unprivileged_runtime_setup(self):
         script = (REPO_ROOT / "build-packages.sh").read_text()
         pkg_builder = script.split("build_pkg() {", 1)[1]
         self.assertIn("install_runtime_variant.py", script)
-        self.assertIn("--variant cpu --meeting-backends faster", script)
-        self.assertIn('rm -rf -- "$INSTALL_DIR/.venv"', script)
-        self.assertIn('pkill -f "^${INSTALL_DIR}/.venv/bin/python -m nvbroadcast', script)
+        setup = (REPO_ROOT / "scripts" / "setup_macos_runtime.sh").read_text()
+        postinstall = pkg_builder.split("<< 'POSTINST'", 1)[1].split("\nPOSTINST", 1)[0]
+        self.assertNotIn("-m venv", postinstall)
+        self.assertNotIn("pip install", postinstall)
+        self.assertNotIn("brew --prefix", postinstall)
+        self.assertIn("Runtime setup is still required", postinstall)
+        self.assertIn("--variant cpu --meeting-backends faster", setup)
+        self.assertIn("(( EUID == 0 ))", setup)
+        self.assertIn("macos-runtime-id", setup)
+        self.assertIn('"$INSTALL_DIR/scripts/macos-bindings-inputs.json"', setup)
+        self.assertIn("install -m 644 packaging/macos-runtime/inputs.json", pkg_builder)
+        self.assertNotIn("rm -rf", setup)
         self.assertIn(
             'mkdir -p "$INSTALL_ROOT/opt/nvbroadcast/scripts"', pkg_builder
         )
@@ -920,6 +1466,38 @@ class PackagingMetadataTests(unittest.TestCase):
             "opt/nvbroadcast/scripts/install_runtime_variant.py", macos_builder
         )
         self.assertIn('test -x "$runtime_installer"', macos_builder)
+        self.assertIn('cmp packaging/macos-runtime/inputs.json "$binding_inputs"', macos_builder)
+        runtime_test = workflow.split("  test-macos-runtime:", 1)[1].split("  sign-macos:", 1)[0]
+        self.assertIn("path.relative_to(prefix)", runtime_test)
+        self.assertIn("private_binding_fallback_exercised", runtime_test)
+        self.assertIn("('gi', 'gi._gi', 'cairo', 'cairo._cairo')", runtime_test)
+        prerequisites = "brew install python@3.13 pygobject3 gtk4 libadwaita gstreamer pkgconf ninja"
+        self.assertIn(prerequisites, setup)
+        self.assertIn(prerequisites, (REPO_ROOT / "docs/MACOS_SIGNING.md").read_text())
+        self.assertIn(prerequisites, (REPO_ROOT / "docs/index.html").read_text())
+
+    def test_macos_private_binding_pins_match_source_and_wheel_identities(self):
+        from packaging.utils import (
+            canonicalize_name, parse_sdist_filename, parse_wheel_filename,
+        )
+        from urllib.parse import urlsplit
+
+        inputs = json.loads((REPO_ROOT / "packaging/macos-runtime/inputs.json").read_text())
+        self.assertEqual(inputs["schema_version"], 1)
+        self.assertEqual(inputs["target"], "macos-arm64-cp313-cpu")
+        self.assertEqual({item["name"] for item in inputs["bootstrap"]},
+                         {"meson", "meson-python", "pyproject-metadata", "packaging"})
+        self.assertEqual({item["name"] for item in inputs["bindings"]}, {"pycairo", "PyGObject"})
+        for item in inputs["bootstrap"] + inputs["bindings"]:
+            with self.subTest(package=item["name"]):
+                url = urlsplit(item["url"])
+                self.assertEqual((url.scheme, url.netloc), ("https", "files.pythonhosted.org"))
+                filename = url.path.rsplit("/", 1)[-1]
+                parsed = (parse_wheel_filename(filename) if filename.endswith(".whl")
+                          else parse_sdist_filename(filename))
+                self.assertEqual(parsed[0], canonicalize_name(item["name"]))
+                self.assertEqual(str(parsed[1]), item["version"])
+                self.assertRegex(item["sha256"], r"^[a-f0-9]{64}$")
 
     def test_macos_source_installer_guards_openai_whisper(self):
         script = (REPO_ROOT / "install_macos.sh").read_text()
@@ -928,7 +1506,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('rm -rf -- "$INSTALL_DIR/venv"', script)
         self.assertIn('pkill -f "^${INSTALL_DIR}/venv/bin/python -m nvbroadcast', script)
         self.assertIn("sys.version_info < (3, 14)", script)
-        self.assertIn('pip install -q "openai-whisper>=20231117"', script)
+        self.assertIn('-m pip install -q "openai-whisper>=20231117"', script)
 
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
@@ -995,6 +1573,93 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Verify Snap excludes runtime pip", workflow)
         self.assertIn("must not contain a runtime pip installer", workflow)
 
+    def test_snap_repairs_bootstrap_trust_before_plugin_resolution_and_stops_on_failure(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        prelude = snapcraft.split("    override-build: |\n", 1)[1].split(
+            "      # The GNOME build extension", 1
+        )[0]
+        script = "\n".join(line[6:] for line in prelude.splitlines()) + "\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            commands = root / "commands"
+            commands.mkdir()
+            driver = root / "python-driver"
+            driver.write_text('''#!/bin/sh
+case "$*" in
+  *"--no-deps"*"pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"*) ;;
+  *) exit 91 ;;
+esac
+printf 'trust-bootstrap\n' >> "$NVB_TEST_CALLS"
+test "$NVB_TEST_BOOTSTRAP_EXIT" = 0 || exit "$NVB_TEST_BOOTSTRAP_EXIT"
+touch "$NVB_TEST_FIXED_PIP"
+''')
+            (commands / "python3").write_text('''#!/bin/sh
+test "$1" = -m && test "$2" = venv || exit 92
+mkdir -p "$3/bin"
+cp "$NVB_TEST_PIP_DRIVER" "$3/bin/python3"
+chmod +x "$3/bin/python3"
+''')
+            (commands / "craftctl").write_text('''#!/bin/sh
+test -f "$NVB_TEST_FIXED_PIP" || exit 93
+test "$PYTHONPATH" = craftctl-only || exit 94
+printf 'plugin-resolution\n' >> "$NVB_TEST_CALLS"
+''')
+            for path in commands.iterdir():
+                path.chmod(0o755)
+            for exit_code in (0, 37):
+                with self.subTest(bootstrap_exit=exit_code):
+                    calls, fixed = root / f"calls-{exit_code}", root / f"fixed-{exit_code}"
+                    result = subprocess.run(["bash"], input=script, capture_output=True, text=True,
+                        env={**os.environ, "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                             "PARTS_PYTHON_INTERPRETER": "python3", "PYTHONPATH": "",
+                             "CRAFTCTL_PYTHONPATH": "craftctl-only", "CRAFT_PART_INSTALL": str(root / f"install-{exit_code}"),
+                             "NVB_TEST_PIP_DRIVER": str(driver), "NVB_TEST_CALLS": str(calls),
+                             "NVB_TEST_FIXED_PIP": str(fixed), "NVB_TEST_BOOTSTRAP_EXIT": str(exit_code)})
+                    self.assertEqual(result.returncode, exit_code, result.stderr)
+                    expected = ["trust-bootstrap", "plugin-resolution"] if exit_code == 0 else ["trust-bootstrap"]
+                    self.assertEqual(calls.read_text().splitlines(), expected)
+
+    def test_snap_owner_installs_use_fixed_venv_instead_of_sdk_python(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        installs = snapcraft.split('      SNAP_PYTHON_SITE=', 1)[1].split(
+            '      # Optional runtime installation', 1
+        )[0]
+        script = 'SNAP_PYTHON_SITE=' + "\n".join(
+            line[6:] if index else line
+            for index, line in enumerate(installs.splitlines())
+        ) + "\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            commands, venv = root / "commands", root / "install"
+            commands.mkdir()
+            (venv / "bin").mkdir(parents=True)
+            sdk_python = commands / "python3"
+            sdk_python.write_text('#!/bin/sh\necho "Unexpected SDK pip" >&2\nexit 95\n')
+            sdk_python.chmod(0o755)
+            fixed_python = venv / "bin" / "python3"
+            fixed_python.write_text('''#!/bin/sh
+test "$1" = -m && test "$2" = pip || exit 96
+printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
+''')
+            fixed_python.chmod(0o755)
+            for arch, owner in (("amd64", "onnxruntime-gpu==1.24.4"),
+                                ("arm64", "onnxruntime==1.24.4")):
+                with self.subTest(arch=arch):
+                    calls = root / f"calls-{arch}"
+                    result = subprocess.run(["bash", "-e"], input=script,
+                        capture_output=True, text=True,
+                        env={**os.environ, "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                             "CRAFT_PART_INSTALL": str(venv), "CRAFT_ARCH_BUILD_FOR": arch,
+                             "NVB_TEST_CALLS": str(calls)})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    operations = calls.read_text().splitlines()
+                    self.assertEqual(len(operations), 2)
+                    self.assertIn(owner, operations[0])
+                    self.assertIn("faster-whisper==1.2.1", operations[1])
+                    for operation in operations:
+                        self.assertIn("--no-deps", operation)
+                        self.assertIn(f"--target {venv}/lib/python3/dist-packages", operation)
+
     def test_snap_validates_runtime_dependency_closure(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
@@ -1003,7 +1668,13 @@ class PackagingMetadataTests(unittest.TestCase):
         )[1].split("# nvImageCodec", 1)[0]
 
         self.assertIn("- packaging>=26.0", snapcraft)
-        self.assertIn("- setuptools>=83.0.0", snapcraft)
+        self.assertIn("- setuptools>=84.1.0", snapcraft)
+        self.assertIn('      - CRAFTCTL_PYTHONPATH: "$PYTHONPATH"', snapcraft)
+        self.assertIn('      - PYTHONPATH: ""', snapcraft)
+        self.assertIn(
+            'PYTHONPATH="$CRAFTCTL_PYTHONPATH" craftctl default', snapcraft
+        )
+        self.assertNotIn("PIP_IGNORE_INSTALLED", snapcraft)
         self.assertIn("--no-deps", cuda_install)
         self.assertIn('"cuda-pathfinder>=1.3.4,<2"', cuda_install)
         self.assertNotRegex(
@@ -1061,6 +1732,38 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("--timeout 120", snapcraft)
         self.assertIn("--retries 5", snapcraft)
 
+    def test_snap_primes_only_required_recording_codecs(self):
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        codec_part = snapcraft.split("  recording-codecs:\n", 1)[1].split(
+            "\n  # NVIDIA GPU support", 1
+        )[0]
+        for plugin in (
+            "libgstfaad.so",
+            "libgstnvcodec.so",
+            "libgstopenh264.so",
+            "libgstvideoparsersbad.so",
+            "libgstvoaacenc.so",
+        ):
+            self.assertIn(plugin, codec_part)
+        self.assertIn("libfaad.so.2*", codec_part)
+        self.assertIn("libopenh264.so.*", codec_part)
+        self.assertIn("libvo-aacenc.so.0*", codec_part)
+        self.assertIn("libfaad2/copyright", codec_part)
+        self.assertIn("libopenh264-7/copyright", codec_part)
+        self.assertIn("libvo-aacenc0/NOTICE.gz", codec_part)
+        self.assertNotIn("libgstx264.so", codec_part)
+        self.assertIn(
+            'GST_PLUGIN_PATH="$APP_GST_PLUGINS:$PLATFORM_LIB/gstreamer-1.0"',
+            snapcraft,
+        )
+        self.assertIn('"${1:-}" = "--recording-smoke"', snapcraft)
+        self.assertIn("Verify confined Snap recording", workflow)
+        self.assertIn("sudo snap connect nvbroadcast:camera", workflow)
+        self.assertIn("sudo snap connect nvbroadcast:audio-record", workflow)
+        self.assertIn("snapctl is-connected camera && snapctl is-connected audio-record", workflow)
+        self.assertIn("snap run nvbroadcast --recording-smoke", workflow)
+
     def test_snap_packages_a_registered_desktop_launcher(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
         validator = (
@@ -1108,30 +1811,29 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("`.[cuda,meeting]`", readme)
         self.assertIn("./install.sh --runtime auto --with-meeting", readme)
 
-    def test_macos_packages_require_the_runtime_wheel_baseline(self):
+    def test_macos_source_support_is_distinct_from_pkg_wheel_baseline(self):
         installer = (REPO_ROOT / "install_macos.sh").read_text()
         build_script = (REPO_ROOT / "build-packages.sh").read_text()
         readme = (REPO_ROOT / "README.md").read_text()
         website = (REPO_ROOT / "docs" / "index.html").read_text()
 
-        self.assertIn('[[ "$MACOS_VER" -lt 13 ]]', installer)
-        self.assertIn("macOS 13 (Ventura) or newer", installer)
+        self.assertIn('"$MACOS_VER" -lt 15', installer)
+        self.assertIn("macOS 15 (Sequoia) or newer", installer)
         self.assertIn('[[ "$MACOS_ARCH" != "arm64" ]]', installer)
         self.assertIn("supports Apple Silicon Macs only", installer)
-        self.assertIn(
-            "for p in python3.13 python3.12 python3.11 python3; do", installer
-        )
-        self.assertIn('"$minor" -le 13', installer)
-        self.assertIn(
-            "for p in python3.13 python3.12 python3.11 python3; do",
-            build_script,
-        )
-        self.assertIn('[ "$minor" -le 13 ]', build_script)
+        self.assertIn("for minor in 13 12 11; do", installer)
+        self.assertIn("{(3, 11): 18, (3, 12): 16, (3, 13): 18}.get(sys.version_info[:2])", installer)
+        self.assertIn("import cairo", installer)
+        self.assertIn("import gi", installer)
+        setup = (REPO_ROOT / "scripts" / "setup_macos_runtime.sh").read_text()
+        self.assertIn("for minor in 13 12 11; do", setup)
+        self.assertIn("{(3, 11): 18, (3, 12): 16, (3, 13): 18}.get(sys.version_info[:2])", setup)
+        self.assertIn("import gi", setup)
         self.assertIn('hostArchitectures="arm64"', build_script)
         self.assertIn('<os-version min="13.0"/>', build_script)
-        self.assertIn("Apple Silicon Mac with macOS 13+", readme)
+        self.assertIn("Apple Silicon Mac with macOS 15+", readme)
         self.assertIn("Python 3.11-3.13", readme)
-        self.assertIn("macOS 13 Ventura or newer", website)
+        self.assertIn("macOS 15 Sequoia or newer", website)
         self.assertIn("Apple Silicon (M1+) required", website)
 
     def test_sponsor_walls_keep_action_markers_balanced(self):
@@ -1172,6 +1874,68 @@ class PackagingMetadataTests(unittest.TestCase):
         )
         self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
 
+    def test_snap_promotion_preflight_precedes_both_store_credentials(self):
+        workflow = (REPO_ROOT / ".github/workflows/snap-promote.yml").read_text()
+        preflight = workflow.split("      - name: Verify promotion release source\n", 1)[1].split(
+            "      - name: Install Snapcraft\n", 1
+        )[0]
+        self.assertNotIn("if:", preflight)
+        self.assertNotIn("secrets.", preflight)
+        self.assertIn("ref: ${{ github.ref }}", workflow)
+        for credential in ("secrets.SNAP_CANDIDATE_TOKEN", "secrets.SNAP_EDGE_TOKEN", "secrets.SNAP_TOKEN"):
+            self.assertLess(workflow.index("- name: Verify promotion release source"), workflow.index(credential))
+        self.assertIn("git --no-replace-objects rev-parse --verify", preflight)
+
+    def test_snap_promotion_preflight_rejects_wrong_ref_version_and_commit(self):
+        workflow = (REPO_ROOT / ".github/workflows/snap-promote.yml").read_text()
+        step = workflow.split("      - name: Verify promotion release source\n", 1)[1].split(
+            "      - name: Install Snapcraft\n", 1
+        )[0]
+        body = step.split("        run: |\n", 1)[1]
+        script = "\n".join(line[10:] for line in body.splitlines())
+        script += "\nprintf 'STORE_ACTION_REACHED\\n'\n"
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+            def git(*arguments):
+                return subprocess.check_output(
+                    ["git", "-c", "user.name=Promotion fixture", "-c", "user.email=fixture@example.invalid",
+                     "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null", *arguments],
+                    cwd=project, env=environment, stderr=subprocess.DEVNULL, text=True,
+                ).strip()
+            git("init", "--quiet")
+            snapcraft = project / "snap/snapcraft.yaml"
+            snapcraft.parent.mkdir()
+            snapcraft.write_text("name: fixture\nversion: '7.8.9'\n")
+            git("add", "snap/snapcraft.yaml")
+            git("commit", "--quiet", "-m", "Release fixture")
+            release = git("rev-parse", "HEAD")
+            git("tag", "v7.8.9")
+            git("commit", "--quiet", "--allow-empty", "-m", "Other commit")
+            other = git("rev-parse", "HEAD")
+            cases = (
+                ("valid", "tag", "refs/tags/v7.8.9", release, release, "7.8.9", True),
+                ("branch", "branch", "refs/heads/main", release, release, "7.8.9", False),
+                ("wrong tag", "tag", "refs/tags/v7.8.8", release, release, "7.8.9", False),
+                ("wrong version", "tag", "refs/tags/v7.8.9", release, release, "7.8.10", False),
+                ("wrong workflow commit", "tag", "refs/tags/v7.8.9", other, release, "7.8.9", False),
+                ("wrong checkout", "tag", "refs/tags/v7.8.9", other, other, "7.8.9", False),
+            )
+            for operation in ("candidate", "edge", "stable"):
+                for name, ref_type, ref, workflow_sha, checkout, version, allowed in cases:
+                    with self.subTest(operation=operation, case=name):
+                        git("checkout", "--quiet", "--detach", checkout)
+                        snapcraft.write_text(f"name: fixture\nversion: '{version}'\n")
+                        result = subprocess.run(
+                            ["bash", "-c", script], cwd=project,
+                            env=dict(environment, GITHUB_REF_TYPE=ref_type, GITHUB_REF=ref,
+                                     GITHUB_SHA=workflow_sha, INPUT_OPERATION=operation),
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                        self.assertEqual("STORE_ACTION_REACHED" in result.stdout, allowed, result.stdout)
+                        snapcraft.write_text("name: fixture\nversion: '7.8.9'\n")
+
     def test_snap_promotion_workflow_validates_exact_revisions_and_rolls_back(self):
         workflow = (
             REPO_ROOT / ".github" / "workflows" / "snap-promote.yml"
@@ -1194,12 +1958,13 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('snapcraft release "$SNAP_NAME" "$AMD64_REVISION" candidate', workflow)
         self.assertIn("secrets.SNAP_CANDIDATE_TOKEN", workflow)
         self.assertIn("secrets.SNAP_TOKEN", workflow)
-        self.assertIn("--from-channel=candidate", workflow)
-        self.assertIn('--to-channel="$TARGET_CHANNEL"', workflow)
+        self.assertNotIn('snapcraft promote ', workflow)
+        self.assertIn('snapcraft release "$SNAP_NAME" "$CANDIDATE_ARM64" "$TARGET_CHANNEL"', workflow)
+        self.assertIn('snapcraft release "$SNAP_NAME" "$CANDIDATE_AMD64" "$TARGET_CHANNEL"', workflow)
         self.assertIn("inputs.operation == 'edge' || inputs.operation == 'stable'", workflow)
         self.assertIn(
-            "(inputs.operation == 'edge' && secrets.SNAP_EDGE_TOKEN) || "
-            "(inputs.operation == 'stable' && secrets.SNAP_TOKEN)",
+            "(inputs.operation == 'edge' && vars.SNAP_EDGE_PROMOTION_ENABLED == 'true' && secrets.SNAP_EDGE_TOKEN) || "
+            "(inputs.operation == 'stable' && secrets.SNAP_TOKEN) || '' }}",
             workflow,
         )
         self.assertNotIn(
@@ -1207,6 +1972,8 @@ class PackagingMetadataTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("A channel-scoped Snap Store credential is required", workflow)
+        self.assertIn("Edge promotion is disabled", workflow)
+        self.assertIn("Candidate changed during verification", workflow)
         self.assertIn('current_revision "$AMD64_TABLE" "$TARGET_CHANNEL"', workflow)
         self.assertIn('current_revision "$ARM64_TABLE" "$TARGET_CHANNEL"', workflow)
         self.assertIn("channel verification does not match", workflow)
@@ -1226,7 +1993,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("Attestation verification failed", verification_function)
         self.assertLess(
             workflow.index("gh attestation verify"),
-            workflow.index('snapcraft promote "$SNAP_NAME"'),
+            workflow.index('snapcraft release "$SNAP_NAME" "$CANDIDATE_ARM64" "$TARGET_CHANNEL"'),
         )
         self.assertIn(
             'snapcraft upload-metadata "$CANDIDATE_ARM64_SNAP" --force',

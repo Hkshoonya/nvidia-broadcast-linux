@@ -12,7 +12,9 @@ import sys
 from typing import Mapping, Sequence
 
 
-TARGET_MODULES = frozenset(("nvbroadcast", "nvbroadcast.vcam_service"))
+TARGET_MODULES = frozenset(
+    ("nvbroadcast", "nvbroadcast.vcam_service", "nvbroadcast.audio.service")
+)
 TARGET_CONSOLE_SCRIPTS = {
     "nvbroadcast": "nvbroadcast",
     "nvbroadcast-vcam": "nvbroadcast.vcam_service",

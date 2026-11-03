@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """Shared FaceLandmarker — single instance shared across all face effects.
@@ -13,8 +13,10 @@ import importlib
 import os
 import subprocess
 import sys
+import textwrap
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Optional
 
@@ -37,40 +39,54 @@ _MEDIAPIPE_READY: bool | None = None
 _instance: Optional["SharedFaceLandmarker"] = None
 
 
-def _probe_mediapipe_runtime() -> tuple[bool, str]:
+def _probe_mediapipe_runtime(model_path: Path) -> tuple[bool, str]:
     env = dict(os.environ)
     env.setdefault("MPLBACKEND", "Agg")
-    code = (
-        "import mediapipe as mp\n"
-        "from mediapipe.tasks.python import BaseOptions\n"
-        "from mediapipe.tasks.python.vision import FaceLandmarker, FaceLandmarkerOptions, RunningMode\n"
-        "print('ok')\n"
-    )
+    # Imports can succeed even when native model initialization kills the process.
+    # Exercise the same model options in a child before loading it in the GUI.
+    code = textwrap.dedent("""\
+        import sys
+        from mediapipe.tasks.python import BaseOptions
+        from mediapipe.tasks.python.vision import (
+            FaceLandmarker, FaceLandmarkerOptions, RunningMode,
+        )
+
+        options = FaceLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=sys.argv[1]),
+            running_mode=RunningMode.VIDEO,
+            num_faces=1,
+            min_face_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+        )
+        with FaceLandmarker.create_from_options(options):
+            pass
+        """)
     try:
         result = subprocess.run(
-            [sys.executable, "-c", code],
+            [sys.executable, "-I", "-c", code, str(model_path)],
             capture_output=True,
             text=True,
             timeout=15,
             env=env,
         )
-    except Exception as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)
     if result.returncode == 0:
         return True, ""
     detail = (result.stderr or result.stdout or "").strip()
-    return False, detail[:300] or f"exit code {result.returncode}"
+    message = f"MediaPipe face model initialization exited {result.returncode}"
+    return False, f"{message}: {detail[:300]}" if detail else message
 
 
-def _load_mediapipe():
+def _load_mediapipe(model_path: Path):
     global _MEDIAPIPE_IMPORT_ERROR, _MEDIAPIPE_READY
     if _MEDIAPIPE_READY is False:
         raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR or "MediaPipe runtime unavailable")
     if _MEDIAPIPE_READY is None:
-        ok, detail = _probe_mediapipe_runtime()
+        ok, detail = _probe_mediapipe_runtime(model_path)
         if not ok:
             _MEDIAPIPE_READY = False
-            _MEDIAPIPE_IMPORT_ERROR = detail or "MediaPipe import probe failed"
+            _MEDIAPIPE_IMPORT_ERROR = detail or "MediaPipe model probe failed"
             raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR)
         _MEDIAPIPE_READY = True
 
@@ -98,20 +114,20 @@ class SharedFaceLandmarker:
     """Single FaceLandmarker shared across eye contact, relighting, and beautify.
 
     Call detect(bgra_frame) to get landmarks. Results are cached per frame
-    (same frame pointer = cached result). Thread-safe via the GIL.
+    (same live frame object = cached result).
     """
 
     def __init__(self):
         self._landmarker = None
         self._initialized = False
-        self._last_frame_id = None
+        self._last_frame_ref = None
         self._last_result = None
         self._frames_since_infer = 0
         self._lock = threading.Lock()
         self._detect_lock = threading.Lock()
         self._async_busy = False
         self._pending_job = None
-        self._pending_frame_id = None
+        self._pending_frame_ref = None
         self._worker_event = threading.Event()
         self._worker_stop = False
         self._worker_thread = None
@@ -136,7 +152,7 @@ class SharedFaceLandmarker:
                 FaceLandmarker,
                 FaceLandmarkerOptions,
                 RunningMode,
-            ) = _load_mediapipe()
+            ) = _load_mediapipe(model_path)
             opts = FaceLandmarkerOptions(
                 base_options=BaseOptions(model_asset_path=str(model_path)),
                 running_mode=RunningMode.VIDEO,
@@ -174,10 +190,12 @@ class SharedFaceLandmarker:
         if not self.ready:
             return None
 
-        frame_id = id(bgra_frame)
+        frame_ref = weakref.ref(bgra_frame)
         with self._lock:
             cached = self._last_result
-            if frame_id == self._last_frame_id and cached is not None:
+            if (self._last_frame_ref is not None
+                    and self._last_frame_ref() is bgra_frame
+                    and cached is not None):
                 return cached
 
             reuse_frames = max(1, int(reuse_frames))
@@ -187,16 +205,17 @@ class SharedFaceLandmarker:
                 and self._frames_since_infer < (reuse_frames - 1)
             ):
                 self._frames_since_infer += 1
-                self._last_frame_id = frame_id
+                self._last_frame_ref = frame_ref
                 return cached
 
-            if frame_id == self._pending_frame_id:
+            if (self._pending_frame_ref is not None
+                    and self._pending_frame_ref() is bgra_frame):
                 return cached
 
         frame_copy = bgra_frame.copy()
         with self._lock:
             self._pending_job = frame_copy
-            self._pending_frame_id = frame_id
+            self._pending_frame_ref = frame_ref
             self._async_busy = True
             self._worker_event.set()
         return cached
@@ -204,15 +223,19 @@ class SharedFaceLandmarker:
     def detect(self, bgra_frame: np.ndarray, reuse_frames: int = 1):
         """Detect face landmarks. Returns list of landmarks or None.
 
-        Results are cached per frame (by id) so multiple effects calling
+        Results are cached by live frame identity so multiple effects calling
         detect() on the same frame only run inference once.
         """
         if not self.ready:
             return None
 
-        # Cache check — same frame object means same detection
-        frame_id = id(bgra_frame)
-        if frame_id == self._last_frame_id and self._last_result is not None:
+        # Keep only a weak reference: frame arrays are short-lived and CPython
+        # can reuse their numeric IDs on the very next camera frame. An ID-only
+        # cache can therefore freeze landmark inference after the first frame.
+        frame_ref = weakref.ref(bgra_frame)
+        if (self._last_frame_ref is not None
+                and self._last_frame_ref() is bgra_frame
+                and self._last_result is not None):
             return self._last_result
 
         reuse_frames = max(1, int(reuse_frames))
@@ -222,13 +245,13 @@ class SharedFaceLandmarker:
             and self._frames_since_infer < (reuse_frames - 1)
         ):
             self._frames_since_infer += 1
-            self._last_frame_id = frame_id
+            self._last_frame_ref = frame_ref
             return self._last_result
 
         with self._detect_lock:
             landmarks = self._run_detection(bgra_frame)
         with self._lock:
-            self._last_frame_id = frame_id
+            self._last_frame_ref = frame_ref
             self._last_result = landmarks
             self._frames_since_infer = 0
         return landmarks
@@ -244,16 +267,16 @@ class SharedFaceLandmarker:
             while True:
                 with self._lock:
                     frame = self._pending_job
-                    frame_id = self._pending_frame_id
+                    frame_ref = self._pending_frame_ref
                     self._pending_job = None
-                    self._pending_frame_id = None
+                    self._pending_frame_ref = None
                 if frame is None:
                     break
 
                 with self._detect_lock:
                     landmarks = self._run_detection(frame)
                 with self._lock:
-                    self._last_frame_id = frame_id
+                    self._last_frame_ref = frame_ref
                     self._last_result = landmarks
                     self._frames_since_infer = 0
 

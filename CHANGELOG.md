@@ -2,6 +2,118 @@
 
 ## Unreleased
 
+- **Correct Fedora source-install dependencies and guidance** - Request the
+  available `python3-gobject` and `python3-cairo` packages, and explain why an
+  alternate Python alone does not provide matching desktop bindings. Normal
+  source installation still requires CPython 3.11–3.14; Python 3.15 support is
+  tracked separately in #184. Fixes #183.
+
+## v1.5.4 - Security and Runtime Reliability
+
+**Published.** [v1.5.4 downloads](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4)
+are available. The exact native packages and tag-built Snaps passed the scoped
+verification in [the release notes](docs/RELEASE_NOTES_1.5.4.md). The published
+release record documents Store revision identities, the observation decision
+and accepted limitations. Snap channel availability is reported separately by
+[the Store](https://snapcraft.io/nvbroadcast).
+
+- **Refresh Security-Sensitive Python Inputs** - Update affected certificate
+  bundles, image decoding, file locking and build/install tools. Audit actual
+  frozen Python versions in CI as well as the resolved project environment
+  ([PR #171](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/171)).
+- **Keep Eye Contact Tracking Fresh** - Prevent the shared face tracker from
+  freezing on an earlier frame when Python reuses a released camera frame's
+  object ID. Eye Contact can follow changing eye positions while preserving
+  its existing blink and occlusion limits
+  ([PR #151](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/151)).
+- **Recognize Arch CUDA Runtime Packages** - Recognize a live CUDA-enabled ONNX
+  build distributed under the plain `onnxruntime` name, while retaining strict
+  packaged-runtime checks, duplicate-owner rejection and inference validation.
+  Thanks to [@mauriciozaffari](https://github.com/mauriciozaffari) for the
+  contribution and Arch/RTX 2070 SUPER verification
+  ([PR #156](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/156)).
+- **Keep Fedora Virtualenv Protobuf Visible** - Keep the managed runtime’s
+  protobuf discoverable when Fedora’s legacy `google` namespace hook would
+  otherwise hide it, while retaining distro-only namespace modules
+  ([PR #159](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/159)).
+- **Report Native Runtime Setup Failures** - Stop when required environment
+  cleanup, creation or bootstrap setup fails. Report failure when CUDA setup
+  and its clean CPU fallback both fail
+  ([PR #142](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/142),
+  [PR #143](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/143)).
+- **Handle Fresh Homebrew Python Bindings** - The macOS PKG setup can build
+  pinned GTK/Cairo Python bindings in its per-user runtime when current
+  Homebrew bindings target a newer Python ABI. Working supported system
+  bindings remain available. The tag-built PKG passed fresh binding compilation,
+  CPU inference and synthetic media checks on the Apple Silicon runner.
+
+Exact-tag package contents, signatures and provenance are verified within the
+recorded scope; the owner also confirmed the requested Linux and M2 Mac checks.
+Separately built Store revisions use their own verification and candidate
+acceptance records; tag-built Snap checksums do not identify another build. Experimental offline native adapters and Flatpak remain
+separate work under #60 and #95; this release does not enable them as defaults
+or close the remaining quality and physical-device issues.
+
+## v1.5.3 - Recording, Small Windows, and Runtime Recovery
+
+[Published 9 October 2026](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.3).
+See the [verified release notes](docs/RELEASE_NOTES_1.5.3.md) for downloads,
+completed checks, and remaining limitations.
+
+- **Usable Small Windows** - Camera and Audio controls remain readable in
+  narrow windows. Show Preview restores the camera picture at the minimum
+  window size without hiding the controls, including with Meeting Notes open.
+- **GStreamer Startup Compatibility** - Initialize GStreamer with an explicit
+  empty argument list so older private PyGObject bindings work with the newer
+  GStreamer 1.28 typelib.
+- **Recoverable Source Updates** - Build and verify each Linux source runtime
+  before switching the application and virtual-camera launchers. Failed installs
+  preserve the working environment; `./install.sh --rollback-runtime` rechecks
+  and selects the previous one. Fix startup with a saved CuPy preference when
+  the selected runtime only has CPU dependencies.
+- **Recording Across Effect Changes** - Keep the MP4 recorder running when
+  capture is rebuilt for an effect or backend change. Stopping Broadcast still
+  finalizes the file, and a failed rebuild stops the retained recorder.
+- **Find Saved Recordings** - Rec saves to the desktop Videos folder instead
+  of Snap's private home. A Recordings menu opens that folder, the last saved
+  recording, or older Snap recordings, and completion shows the saved path.
+- **Recording With Effects Disabled** - Passthrough camera frames now reach
+  the MP4 recorder even when all video effects are off and the preview is
+  hidden, preventing apparently successful recordings with no video frames.
+- **GPU First-Use Verification** - CUDA and TensorRT execution checks allow up
+  to two minutes for a cold start, avoiding false installation failures when
+  first-use kernel compilation exceeds 30 seconds. CPU checks and explicitly
+  requested timeouts retain their existing bounds.
+- **Honest Processing-Mode Availability** - CPU processing modes now create
+  CPU-only ONNX Runtime sessions, including optional matte refinement, while
+  GPU modes probe the selected device. Temporary GPU memory pressure is shown
+  as retryable instead of hiding every processing choice as permanently
+  unavailable, and mode checks remain tied to the device selected when each
+  check began.
+- **Verified Packaged Recordings** - Recording now proves a working H.264 and
+  AAC encode path before Rec or Meeting uses it, prefers NVIDIA hardware
+  encoding when available, and falls back through tested software encoders
+  without blocking the window during codec preparation or MP4 finalization.
+  Package CI creates, discovers, and fully decodes a synthetic MP4 with one
+  video and one audio stream; Debian installs the x264 plugin, while the released
+  Snap carries a narrowly validated OpenH264 and VisualOn codec payload
+  for strict confinement ([Issue #112](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/112)).
+- **Visible TensorRT Downloads** - Source and in-app installs resolve the pinned
+  TensorRT 10 library wheel directly from NVIDIA's package index and refuse the
+  PyPI forwarding stub. Pip now identifies the 4.3 GB transfer as a download
+  instead of appearing stuck at `Preparing metadata` ([Issue #120](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/120)).
+- **Camera Discovery After Startup** - When the app opens before a physical camera is ready, the visible window now retries discovery, clears cached failed probes, and refreshes resolution and frame-rate choices when the camera appears. A refresh button also handles cameras connected or replaced later without restarting the app, and disconnected devices no longer remain in the Source list ([Issue #121](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/121)).
+- **Reject Ambiguous Runtime Ownership** - Runtime selection now rejects multiple installed copies of the same ONNX Runtime distribution, including identical versions, before treating an environment as a valid CPU or CUDA variant. This also blocks CUDA support installation into those ambiguous environments. Source updates now use verified generations and rollback; authenticated runtime-pack delivery remains follow-up work ([Issue #53](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/53)).
+- **TensorRT on Python 3.14** - Zeus and Killer can use pinned TensorRT 10 shared libraries without Python bindings. Source and in-app installers verify real ONNX Runtime provider execution before enabling the modes, and the README explains the first engine build delay ([Issue #35](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/35)).
+- **Working Edge Controls in Every Background Mode** - Dilate and Softness now adjust Replace and Remove mattes as well as Blur. The shipped values (3 and 5) preserve each mode's existing output; Replace adjusts around its narrow outline to avoid adding a default halo ([Issue #106](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/106)).
+- **Lower Replacement Processing Cost** - Background replacement reuses mask tone curves, limits edge and color cleanup to relevant pixels, runs compatible temporal blends on the selected GPU, avoids returning unused model output, and copies denoise history and skin-smoothing regions more efficiently while retaining camera resolution and per-frame inference.
+- **Cleaner Background Edges** - Image replacement preserves the model's original edge confidence when cleaning bright camera-background spill, and uses nearby opaque colors to keep dark outlines from borrowing white clothing color during movement. It also preserves narrow finger gaps through refinement, including Balanced/Performance smoothing, retains opaque finger detail beside those gaps, and responds to local hand motion without retaining old finger pixels. Fused GPU Remove repairs contaminated soft-edge colors, while Blur honors its Dilate and Softness controls and avoids broad matte closing that could bridge raised hands, fingers, and other legitimate background gaps ([PR #93](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/93)).
+- **Linux Source Installation on Python 3.14** - The installer now accepts CPython 3.14 when its GTK4, Libadwaita, and GStreamer bindings are available, including on distros whose system Python is 3.14. Automatic selection retains the existing 3.13/3.12/3.11 preference before trying 3.14, and `--python` supports an explicit choice. TensorRT availability is checked through a separate execution probe, and unvalidated newer interpreters are rejected ([PR #103](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/103), contributed by [`@KadotyGamer`](https://github.com/KadotyGamer)).
+- **Accurate Tray Broadcast State** - Starting, stopping, or failing to start a pipeline now refreshes both tray implementations from the application's authoritative streaming state, so the SNI action no longer remains stuck on "Stop Broadcast" after the stream has ended ([PR #92](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/92)).
+- **Reliable Snap Release Attachments** - Snap release automation uses non-overlapping artifact patterns, preventing the checksum file from being submitted twice while preserving the already validated binaries and frozen release tag ([PR #89](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/89)).
+- **Official Project Identity and Contributor Records** - The repository now documents the canonical project, repository, publisher, and website; accepted external contributors remain cumulatively credited; and `NOTICE` plus `CONTRIBUTORS.md` ship inside source, wheel, DEB, RPM, Snap, and macOS package paths ([PR #94](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/94), [PR #101](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/101)).
+- **Public Website and Listing Metadata** - Release information, project links, search metadata, and the Snap listing now use the official [nvbroadcast.com](https://nvbroadcast.com) identity with a descriptive product summary ([PR #97](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/97), [PR #98](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/98), [PR #99](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/99)).
+
 ## v1.5.2 - Camera Recovery and First Public v1.5 Release
 
 - **First Public v1.5 Build** - v1.5.2 supersedes the withdrawn v1.5.0 build and unpublished v1.5.1 candidate. It carries forward the tested native-upgrade helper, deterministic runtime ownership, device recovery, dependency floors, and artifact-provenance controls without requiring users to install an intermediate release.

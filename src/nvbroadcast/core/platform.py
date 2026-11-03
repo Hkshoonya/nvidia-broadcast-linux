@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """Platform detection — abstracts OS differences for cross-platform support."""
@@ -40,6 +40,11 @@ NVIDIA_RUNTIME_LIB_MODULES = (
     "nvidia.cufft",
     "nvidia.nvjitlink",
 )
+
+
+def running_in_flatpak() -> bool:
+    """Return whether the current process is running inside Flatpak."""
+    return bool(os.environ.get("FLATPAK_ID")) or Path("/.flatpak-info").is_file()
 
 
 def _coerce_version_info(
@@ -102,16 +107,16 @@ def supports_linux_gpu_stack() -> bool:
 
 
 def supports_tensorrt_python(version_info: tuple[int, int] | None = None) -> bool:
-    """Return whether NVIDIA publishes TensorRT Python wheels for this version."""
+    """Return whether the pinned TensorRT 10 libraries support this runtime."""
     major, minor = _coerce_version_info(version_info)
-    return major == 3 and 8 <= minor <= 13
+    return major == 3 and 11 <= minor <= 14
 
 
 def tensorrt_python_unsupported_reason(version_info: tuple[int, int] | None = None) -> str:
-    """Human-readable reason when TensorRT wheels are unavailable for Python."""
+    """Human-readable reason when this Python runtime is not validated."""
     major, minor = _coerce_version_info(version_info)
     return (
-        "TensorRT Python wheels are currently available only for Python 3.8-3.13 "
+        "The TensorRT 10 library runtime is validated for Python 3.11-3.14 "
         f"on Linux x86_64. This system is running Python {major}.{minor}."
     )
 
@@ -168,7 +173,7 @@ def python_runtime_advisory(
         )
     else:
         lines.append(
-            "Zeus and Killer TensorRT installs are reduced until NVIDIA ships matching Python wheels."
+            "Zeus and Killer need the optional TensorRT 10 libraries and a successful provider probe."
         )
     if supports_openai_whisper_python((major, minor)):
         lines.append(
@@ -196,7 +201,9 @@ def has_nvidia_gpu() -> bool:
         return False  # No NVIDIA on modern Macs
     if IS_LINUX and not supports_linux_gpu_stack():
         return False
-    return shutil.which("nvidia-smi") is not None
+    from nvbroadcast.core.gpu import detect_gpus
+
+    return bool(detect_gpus())
 
 
 def has_v4l2() -> bool:
@@ -273,8 +280,8 @@ def get_trt_cache_dir(gpu_index: int) -> Path:
     return cache_dir
 
 
-def tensorrt_inference_probe_result():
-    """Return fresh-process TensorRT execution evidence for this system."""
+def tensorrt_inference_probe_result(device_id: int = 0):
+    """Return fresh-process TensorRT execution evidence for one GPU."""
     from nvbroadcast.runtime.probe import (
         ProbeProvider,
         RuntimeProbeResult,
@@ -286,12 +293,12 @@ def tensorrt_inference_probe_result():
             ProbeProvider.TENSORRT,
             "TensorRT execution is supported only on Linux x86_64.",
         )
-    return probe_execution_provider(ProbeProvider.TENSORRT)
+    return probe_execution_provider(ProbeProvider.TENSORRT, device_id=device_id)
 
 
-def has_tensorrt_runtime() -> bool:
-    """Return whether a fresh process executed the pinned model on TensorRT."""
-    return tensorrt_inference_probe_result().success
+def has_tensorrt_runtime(device_id: int = 0) -> bool:
+    """Return whether a fresh process executed the model on one GPU via TensorRT."""
+    return tensorrt_inference_probe_result(device_id).success
 
 
 def preload_nvidia_runtime_libs() -> None:
@@ -326,8 +333,8 @@ def preload_nvidia_runtime_libs() -> None:
         pass
 
 
-def cuda_inference_probe_result():
-    """Return fresh-process CUDA execution evidence for this system."""
+def cuda_inference_probe_result(device_id: int = 0):
+    """Return fresh-process CUDA execution evidence for one GPU."""
     from nvbroadcast.runtime.probe import (
         ProbeProvider,
         RuntimeProbeResult,
@@ -339,12 +346,12 @@ def cuda_inference_probe_result():
             ProbeProvider.CUDA,
             "CUDA execution is supported only on Linux x86_64.",
         )
-    return probe_execution_provider(ProbeProvider.CUDA)
+    return probe_execution_provider(ProbeProvider.CUDA, device_id=device_id)
 
 
-def has_cuda_inference_runtime() -> bool:
-    """Return whether a fresh process executed the pinned model on CUDA."""
-    return cuda_inference_probe_result().success
+def has_cuda_inference_runtime(device_id: int = 0) -> bool:
+    """Return whether a fresh process executed the model on one GPU via CUDA."""
+    return cuda_inference_probe_result(device_id).success
 
 
 def get_default_camera_device() -> str:
@@ -414,7 +421,7 @@ def _probe_avf_cameras() -> list[dict[str, object]]:
         gi.require_version("Gst", "1.0")
         from gi.repository import Gst
 
-        Gst.init(None)
+        Gst.init([])
         monitor = Gst.DeviceMonitor.new()
         if not monitor.add_filter("Video/Source", None):
             return []
@@ -434,7 +441,7 @@ def _avfvideosrc_supports_unique_id() -> bool:
         gi.require_version("Gst", "1.0")
         from gi.repository import Gst
 
-        Gst.init(None)
+        Gst.init([])
         source = Gst.ElementFactory.make("avfvideosrc")
         return source is not None and source.find_property("unique-id") is not None
     except Exception:

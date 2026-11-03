@@ -49,6 +49,14 @@ not evidence for the release candidate.
 - Run CPU, CUDA, and TensorRT execution probes on applicable real hardware.
   Record unsupported combinations explicitly instead of treating a skipped
   hardware test as a pass.
+- Verify recording in each exact packaged runtime with a real camera and
+  microphone: confirm permission grants, record speech, then decode the MP4
+  and listen to its audio. For Snap, verify both `camera` and `audio-record`
+  connections. The confined synthetic recording smoke checks codecs and muxing;
+  it does not verify access to real capture devices or audible microphone audio.
+  Select a microphone different from the system default and verify both Rec
+  and Meeting MP4 audio use that selection. An unavailable selection must not
+  silently record another microphone.
 
 Stop if a required check fails, a high or critical exploitable vulnerability is
 unresolved, package contents differ from expectations, or the exact candidate
@@ -67,9 +75,15 @@ commit changes. Fix the release branch and restart affected gates.
 - Download and inspect the DEB, RPM, and PKG. Verify every entry in
   `SHA256SUMS.packages` and verify each package attestation against the exact
   tag, commit, repository, signer workflow, and a GitHub-hosted runner.
-- Verify every tag-built Snap attestation. When a Snap fits GitHub's release
-  asset limit, also verify its `SHA256SUMS.snap` entry. A missing large Snap
-  release asset is expected only when the workflow reports the size limit.
+- Verify every tag-built Snap attestation and the `SHA256SUMS.snap` attestation.
+  Confirm that its two digest entries match the amd64 and arm64 files from that
+  workflow run. When a Snap fits GitHub's release-asset limit, verify the
+  attached file against its entry. A missing large Snap release asset is
+  expected only when the workflow reports the size limit. Verify a separately
+  built Store revision with its own attestation; compare it with the manifest
+  only when it came from that same build run. On a same-tag rerun, resolve a
+  previously attached Snap with the same name as a newly omitted oversized
+  artifact; the attachment job stops rather than deleting it.
 - Upload the exact tag-built Snap revisions for Store review when required.
   Dispatch every Store review, candidate, or stable action from that exact tag;
   `release_tag` may be omitted only when the workflow ref is already the tag.
@@ -145,6 +159,11 @@ in the release notes.
 - Run the metadata tests and verify each published website download URL returns
   the expected file rather than an error page.
 - Merge the website update and confirm the GitHub Pages deployment succeeds.
+- Confirm the canonical URL, Open Graph image, `robots.txt`, and `sitemap.xml`
+  all use `https://nvbroadcast.com`, and reject retired public-site domains in
+  metadata tests.
+- Verify HTTP redirects to HTTPS on the canonical domain and the previous
+  public hostname returns a permanent redirect to the matching canonical URL.
 - Verify upgrade discovery from the previous release and check the Snap stable
   listing from a logged-out browser session.
 - Update the release tracking issue and relevant bug reports with concise,

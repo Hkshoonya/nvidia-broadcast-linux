@@ -1,6 +1,6 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """User configuration management - persists all settings across sessions."""
@@ -603,10 +603,10 @@ def apply_builtin_profile(config: AppConfig, name: str) -> bool:
     return True
 
 
-def detect_system_capabilities() -> dict:
+def detect_system_capabilities(device_id: int = 0, *, probe_cuda: bool = True) -> dict:
     """Detect system hardware and recommend the best configuration."""
     import os
-    import subprocess
+    from nvbroadcast.core.gpu import detect_gpus
     from nvbroadcast.core.platform import (
         IS_ARM64,
         IS_LINUX,
@@ -641,27 +641,25 @@ def detect_system_capabilities() -> dict:
         caps["gpu_name"] = "Linux ARM64"
         caps["recommended_resolved_mode"] = "cpu_quality"
 
-    # GPU detection (Linux — nvidia-smi)
+    # GPU detection uses nvidia-smi when available and the CUDA driver API in
+    # sandboxes where the host executable is intentionally not exposed.
     if supports_linux_gpu_stack():
-        try:
-            result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, check=True,
+        gpus = detect_gpus()
+        if gpus:
+            gpu = next(
+                (candidate for candidate in gpus if candidate.index == device_id),
+                gpus[0],
             )
-            line = result.stdout.strip().split("\n")[0]
-            parts = [p.strip() for p in line.split(",")]
-            caps["gpu_name"] = parts[0]
-            caps["gpu_vram_mb"] = int(parts[1])
+            caps["gpu_name"] = gpu.name
+            caps["gpu_vram_mb"] = gpu.memory_total_mb
             caps["has_nvidia"] = True
-        except Exception:
-            pass
 
     # GStreamer GL
     try:
         import gi
         gi.require_version("Gst", "1.0")
         from gi.repository import Gst
-        Gst.init(None)
+        Gst.init([])
         caps["has_gl_compositor"] = all(
             Gst.ElementFactory.find(e) is not None
             for e in ["glvideomixer", "glupload", "gldownload"]
@@ -670,10 +668,10 @@ def detect_system_capabilities() -> dict:
         pass
 
     # Complete CUDA mode runtime: CuPy compositing plus ONNX CUDA inference.
-    if supports_linux_gpu_stack():
+    if probe_cuda and supports_linux_gpu_stack():
         try:
             import cupy  # noqa: F401
-            caps["has_cupy"] = has_cuda_inference_runtime()
+            caps["has_cupy"] = has_cuda_inference_runtime(device_id)
         except ImportError:
             pass
 
@@ -697,7 +695,7 @@ def detect_system_capabilities() -> dict:
     return caps
 
 
-def detect_compositing_backends() -> dict[str, bool]:
+def detect_compositing_backends(device_id: int = 0) -> dict[str, bool]:
     """Detect which compositing backends are available on this system."""
     available = {"cpu": True}
 
@@ -706,7 +704,7 @@ def detect_compositing_backends() -> dict[str, bool]:
     if supports_linux_gpu_stack():
         try:
             import cupy  # noqa: F401
-            available["cupy"] = has_cuda_inference_runtime()
+            available["cupy"] = has_cuda_inference_runtime(device_id)
         except ImportError:
             available["cupy"] = False
     else:

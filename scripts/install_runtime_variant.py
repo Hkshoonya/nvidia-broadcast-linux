@@ -4,10 +4,46 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
+import sysconfig
+import tempfile
 from typing import Mapping
+
+
+def prepare_virtualenv_namespaces() -> None:
+    """Keep wheel namespaces visible before legacy distro .pth files run.
+
+    Fedora's protobuf 3.x namespace hook initializes ``google`` using only
+    its system directory, hiding a newer protobuf wheel in the virtualenv.
+    Importing the namespace while the virtualenv sites are first preserves
+    Python's normal namespace lookup, including other system google modules.
+    Do not change the system Python or remove its GTK/GStreamer packages.
+    """
+    if sys.prefix == sys.base_prefix:
+        return
+    site = Path(sysconfig.get_path("purelib"))
+    site.resolve().relative_to(Path(sys.prefix).resolve())
+    content = (
+        "# Keep virtualenv google modules visible with legacy distro namespace hooks.\n"
+        'import importlib.util; importlib.util.find_spec("google") is not None '
+        'and __import__("google")\n'
+    )
+    descriptor, name = tempfile.mkstemp(
+        dir=site, prefix=".nvbroadcast-google-namespace-", suffix=".tmp"
+    )
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o644)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, site / "00-nvbroadcast-google-namespace.pth")
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def run_pip(*arguments: str) -> None:
@@ -67,11 +103,11 @@ def transition_problem(
 def recovery_guidance(source_venv: Path | None) -> str:
     if source_venv is not None:
         return (
-            "Stop NVBroadcast and the virtual-camera service, remove "
+            "Stop NVBroadcast and any audio or virtual-camera service, remove "
             f"{source_venv}, then recreate it with the requested setup target."
         )
     return (
-        "Stop NVBroadcast and the virtual-camera service, recreate the target "
+        "Stop NVBroadcast and any audio or virtual-camera service, recreate the target "
         "virtual environment, then rerun the installer."
     )
 
@@ -101,7 +137,7 @@ def guard_source_environment(project: Path, source_venv: Path) -> None:
     )
     if result.returncode == 1:
         raise RuntimeError(
-            "Source environment is in use. Stop NVBroadcast and the "
+            "Source environment is in use. Stop NVBroadcast and any audio or "
             "virtual-camera service, then rerun the setup target."
         )
     if result.returncode != 0:
@@ -134,27 +170,39 @@ def validate_selected_owner(project: Path, variant: str) -> None:
         )
 
 
-def validate_meeting_dependencies(variant: str, meeting_backends: str) -> None:
+def validate_meeting_dependencies(
+    variant: str, meeting_backends: str, *, development: bool = False
+) -> None:
+    """Validate the selected project extras and optional meeting backends."""
     from nvbroadcast.runtime.artifact import ArtifactEnvironment
     from nvbroadcast.runtime.variants import FASTER_WHISPER_VERSION
 
     environment = ArtifactEnvironment.current()
-    roots = {"nvbroadcast", "faster-whisper"}
+    roots = {"nvbroadcast"}
+    extras = {variant}
+    if development:
+        extras.add("dev")
+    if meeting_backends != "none":
+        roots.add("faster-whisper")
+        extras.add("meeting-support")
+    if meeting_backends == "all":
+        extras.add("meeting")
     if meeting_backends == "all" and sys.version_info < (3, 14):
         roots.add("openai-whisper")
     problems = environment.dependency_closure_problems(
         {"onnxruntime": "onnxruntime-gpu"} if variant == "cuda" else None,
         roots=roots,
+        root_extras={"nvbroadcast": extras},
     )
     backend_versions = environment.installed.get("faster-whisper", ())
-    if backend_versions != (FASTER_WHISPER_VERSION,):
+    if meeting_backends != "none" and backend_versions != (FASTER_WHISPER_VERSION,):
         found = ", ".join(backend_versions) if backend_versions else "none"
         problems.append(
             f"faster-whisper must be {FASTER_WHISPER_VERSION}, found {found}"
         )
     if problems:
         details = "\n".join(f"- {problem}" for problem in sorted(set(problems)))
-        raise RuntimeError(f"Meeting backend dependency check failed:\n{details}")
+        raise RuntimeError(f"Runtime dependency check failed:\n{details}")
 
 
 def install(
@@ -165,8 +213,29 @@ def install(
     development: bool = False,
     editable: bool = False,
     source_venv: Path | None = None,
+    python315_wheelhouse: Path | None = None,
 ) -> None:
+    runtime_wheels: list[Path] = []
+    if sys.version_info[:2] == (3, 15):
+        if __package__:
+            from .python315_runtime import (
+                check_wheelhouse, clean_native_environment, require_python315,
+                verify_native_runtime,
+            )
+        else:
+            from python315_runtime import (
+                check_wheelhouse, clean_native_environment, require_python315,
+                verify_native_runtime,
+            )
+
+        require_python315()
+        if variant != "cpu" or python315_wheelhouse is None:
+            raise RuntimeError("Python 3.15 requires the experimental CPU wheelhouse; see docs/PYTHON315.md.")
+        runtime_wheels = check_wheelhouse(python315_wheelhouse)
+    elif python315_wheelhouse is not None:
+        raise RuntimeError("--python315-wheelhouse requires CPython 3.15.")
     preflight_runtime_install(project, variant, source_venv)
+    prepare_virtualenv_namespaces()
 
     extras = ["dev"] if development else []
     extras.append(variant)
@@ -177,6 +246,8 @@ def install(
 
     selected_extras = ",".join(extras)
     install_arguments = ["install", "--upgrade"]
+    if runtime_wheels:
+        install_arguments.extend(["--only-binary=av,onnxruntime", *(str(path) for path in runtime_wheels)])
     if editable:
         install_arguments.append("--editable")
     install_arguments.append(f"{project}[{selected_extras}]")
@@ -187,11 +258,16 @@ def install(
         # Keep backend installation outside dependency resolution so its
         # onnxruntime requirement cannot replace the selected runtime owner.
         run_pip("install", "--no-deps", FASTER_WHISPER_REQUIREMENT)
-        validate_meeting_dependencies(variant, meeting_backends)
     validate_selected_owner(project, variant)
+    validate_meeting_dependencies(variant, meeting_backends, development=development)
+    probe_options = {}
+    if runtime_wheels:
+        verify_native_runtime(sys.executable, meeting_backends)
+        probe_options["env"] = clean_native_environment()
     subprocess.run(
         [sys.executable, "-m", "nvbroadcast.runtime", "--variant", variant],
         check=True,
+        **probe_options,
     )
 
 
@@ -203,6 +279,7 @@ def main() -> int:
     parser.add_argument("--editable", action="store_true")
     parser.add_argument("--source-venv", type=Path)
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--python315-wheelhouse", type=Path)
     parser.add_argument(
         "--meeting-backends",
         choices=("none", "faster", "all"),
@@ -225,6 +302,7 @@ def main() -> int:
                 development=arguments.development,
                 editable=arguments.editable,
                 source_venv=source_venv,
+                python315_wheelhouse=arguments.python315_wheelhouse,
             )
     except RuntimeError as error:
         print(f"ERROR: {error}", file=sys.stderr)

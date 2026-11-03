@@ -1,6 +1,6 @@
 # NV Broadcast - Unofficial NVIDIA Broadcast for Linux and other OS
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """System tray icon for NV Broadcast.

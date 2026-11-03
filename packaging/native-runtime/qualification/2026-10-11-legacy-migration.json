@@ -1,0 +1,118 @@
+{
+  "application_and_adapter_revision": "0295b190b3eebf62a29cd0a92b013714a72b1184",
+  "baseline_release": "https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.3",
+  "date": "2026-10-11",
+  "earlier_attempt": {
+    "failed_rpm_trace_sha256": "c7f391a59008a3eaa567e2f62dcbf7c21596f8eb44be4d578dd3cc055af76db2",
+    "rpm": "Upgrade and integrity passed; final GUI probe failed because fixture UID1000 lacked a passwd entry. Kept failed evidence; final harness creates an ordinary fixture account and both families were rerun completely."
+  },
+  "harness_sha256": "9f45bfdf1c38c7d694464f7e4fb50354296e389299d3418537ef4981610802a4",
+  "limitations": [
+    "Baseline public legacy installers resolve dependencies online; networking was disabled before the entire new migration and validation sequence.",
+    "Cached preprovisioned distribution fixtures, not pristine virtual machines.",
+    "Existing legacy interpreter refusal is tested; legacy launchers do not cooperate with the new lifetime lock, so a concurrent old launcher race is not qualified.",
+    "No physical camera, microphone, virtual devices, CUDA, Wayland, or power-loss qualification.",
+    "Unsigned local target candidates; publisher-signed shipped recovery and authenticated CI builder delivery remain separate."
+  ],
+  "results": {
+    "deb": {
+      "application_files_verified": 62,
+      "baseline": {
+        "name": "nvbroadcast_1.5.3-1_all.deb",
+        "sha256": "9d9c3449073b9cd3958af9f3659865cfcca34bc66d4aff9a442209ded718acb5",
+        "version": "1.5.3-1"
+      },
+      "container_removed": true,
+      "fixture_image": "sha256:5d7d636935e7488f6248040f68a6075f41633553b8dce210c42d91bc9399dcab",
+      "network_disabled_for_migration": true,
+      "runtime_probe": {
+        "adwaita": "1.5.0",
+        "gstreamer": "GStreamer 1.24.2",
+        "gtk": "4.14.5",
+        "gtk_window_mapped": true,
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "python": "3.13.16",
+        "video_and_audio_pipelines": "eos"
+      },
+      "status": "pass",
+      "steps": 18,
+      "target": {
+        "content_sha256": "cecee56292e6a491aefd4012c24bff5c870747210076cf72a10a5dbfad8eba9e",
+        "sha256": "cefea85e01c066055bda283bdc84b6e557822dd5a2f2047b279f3348d7332cfe",
+        "version": "1.5.3-2.cpu"
+      },
+      "trace_sha256": "01a934e1db723882f3f0fcd41003c78a7381d59cb4d149716d160cdfeb283caa",
+      "verified_log_sha256": {
+        "baseline-identity": "d5f620193981a3d2012e540dd45df483d99db4c19f5ce16b5b42269b73d42500",
+        "baseline-install": "d21216db9f157a2d413bc4c1aa55ce283154481873ae5b4966a046ad2fd25bbb",
+        "baseline-launcher": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "baseline-runtime": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09",
+        "fixture-desktop-user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "legacy-cleanup-user-preservation": "3a409f2d6007ac08025114543781cbb6ec0cb1c96fb860e4434cc463ea2cbae9",
+        "migrated-identity": "60deaed77e014ced42f7f11191f769fa5e4b04cf74ece8426bf730ea891e9c3b",
+        "migrated-inference-media-window": "b2ac286df725d143959a501c0b80ce747d0ba4c5d9c69651ada1f89d829938f3",
+        "migrated-integrity": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+        "migrated-launcher": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "offline-migration": "4cca1ebe85e2f72ca7a9d4f22358efe3ad720761172b8f2d17ec403c12340f04",
+        "refusal-keeps-baseline": "d5f620193981a3d2012e540dd45df483d99db4c19f5ce16b5b42269b73d42500",
+        "refusal-preserves-files-and-process": "371ea0841cfdfc6fd872610b7874b44d20d2b225552e66dba15f03e5e94ec3a9",
+        "refuse-running-legacy": "f4f9408025987e6ee16b647538f678f74aad6cb6a38b4fd9d086b6802d8e91fd",
+        "sentinels": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "start-legacy-process": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stop-test-process": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "wait-legacy-process": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "rpm": {
+      "application_files_verified": 62,
+      "baseline": {
+        "name": "nvbroadcast-1.5.3-1.noarch.rpm",
+        "sha256": "5030e205f65b7d54624a81faadb2a89a29eabf4e8554e48c3ec453af10bc8023",
+        "version": "1.5.3-1"
+      },
+      "container_removed": true,
+      "fixture_image": "sha256:0979943ed9f0dac663927308f451ba1dd346c237b4564a2d29e94eab2d8f8948",
+      "network_disabled_for_migration": true,
+      "runtime_probe": {
+        "adwaita": "1.9.4",
+        "gstreamer": "GStreamer 1.28.7",
+        "gtk": "4.22.5",
+        "gtk_window_mapped": true,
+        "os": "fedora",
+        "os_version": "44",
+        "python": "3.13.16",
+        "video_and_audio_pipelines": "eos"
+      },
+      "status": "pass",
+      "steps": 18,
+      "target": {
+        "content_sha256": "30ec6df67d569c4a7abd350515c37a71369da1f8bb5b624a6b80cfa4387a28d2",
+        "sha256": "53976b3d0039689132db260ed3c2473b5cfdd207849f0b1c3dede7af3430b762",
+        "version": "1.5.3-2.cpu"
+      },
+      "trace_sha256": "dff7dfae54323a7ee82fe095812f8ac51250cafbe00d22fcc33fa8f821847ffa",
+      "verified_log_sha256": {
+        "baseline-identity": "d5f620193981a3d2012e540dd45df483d99db4c19f5ce16b5b42269b73d42500",
+        "baseline-install": "47e3d44fb08a78e01bdeb526c181a5a4e7b222e55fb1cad37e2c9142c95da8b2",
+        "baseline-launcher": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "baseline-runtime": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09",
+        "fixture-desktop-user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "legacy-cleanup-user-preservation": "3a409f2d6007ac08025114543781cbb6ec0cb1c96fb860e4434cc463ea2cbae9",
+        "migrated-identity": "60deaed77e014ced42f7f11191f769fa5e4b04cf74ece8426bf730ea891e9c3b",
+        "migrated-inference-media-window": "cc0fffc9433aec8940534fbca02dbff5ebd2cbe6c6931a39c989dfebdb0171c5",
+        "migrated-integrity": "d0b68174326ec7ceacf3e833bfce4a80a2596cb7e63e7051513b84272f6db25a",
+        "migrated-launcher": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "offline-migration": "5aa543db9cc3349c0392466660946c3f83bbb4368aea4dafeff5994a40a01cbd",
+        "refusal-keeps-baseline": "d5f620193981a3d2012e540dd45df483d99db4c19f5ce16b5b42269b73d42500",
+        "refusal-preserves-files-and-process": "371ea0841cfdfc6fd872610b7874b44d20d2b225552e66dba15f03e5e94ec3a9",
+        "refuse-running-legacy": "99f3d0250951f5da91ef7711fd01cc384a54fb40d9b84960691e0ee5174c04f1",
+        "sentinels": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "start-legacy-process": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stop-test-process": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "wait-legacy-process": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  },
+  "scope": "Exact published v1.5.3 DEB/RPM to complete offline CPU adapter in disposable Ubuntu24.04/Fedora44 fixtures"
+}

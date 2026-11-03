@@ -1,5 +1,7 @@
 include LICENSE
+include NOTICE
 include README.md
+include CONTRIBUTORS.md
 include data/com.doczeus.NVBroadcast.desktop
 include data/com.doczeus.NVBroadcast.metainfo.xml
 recursive-include data/icons *.svg

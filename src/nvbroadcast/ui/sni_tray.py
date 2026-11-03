@@ -1,6 +1,6 @@
 # NV Broadcast - Unofficial NVIDIA Broadcast for Linux and other OS
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
-# Licensed under GPL-3.0 - see LICENSE file
+# Licensed under GPL-3.0-or-later - see LICENSE file
 # Original author: doczeus | AI Powered
 #
 """Native StatusNotifierItem tray icon (SNI over D-Bus).
@@ -162,7 +162,6 @@ class SniTray:
         self._reg_ids = []
         self._watch_id = 0
         self._revision = 1
-        self._streaming = False
         self._status_text = "Idle"
         self._pixmaps = []
         try:
@@ -201,7 +200,7 @@ class SniTray:
         self._watch_id = Gio.bus_watch_name_on_connection(
             self._conn, "org.kde.StatusNotifierWatcher",
             Gio.BusNameWatcherFlags.NONE,
-            self._on_watcher_appeared, None)
+            self._on_watcher_appeared, self._on_watcher_vanished)
 
     def _on_watcher_appeared(self, conn, name, owner):
         # Always (re-)register — tray hosts restart with the shell — but
@@ -216,9 +215,15 @@ class SniTray:
                 print("[NV Broadcast] SNI tray icon registered", flush=True)
             self._active = True
         except Exception as e:
+            self._active = False
             if owner:  # A watcher exists but rejected us — worth logging
                 print(f"[NV Broadcast] SNI watcher registration failed: {e}",
                       flush=True)
+
+    def _on_watcher_vanished(self, conn, name):
+        # Exporting an item does not mean a tray host can display it. Closing
+        # the window must not hide the app behind a watcher that went away.
+        self._active = False
 
     @property
     def bus_ready(self) -> bool:
@@ -269,11 +274,12 @@ class SniTray:
     def _menu_items(self):
         win = getattr(self._app, "_window", None)
         visible = bool(win and win.get_visible())
+        streaming = bool(getattr(self._app, "_streaming", False))
         return [
             (_ID_SHOW, {"label": GLib.Variant("s", "Hide NV Broadcast" if visible
                                               else "Show NV Broadcast")}),
             (_ID_BROADCAST, {"label": GLib.Variant(
-                "s", "Stop Broadcast" if self._streaming else "Start Broadcast")}),
+                "s", "Stop Broadcast" if streaming else "Start Broadcast")}),
             (_ID_STATUS, {"label": GLib.Variant("s", f"Status: {self._status_text}"),
                           "enabled": GLib.Variant("b", False)}),
             (_ID_QUIT, {"label": GLib.Variant("s", "Quit")}),
@@ -381,7 +387,6 @@ class SniTray:
     # ─── Public API (mirrors legacy TrayIcon) ────────────────────────────
 
     def update_status(self, streaming: bool, status_text: str = ""):
-        self._streaming = bool(streaming)
         if status_text:
             self._status_text = status_text
         if not self._active:
