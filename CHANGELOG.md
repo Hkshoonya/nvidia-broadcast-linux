@@ -5,6 +5,11 @@
 These changes apply to source installs, development candidates and future
 release workflows. Published v1.5.4 artifacts retain their recorded identities.
 
+- **Keep mode selection responsive during GPU checks** - Run provider checks
+  away from the desktop interface, reuse completed results, and allow an
+  explicit CPU choice during first-run GPU checks. Cancel owned probe children
+  when setup closes or the app quits, while retaining verified runtime checks
+  and the existing cold-start time limits.
 - **Optional native-candidate Python inventory evidence** - After all existing
   final-package qualification gates, retain authenticated METADATA projections
   and deterministic, schema-checked SPDX sidecars for the final DEB and signed

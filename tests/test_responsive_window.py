@@ -5,16 +5,23 @@ Device discovery, backend probes, saved profiles, and periodic work are mocked.
 """
 
 from contextlib import ExitStack
+import json
 import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import time
-from types import SimpleNamespace
+import threading
+from types import MethodType, SimpleNamespace
 import unittest
 from unittest import mock
 
 from nvbroadcast.core.config import AppConfig
 from nvbroadcast.ui.window import Adw, Gdk, Gio, GLib, Gtk, NVBroadcastWindow
 from nvbroadcast.video.eye_contact import EyeContactStatus
+from nvbroadcast.app import NVBroadcastApp
+from nvbroadcast.runtime.process_scope import ProviderProbeScope, run_probe_process
 
 
 @unittest.skipUnless(
@@ -22,6 +29,15 @@ from nvbroadcast.video.eye_contact import EyeContactStatus
     "requires an explicitly enabled isolated GTK display",
 )
 class ResponsiveWindowTests(unittest.TestCase):
+    @staticmethod
+    def _owned_process_alive(pid):
+        try:
+            os.kill(pid, 0)
+            stat = Path(f"/proc/{pid}/stat")
+            return not (stat.exists() and stat.read_text().rsplit(") ", 1)[1].split()[0] == "Z")
+        except ProcessLookupError:
+            return False
+
     @classmethod
     def setUpClass(cls):
         cls.app = Adw.Application(
@@ -66,9 +82,21 @@ class ResponsiveWindowTests(unittest.TestCase):
         )
         self.app.perf_monitor = SimpleNamespace(format_status=lambda: "")
         self.app.eye_contact_status = EyeContactStatus("disabled")
+        self.app._window = None
+        self.app._restoring = True
+        self.app._audio_pipeline = None
+        self.app._mode_availability_closed = False
+        self.app._setup_wizard_open = False
+        self.app._mode_availability_workers = {}
+        self.app._mode_probe_scope = ProviderProbeScope()
+        self.addCleanup(self.app._mode_probe_scope.close)
+        self.app._refresh_mode_availability_async = mock.Mock()
+        self.app.dependency_installer.busy = False
         self.app.set_vcam_device = mock.Mock(return_value=True)
         self.periodic_callbacks = []
         self.patches = self.enterContext(ExitStack())
+        self.patches.enter_context(mock.patch("nvbroadcast.ui.window.save_config"))
+        self.patches.enter_context(mock.patch("nvbroadcast.app.save_config"))
         for method in (
             "_request_camera_refresh", "_populate_mics", "_populate_speakers",
             "_update_gpu_info", "_rebuild_profile_popover", "sync_hotkey_settings",
@@ -89,6 +117,8 @@ class ResponsiveWindowTests(unittest.TestCase):
             else:
                 self.patches.enter_context(mock.patch(name, return_value=result))
         self.window = NVBroadcastWindow(self.app)
+        self.app._window = self.window
+        self.app._restoring = False
         self.window._set_profile_name("Default")
         for selector, name, device in (
             (self.window._camera_selector, "Test Camera", "/dev/video0"),
@@ -105,6 +135,168 @@ class ResponsiveWindowTests(unittest.TestCase):
         self.section_nav = self.controls_pane.get_first_child()
         self.scroll = self.section_nav.get_next_sibling()
         self.controls = self.scroll.get_child().get_child()
+
+    def test_first_run_constructor_stays_responsive_and_explicit_cpu_reaps_its_probe(self):
+        from nvbroadcast.ui.setup_wizard import SetupWizard
+
+        app = self.app
+        app._on_setup_closed = mock.Mock()
+        app._setup_wizard_open = True
+        caps = {
+            "cpu_cores": 8, "gpu_name": "", "gpu_vram_mb": 0,
+            "has_nvidia": False, "has_apple_silicon": False,
+            "has_linux_arm64": False, "has_gl_compositor": False,
+            "has_cupy": False, "recommended_mode": "auto",
+            "recommended_resolved_mode": "cpu_quality",
+        }
+        calls, ticks, selections = [], [], []
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "pids.json"
+            script = (
+                "import json,os,pathlib,subprocess,sys,time; "
+                "child=subprocess.Popen([sys.executable,'-I','-c','import time;time.sleep(60)']); "
+                "marker=pathlib.Path(sys.argv[1]); temporary=marker.with_suffix('.tmp'); "
+                "temporary.write_text(json.dumps([os.getpid(),child.pid])); temporary.replace(marker); "
+                "time.sleep(60)"
+            )
+
+            def detect(gpu, *, probe_cuda=True):
+                calls.append((probe_cuda, threading.get_ident()))
+                if probe_cuda:
+                    run_probe_process(
+                        [sys.executable, "-I", "-c", script, str(marker)],
+                        env={"PATH": os.defpath}, stdin=subprocess.DEVNULL,
+                        check=False, capture_output=True, text=True, timeout=120,
+                    )
+                return dict(caps)
+
+            with (
+                mock.patch("nvbroadcast.ui.setup_wizard.detect_gpus", return_value=[]),
+                mock.patch("nvbroadcast.ui.setup_wizard.detect_system_capabilities", side_effect=detect),
+            ):
+                begin = time.monotonic()
+                wizard = SetupWizard(self.window, app)
+                self.assertLess(time.monotonic() - begin, 0.3)
+                wizard.connect("setup-complete", lambda _wizard, *args: selections.append(args))
+                wizard.present()
+                heartbeat = GLib.timeout_add(10, lambda: (ticks.append(time.monotonic()) or True))
+                try:
+                    deadline = time.monotonic() + 3
+                    while not marker.exists() and time.monotonic() < deadline:
+                        self._settle(0.01)
+                    self.assertTrue(marker.exists())
+                    self._settle(0.1)
+                    self.assertGreaterEqual(len(ticks), 3)
+                    self.assertFalse(wizard._start_btn.get_sensitive())
+                    self.assertFalse(wizard._skip_btn.get_sensitive())
+                    wizard._on_start(None)
+                    wizard._on_skip(None)
+                    self.assertFalse(selections)
+                    wizard._mode_buttons["cpu_light"].set_active(True)
+                    self.assertTrue(wizard._start_btn.get_sensitive())
+                    self.assertFalse(wizard._skip_btn.get_sensitive())
+                    wizard._on_start(None)
+                    self.assertEqual(selections, [("performance", 0, "cpu")])
+                    self.assertTrue(wizard._capability_refresh_closed)
+                    pids = json.loads(marker.read_text())
+                    deadline = time.monotonic() + 2
+                    while any(self._owned_process_alive(pid) for pid in pids) and time.monotonic() < deadline:
+                        self._settle(0.005)
+                    self.assertFalse(any(self._owned_process_alive(pid) for pid in pids))
+                    self.assertEqual([item for item in calls if item[1] == threading.get_ident()],
+                                     [(False, threading.get_ident())])
+                    self.assertEqual(len(calls), 2)
+                    self.assertEqual(app.config.compute_gpu, 0)
+                    app._refresh_mode_availability_async.assert_not_called()
+                    with app._mode_probe_scope.activate():
+                        pass
+                finally:
+                    wizard._close_capability_refresh()
+                    wizard.destroy()
+                    for thread in threading.enumerate():
+                        if thread.name.startswith("nvbroadcast-setup-gpu-"):
+                            thread.join(timeout=2)
+                            self.assertFalse(thread.is_alive())
+                    GLib.source_remove(heartbeat)
+
+    def test_construction_and_cached_rebuilds_never_run_provider_checks(self):
+        installer = self.app.dependency_installer
+        installer.mode_availability_snapshot.assert_not_called()
+        self.assertFalse(self.window._mode_availability_ready)
+        snapshot = {
+            "gpu_index": 0, "has_cuda": False, "has_tensorrt": False,
+            "modes": {},
+        }
+        installer.mode_availability_snapshot.side_effect = AssertionError("GTK provider probe")
+        self.window.rebuild_mode_selector("cpu", "balanced", availability_snapshot=snapshot)
+        for _ in range(20):
+            self.window.rebuild_mode_selector("cpu", "balanced")
+        installer.mode_availability_snapshot.assert_not_called()
+        self.app._refresh_mode_availability_async.assert_not_called()
+
+    def test_missing_snapshot_requests_worker_and_keeps_cpu_controls_available(self):
+        self.window.rebuild_mode_selector("cpu", "balanced")
+        self.app._refresh_mode_availability_async.assert_called_once_with(0)
+        self.app.dependency_installer.mode_availability_snapshot.assert_not_called()
+        devices = {item["device"]: item["name"] for item in self.window._mode_devices}
+        self.assertIn("checking selected GPU", devices["doczeus"])
+        self.assertEqual(devices["cpu_light"], "CPU - Fast")
+
+    def test_blocked_provider_worker_keeps_real_gtk_heartbeat_running(self):
+        self._show(430, 540)
+        app = self.app
+        app._dependency_installer = app.dependency_installer
+        app._dependency_installer.restart_pending.return_value = False
+        app._mode_availability_generation = 0
+        app._mode_availability_request = None
+        app._mode_availability_refresh_in_flight = False
+        app._pending_auto_start_gpu = None
+        app._pending_auto_mode_gpu = None
+        app._pending_compute_focus = None
+        app._maybe_warn_weak_device = mock.Mock(return_value=False)
+        for method in (
+            "_refresh_mode_availability_async", "_resume_mode_availability",
+            "_start_mode_availability_worker", "_finish_mode_availability_refresh",
+        ):
+            setattr(app, method, MethodType(getattr(NVBroadcastApp, method), app))
+        entered, release = threading.Event(), threading.Event()
+        threads, ticks = [], []
+
+        def slow_snapshot(gpu):
+            threads.append(threading.get_ident())
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError("test did not release the provider worker")
+            return {"gpu_index": gpu, "has_cuda": False, "has_tensorrt": False, "modes": {}}
+
+        app.dependency_installer.mode_availability_snapshot.side_effect = slow_snapshot
+        heartbeat = GLib.timeout_add(10, lambda: (ticks.append(time.monotonic()) or True))
+        try:
+            with mock.patch("nvbroadcast.core.config.detect_system_capabilities", return_value={
+                "cpu_cores": 8, "has_nvidia": False, "gpu_vram_mb": 0,
+            }):
+                begin = time.monotonic()
+                self.window.rebuild_mode_selector("cpu", "balanced")
+                self.assertLess(time.monotonic() - begin, 0.2)
+                try:
+                    self.assertTrue(entered.wait(1))
+                    for _ in range(20):
+                        self.window.rebuild_mode_selector("cpu", "balanced")
+                    self._settle(0.15)
+                    self.assertGreaterEqual(len(ticks), 3)
+                    self.assertEqual(len(threads), 1)
+                    self.assertNotEqual(threads[0], threading.get_ident())
+                    self.assertFalse(self.window._mode_availability_ready)
+                finally:
+                    release.set()
+                    deadline = time.monotonic() + 3
+                    while app._mode_availability_refresh_in_flight and time.monotonic() < deadline:
+                        self._settle(0.01)
+                self.assertFalse(app._mode_availability_refresh_in_flight)
+                self.assertTrue(self.window._mode_availability_ready)
+        finally:
+            release.set()
+            GLib.source_remove(heartbeat)
 
     def test_eye_contact_uses_existing_row_and_heartbeat_in_compact_layout(self):
         self._show(420, 540)

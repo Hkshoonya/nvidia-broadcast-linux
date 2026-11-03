@@ -404,6 +404,22 @@ class AutoCaptureTuningTests(unittest.TestCase):
         app._window._sync_quality_selector.assert_called_once_with()
         save_config.assert_called_once_with(app.config)
 
+        # A rerun/migrated setup can already have Auto and deferred choices.
+        # The explicit CPU selection must own the result after setup finishes.
+        app.config.auto_mode = True
+        app._pending_auto_mode_gpu = 0
+        app._pending_compute_focus = ("auto", 0)
+        app._pending_auto_start_gpu = 0
+        app._window._pending_mode_key = "doczeus"
+        NVBroadcastApp._on_setup_complete(app, None, "performance", 0, "cpu")
+        self.assertEqual(app.config.mode_key, "cpu_light")
+        self.assertFalse(app.config.auto_mode)
+        self.assertEqual(app.config.compute_focus, "cpu")
+        self.assertIsNone(app._pending_auto_mode_gpu)
+        self.assertIsNone(app._pending_compute_focus)
+        self.assertIsNone(app._pending_auto_start_gpu)
+        self.assertEqual(app._window._pending_mode_key, "")
+
 
 class AutoStartBroadcastStateTests(unittest.TestCase):
     """_auto_start is governed only by the app-level auto_start flag.

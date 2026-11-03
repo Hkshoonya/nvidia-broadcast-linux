@@ -20,6 +20,10 @@ import threading
 import traceback
 from typing import Mapping, Sequence
 
+from nvbroadcast.runtime.process_scope import (
+    ProviderProbeCancelled, check_probe_cancellation, run_probe_process,
+)
+
 
 PROBE_MODEL_SHA256 = "2ddb847dec08d0cc33422e1bb4b114c50a717ad38ca7bf3b930adea861296527"
 _PROBE_MODEL_BASE64 = (
@@ -596,7 +600,7 @@ def _run_provider_probe(
         str(device_id),
     ]
     try:
-        completed = subprocess.run(
+        completed = run_probe_process(
             command,
             check=False,
             capture_output=True,
@@ -606,6 +610,7 @@ def _run_provider_probe(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as error:
+        check_probe_cancellation()
         diagnostics = "\n".join(
             part
             for part in (
@@ -623,11 +628,15 @@ def _run_provider_probe(
             f"provider execution probe timed out after {timeout:g} seconds",
             diagnostics=diagnostics,
         )
+    except ProviderProbeCancelled:
+        raise
     except Exception as error:
+        check_probe_cancellation()
         return RuntimeProbeResult.failure(
             provider,
             f"could not start provider execution probe: {type(error).__name__}: {error}",
         )
+    check_probe_cancellation()
     return _parse_child_result(provider, completed)
 
 

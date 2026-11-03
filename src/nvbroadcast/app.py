@@ -47,6 +47,7 @@ from nvbroadcast.video.virtual_camera import (
     v4l2loopback_modprobe_command,
 )
 from nvbroadcast.video.eye_contact import EyeContactCorrector, EyeContactStatus
+from nvbroadcast.runtime.process_scope import ProviderProbeScope
 from nvbroadcast.video.relighting import FaceRelighter
 from nvbroadcast.video.face_landmarks import get_shared_landmarker
 from nvbroadcast.video.perf_monitor import PerfMonitor
@@ -145,6 +146,14 @@ class NVBroadcastApp(Adw.Application):
             self.config.use_fused_kernel = False
             self.config.use_nvdec = False
         self._window = None
+        self._mode_availability_generation = 0
+        self._mode_availability_refresh_in_flight = False
+        self._mode_availability_request = None
+        self._mode_availability_workers: dict[int, int] = {}
+        self._mode_availability_closed = False
+        self._mode_probe_scope = ProviderProbeScope()
+        self._pending_auto_start_gpu = None
+        self._setup_wizard_open = False
         self._video_pipeline = None
         self._audio_pipeline = None
         self._gpu_frame_path = None
@@ -374,15 +383,18 @@ class NVBroadcastApp(Adw.Application):
             self._restoring = True
             self._restore_settings()
             startup_trace.mark("settings restored")
-            if self.config.auto_mode:
-                self.set_auto_mode_enabled(True)
-            else:
-                GLib.idle_add(self._maybe_warn_weak_device)
+            if not self.config.first_run:
+                self._refresh_mode_availability_async(self.config.compute_gpu)
+                if self.config.auto_mode:
+                    self.set_auto_mode_enabled(True)
+                else:
+                    GLib.idle_add(self._maybe_warn_weak_device)
 
             # First-run setup wizard
             if self.config.first_run:
                 self._restoring = False
                 from nvbroadcast.ui.setup_wizard import SetupWizard
+                self._setup_wizard_open = True
                 wizard = SetupWizard(self._window, self)
                 wizard.connect("setup-complete", self._on_setup_complete)
                 wizard.present()
@@ -407,8 +419,11 @@ class NVBroadcastApp(Adw.Application):
 
     def _on_setup_complete(self, wizard, profile_name, gpu_index, compositing):
         """Called when first-run wizard finishes."""
+        self._setup_wizard_open = False
         from nvbroadcast.core.config import apply_performance_profile, PERFORMANCE_PROFILES
         if profile_name == "auto":
+            if self.config.auto_start:
+                self._pending_auto_start_gpu = gpu_index
             gpu_changed = gpu_index != self.config.compute_gpu
             self.set_compute_gpu(gpu_index)
             self.config.first_run = False
@@ -435,6 +450,12 @@ class NVBroadcastApp(Adw.Application):
             return
 
         # Apply profile
+        self.config.auto_mode = False
+        self.config.compute_focus = "cpu" if compositing == "cpu" else "gpu"
+        self._pending_auto_mode_gpu = None
+        self._pending_compute_focus = None
+        self._pending_auto_start_gpu = None
+        self._window._pending_mode_key = ""
         apply_performance_profile(self.config, profile_name)
         self.set_compute_gpu(gpu_index)
         self.config.compositing = compositing
@@ -499,6 +520,12 @@ class NVBroadcastApp(Adw.Application):
         self._restoring = False
         self._sync_global_hotkeys()
         return False
+
+    def _on_setup_closed(self):
+        """Resume ordinary availability after setup relinquishes its probes."""
+        self._setup_wizard_open = False
+        if not self._mode_availability_closed:
+            self._refresh_mode_availability_async(self.config.compute_gpu)
 
     def _finish_restore_and_auto_start(self):
         """Auto-start while restore guards still suppress startup signal noise."""
@@ -745,6 +772,7 @@ class NVBroadcastApp(Adw.Application):
             return True  # Prevent destruction
         if self.config.minimize_on_close:
             print("[NV Broadcast] No tray available; closing window will quit the app")
+        self._stop_mode_availability()
         return False  # Allow normal close
 
     def _probe_vcam_consumers(self) -> int | None:
@@ -1002,6 +1030,12 @@ class NVBroadcastApp(Adw.Application):
         print(f"[NV Broadcast] Auto-start: streaming={self._streaming} vcam={self._vcam_available}", flush=True)
         if self._streaming:
             return False
+        if self.config.auto_mode and not self._window._mode_availability_ready:
+            self._pending_auto_start_gpu = self.config.compute_gpu
+            self._refresh_mode_availability_async(self.config.compute_gpu)
+            self._window.set_status("Checking selected GPU before Auto start...")
+            return False
+        self._pending_auto_start_gpu = None
         camera = self.config.video.camera_device
         fmt = self.config.video.output_format
         if self.start_pipeline(camera, fmt):
@@ -1216,6 +1250,7 @@ class NVBroadcastApp(Adw.Application):
         self._restart_source_id = GLib.timeout_add(100, self._restart_after_stop)
 
     def start_pipeline(self, camera_device: str, output_format: str = "YUY2"):
+        self._pending_auto_start_gpu = None
         self._clear_finished_teardown()
         self._pending_start = (camera_device, output_format)
 
@@ -1393,6 +1428,7 @@ class NVBroadcastApp(Adw.Application):
         return self._streaming  # True on success, False on failure
 
     def stop_pipeline(self, clear_pending_start: bool = True):
+        self._pending_auto_start_gpu = None
         if clear_pending_start:
             self._pending_start = None
         self._idle_active = False
@@ -2017,9 +2053,10 @@ class NVBroadcastApp(Adw.Application):
         if self._window is None or self.config.first_run or self.config.auto_mode:
             return False
 
-        from nvbroadcast.core.config import detect_system_capabilities
-
-        caps = detect_system_capabilities(self.config.compute_gpu)
+        caps_snapshot = getattr(self, "_mode_capabilities_snapshot", None)
+        if not caps_snapshot or caps_snapshot[0] != self.config.compute_gpu:
+            return False
+        caps = caps_snapshot[1]
         if not self._is_very_weak_device(caps):
             return False
 
@@ -2060,6 +2097,13 @@ class NVBroadcastApp(Adw.Application):
         self._last_auto_capture_change = 0.0
 
         if enabled:
+            if self._window is not None and not self._window._mode_availability_ready:
+                self._pending_auto_mode_gpu = self.config.compute_gpu
+                self._pending_compute_focus = None
+                self._refresh_mode_availability_async(self.config.compute_gpu)
+                self._window.set_status("Checking selected GPU before enabling Auto...")
+                save_config(self.config)
+                return
             resolved = self._preferred_auto_mode()
             detail = NVBroadcastWindow._mode_status_message(resolved)
             self.apply_mode_key(resolved, status=f"Auto: {detail}")
@@ -2080,6 +2124,7 @@ class NVBroadcastApp(Adw.Application):
                         ) if self._streaming else None,
                     )
         else:
+            self._pending_auto_mode_gpu = None
             save_config(self.config)
             if self._window is not None and hasattr(self._window, "_sync_mode_selector"):
                 self._window._sync_mode_selector()
@@ -2124,6 +2169,7 @@ class NVBroadcastApp(Adw.Application):
             not self._streaming
             or self._dependency_installer.busy
             or getattr(self, "_mode_availability_refresh_in_flight", False)
+            or not self._mode_snapshot_ready()
             or self._pending_start is not None
             or self._pipeline_teardown is not None
             or not self._any_video_effects_active()
@@ -2226,6 +2272,18 @@ class NVBroadcastApp(Adw.Application):
 
         return True
 
+    def _mode_snapshot_ready(self) -> bool:
+        snapshot = getattr(self, "_mode_availability_snapshot", None)
+        capabilities = getattr(self, "_mode_capabilities_snapshot", None)
+        return (
+            isinstance(snapshot, dict)
+            and snapshot.get("gpu_index") == self.config.compute_gpu
+            and isinstance(capabilities, tuple)
+            and len(capabilities) == 2
+            and capabilities[0] == self.config.compute_gpu
+            and isinstance(capabilities[1], dict)
+        )
+
     def set_compute_gpu(self, gpu_index: int):
         """Switch the GPU used for AI compute."""
         if gpu_index == self.config.compute_gpu:
@@ -2249,11 +2307,14 @@ class NVBroadcastApp(Adw.Application):
         if self._window is not None:
             self._window._mode_retry_generation += 1
             self._window._mode_retry_in_flight = False
+            self._window._mode_retry_request = None
             self._window._mode_availability_ready = False
             self._window._mode_availability_gpu = gpu_index
             self._window._mode_availability_snapshot = None
         if getattr(self, "_pending_auto_mode_gpu", None) is not None:
             self._pending_auto_mode_gpu = gpu_index
+        if self._pending_auto_start_gpu is not None:
+            self._pending_auto_start_gpu = gpu_index
         pending_focus = getattr(self, "_pending_compute_focus", None)
         if pending_focus is not None:
             self._pending_compute_focus = (pending_focus[0], gpu_index)
@@ -2281,10 +2342,43 @@ class NVBroadcastApp(Adw.Application):
             self._refresh_mode_availability_async(gpu_index)
 
     def _refresh_mode_availability_async(self, gpu_index: int) -> None:
-        """Warm selected-GPU probes off GTK, then rebuild the mode list."""
-        generation = getattr(self, "_mode_availability_generation", 0) + 1
+        """Coalesce one refresh per selected GPU without running probes on GTK."""
+        window = self._window
+        if (
+            self._mode_availability_closed
+            or self._setup_wizard_open
+            or window is None
+            or gpu_index != self.config.compute_gpu
+            or self._dependency_installer.busy
+        ):
+            return
+        request = self._mode_availability_request
+        if request is not None and request[1] == gpu_index and request[2] is window:
+            return
+        generation = self._mode_availability_generation + 1
         self._mode_availability_generation = generation
         self._mode_availability_refresh_in_flight = True
+        self._mode_availability_request = (generation, gpu_index, window)
+        # A stale same-device worker must finish before its fresh-generation
+        # follow-up starts. Other GPUs may be checked independently.
+        self._resume_mode_availability()
+
+    def _resume_mode_availability(self) -> None:
+        request = self._mode_availability_request
+        if request is None or self._mode_availability_closed:
+            return
+        _, gpu_index, window = request
+        if (
+            window is self._window
+            and gpu_index == self.config.compute_gpu
+            and gpu_index not in self._mode_availability_workers
+            and gpu_index not in window._mode_retry_workers
+            and not self._dependency_installer.busy
+        ):
+            self._start_mode_availability_worker(*request)
+
+    def _start_mode_availability_worker(self, generation, gpu_index, window):
+        self._mode_availability_workers[gpu_index] = generation
         installer = self._dependency_installer
 
         def _worker() -> None:
@@ -2292,13 +2386,18 @@ class NVBroadcastApp(Adw.Application):
             capabilities = None
             error = ""
             try:
-                snapshot = installer.mode_availability_snapshot(gpu_index)
-                from nvbroadcast.core.config import detect_system_capabilities
-                capabilities = detect_system_capabilities(
-                    gpu_index, probe_cuda=not installer.restart_pending("cupy")
-                )
+                with self._mode_probe_scope.activate():
+                    snapshot = installer.mode_availability_snapshot(gpu_index)
+                    from nvbroadcast.core.config import detect_system_capabilities
+                    capabilities = detect_system_capabilities(
+                        gpu_index, probe_cuda=not installer.restart_pending("cupy")
+                    )
             except Exception as exc:
+                snapshot = None
+                capabilities = None
                 error = f"Processing-mode check failed: {exc}"
+            if self._mode_availability_closed:
+                return
             GLib.idle_add(
                 self._finish_mode_availability_refresh,
                 generation,
@@ -2306,13 +2405,20 @@ class NVBroadcastApp(Adw.Application):
                 snapshot,
                 capabilities,
                 error,
+                window,
             )
 
-        threading.Thread(
-            target=_worker,
-            name="nvbroadcast-mode-availability",
-            daemon=True,
-        ).start()
+        try:
+            threading.Thread(
+                target=_worker,
+                name="nvbroadcast-mode-availability",
+                daemon=True,
+            ).start()
+        except Exception as exc:
+            self._finish_mode_availability_refresh(
+                generation, gpu_index, None, None,
+                f"Could not start processing-mode check: {exc}", window,
+            )
 
     def _invalidate_mode_availability(self, gpu_index: int | None = None) -> None:
         """Discard completed mode decisions before a runtime mutation."""
@@ -2325,6 +2431,7 @@ class NVBroadcastApp(Adw.Application):
             getattr(self, "_mode_availability_generation", 0) + 1
         )
         self._mode_availability_refresh_in_flight = False
+        self._mode_availability_request = None
         self._mode_availability_snapshot = None
         self._mode_capabilities_snapshot = None
         if self._window is not None:
@@ -2344,18 +2451,38 @@ class NVBroadcastApp(Adw.Application):
         availability_snapshot: dict[str, object] | None = None,
         capabilities: dict[str, object] | None = None,
         error: str = "",
+        window=None,
     ) -> bool:
+        if self._mode_availability_workers.get(gpu_index) == generation:
+            self._mode_availability_workers.pop(gpu_index)
+        request = self._mode_availability_request
+        if self._mode_availability_closed or request is None:
+            if not self._mode_availability_closed and self._window is not None:
+                self._window._resume_mode_runtime_retry()
+            return False
+        current_generation, current_gpu, current_window = request
         if (
-            generation != getattr(self, "_mode_availability_generation", 0)
+            generation != current_generation
             or gpu_index != self.config.compute_gpu
+            or current_window is not self._window
+            or (window is not None and window is not current_window)
         ):
+            self._resume_mode_availability()
+            if self._window is not None:
+                self._window._resume_mode_runtime_retry()
             return False
         self._mode_availability_refresh_in_flight = False
-        if availability_snapshot is None:
+        self._mode_availability_request = None
+        if availability_snapshot is None or capabilities is None:
+            self._mode_availability_snapshot = None
+            self._mode_capabilities_snapshot = None
             if self._window is not None:
+                self._window._mode_availability_ready = False
+                self._window._mode_availability_snapshot = None
                 self._window.set_status(
                     error or "Processing-mode check did not complete"
                 )
+                self._window._resume_mode_runtime_retry()
             return False
         self._mode_availability_snapshot = availability_snapshot
         if capabilities is not None:
@@ -2389,7 +2516,24 @@ class NVBroadcastApp(Adw.Application):
                     if pending_auto
                     else f"Processing modes refreshed for GPU {gpu_index}"
                 )
+            self._maybe_warn_weak_device()
+            if self._pending_auto_start_gpu == gpu_index:
+                self._pending_auto_start_gpu = None
+                self._auto_start()
+            self._window._resume_mode_runtime_retry()
         return False
+
+    def _stop_mode_availability(self) -> None:
+        """Invalidate UI continuations and reap only this app's probe children."""
+        self._mode_availability_closed = True
+        self._mode_availability_generation += 1
+        self._mode_availability_request = None
+        self._mode_availability_refresh_in_flight = False
+        self._pending_auto_start_gpu = None
+        if self._window is not None:
+            self._window._cancel_mode_runtime_retry()
+        if not self._mode_probe_scope.close():
+            print("[NV Broadcast] Provider probe termination is still pending", flush=True)
 
     def set_model(self, model: str):
         """Switch segmentation model."""
@@ -3349,6 +3493,7 @@ class NVBroadcastApp(Adw.Application):
     # --- Lifecycle ---
 
     def do_shutdown(self):
+        self._stop_mode_availability()
         save_config(self.config)
         if self._window is not None and hasattr(self._window, "stop_camera_refresh"):
             self._window.stop_camera_refresh(shutdown=True)
