@@ -68,6 +68,35 @@ with RPM6.0.2 and RPM4.18.2 readers. This test uses no publisher key; the final
 publisher-signed release RPM still requires its own verification and identity
 record. Package format and build environment are unchanged by this fix.
 
+## Reduce Face Relighting frame cost
+
+Face Relighting reduces repeated frame/color work while keeping its existing
+lighting masks, strength and analysis cadence. Generated comparisons preserve
+exact pixels and background-analysis state against the previous implementation
+([PR #195](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/195)).
+Full live FPS acceptance remains pending; this change does not claim that all
+processing delays are resolved.
+
+## Preserve capture timing in recordings
+
+Processed video keeps the capture event's timing on the recorder's shared
+clock instead of acquiring a timestamp after the effects finish. The camera
+may have been running for minutes before Rec starts; its timestamps are rebased
+onto the new recording rather than copied directly. Frames from an earlier Rec
+session or retired camera pipeline are discarded.
+
+If a capture clock is unavailable when Rec starts, that session keeps arrival
+timing so it can still record video. Missing source timestamps also retain an
+arrival fallback. These cases do not claim proven capture-time alignment, and
+older or duplicate timestamps are dropped rather than moved forward.
+
+A generated H.264/AAC regression compares video markers with audio pulses after
+injected 0, 100 and 300 ms processing waits. Its legacy control exposes the added
+offset; the mapped case preserves relative event timing. This does not measure
+physical camera/microphone latency or make expensive live effects run faster.
+Physical A/V and FPS acceptance on the final package remains pending; v1.5.5
+is still not published.
+
 ## Optional tooling stays separate
 
 The source tree also contains explicitly opted-in development work:

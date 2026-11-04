@@ -921,6 +921,9 @@ class VideoPipelineRecordingTests(unittest.TestCase):
                 sample = Gst.Sample.new(buffer, None, None, None)
                 sink = mock.Mock()
                 sink.emit.return_value = sample
+                capture = SimpleNamespace(get_clock=lambda: None)
+                pipeline._pipeline = capture
+                sink.get_parent.return_value = capture
 
                 self.assertEqual(pipeline._on_preview_sample(sink), Gst.FlowReturn.OK)
                 self.assertFalse(pipeline._effects_active)
@@ -1007,6 +1010,10 @@ class VideoPipelineRecordingTests(unittest.TestCase):
         pipeline = VideoPipeline()
         pipeline._has_gst_element = lambda name: name == "x264enc"
         recording = mock.Mock()
+        recording_file, recording_src = mock.Mock(), mock.Mock()
+        recording.get_by_name.side_effect = {
+            "recfile": recording_file, "recsrc": recording_src,
+        }.__getitem__
         recording.set_state.return_value = Gst.StateChangeReturn.SUCCESS
         path = "/tmp/NVB recording with spaces.mp4"
 
@@ -1027,7 +1034,7 @@ class VideoPipelineRecordingTests(unittest.TestCase):
         self.assertNotIn(path, parse_launch.call_args.args[0])
         self.assertIn("do-timestamp=true", parse_launch.call_args.args[0])
         recording.get_by_name.assert_any_call("recfile")
-        recording.get_by_name.return_value.set_property.assert_called_with(
+        recording_file.set_property.assert_called_once_with(
             "location", path
         )
 

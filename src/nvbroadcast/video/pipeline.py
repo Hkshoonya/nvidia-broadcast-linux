@@ -12,6 +12,7 @@ Switches between modes when effects are toggled.
 """
 
 import json
+from dataclasses import dataclass
 import os
 import subprocess
 import sys
@@ -36,6 +37,16 @@ from nvbroadcast.audio.source_probe import audio_source_target, probe_audio_sour
 
 # Formats cudaconvert handles reliably for the up/convert/download segment.
 _CUDA_SAFE_FORMATS = {"YUY2", "UYVY", "NV12", "I420", "BGRA", "RGBA"}
+_CURRENT_CAPTURE = object()
+
+
+@dataclass(frozen=True)
+class _RecordingFrameTime:
+    session: int
+    capture_generation: int
+    capture_pipeline: object
+    clock: object | None = None
+    absolute_time: int | None = None
 
 
 class _GpuPathFatal(RuntimeError):
@@ -102,6 +113,10 @@ class VideoPipeline:
         self._alpha_shutdown = False
         self._vcam_failed = False
         self._recording = False
+        self._recording_lock = threading.RLock()
+        self._recording_session = 0
+        self._recording_last_pts = None
+        self._recording_capture_clock = None
         self._recording_finalizing = False
         self._recording_pipeline = None
         self._rec_appsrc = None
@@ -706,7 +721,7 @@ class VideoPipeline:
 
         preview_sink = self._pipeline.get_by_name("preview")
         if preview_sink:
-            preview_sink.connect("new-sample", self._on_preview_sample)
+            preview_sink.connect("new-sample", self._on_preview_sample, generation)
 
         bus = self._pipeline.get_bus()
         bus.add_signal_watch()
@@ -796,9 +811,9 @@ class VideoPipeline:
         sink.set_property("max-lateness", 0)
         sink.set_property("enable-last-sample", False)
         if self._gpu_capture_active:
-            sink.connect("new-sample", self._on_effects_sample_gpu)
+            sink.connect("new-sample", self._on_effects_sample_gpu, generation)
         else:
-            sink.connect("new-sample", self._on_effects_sample)
+            sink.connect("new-sample", self._on_effects_sample, generation)
 
         bus = self._pipeline.get_bus()
         bus.add_signal_watch()
@@ -860,7 +875,7 @@ class VideoPipeline:
         vbus.add_signal_watch()
         vbus.connect("message::error", self._on_vcam_error)
 
-    def _on_preview_sample(self, appsink):
+    def _on_preview_sample(self, appsink, capture_generation=None):
         """Deliver passthrough frames to preview and any active recording."""
         with self._callback_lock:
             self._callbacks_in_flight += 1
@@ -872,6 +887,8 @@ class VideoPipeline:
             sample = appsink.emit("pull-sample")
             if not sample:
                 return Gst.FlowReturn.OK
+            capture_time = self._capture_recording_time(
+                sample, appsink.get_parent(), capture_generation)
 
             # Paused: keep draining the appsink but don't update the frame
             if self._paused:
@@ -894,7 +911,7 @@ class VideoPipeline:
                 self._send_macos_virtual_camera_frame(frame_data)
 
             if self._recording and self._rec_appsrc:
-                self._push_recording_frame(frame_data, duration)
+                self._push_recording_frame(frame_data, duration, capture_time=capture_time)
 
             self._frame_count += 1
             return Gst.FlowReturn.OK
@@ -906,7 +923,7 @@ class VideoPipeline:
         """Change effects throttle at runtime — no pipeline restart needed."""
         self._effects_fps = min(efps, self._fps)
 
-    def _on_effects_sample(self, appsink):
+    def _on_effects_sample(self, appsink, capture_generation=None):
         """Capture callback — composites EVERY frame inline for zero edge lag.
 
         Architecture:
@@ -927,6 +944,8 @@ class VideoPipeline:
             sample = appsink.emit("pull-sample")
             if not sample:
                 return Gst.FlowReturn.OK
+            capture_time = self._capture_recording_time(
+                sample, appsink.get_parent(), capture_generation)
 
             buf = sample.get_buffer()
             ok, info = buf.map(Gst.MapFlags.READ)
@@ -997,14 +1016,14 @@ class VideoPipeline:
 
             # Push to recording if active
             if self._recording and self._rec_appsrc:
-                self._push_recording_frame(output, buf_duration)
+                self._push_recording_frame(output, buf_duration, capture_time=capture_time)
 
             return Gst.FlowReturn.OK
         finally:
             with self._callback_lock:
                 self._callbacks_in_flight -= 1
 
-    def _on_effects_sample_gpu(self, appsink):
+    def _on_effects_sample_gpu(self, appsink, capture_generation=None):
         """Device-resident capture callback (GpuFramePath).
 
         Per frame: one small native-format ingest copy, one H2D, effects on
@@ -1021,6 +1040,8 @@ class VideoPipeline:
             sample = appsink.emit("pull-sample")
             if not sample:
                 return Gst.FlowReturn.OK
+            capture_time = self._capture_recording_time(
+                sample, appsink.get_parent(), capture_generation)
             buf = sample.get_buffer()
             buf_pts = buf.pts
             buf_duration = buf.duration
@@ -1103,7 +1124,7 @@ class VideoPipeline:
                         self._latest_frame = out_bgra
                     if self._recording and self._rec_appsrc:
                         self._push_recording_frame(
-                            out_bgra.tobytes(), buf_duration
+                            out_bgra.tobytes(), buf_duration, capture_time=capture_time
                         )
 
                 appsrc = self._vcam_appsrc
@@ -1184,24 +1205,117 @@ class VideoPipeline:
         if self._alpha_callback:
             self._alpha_callback(frame_data, width, height)
 
-    def _push_recording_frame(self, payload, duration=Gst.CLOCK_TIME_NONE):
-        """Push a frame using the recording pipeline's running-time clock.
+    def _capture_recording_time(self, sample, capture_pipeline=_CURRENT_CAPTURE, capture_generation=None):
+        """Snapshot the sample's event time before effects can delay delivery.
 
-        Capture timestamps belong to the camera pipeline, which can have been
-        running for minutes before Rec starts. Reusing those absolute values
-        makes mp4mux wait for the new audio branch to catch up and drops most
-        video frames. An unset PTS lets recording appsrc timestamp each frame
-        against the same clock as its audio source.
+        The appsink's actual parent and signal generation identify the source,
+        so a retiring appsink cannot use a replacement pipeline's base. Only
+        the integer generation is signal user-data, avoiding a reference cycle.
+        A token is retained even before Rec starts, to reject that old frame if
+        a recording starts while the callback is processing it.
         """
-        appsrc = self._rec_appsrc
-        if not (self._recording and appsrc):
-            return Gst.FlowReturn.FLUSHING
+        capture = self._pipeline if capture_pipeline is _CURRENT_CAPTURE else capture_pipeline
+        generation = (self._capture_generation if capture_generation is None
+                      else capture_generation)
+        with self._recording_lock:
+            session = self._recording_session
+            recording = self._recording
+        invalid = _RecordingFrameTime(session, generation, capture)
+        if not recording or capture is None:
+            return invalid
+        try:
+            clock = capture.get_clock()
+            base = capture.get_base_time()
+            segment = sample.get_segment()
+            pts = sample.get_buffer().pts
+            if (clock is None or not 0 <= base < Gst.CLOCK_TIME_NONE
+                    or pts == Gst.CLOCK_TIME_NONE or segment is None
+                    or segment.format != Gst.Format.TIME):
+                return invalid
+            running = segment.to_running_time(Gst.Format.TIME, pts)
+            if running == Gst.CLOCK_TIME_NONE or not 0 <= base + running < Gst.CLOCK_TIME_NONE:
+                return invalid
+            return _RecordingFrameTime(session, generation, capture, clock, base + running)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return invalid
+
+    def _push_recording_frame(self, payload, duration=Gst.CLOCK_TIME_NONE, *, capture_time=None):
+        """Rebase a proven capture event onto the recorder's shared clock.
+
+        Camera PTS can be minutes old relative to Rec's origin. Convert its
+        segment running time to an absolute event on the capture clock, then
+        subtract the recorder base. Processing time must not become A/V skew.
+        Missing source timing and legacy callers retain arrival timestamps.
+        A stale session/source, different clock, or pre-Rec event is dropped.
+        """
+        with self._recording_lock:
+            appsrc = self._rec_appsrc
+            recorder = self._recording_pipeline
+            session = self._recording_session
+            mapping_clock = self._recording_capture_clock
+            if not (self._recording and appsrc):
+                return Gst.FlowReturn.FLUSHING
+        pts = None
+        mapping_base = None
+        if capture_time is not None:
+            if (capture_time.capture_pipeline is None
+                    or capture_time.session != session
+                    or capture_time.capture_generation != self._capture_generation
+                    or capture_time.capture_pipeline is not self._pipeline):
+                return Gst.FlowReturn.OK
+            if capture_time.absolute_time is not None and mapping_clock is not None:
+                if (recorder is None or capture_time.clock != mapping_clock
+                        or recorder.get_clock() != capture_time.clock
+                        or capture_time.capture_pipeline.get_clock() != capture_time.clock):
+                    return Gst.FlowReturn.OK
+                base = recorder.get_base_time()
+                if not 0 <= base < Gst.CLOCK_TIME_NONE:
+                    return Gst.FlowReturn.OK
+                pts = capture_time.absolute_time - base
+                if not 0 <= pts < Gst.CLOCK_TIME_NONE:
+                    return Gst.FlowReturn.OK
+                mapping_base = base
         buffer = Gst.Buffer.new_allocate(None, len(payload), None)
         buffer.fill(0, payload)
         if duration == Gst.CLOCK_TIME_NONE or not duration:
             duration = Gst.SECOND // max(1, self._fps)
         buffer.duration = duration
-        return appsrc.emit("push-buffer", buffer)
+        # appsrc is explicitly nonblocking. Serialize this final identity check
+        # and enqueue with stop/restart, without holding the lock across effects.
+        with self._recording_lock:
+            if (not self._recording or session != self._recording_session
+                    or appsrc is not self._rec_appsrc
+                    or recorder is not self._recording_pipeline):
+                return Gst.FlowReturn.FLUSHING
+            if capture_time is not None and (
+                    capture_time.capture_generation != self._capture_generation
+                    or capture_time.capture_pipeline is not self._pipeline):
+                return Gst.FlowReturn.OK
+            if mapping_base is not None and (
+                    recorder.get_clock() != capture_time.clock
+                    or capture_time.capture_pipeline.get_clock() != capture_time.clock
+                    or recorder.get_base_time() != mapping_base):
+                return Gst.FlowReturn.OK
+            if pts is None and recorder is not None:
+                # Keep arrival fallback explicit when its clock is usable, so
+                # later mapped events cannot move backward. Do not clamp them.
+                try:
+                    clock, base = recorder.get_clock(), recorder.get_base_time()
+                    now = clock.get_time() if clock is not None else Gst.CLOCK_TIME_NONE
+                    if 0 <= base <= now < Gst.CLOCK_TIME_NONE:
+                        pts = now - base
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    pass
+            if (pts is not None and self._recording_last_pts is not None
+                    and pts <= self._recording_last_pts):
+                return Gst.FlowReturn.OK
+            if pts is not None:
+                buffer.pts = pts
+                buffer.dts = pts
+            result = appsrc.emit("push-buffer", buffer)
+            if result == Gst.FlowReturn.OK and pts is not None:
+                self._recording_last_pts = pts
+            return result
 
     @staticmethod
     def _recording_audio_source(mic_device: str = "") -> tuple[str | None, str]:
@@ -1277,9 +1391,10 @@ class VideoPipeline:
         retry_video_encoder = self._invalidate_failed_recording_encoder(message)
         self._recording_audio_error = error.message
         self._recording_has_audio = False
-        self._recording = False
-        self._rec_appsrc = None
-        self._recording_pipeline = None
+        with self._recording_lock:
+            self._recording = False
+            self._rec_appsrc = None
+            self._recording_pipeline = None
         self._recording_finalizing = True
         self._recording_finalize_success = False
         self._recording_finalize_done.clear()
@@ -1652,6 +1767,14 @@ class VideoPipeline:
             recording_pipeline.get_by_name("recording_audio_source").set_property(prop, target)
         recording_pipeline.get_by_name("recfile").set_property("location", filepath)
         rec_appsrc = recording_pipeline.get_by_name("recsrc")
+        rec_appsrc.set_property("block", False)
+        # Audio must not select an unrelated recorder clock: samples carry
+        # absolute event times on this capture clock. The actual clock is
+        # checked again when each processed frame is delivered.
+        capture = self._pipeline
+        capture_clock = capture.get_clock() if capture is not None else None
+        if capture_clock is not None:
+            recording_pipeline.use_clock(capture_clock)
         recording_bus = recording_pipeline.get_bus()
         if recording_pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
             startup_error = recording_bus.timed_pop_filtered(
@@ -1679,11 +1802,17 @@ class VideoPipeline:
                 daemon=True,
             ).start()
             raise RuntimeError("Recording pipeline could not start")
-        self._recording_pipeline = recording_pipeline
-        self._rec_appsrc = rec_appsrc
-        self._recording_has_audio = has_audio
-        self._recording_audio_error = audio_error
-        self._recording = True
+        with self._recording_lock:
+            self._recording_session += 1
+            self._recording_last_pts = None
+            # Without a clock at Rec start, preserve video with arrival timing
+            # for this session instead of later dropping every camera frame.
+            self._recording_capture_clock = capture_clock
+            self._recording_pipeline = recording_pipeline
+            self._rec_appsrc = rec_appsrc
+            self._recording_has_audio = has_audio
+            self._recording_audio_error = audio_error
+            self._recording = True
         recording_bus.add_signal_watch()
         self._recording_bus = recording_bus
         self._recording_bus_handler = recording_bus.connect(
@@ -1693,14 +1822,15 @@ class VideoPipeline:
 
     def stop_recording(self, *, wait: bool = True):
         """Stop recording and finalize the MP4 file."""
-        if not self._recording:
-            return False
-        self._recording = False
+        with self._recording_lock:
+            if not self._recording:
+                return False
+            self._recording = False
+            recording_pipeline = self._recording_pipeline
+            recording_appsrc = self._rec_appsrc
+            self._recording_pipeline = None
+            self._rec_appsrc = None
         self._remove_recording_bus_watch()
-        recording_pipeline = self._recording_pipeline
-        recording_appsrc = self._rec_appsrc
-        self._recording_pipeline = None
-        self._rec_appsrc = None
         if recording_pipeline is None:
             return False
         self._recording_finalizing = True
