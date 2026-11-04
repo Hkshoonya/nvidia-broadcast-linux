@@ -1,6 +1,7 @@
 """Replace regressions using synthetic frames and a deterministic alpha backend."""
 
 import unittest
+from contextlib import nullcontext
 from unittest import mock
 
 import cv2
@@ -36,6 +37,8 @@ class _NumpyFusedCupy:
     ones = staticmethod(np.ones)
 
     class cuda:
+        Device = staticmethod(lambda _index: nullcontext())
+
         class Stream:
             class null:
                 @staticmethod
