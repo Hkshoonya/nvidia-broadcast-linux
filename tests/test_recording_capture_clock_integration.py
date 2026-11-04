@@ -21,6 +21,15 @@ gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
 
+def _synthetic_capture_clock():
+    # A hosted runner may be younger than the ten-minute camera origin. Give
+    # this private clock a positive epoch without calibrating the global clock.
+    clock = Gst.SystemClock(name="synthetic-recording-clock")
+    internal = clock.get_internal_time()
+    clock.set_calibration(internal, internal + 3600 * Gst.SECOND, 1, 1)
+    return clock
+
+
 def _encoded_case(path, video_encoder, aac_encoder, mapped):
     from nvbroadcast.video.pipeline import VideoPipeline
 
@@ -28,7 +37,7 @@ def _encoded_case(path, video_encoder, aac_encoder, mapped):
     p = VideoPipeline()
     p._width, p._height, p._fps = 64, 48, 15
     capture = Gst.Pipeline.new("synthetic-old-camera")
-    clock = Gst.SystemClock.obtain()
+    clock = _synthetic_capture_clock()
     capture.use_clock(clock)
     capture.set_start_time(Gst.CLOCK_TIME_NONE)
     capture.set_base_time(clock.get_time() - 600 * Gst.SECOND)
@@ -193,6 +202,27 @@ def _encoded_case(path, video_encoder, aac_encoder, mapped):
 
 
 class RecordingCaptureClockIntegrationTests(unittest.TestCase):
+    def test_private_clock_supports_old_camera_origin_on_a_young_runner(self):
+        Gst.init([])
+        global_clock = Gst.SystemClock.obtain()
+        global_calibration = global_clock.get_calibration()
+        young = Gst.SystemClock(name="young-synthetic-clock")
+        young.set_calibration(young.get_internal_time(), Gst.SECOND, 1, 1)
+        capture = Gst.Pipeline.new("young-camera-fixture")
+        self.assertLess(young.get_time(), 600 * Gst.SECOND)
+        with self.assertRaises(OverflowError):
+            capture.set_base_time(young.get_time() - 600 * Gst.SECOND)
+        # Inject a real clock with a young epoch, without mocking its time math.
+        with mock.patch.object(Gst, "SystemClock", return_value=young):
+            clock = _synthetic_capture_clock()
+        self.assertIs(clock, young)
+        self.assertNotEqual(clock, global_clock)
+        capture.use_clock(clock)
+        capture.set_base_time(clock.get_time() - 600 * Gst.SECOND)
+        self.assertGreater(capture.get_base_time(), 0)
+        self.assertGreaterEqual(clock.get_time() - capture.get_base_time(), 600 * Gst.SECOND)
+        self.assertEqual(global_clock.get_calibration(), global_calibration)
+
     def test_encoded_av_preserves_capture_time_after_processing(self):
         Gst.init([])
         required = (
