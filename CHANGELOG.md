@@ -12,6 +12,9 @@ candidate acceptance are recorded separately in
 [the release notes](docs/RELEASE_NOTES_1.5.5.md). Published v1.5.4 artifacts
 retain their recorded identities.
 
+- **Reduce Face Relighting frame cost** - Reuse face-region calculations and
+  replace full-frame color temporaries with an exact masked reduction,
+  preserving image output and the existing lighting-analysis cadence.
 - **Keep RPM signatures verifiable across reader versions** - Request a legacy
   header signature from supporting signing tools while retaining the modern
   signature and package-integrity checks. A disposable-key regression checks

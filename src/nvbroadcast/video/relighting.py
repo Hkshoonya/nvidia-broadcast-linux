@@ -108,9 +108,11 @@ class FaceRelighter:
         adjusted = roi.astype(np.float32)
         mask3 = face_mask[:, :, np.newaxis]
 
-        for c in range(3):
-            ch = adjusted[:, :, c]
-            adjusted[:, :, c] = ch * (1 - face_mask) + (ch * adj_ratio) * face_mask
+        inverse_mask3 = (1.0 - face_mask)[:, :, np.newaxis]
+        # Keep the original operation order and float32 assignment while
+        # processing contiguous color channels together.
+        adjusted = (adjusted * inverse_mask3 + (adjusted * adj_ratio) * mask3).astype(
+            np.float32, copy=False)
 
         # Add a modest shadow lift so relighting is visible on darker faces
         # even when the scene itself is not especially bright.
@@ -125,7 +127,7 @@ class FaceRelighter:
             adjusted[:, :, 2] = np.clip(adjusted[:, :, 2] + warmth * face_mask, 0, 255)
             adjusted[:, :, 0] = np.clip(adjusted[:, :, 0] - warmth * 0.5 * face_mask, 0, 255)
 
-        blended = roi.astype(np.float32) * (1.0 - mask3) + adjusted * mask3
+        blended = roi.astype(np.float32) * inverse_mask3 + adjusted * mask3
         output[y1:y2, x1:x2, :3] = np.clip(blended, 0, 255).astype(np.uint8)
         return output
 
@@ -169,14 +171,29 @@ class FaceRelighter:
 
     def _analyze_background(self, frame: np.ndarray, alpha=None):
         h, w = frame.shape[:2]
-        gray = cv2.cvtColor(frame[:, :, :3], cv2.COLOR_BGR2GRAY)
+        if frame.dtype == np.uint8 and frame.shape[2] == 4:
+            # A packed BGRA input avoids materializing a strided BGR view.
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY)
+        else:
+            gray = cv2.cvtColor(frame[:, :, :3], cv2.COLOR_BGR2GRAY)
 
         if alpha is not None and hasattr(alpha, 'shape'):
-            bg_mask = (alpha < 128).astype(np.float32)
-            if bg_mask.sum() > 100:
+            background = alpha < 128
+            bg_mask = background.astype(np.float32)
+            count = bg_mask.sum()
+            if count > 100:
                 self._bg_luminance = float(np.average(gray, weights=bg_mask))
-                bg_b = float(np.average(frame[:, :, 0].astype(float), weights=bg_mask))
-                bg_r = float(np.average(frame[:, :, 2].astype(float), weights=bg_mask))
+                if frame.dtype == np.uint8 and frame.shape[2] in (3, 4) and h * w <= 2**24:
+                    # Binary weights and byte colors have exact integer sums.
+                    # Recover those sums before division: OpenCV multiplies by
+                    # a reciprocal, which can otherwise differ by one float ULP
+                    # from NumPy's division. The bound keeps sums below 2**32.
+                    means = cv2.mean(frame, mask=background.view(np.uint8))
+                    bg_b = round(means[0] * int(count)) / int(count)
+                    bg_r = round(means[2] * int(count)) / int(count)
+                else:
+                    bg_b = float(np.average(frame[:, :, 0].astype(float), weights=bg_mask))
+                    bg_r = float(np.average(frame[:, :, 2].astype(float), weights=bg_mask))
                 self._bg_warmth = (bg_r - bg_b) / 255.0
                 return
 
