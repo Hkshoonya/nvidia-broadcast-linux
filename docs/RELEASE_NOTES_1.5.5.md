@@ -68,6 +68,15 @@ with RPM6.0.2 and RPM4.18.2 readers. This test uses no publisher key; the final
 publisher-signed release RPM still requires its own verification and identity
 record. Package format and build environment are unchanged by this fix.
 
+## Reduce Face Relighting frame cost
+
+Face Relighting reduces repeated frame/color work while keeping its existing
+lighting masks, strength and analysis cadence. Generated comparisons preserve
+exact pixels and background-analysis state against the previous implementation
+([PR #195](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/195)).
+Full live FPS acceptance remains pending; this change does not claim that all
+processing delays are resolved.
+
 ## Preserve capture timing in recordings
 
 Processed video keeps the capture event's timing on the recorder's shared
