@@ -1,0 +1,192 @@
+# Frozen differential oracle from 9b5ac543581663b4793e8abea90ae23d5320fc0e.
+# Original source SHA256: 040b3097ef75b85da4a764ef1b493799e20e290c922a224e6d845eda4d8402dc
+# NVIDIA Broadcast for Linux
+# Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
+# Licensed under GPL-3.0-or-later - see LICENSE file
+# Original author: doczeus | AI Powered
+#
+"""Face relighting — gentle fill light guided by scene brightness.
+
+Uses shared FaceLandmarker for face region detection.
+Analyzes background luminance and warmth, then adds fill light without
+darkening already well-exposed faces.
+"""
+
+import numpy as np
+import cv2
+
+from nvbroadcast.video.face_landmarks import get_shared_landmarker
+
+
+class FaceRelighter:
+    def __init__(self):
+        self._enabled = False
+        self._intensity = 0.5
+        self._bg_luminance = 128.0
+        self._bg_warmth = 0.0
+        self._analyze_count = 0
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value: bool):
+        self._enabled = value
+
+    @property
+    def intensity(self) -> float:
+        return self._intensity
+
+    @intensity.setter
+    def intensity(self, value: float):
+        self._intensity = max(0.0, min(1.0, value))
+
+    def process_frame(self, frame: np.ndarray,
+                      alpha: np.ndarray | None = None,
+                      landmarks=None) -> np.ndarray:
+        if not self._enabled:
+            return frame
+
+        if landmarks is None:
+            lm = get_shared_landmarker()
+            if not lm.ready:
+                return frame
+            landmarks = lm.detect(frame, reuse_frames=2)
+        if landmarks is None:
+            return frame
+
+        h, w = frame.shape[:2]
+
+        # Analyze immediately on startup and then every 10 frames so the effect
+        # does not feel "off" for the first few seconds of a live meeting.
+        self._analyze_count += 1
+        if self._analyze_count == 1 or self._analyze_count % 10 == 0:
+            self._analyze_background(frame, alpha)
+
+        # Build face mask from convex hull
+        face_pts = np.array([
+            (int(l.x * w), int(l.y * h))
+            for l in landmarks
+        ], dtype=np.int32)
+
+        hull = cv2.convexHull(face_pts)
+        x, y, fw, fh = cv2.boundingRect(hull)
+        pad = max(12, min(w, h) // 48)
+        x1, y1 = max(0, x - pad), max(0, y - pad)
+        x2, y2 = min(w, x + fw + pad), min(h, y + fh + pad)
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            return frame
+
+        roi = frame[y1:y2, x1:x2, :3]
+        local_hull = hull.copy()
+        local_hull[:, 0, 0] -= x1
+        local_hull[:, 0, 1] -= y1
+
+        face_mask = np.zeros((y2 - y1, x2 - x1), dtype=np.float32)
+        cv2.fillConvexPoly(face_mask, local_hull, 1.0)
+        face_mask = cv2.GaussianBlur(face_mask, (0, 0), sigmaX=6)
+        face_mask = self._build_tone_mask(face_mask, y - y1, fh)
+
+        # Face luminance (ROI only)
+        face_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        mask_sum = face_mask.sum()
+        if mask_sum < 1:
+            return frame
+        face_lum = (face_gray * face_mask).sum() / mask_sum
+        if face_lum < 1:
+            return frame
+
+        # Fill-light adjustment. Darker backgrounds should not drag the face
+        # down; relighting is intended to open shadows, not dim the subject.
+        target = self._bg_luminance
+        ratio = max(1.0, target / face_lum)
+        shadow_boost = max(0.0, (150.0 - face_lum) / 120.0)
+        ratio = max(ratio, 1.0 + shadow_boost * 0.35)
+        ratio = min(1.55, ratio)
+        adj_ratio = 1.0 + (ratio - 1.0) * self._intensity
+
+        output = frame.copy()
+        adjusted = roi.astype(np.float32)
+        mask3 = face_mask[:, :, np.newaxis]
+
+        for c in range(3):
+            ch = adjusted[:, :, c]
+            adjusted[:, :, c] = ch * (1 - face_mask) + (ch * adj_ratio) * face_mask
+
+        # Add a modest shadow lift so relighting is visible on darker faces
+        # even when the scene itself is not especially bright.
+        shadow_mask = np.clip((150.0 - face_gray) / 120.0, 0.0, 1.0) * face_mask
+        if shadow_mask.max() > 0:
+            lift = shadow_mask[:, :, np.newaxis] * (22.0 * self._intensity)
+            adjusted = np.clip(adjusted + lift, 0, 255)
+
+        # Warmth adjustment
+        if abs(self._bg_warmth) > 0.02:
+            warmth = self._bg_warmth * self._intensity * 15
+            adjusted[:, :, 2] = np.clip(adjusted[:, :, 2] + warmth * face_mask, 0, 255)
+            adjusted[:, :, 0] = np.clip(adjusted[:, :, 0] - warmth * 0.5 * face_mask, 0, 255)
+
+        blended = roi.astype(np.float32) * (1.0 - mask3) + adjusted * mask3
+        output[y1:y2, x1:x2, :3] = np.clip(blended, 0, 255).astype(np.uint8)
+        return output
+
+    @staticmethod
+    def _apply_hairline_taper(face_mask: np.ndarray, top: int, face_height: int) -> np.ndarray:
+        """Fade relighting out before it reaches the upper hairline."""
+        if face_mask is None or face_height < 8:
+            return face_mask
+        height = face_mask.shape[0]
+        start = max(0, top)
+        end = min(height, top + max(6, int(face_height * 0.24)))
+        if end <= start:
+            return face_mask
+        tapered = face_mask.copy()
+        ramp = np.linspace(0.30, 1.0, end - start, dtype=np.float32)[:, np.newaxis]
+        tapered[start:end, :] *= ramp
+        return tapered
+
+    @staticmethod
+    def _build_tone_mask(face_mask: np.ndarray, top: int, face_height: int) -> np.ndarray:
+        """Build a tighter relighting mask that stays off upper and side hair."""
+        if face_mask is None:
+            return None
+        tone_mask = FaceRelighter._apply_hairline_taper(face_mask, top, face_height)
+
+        tone_u8 = np.clip(tone_mask * 255.0, 0, 255).astype(np.uint8)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        tone_u8 = cv2.erode(tone_u8, kernel, iterations=1)
+        tone_mask = tone_u8.astype(np.float32) / 255.0
+
+        height, width = tone_mask.shape[:2]
+        start = max(0, top)
+        upper_end = min(height, top + max(6, int(face_height * 0.28)))
+        if upper_end > start:
+            x = np.linspace(-1.0, 1.0, width, dtype=np.float32)
+            side_ramp = 0.72 + 0.28 * (1.0 - np.abs(x))
+            tone_mask[start:upper_end, :] *= side_ramp[np.newaxis, :]
+
+        tone_mask = cv2.GaussianBlur(tone_mask, (0, 0), sigmaX=3)
+        return np.clip(tone_mask, 0.0, 1.0)
+
+    def _analyze_background(self, frame: np.ndarray, alpha=None):
+        h, w = frame.shape[:2]
+        gray = cv2.cvtColor(frame[:, :, :3], cv2.COLOR_BGR2GRAY)
+
+        if alpha is not None and hasattr(alpha, 'shape'):
+            bg_mask = (alpha < 128).astype(np.float32)
+            if bg_mask.sum() > 100:
+                self._bg_luminance = float(np.average(gray, weights=bg_mask))
+                bg_b = float(np.average(frame[:, :, 0].astype(float), weights=bg_mask))
+                bg_r = float(np.average(frame[:, :, 2].astype(float), weights=bg_mask))
+                self._bg_warmth = (bg_r - bg_b) / 255.0
+                return
+
+        border = min(40, h // 10, w // 10)
+        regions = [gray[:border, :], gray[-border:, :],
+                   gray[:, :border], gray[:, -border:]]
+        self._bg_luminance = float(np.mean([r.mean() for r in regions]))
+
+        border_r = float(np.mean([frame[:border, :, 2].mean(), frame[-border:, :, 2].mean()]))
+        border_b = float(np.mean([frame[:border, :, 0].mean(), frame[-border:, :, 0].mean()]))
+        self._bg_warmth = (border_r - border_b) / 255.0
