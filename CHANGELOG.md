@@ -16,6 +16,10 @@ retain their recorded identities.
   header signature from supporting signing tools while retaining the modern
   signature and package-integrity checks. A disposable-key regression checks
   the format6 signing path with both RPM6 and RPM4 readers.
+- **Preserve capture timing in recordings** - Keep processed video tied to its
+  capture event on the recorder's shared clock, so processing delay does not
+  become an added video/audio offset. Preserve recordings started after the
+  camera has been running, and reject frames from retired capture/Rec sessions.
 - **Contain face-model initialization failures** - Check the MediaPipe face
   landmarker and Auto Frame detector in a separate process before enabling
   their native models. A failed, killed or timed-out check leaves the affected
