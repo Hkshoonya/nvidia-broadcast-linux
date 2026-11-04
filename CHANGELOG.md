@@ -12,6 +12,10 @@ candidate acceptance are recorded separately in
 [the release notes](docs/RELEASE_NOTES_1.5.5.md). Published v1.5.4 artifacts
 retain their recorded identities.
 
+- **Keep RPM signatures verifiable across reader versions** - Request a legacy
+  header signature from supporting signing tools while retaining the modern
+  signature and package-integrity checks. A disposable-key regression checks
+  the format6 signing path with both RPM6 and RPM4 readers.
 - **Contain face-model initialization failures** - Check the MediaPipe face
   landmarker and Auto Frame detector in a separate process before enabling
   their native models. A failed, killed or timed-out check leaves the affected

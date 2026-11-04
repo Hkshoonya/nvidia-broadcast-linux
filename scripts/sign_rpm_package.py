@@ -84,6 +84,12 @@ def run(arguments: list[str], environment: dict[str, str], *, data: bytes | None
     return completed.stdout.decode("utf-8", errors="replace")
 
 
+def rpm_compatibility_options(environment: dict[str, str]) -> list[str]:
+    """Keep RPM6 signatures verifiable by RPM4 without breaking older tools."""
+    help_text = run(["rpmsign", "--help"], environment)
+    return ["--rpmv4"] if re.search(r"(?m)^\s*--rpmv4(?:\s|$)", help_text) else []
+
+
 def primary_fingerprints(listing: str) -> list[str]:
     result = []
     primary = False
@@ -164,6 +170,10 @@ def sign(package: Path, public_key: Path, fingerprint: str, output: Path) -> dic
                    if name not in {"NVB_RPM_PRIVATE_KEY", "NVB_RPM_KEY_PASSPHRASE",
                                    "GNUPGHOME", "GPG_AGENT_INFO"}}
     environment.update(LC_ALL="C", LANG="C")
+    # Probe before importing private key material. RPM4 tools that lack this
+    # option retain their existing command; supporting tools also add the
+    # legacy header signature while retaining the modern RPM6 signature.
+    compatibility = rpm_compatibility_options(environment)
     output.parent.mkdir(parents=True, exist_ok=True)
     # Keep paths interpolated into RPM macros free of shell/macro metacharacters.
     with tempfile.TemporaryDirectory(prefix="nvb-rpm-sign-", dir="/tmp") as temporary:
@@ -195,7 +205,7 @@ def sign(package: Path, public_key: Path, fingerprint: str, output: Path) -> dic
                       "--define", f"_gpg_path {home}",
                       "--define", "_gpg_digest_algo sha256",
                       "--define", f"_gpg_sign_cmd_extra_args --batch --pinentry-mode loopback --passphrase-file {password}"]
-            run(["rpmsign", *macros, "--addsign", str(candidate)], env)
+            run(["rpmsign", *macros, *compatibility, "--addsign", str(candidate)], env)
             signed_asset_bytes(candidate)
             verification = verify_rpm(candidate, key, fingerprint, environment)
             # The native signature changes the signature header only. Compare

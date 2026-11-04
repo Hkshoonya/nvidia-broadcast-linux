@@ -54,6 +54,20 @@ not provide matching GTK/GStreamer bindings. Normal supported source
 installation remains CPython 3.11–3.14
 ([#183](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/183)).
 
+## RPM signature compatibility
+
+The release signer requests an additional legacy header signature when
+`rpmsign` supports it. Default RPM6 signatures on format6 packages can pass a
+current reader while an RPM4 reader reports only valid digests, without a
+verified publisher signature. The compatibility request preserves the modern
+signature and the existing package-header, payload and key checks. Older
+signing tools retain their existing command.
+
+A disposable RSA signing fixture verifies the signature and file payload
+with RPM6.0.2 and RPM4.18.2 readers. This test uses no publisher key; the final
+publisher-signed release RPM still requires its own verification and identity
+record. Package format and build environment are unchanged by this fix.
+
 ## Optional tooling stays separate
 
 The source tree also contains explicitly opted-in development work:

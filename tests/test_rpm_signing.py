@@ -19,6 +19,34 @@ FINGERPRINT = "A" * 40
 
 
 class SigningBoundaryTests(unittest.TestCase):
+    def test_legacy_signature_option_requires_an_advertised_standalone_flag(self):
+        for text, expected in (
+            ("Options:\n      --rpmv4    create legacy header signature\n", ["--rpmv4"]),
+            ("Options:\n      --rpmv3    create old signatures\n", []),
+            ("      --rpmv4-disabled\nMention --rpmv4 in prose only\n", []),
+        ):
+            with self.subTest(help=text), mock.patch.object(signing, "run", return_value=text) as tool:
+                environment = {"LC_ALL": "C"}
+                self.assertEqual(signing.rpm_compatibility_options(environment), expected)
+                tool.assert_called_once_with(["rpmsign", "--help"], environment)
+
+    def test_failed_capability_probe_stops_before_private_key_import(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "fixture.rpm"
+            package.write_bytes(b"unsigned")
+            public = root / "public.asc"
+            public.write_bytes(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\nfixture-only\n")
+            with mock.patch.dict(os.environ, {"NVB_RPM_PRIVATE_KEY": "private-test-sentinel"}), \
+                 mock.patch.object(signing, "run", side_effect=signing.SigningError("capability probe failed")) as tool:
+                with self.assertRaisesRegex(signing.SigningError, "capability probe failed"):
+                    signing.sign(package, public, FINGERPRINT, root / "signed")
+            self.assertEqual(tool.call_count, 1)
+            self.assertEqual(tool.call_args.args[0], ["rpmsign", "--help"])
+            self.assertNotIn("NVB_RPM_PRIVATE_KEY", tool.call_args.args[1])
+            self.assertNotIn("NVB_RPM_KEY_PASSPHRASE", tool.call_args.args[1])
+            self.assertFalse((root / "signed").exists())
+
     def test_fingerprint_is_complete_and_primary_only(self):
         listing = "pub:u:2048:1:AAA:0:0:::::sc:\nfpr:::::::::" + FINGERPRINT + ":\n"
         listing += "sub:u:2048:1:BBB:0:0:::::s:\nfpr:::::::::" + "B" * 40 + ":\n"
@@ -103,7 +131,7 @@ class SignedAssetSizeTests(unittest.TestCase):
                 def tool(arguments, environment, *, data=None):
                     if arguments[0] == "gpg" and "--list-secret-keys" in arguments:
                         return "sec:u:4096:1:KEY:0:0:::::sc:\nfpr:::::::::" + FINGERPRINT + ":\n"
-                    if arguments[0] == "rpmsign":
+                    if arguments[0] == "rpmsign" and "--addsign" in arguments:
                         candidate = Path(arguments[-1])
                         observed["scratch"] = candidate.parents[1]
                         self.assertEqual(candidate.read_bytes(), b"unsigned")
