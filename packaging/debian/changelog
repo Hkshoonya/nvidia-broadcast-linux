@@ -1,3 +1,14 @@
+nvbroadcast (1.5.5-1) unstable; urgency=medium
+
+  * Keep mode selection, first-run setup and retries responsive during provider
+    checks; cancel owned probes when setup closes or the application quits.
+  * Contain optional face-model initialization failures and show Eye Contact
+    tracking and correction status without changing gaze correction.
+  * Correct Fedora source-install binding dependencies and retain the separate
+    opt-in scope of experimental runtime and inventory tooling.
+
+ -- DocZeus <harshit@kshoonya.com>  Tue, 03 Nov 2026 18:00:00 -0500
+
 nvbroadcast (1.5.4-1) unstable; urgency=high
 
   * Refresh affected Python dependencies and certificate bundles and audit
