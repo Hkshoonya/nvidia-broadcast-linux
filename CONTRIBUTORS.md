@@ -100,7 +100,8 @@ Sponsorship supports maintenance but does not create or replace code authorship.
 
 - Stopped the mouse wheel from changing sliders while scrolling the controls
   page, which was also rewriting noise strength and restarting the virtual
-  microphone.
+  microphone
+  ([#199](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/199)).
 
 ## Updating This Record
 
