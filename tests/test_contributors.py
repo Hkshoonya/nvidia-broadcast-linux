@@ -109,7 +109,7 @@ class ContributorCreditTests(unittest.TestCase):
         expected_logins = (
             {"Hkshoonya"},
             {"perfectra1n", "Tenshock", "Nirusaki-Malaal"},
-            {"JohnMaingi-IXP", "pastor0711", "KadotyGamer", "mauriciozaffari"},
+            {"JohnMaingi-IXP", "pastor0711", "KadotyGamer", "mauriciozaffari", "JZomDev"},
         )
         all_credits = []
         for (_, credits), expected in zip(sections, expected_logins):

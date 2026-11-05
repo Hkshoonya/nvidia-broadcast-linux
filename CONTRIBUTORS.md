@@ -159,6 +159,18 @@ CUDA detection for system-provided onnxruntime packages.
   that does not apply to system packages
   ([#156](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/156)).
 
+### JZomDev ([@JZomDev](https://github.com/JZomDev))
+
+**Areas:** Controls; Audio settings.
+
+Prevent accidental slider changes during page scrolling.
+
+- Reported and fixed wheel input changing sliders under the pointer while
+  scrolling controls, including accidental noise-strength changes that
+  restarted the virtual microphone. Maintainer review refined native page
+  propagation and added wheel, modifier, keyboard and drag regression checks
+  ([#199](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/199)).
+
 ## Other Community Contributions
 
 Bug reports, reproduction details, hardware testing, review comments,

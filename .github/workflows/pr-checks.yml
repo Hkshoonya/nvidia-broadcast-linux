@@ -76,6 +76,7 @@ jobs:
             pulseaudio-utils \
             xvfb \
             xauth \
+            libxtst6 \
             gir1.2-gtk-4.0 \
             gir1.2-adw-1 \
             gir1.2-gstreamer-1.0 \
@@ -125,10 +126,13 @@ jobs:
       - name: Check responsive GTK layout under Xvfb
         env:
           NVBROADCAST_TEST_LAYOUT: "1"
+          NVBROADCAST_TEST_NATIVE_INPUT: "1"
+          GDK_BACKEND: x11
           PYTHONPATH: src
         run: |
           xvfb-run -a -s '-screen 0 1600x1200x24' \
-            .venv/bin/python -m pytest -q tests/test_responsive_window.py
+            .venv/bin/python -m pytest -q \
+              tests/test_responsive_window.py tests/test_effect_slider_scroll.py
 
   python:
     name: Python ${{ matrix.python-version }}

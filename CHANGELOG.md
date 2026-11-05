@@ -17,6 +17,9 @@ retain their recorded identities.
   summaries and evidence, preserving cumulative authorship and separate
   sponsorship. Recognition includes verified fixes and distinguishes source
   acceptance from release delivery.
+- **Keep page scrolling from changing effects** - Wheel and touchpad scrolling
+  over effect sliders keeps their values unchanged, preserving native page
+  scrolling, keyboard adjustment and dragging.
 - **Reduce Face Relighting frame cost** - Reuse face-region calculations and
   replace full-frame color temporaries with an exact masked reduction,
   preserving image output and the existing lighting-analysis cadence.

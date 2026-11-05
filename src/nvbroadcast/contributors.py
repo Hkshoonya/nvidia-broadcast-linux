@@ -112,6 +112,12 @@ CONTRIBUTORS: tuple[Contributor, ...] = (
         evidence=_pull_requests(180, 185),
         delivery_note="Not included in v1.5.4.",
     ),
+    Contributor(
+        "JZomDev", "JZomDev", tier=ContributionTier.CONTRIBUTOR,
+        areas=("Controls", "Audio settings"),
+        summary="Prevent accidental slider changes during page scrolling.",
+        evidence=_pull_requests(199),
+    ),
 )
 
 CONTRIBUTOR_GITHUB_LOGINS = frozenset(

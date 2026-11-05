@@ -54,6 +54,14 @@ not provide matching GTK/GStreamer bindings. Normal supported source
 installation remains CPython 3.11–3.14
 ([#183](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/183)).
 
+## Control scrolling
+
+Scrolling over an effect slider leaves its value unchanged and lets GTK
+scroll the containing page, including horizontal and Shift-modified input.
+Keyboard adjustment and pointer dragging still change the slider. This also
+prevents unintended noise-strength changes from restarting the virtual
+microphone ([PR #199](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/199)).
+
 ## Contribution recognition
 
 The About window presents Core Maintainers, Project Sponsors, Major Feature
@@ -62,7 +70,7 @@ separate sponsor section. Verified fixes remain eligible for recognition. Groupi
 reflects reviewed technical depth and impact rather than line counts,
 pull-request totals or sponsorship; it grants no repository permissions.
 
-All seven accepted external credits remain. The registry, README and
+All accepted external credits remain. The registry, README and
 [contributor record](../CONTRIBUTORS.md) retain public names, evidence and the
 distinction between source acceptance and delivery. In particular, the
 experimental Python 3.15 CPU tooling and native-model checks credited to

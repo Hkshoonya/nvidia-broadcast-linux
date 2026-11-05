@@ -131,6 +131,12 @@ class EffectSlider(Gtk.Box):
         self._scale.set_draw_value(True)
         self._scale.set_value_pos(Gtk.PositionType.RIGHT)
         self._scale.connect("value-changed", self._on_changed)
+        # Disable GtkRange's wheel input so ancestor scrollers handle axes,
+        # modifiers and touchpad gestures. Snapshot once; retaining the observer
+        # model would keep GTK's extra controller bookkeeping enabled.
+        for controller in list(self._scale.observe_controllers()):
+            if isinstance(controller, Gtk.EventControllerScroll):
+                controller.set_propagation_phase(Gtk.PropagationPhase.NONE)
         self.append(self._scale)
 
     @property
