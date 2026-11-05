@@ -6,6 +6,7 @@
 """Audio pipeline: mic capture -> denoise -> browser-safe virtual mic output."""
 
 import base64
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,12 @@ from nvbroadcast.audio.virtual_mic import (
     virtual_mic_sink_name,
 )
 from nvbroadcast.core.platform import IS_LINUX, IS_MACOS
+
+
+@dataclass(frozen=True)
+class _OutputChunk:
+    audio: np.ndarray
+    queued_ns: int
 
 
 class AudioPipeline:
@@ -80,7 +87,11 @@ class AudioPipeline:
         self._use_helper_process = bool(use_helper_process)
         self._output_frames_pushed = 0
         self._stereo_scratch: np.ndarray | None = None
-        self._output_buffer_queue: queue.Queue[np.ndarray | None] = queue.Queue(maxsize=64)
+        self._output_buffer_queue: queue.Queue[_OutputChunk | None] = queue.Queue(maxsize=64)
+        self._output_queue_lock = threading.Lock()
+        # Match the nonloopback appsrc's 200 ms queue budget. Upstream DSP
+        # and downstream playback latency are outside this FIFO's budget.
+        self._output_queue_max_age_ns = 200_000_000
         self._output_worker: threading.Thread | None = None
         self._stop_output_worker = threading.Event()
         # Keep mic capture active by default. Some Pulse/PipeWire clients lock
@@ -386,14 +397,30 @@ class AudioPipeline:
         """
         if (processed.dtype == np.float32 and processed.flags.owndata
                 and not (self._voice_fx and self._voice_fx.enabled)):
-            chunk = processed
+            audio = processed
         else:
-            chunk = np.array(processed, dtype=np.float32)
-        try:
-            self._output_buffer_queue.put(chunk, timeout=0.25)
-        except queue.Full:
-            return "queue-full"
+            audio = np.array(processed, dtype=np.float32)
+        # A stalled playback client must not make capture wait for room or
+        # reject the newest output while preserving a delayed FIFO forever.
+        with self._output_queue_lock:
+            if self._stop_output_worker.is_set():
+                return "stopped"
+            chunk = _OutputChunk(audio, time.monotonic_ns())
+            try:
+                self._output_buffer_queue.put_nowait(chunk)
+            except queue.Full:
+                try:
+                    self._output_buffer_queue.get_nowait()
+                except queue.Empty:
+                    pass  # The worker consumed the oldest chunk meanwhile.
+                self._output_buffer_queue.put_nowait(chunk)
         return f"queued={self._output_buffer_queue.qsize()}"
+
+    def _fresh_output_audio(self, chunk: _OutputChunk) -> np.ndarray:
+        """Discard a block after its residence in the live output FIFO expires."""
+        if time.monotonic_ns() - chunk.queued_ns > self._output_queue_max_age_ns:
+            return chunk.audio[:0]
+        return chunk.audio
 
     def _start_output_worker(self):
         if self._output_worker is not None and self._output_worker.is_alive():
@@ -409,28 +436,29 @@ class AudioPipeline:
     def _stop_output_worker_sync(self):
         self._stop_output_worker.set()
         if self._output_worker is not None:
-            while True:
+            with self._output_queue_lock:
                 try:
                     self._output_buffer_queue.put_nowait(None)
-                    break
                 except queue.Full:
                     try:
                         self._output_buffer_queue.get_nowait()
                     except queue.Empty:
-                        break
+                        pass
+                    self._output_buffer_queue.put_nowait(None)
             self._output_worker.join(timeout=2.0)
             self._output_worker = None
         self._clear_output_queue()
 
     def _clear_output_queue(self):
-        while True:
-            try:
-                self._output_buffer_queue.get_nowait()
-            except queue.Empty:
-                break
+        with self._output_queue_lock:
+            while True:
+                try:
+                    self._output_buffer_queue.get_nowait()
+                except queue.Empty:
+                    break
 
     def _output_worker_main(self):
-        while True:
+        while not self._stop_output_worker.is_set():
             try:
                 chunk = self._output_buffer_queue.get(timeout=0.1)
             except queue.Empty:
@@ -438,14 +466,17 @@ class AudioPipeline:
                     break
                 continue
 
-            if chunk is None:
+            if chunk is None or self._stop_output_worker.is_set():
                 break
 
-            flow = self._push_buffer_direct(chunk)
+            audio = self._fresh_output_audio(chunk)
+            if not len(audio):
+                continue
+            flow = self._push_buffer_direct(audio)
             if self._debug_audio and self._debug_output_pushes < 40:
                 self._debug_output_pushes += 1
-                chunk_rms = float(np.sqrt(np.mean(np.square(chunk)))) if len(chunk) else 0.0
-                chunk_peak = float(np.max(np.abs(chunk))) if len(chunk) else 0.0
+                chunk_rms = float(np.sqrt(np.mean(np.square(audio))))
+                chunk_peak = float(np.max(np.abs(audio)))
                 print(
                     "[NVIDIA Broadcast Audio Debug] "
                     f"worker_push_flow={flow} chunk_rms={chunk_rms:.6f} chunk_peak={chunk_peak:.6f}",
