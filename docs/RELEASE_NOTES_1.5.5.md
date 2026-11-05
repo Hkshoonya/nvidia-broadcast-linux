@@ -77,6 +77,20 @@ exact pixels and background-analysis state against the previous implementation
 Full live FPS acceptance remains pending; this change does not claim that all
 processing delays are resolved.
 
+## Respect the selected GPU during compositing
+
+Mixed CPU/GPU effects explicitly use the selected Compute GPU for uploads,
+compositing and GPU-matte bookkeeping, including on a fresh capture thread.
+Each operation restores the thread's previous device even after a failure;
+existing CPU fallback remains available. A separate cache boundary protects
+device switches without serializing rendering with asynchronous inference.
+
+Generated routing tests cover device selection, cache reuse/invalidation,
+concurrent switches and error recovery while preserving the existing pixel
+calculations. Native multi-GPU smoke and physical FPS acceptance remain pending.
+This corrects device ownership; it does not establish the cause of every slow
+background-processing frame or claim an FPS improvement.
+
 ## Preserve capture timing in recordings
 
 Processed video keeps the capture event's timing on the recorder's shared

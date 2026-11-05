@@ -101,6 +101,8 @@ class BackgroundOverlayTests(unittest.TestCase):
         newaxis = np.newaxis if np is not None else None
 
         class cuda:
+            Device = staticmethod(lambda _index: contextlib.nullcontext())
+
             class Stream:
                 class null:
                     @staticmethod
