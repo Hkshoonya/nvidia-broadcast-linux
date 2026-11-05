@@ -85,12 +85,14 @@ class VideoPipeline:
         self._capture_retry_pending = False
         self._capture_started = False
         self._capture_generation = 0
+        self._capture_error_reported_generation = None
         self._capture_cache_key: tuple[str, int, int, int] | None = None
         self._prefer_hw_decode = False
         self._effects_fps: int = 30  # Can be reduced by performance profile
         self._effect_callback = None
         self._alpha_callback = None
         self._preview_callback = None
+        self._capture_error_callback = None
         self._preview_enabled = True
         self._preview_timer_id = 0
         self._vcam_appsrc = None
@@ -590,6 +592,13 @@ class VideoPipeline:
 
     def _queue_rebuild(self):
         """Schedule one teardown-safe rebuild on the GTK main loop."""
+        # A recovery idle may still be queued after a terminal bus error.
+        # It must not reopen a capture that the application has already stopped.
+        if self._capture_error_reported_generation == self._capture_generation:
+            return False
+        if (self._pipeline is None
+                and not self._running and not self._rebuild_pending):
+            return False
         self._rebuild_pending = True
         if self._rebuild_source_id:
             return
@@ -1987,7 +1996,7 @@ class VideoPipeline:
         except Exception as exc:
             # A retained recorder must not continue with only audio if the
             # replacement capture pipeline cannot be constructed.
-            self._stop_recording_after_capture_error(str(exc))
+            self._fail_capture(str(exc))
             raise
         finally:
             self._rebuild_pending = False
@@ -2198,6 +2207,24 @@ class VideoPipeline:
         if self._recording_error_callback:
             self._recording_error_callback(message)
 
+    def set_capture_error_callback(self, callback):
+        """Notify with (pipeline, generation, message) after terminal failure."""
+        self._capture_error_callback = callback
+
+    def _fail_capture(self, message: str) -> None:
+        generation = self._capture_generation
+        if self._capture_error_reported_generation == generation:
+            return
+        self._capture_error_reported_generation = generation
+        try:
+            self._stop_recording_after_capture_error(message)
+        finally:
+            # A finalization callback may replace this capture before returning.
+            if self._capture_generation == generation:
+                self.stop()
+                if self._capture_error_callback:
+                    self._capture_error_callback(self, generation, message)
+
     def _on_error(self, bus, msg, generation=None):
         if (
             generation is not None
@@ -2250,7 +2277,7 @@ class VideoPipeline:
             GLib.idle_add(self._queue_rebuild)
             return
 
-        self._stop_recording_after_capture_error(err.message)
+        self._fail_capture(err.message)
 
     def _on_vcam_error(self, bus, msg):
         err, debug = msg.parse_error()
