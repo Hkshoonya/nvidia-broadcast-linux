@@ -12,6 +12,11 @@ candidate acceptance are recorded separately in
 [the release notes](docs/RELEASE_NOTES_1.5.5.md). Published v1.5.4 artifacts
 retain their recorded identities.
 
+- **Recognize contribution scope in app credits** - Show Core Maintainers,
+  Major Feature Contributors and Contributors with concise accepted-work
+  summaries and evidence, preserving cumulative authorship and separate
+  sponsorship. Recognition includes verified fixes and distinguishes source
+  acceptance from release delivery.
 - **Reduce Face Relighting frame cost** - Reuse face-region calculations and
   replace full-frame color temporaries with an exact masked reduction,
   preserving image output and the existing lighting-analysis cadence.

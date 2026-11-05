@@ -5,24 +5,24 @@
 <h1 align="center">Sponsors &amp; Backers</h1>
 
 <p align="center">
-  <em>Recurring support helps keep NV Broadcast maintained, tested, and open source.</em>
+  <em>Backing the work behind NV Broadcast.</em>
 </p>
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors">
-    <img src="https://img.shields.io/badge/Become_a_Sponsor-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor">
+    <img src="https://img.shields.io/badge/GitHub_Sponsors-Support_the_Work-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Support DocZeus on GitHub Sponsors">
   </a>
 </p>
 
-## Current Goal
+## Support continued development
 
-The first goal is **10 monthly sponsors**. This milestone will help reserve predictable maintenance time for bug triage, compatibility fixes, package testing, and release verification.
+**If you like NV Broadcast and want to help me keep building at this pace, feel free to sponsor my work.**
 
-[Support continued development](https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors)
+Sponsorship gives me more time to improve effects and performance, resolve difficult bugs, and test releases across real cameras, audio devices and systems. It supports the engineering behind each update.
 
-Financial supporters make sustained maintainer time possible, while contributors strengthen the project through reports, testing, documentation, ideas, and code. Both are essential to keeping NV Broadcast healthy.
+Support is optional, and core features remain open source. Reports, testing, documentation and code contributions are valuable too.
 
-Sponsorship funds maintenance for the whole community. Roadmap priorities remain based on security, impact, reproducibility, community needs, and what is technically right for the project.
+Development priorities follow technical merit and community needs. Existing sponsor recognition and tier benefits remain in place.
 
 This page updates automatically from public [GitHub Sponsors](https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors) data once a day.
 
@@ -30,15 +30,15 @@ This page updates automatically from public [GitHub Sponsors](https://github.com
 
 ## Founding Sponsor
 
-- [@Mattsky](https://github.com/Mattsky) - supporting NV Broadcast while its sustainability program is being established
+- [@Mattsky](https://github.com/Mattsky) — founding sponsor of NV Broadcast
 
 ---
 
-## 💎 Featured Sponsors
+## Featured Sponsors
 
 *Project Backers and Organization Backers are featured here while their sponsorship is active.*
 
-<!-- featured --><em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors">become a Project Backer</a>.</em><!-- featured -->
+<!-- featured --><em>Featured project supporters.</em><!-- featured -->
 
 ---
 
@@ -50,7 +50,4 @@ This page updates automatically from public [GitHub Sponsors](https://github.com
 
 ---
 
-<p align="center">
-  <strong>Want your name (or company logo) here?</strong><br>
-  <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors">Pick a tier on GitHub Sponsors</a>
-</p>
+[Support the work on GitHub Sponsors](https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_sponsors).

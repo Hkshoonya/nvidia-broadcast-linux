@@ -765,11 +765,13 @@ nvidia-broadcast-linux/
 
 Contributions, feedback, and ideas are **warmly welcome**.
 
-Recognized external contributors receive cumulative credit in every later app
-release and in [CONTRIBUTORS.md](CONTRIBUTORS.md), including a public record of
-the work or technical finding behind each credit. Original project authorship,
-external contributions, community testing, and financial sponsorship are
-recognized separately so that one form of support never replaces another.
+Accepted contributions receive cumulative credit in the application and in
+[CONTRIBUTORS.md](CONTRIBUTORS.md), including the work or verified technical
+finding behind each credit. The app distinguishes Core Maintainers, Major
+Feature Contributors, and Contributors, with a concise description of each
+person's accepted work. Verified fixes count: recognition reflects technical
+depth and impact, not line counts or pull-request counts. Original authorship,
+community testing, and financial sponsorship remain distinct.
 
 ### How to Contribute
 
@@ -797,13 +799,28 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 
 ### Recognized Contributors
 
-The permanent contributor record currently recognizes
-[John Maingi](https://github.com/JohnMaingi-IXP),
-[Jon Fuller](https://github.com/perfectra1n),
-[Cédric Prezelin](https://github.com/Tenshock), and
-[Cenkay Çoban](https://github.com/pastor0711). See
-[CONTRIBUTORS.md](CONTRIBUTORS.md) for the contribution summary and source
-references behind each credit.
+**Core Maintainers:** [DocZeus](https://github.com/Hkshoonya), the original
+project creator and maintainer.
+
+**Major Feature Contributors:** [Jon Fuller](https://github.com/perfectra1n)
+for GPU transport, audio processing and runtime reliability;
+[Cédric Prezelin](https://github.com/Tenshock) for camera recovery, runtime
+ownership and dependency security; and
+[Mradul Kumar](https://github.com/Nirusaki-Malaal) for experimental Python 3.15
+CPU tooling and native-model checks outside the frozen v1.5.4 source.
+
+**Contributors:** [John Maingi](https://github.com/JohnMaingi-IXP) for the
+validated Whisper installer diagnosis;
+[Cenkay Çoban](https://github.com/pastor0711) for explicit profile auto-start
+and safe failure recovery; [KadotyGamer](https://github.com/KadotyGamer) for
+Python 3.14 source installation and binding checks; and
+[Mauricio Zaffari](https://github.com/mauriciozaffari) for CUDA detection with
+system-provided ONNX Runtime packages.
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for the reviewed evidence and delivery
+status behind each credit. Recognizing accepted work does not imply that it
+was shipped in an earlier release or that an experimental route is supported
+on every platform.
 
 ## Future Upgrades
 
@@ -818,31 +835,36 @@ references behind each credit.
 
 ---
 
-## Sustain NV Broadcast
+## Support continued development
 
-I created and lead NV Broadcast with help from community bug reports, testing, documentation, ideas, and code contributions. As usage grows, so does the work required to review that input and test GPU runtimes, cameras, audio, packages, and releases across real systems.
+**If you like NV Broadcast and want to help me keep building at this pace, feel free to sponsor my work.**
 
-The first sustainability goal is **10 monthly sponsors**. Reaching it will help reserve predictable maintenance time each month for bug triage, compatibility fixes, package testing, and reliable releases. Core features will remain open source.
+I build and maintain NV Broadcast with contributions from the community. Sponsorship gives me more time for the work behind each release: improving effects and performance, resolving difficult bugs, and testing cameras, audio and packages across real systems.
 
-Financial supporters make sustained maintainer time possible, while contributors strengthen the project through reports, testing, documentation, ideas, and code. Sponsorship funds maintenance for the whole community, and roadmap priorities remain based on security, impact, reproducibility, community needs, and what is technically right for the project.
+Support is optional, and core features remain open source. Reports, testing, documentation and code contributions are valuable too. Development priorities follow technical merit and community needs.
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">
-    <img src="https://img.shields.io/badge/Sponsor_DocZeus-Support_Development-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor">
+    <img src="https://img.shields.io/badge/GitHub_Sponsors-Support_the_Work-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Support DocZeus on GitHub Sponsors">
   </a>
 </p>
 
 ### Founding Sponsor
 
-- [@Mattsky](https://github.com/Mattsky) - supporting NV Broadcast while its sustainability program is being established
+- [@Mattsky](https://github.com/Mattsky) — founding sponsor of NV Broadcast
 
-### 💎 Featured Sponsors
+<details>
+<summary>Sponsor wall</summary>
 
-<!-- featured --><em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">become a Project Backer</a> and your name appears here.</em><!-- featured -->
+### Featured Sponsors
 
-### 💚 Backers &amp; Supporters
+<!-- featured --><em>Featured project supporters.</em><!-- featured -->
+
+### Backers &amp; Supporters
 
 <!-- sponsors --><a href="https://github.com/Mattsky" title="Mattsky"><img src="https://avatars.githubusercontent.com/u/2619664?u=a3e9b73765da4dd8f3472520e40c9588c65a7803&v=4" width="55" alt="Mattsky"></a>&nbsp;<!-- sponsors -->
+
+</details>
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">GitHub Sponsors</a> ·
