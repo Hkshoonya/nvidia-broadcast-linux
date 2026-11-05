@@ -1369,6 +1369,7 @@ class NVBroadcastApp(Adw.Application):
         self._video_pipeline.set_effect_callback(self._process_frame)
         self._video_pipeline.set_alpha_callback(self._update_alpha)
         self._video_pipeline.set_recording_error_callback(self._on_recording_error)
+        self._video_pipeline.set_capture_error_callback(self._on_capture_error)
         self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)
         self._sync_gpu_frame_path(output_format)
         startup_trace.mark("gpu frame path ready")
@@ -1426,6 +1427,20 @@ class NVBroadcastApp(Adw.Application):
             print(f"[NV Broadcast] Pipeline failed: {e}")
 
         return self._streaming  # True on success, False on failure
+
+    def _on_capture_error(self, pipeline, generation: int, message: str):
+        if (pipeline is not self._video_pipeline
+                or generation != pipeline._capture_generation):
+            return
+        self.stop_pipeline()
+        status = f"Camera stopped: {message}. Check the selected camera and start Broadcast again."
+        if self._window:
+            self._window._streaming = False
+            self._window._stream_btn.set_label("Start Broadcast")
+            self._window._stream_btn.remove_css_class("destructive-action")
+            self._window._stream_btn.add_css_class("suggested-action")
+            self._window.set_status(status)
+        self._sync_tray_status(status)
 
     def stop_pipeline(self, clear_pending_start: bool = True):
         self._pending_auto_start_gpu = None
