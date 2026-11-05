@@ -93,7 +93,7 @@ Camera recovery, runtime ownership, and dependency security.
 
 Experimental Python 3.15 CPU tooling and native-model checks.
 
-**Delivery:** Accepted after v1.5.4.
+**Delivery:** Not included in v1.5.4.
 
 These accepted changes are part of the unpublished v1.5.5 preparation; current
 package and platform acceptance remain recorded in the
@@ -108,7 +108,7 @@ package and platform acceptance remain recorded in the
   including pinned AV/ONNX Runtime builds and native runtime checks
   ([#185](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/185)).
   GPU support and physical-device acceptance remain separate. Both #180 and
-  #185 were accepted after v1.5.4; this credit does not place them in that
+  #185 were accepted outside the frozen v1.5.4 source; this credit does not place them in that
   published release or attribute later maintainer follow-up work to the author.
 
 ## Contributors

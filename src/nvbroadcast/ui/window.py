@@ -3578,9 +3578,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             ),
         )
         if hasattr(about, "add_credit_section"):
-            for title, credits in app_credit_sections():
-                about.add_credit_section(title, credits)
+            maintainers, *contributions = app_credit_sections()
+            about.add_credit_section(*maintainers)
             about.add_credit_section("Project Sponsors", _APP_SPONSORS)
+            for title, credits in contributions:
+                about.add_credit_section(title, credits)
         about.add_link("Sponsor on GitHub", "https://github.com/sponsors/Hkshoonya")
         about.present()
 

@@ -110,7 +110,7 @@ CONTRIBUTORS: tuple[Contributor, ...] = (
         areas=("Python compatibility", "Native-model recovery"),
         summary="Experimental Python 3.15 CPU tooling and native-model checks.",
         evidence=_pull_requests(180, 185),
-        delivery_note="Accepted after v1.5.4.",
+        delivery_note="Not included in v1.5.4.",
     ),
 )
 

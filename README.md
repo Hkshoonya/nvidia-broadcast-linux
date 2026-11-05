@@ -807,7 +807,7 @@ for GPU transport, audio processing and runtime reliability;
 [Cédric Prezelin](https://github.com/Tenshock) for camera recovery, runtime
 ownership and dependency security; and
 [Mradul Kumar](https://github.com/Nirusaki-Malaal) for experimental Python 3.15
-CPU tooling and native-model checks accepted after v1.5.4.
+CPU tooling and native-model checks outside the frozen v1.5.4 source.
 
 **Contributors:** [John Maingi](https://github.com/JohnMaingi-IXP) for the
 validated Whisper installer diagnosis;
@@ -835,31 +835,36 @@ on every platform.
 
 ---
 
-## Sustain NV Broadcast
+## Support continued development
 
-I created and lead NV Broadcast with help from community bug reports, testing, documentation, ideas, and code contributions. As usage grows, so does the work required to review that input and test GPU runtimes, cameras, audio, packages, and releases across real systems.
+**If you like NV Broadcast and want to help me keep building at this pace, feel free to sponsor my work.**
 
-The first sustainability goal is **10 monthly sponsors**. Reaching it will help reserve predictable maintenance time each month for bug triage, compatibility fixes, package testing, and reliable releases. Core features will remain open source.
+I build and maintain NV Broadcast with contributions from the community. Sponsorship gives me more time for the work behind each release: improving effects and performance, resolving difficult bugs, and testing cameras, audio and packages across real systems.
 
-Financial supporters make sustained maintainer time possible, while contributors strengthen the project through reports, testing, documentation, ideas, and code. Sponsorship funds maintenance for the whole community, and roadmap priorities remain based on security, impact, reproducibility, community needs, and what is technically right for the project.
+Support is optional, and core features remain open source. Reports, testing, documentation and code contributions are valuable too. Development priorities follow technical merit and community needs.
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">
-    <img src="https://img.shields.io/badge/Sponsor_DocZeus-Support_Development-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor">
+    <img src="https://img.shields.io/badge/GitHub_Sponsors-Support_the_Work-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Support DocZeus on GitHub Sponsors">
   </a>
 </p>
 
 ### Founding Sponsor
 
-- [@Mattsky](https://github.com/Mattsky) - supporting NV Broadcast while its sustainability program is being established
+- [@Mattsky](https://github.com/Mattsky) — founding sponsor of NV Broadcast
 
-### 💎 Featured Sponsors
+<details>
+<summary>Sponsor wall</summary>
 
-<!-- featured --><em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">become a Project Backer</a> and your name appears here.</em><!-- featured -->
+### Featured Sponsors
 
-### 💚 Backers &amp; Supporters
+<!-- featured --><em>Featured project supporters.</em><!-- featured -->
+
+### Backers &amp; Supporters
 
 <!-- sponsors --><a href="https://github.com/Mattsky" title="Mattsky"><img src="https://avatars.githubusercontent.com/u/2619664?u=a3e9b73765da4dd8f3472520e40c9588c65a7803&v=4" width="55" alt="Mattsky"></a>&nbsp;<!-- sponsors -->
+
+</details>
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya?metadata_campaign=nvbroadcast_readme">GitHub Sponsors</a> ·

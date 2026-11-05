@@ -132,7 +132,7 @@ class ContributorCreditTests(unittest.TestCase):
         self.assertIn("closed as superseded rather than merged verbatim", contributor_record)
         advanced = people["Nirusaki-Malaal"]
         self.assertEqual(advanced.tier, ContributionTier.MAJOR_FEATURE)
-        self.assertEqual(advanced.delivery_note, "Accepted after v1.5.4.")
+        self.assertEqual(advanced.delivery_note, "Not included in v1.5.4.")
         self.assertIn("Experimental", advanced.summary)
         self.assertEqual({url.rsplit("/", 1)[-1] for url in advanced.evidence}, {"180", "185"})
         self.assertIn("unpublished v1.5.5 preparation", contributor_record)
