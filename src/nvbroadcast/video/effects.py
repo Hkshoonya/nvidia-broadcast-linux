@@ -2695,9 +2695,12 @@ class VideoEffects:
             span_h = int(stats[idx, cv2.CC_STAT_HEIGHT])
             if area > max_area or span_w > max_w or span_h > max_h:
                 continue
-            component = labels == idx
-            component &= filled < fill_cutoff
-            filled[component] = fill_value
+            x = int(stats[idx, cv2.CC_STAT_LEFT])
+            y = int(stats[idx, cv2.CC_STAT_TOP])
+            region = (slice(y, y + span_h), slice(x, x + span_w))
+            component = labels[region] == idx
+            component &= filled[region] < fill_cutoff
+            filled[region][component] = fill_value
         return filled
 
     @staticmethod
@@ -2750,7 +2753,10 @@ class VideoEffects:
             long_span = max(span_w, span_h)
             if float(long_span) / float(short_span) < min_aspect_ratio:
                 continue
-            preserve |= labels == idx
+            x = int(stats[idx, cv2.CC_STAT_LEFT])
+            y = int(stats[idx, cv2.CC_STAT_TOP])
+            region = (slice(y, y + span_h), slice(x, x + span_w))
+            preserve[region] |= labels[region] == idx
         return preserve
 
     @staticmethod
@@ -3118,7 +3124,7 @@ class VideoEffects:
                     )
                     result = matte.copy()
                     result[y0:y1, x0:x1] = refined_roi
-                    return result.astype(np.float32)
+                    return result.astype(np.float32, copy=False)
 
             # The edge-aware pass is only a local confidence signal for the
             # transition band. At HD sizes, quarter-resolution gradients
@@ -3258,16 +3264,13 @@ class VideoEffects:
         x0, y0, x1, y1 = bounds
         matte_roi = matte[y0:y1, x0:x1]
         prev_roi_u8 = prev_u8[y0:y1, x0:x1]
-        prev_roi = prev_roi_u8.astype(np.float32) * (1.0 / 255.0)
-        edge_roi = ((matte_roi > 0.02) & (matte_roi < 0.98)) | (
-            (prev_roi_u8 > 5) & (prev_roi_u8 < 250)
-        )
+        edge_roi = edge[y0:y1, x0:x1]
         edge_y, edge_x = np.nonzero(edge_roi)
         if edge_x.size == 0:
             return matte
 
         matte_values = matte_roi[edge_y, edge_x]
-        prev_values = prev_roi[edge_y, edge_x]
+        prev_values = prev_roi_u8[edge_y, edge_x].astype(np.float32) * (1.0 / 255.0)
         diff = np.abs(matte_values - prev_values)
         small_change = diff < 0.24
         if not small_change.any():
