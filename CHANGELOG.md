@@ -13,16 +13,21 @@ candidate acceptance are recorded separately in
 retain their recorded identities.
 
 - **Recognize contribution scope in app credits** - Show Core Maintainers,
-  Major Feature Contributors and Contributors with concise accepted-work
-  summaries and evidence, preserving cumulative authorship and separate
-  sponsorship. Recognition includes verified fixes and distinguishes source
-  acceptance from release delivery.
+  Project Sponsors, Major Feature Contributors and Contributors with concise
+  accepted-work summaries and evidence, preserving cumulative authorship and
+  separate sponsorship. Recognition includes verified fixes and distinguishes
+  source acceptance from release delivery.
 - **Keep page scrolling from changing effects** - Wheel and touchpad scrolling
   over effect sliders keeps their values unchanged, preserving native page
   scrolling, keyboard adjustment and dragging.
 - **Reduce Face Relighting frame cost** - Reuse face-region calculations and
   replace full-frame color temporaries with an exact masked reduction,
   preserving image output and the existing lighting-analysis cadence.
+- **Reduce repeated matte cleanup scans** - Compare each eligible hole within
+  its existing component bounds instead of rescanning the whole image. Reuse
+  edge calculations and avoid redundant conversions while preserving selected
+  matte pixels and temporal history
+  ([PR #201](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/201)).
 - **Keep RPM signatures verifiable across reader versions** - Request a legacy
   header signature from supporting signing tools while retaining the modern
   signature and package-integrity checks. A disposable-key regression checks
@@ -35,6 +40,27 @@ retain their recorded identities.
   compositing and matte caches to the selected device on fresh capture threads.
   Restore the previous device on success or failure, and serialize device-cache
   changes without making rendering wait for asynchronous inference.
+- **Bind reused CUDA inference after Stop/Start** - Select the configured GPU
+  before reusing an RVM session on a replacement capture thread, then restore
+  the caller's device. Retain bounded session recovery and CPU fallback. Three
+  controlled preview restart cycles passed without new invalid-resource,
+  CUDA-session recreation or camera-error log entries; final packaged-runtime
+  acceptance remains pending
+  ([PR #204](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/204)).
+- **Discard stale virtual-microphone output** - Drop complete queued blocks
+  older than 200 ms before starting a write, keep the newest block when the
+  queue fills, and protect shutdown from concurrent queue updates. This limits
+  residence in the Python output queue; capture, processing, in-progress writes
+  and downstream buffering remain outside the bound. The device-specific
+  long-session report in #198 remains open
+  ([PR #202](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/202)).
+- **Restore stopped controls after terminal camera errors** - When existing
+  capture retries and GPU fallback are exhausted, stop the failed pipeline and
+  restore Start Broadcast with its camera error. Reject retired pipeline events
+  and queued recovery after ordinary Stop, while preserving recording
+  finalization. This fixes recovery state without claiming to repair every
+  underlying driver or device failure
+  ([PR #203](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/203)).
 - **Contain face-model initialization failures** - Check the MediaPipe face
   landmarker and Auto Frame detector in a separate process before enabling
   their native models. A failed, killed or timed-out check leaves the affected
