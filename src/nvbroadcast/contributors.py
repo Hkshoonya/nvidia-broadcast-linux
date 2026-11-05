@@ -36,6 +36,7 @@ CONTRIBUTORS: tuple[Contributor, ...] = (
     Contributor("KadotyGamer", "KadotyGamer"),
     Contributor("Mauricio Zaffari", "mauriciozaffari"),
     Contributor("Mradul Kumar", "Nirusaki-Malaal"),
+    Contributor("JZomDev", "JZomDev"),
 )
 
 CONTRIBUTOR_GITHUB_LOGINS = frozenset(

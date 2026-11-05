@@ -96,6 +96,12 @@ Sponsorship supports maintenance but does not create or replace code authorship.
   in the GUI, with regression tests for failures and timeouts
   ([#180](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/180)).
 
+### JZomDev ([@JZomDev](https://github.com/JZomDev))
+
+- Stopped the mouse wheel from changing sliders while scrolling the controls
+  page, which was also rewriting noise strength and restarting the virtual
+  microphone.
+
 ## Updating This Record
 
 Every accepted external human contribution must update both

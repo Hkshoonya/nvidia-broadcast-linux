@@ -10,8 +10,9 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GObject, Gio
+from gi.repository import Gdk, Gtk, Adw, GObject, Gio
 
 from nvbroadcast.core.resources import find_bundled_backgrounds
 
@@ -131,6 +132,14 @@ class EffectSlider(Gtk.Box):
         self._scale.set_draw_value(True)
         self._scale.set_value_pos(Gtk.PositionType.RIGHT)
         self._scale.connect("value-changed", self._on_changed)
+        # GtkRange turns wheel input into value changes, so scrolling the
+        # controls page would rewrite whichever slider passes under the pointer.
+        scroll = Gtk.EventControllerScroll.new(
+            Gtk.EventControllerScrollFlags.BOTH_AXES
+        )
+        scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        scroll.connect("scroll", self._on_scroll)
+        self._scale.add_controller(scroll)
         self.append(self._scale)
 
     @property
@@ -139,6 +148,17 @@ class EffectSlider(Gtk.Box):
 
     def _on_changed(self, scale):
         self.emit("value-changed", scale.get_value())
+
+    def _on_scroll(self, controller, _dx, dy):
+        """Swallow the event and scroll the page, matching GTK's wheel step."""
+        scrolled = self.get_ancestor(Gtk.ScrolledWindow)
+        if scrolled is not None:
+            adjustment = scrolled.get_vadjustment()
+            get_unit = getattr(controller, "get_unit", None)  # GTK 4.8+
+            precise = get_unit is not None and get_unit() == Gdk.ScrollUnit.SURFACE
+            step = 1.0 if precise else adjustment.get_page_size() ** (2 / 3)
+            adjustment.set_value(adjustment.get_value() + dy * step)
+        return True
 
 
 class BackgroundModeSelector(Gtk.Box):
