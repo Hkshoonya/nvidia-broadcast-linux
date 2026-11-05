@@ -54,6 +54,14 @@ not provide matching GTK/GStreamer bindings. Normal supported source
 installation remains CPython 3.11–3.14
 ([#183](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/183)).
 
+## Control scrolling
+
+Scrolling over an effect slider leaves its value unchanged and lets GTK
+scroll the containing page, including horizontal and Shift-modified input.
+Keyboard adjustment and pointer dragging still change the slider. This also
+prevents unintended noise-strength changes from restarting the virtual
+microphone ([PR #199](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/199)).
+
 ## Contribution recognition
 
 The About window presents Core Maintainers, Project Sponsors, Major Feature

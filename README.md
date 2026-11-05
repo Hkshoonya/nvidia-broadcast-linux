@@ -813,7 +813,7 @@ CPU tooling and native-model checks outside the frozen v1.5.4 source.
 validated Whisper installer diagnosis;
 [Cenkay Çoban](https://github.com/pastor0711) for explicit profile auto-start
 and safe failure recovery; [KadotyGamer](https://github.com/KadotyGamer) for
-Python 3.14 source installation and binding checks; and
+Python 3.14 source installation and binding checks;
 [Mauricio Zaffari](https://github.com/mauriciozaffari) for CUDA detection with
 system-provided ONNX Runtime packages; and [JZomDev](https://github.com/JZomDev)
 for preventing accidental slider changes during page scrolling.
