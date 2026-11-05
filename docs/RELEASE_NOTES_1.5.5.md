@@ -1,14 +1,16 @@
 # NV Broadcast v1.5.5
 
-**Release preparation — not published.** The proposed release starts from
-`f014576ca257f1c085d9a02d94d94f3b477e1152`. This proposed candidate has version metadata and release notes prepared; no
-v1.5.5 tag, package, Store revision or release acceptance is claimed here. [v1.5.4](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4)
+**Release preparation — not published.** Version metadata and release notes
+are prepared; the final source, package identities, Store revisions and release
+acceptance still need their own recorded verification.
+[v1.5.4](https://github.com/Hkshoonya/nvidia-broadcast-linux/releases/tag/v1.5.4)
 remains the current public release, with its frozen artifacts and verification
 record intact.
 
-This maintenance update focuses on responsive startup, processing-mode checks
-and clearer face-effect recovery. The ordinary Snap, online DEB/RPM and signed
-Apple Silicon PKG paths remain the release targets.
+This maintenance update focuses on responsive startup, reduced processing
+overhead, capture timing and clearer camera/face-effect recovery. The ordinary
+Snap, online DEB/RPM and signed Apple Silicon PKG paths remain the release
+targets.
 
 ## Responsive processing-mode and first-run checks
 
@@ -101,6 +103,20 @@ exact pixels and background-analysis state against the previous implementation
 Full live FPS acceptance remains pending; this change does not claim that all
 processing delays are resolved.
 
+## Reduce repeated matte cleanup scans
+
+Matte cleanup compares each eligible hole within its existing component bounds
+instead of repeating a full-image comparison. It also reuses the edge
+predicate, converts only selected previous-edge values and avoids a redundant
+copy. Hole eligibility, cutoffs, selected pixels and temporal history remain
+unchanged ([PR #201](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/201)).
+
+Generated hole, hair/finger-gap, state and ownership checks preserve the prior
+results. A generated 720p mask with 81 small holes reduced the fill helper's
+median from 43.80 ms to 6.17 ms in alternating comparisons. This is a specific
+helper workload, not a full-app FPS result; final live package performance and
+edge acceptance remain separate.
+
 ## Respect the selected GPU during compositing
 
 Mixed CPU/GPU effects explicitly use the selected Compute GPU for uploads,
@@ -114,6 +130,57 @@ concurrent switches and error recovery while preserving the existing pixel
 calculations. Native multi-GPU smoke and physical FPS acceptance remain pending.
 This corrects device ownership; it does not establish the cause of every slow
 background-processing frame or claim an FPS improvement.
+
+## Bind reused CUDA inference after Stop/Start
+
+For an RVM backend with CuPy already loaded and CUDA or TensorRT active, a
+replacement capture thread explicitly selects the configured GPU before
+reusing the session. The binding remains active through the backend's existing
+shape and provider retries, then restores the caller's original device. A
+classified binding failure can use the existing bounded session recovery; an
+actual CPU fallback does not require another CUDA binding. Unrelated failures
+remain visible
+([PR #204](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/204)).
+
+Sixteen isolated device/recovery tests passed, and the original callback failed
+the controlled regression. Three normal Stop/Start cycles in the actual patched
+preview also completed without additional invalid-resource, CUDA-session
+recreation or camera-error log entries. The stopped and restarted camera
+descriptors and controls matched their expected states. This is a short
+restart check, not a measured FPS result, a long-session qualification or final
+installed-package acceptance.
+
+## Discard stale queued microphone output
+
+After a temporary output-client stall, the virtual microphone discards complete
+blocks that have waited more than 200 ms in its Python output queue before
+starting a write. A full queue retains the newest block. Fresh blocks preserve
+their order and samples, and concurrent queue updates cannot replace the
+shutdown sentinel ([PR #202](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/202)).
+
+A generated 550 ms stall replay reduced subsequent queue age from about 560 ms
+to below 200 ms. This bounds residence in that queue only: capture and audio
+processing, a write already in progress and downstream buffers remain outside
+the bound. Physical microphone/consumer and long-session acceptance remain
+separate; the device-specific report in
+[#198](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/198) remains
+open. This is not a guaranteed end-to-end latency limit.
+
+## Restore stopped controls after terminal camera errors
+
+When capture retries and the existing GPU fallback are exhausted, terminal
+camera failure stops the pipeline through the existing deferred teardown and
+restores Start Broadcast with the camera error. Previously, a session without
+an active recording could keep reporting Streaming after capture had stopped.
+
+Pipeline ownership and generation checks reject retired events. Queued GPU
+recovery cannot reopen capture after ordinary Stop; an already requested
+internal rebuild and incomplete-recording finalization retain their existing
+behavior. Controlled lifecycle/UI regressions cover these transitions
+([PR #203](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/203)). This
+corrects stopped-state reporting and recovery control, without claiming to
+repair every underlying CUDA, driver or camera failure or automatically restart
+the camera.
 
 ## Preserve capture timing in recordings
 
@@ -169,6 +236,12 @@ The source tree also contains explicitly opted-in development work:
 Source tests and prior package checks retain their exact original scope. The
 installed v1.5.4 Snap revision 192 and earlier Mac/device acceptance are
 historical evidence, not acceptance of these new app bytes.
+
+The earlier source preview passed the owner's responsive movement, clean-edge
+and complete audible, synchronized speech-recording checks. A subsequent
+Stop/Start exposed a CUDA session-reuse regression; the guarded restart check
+above applies to its patched preview. Physical movement and recording acceptance
+for the patched preview and final packages remain pending.
 
 Before publication, record the frozen v1.5.5 commit and its actual package
 identities, current-head checks, dependency review, package source readback,
