@@ -10,7 +10,7 @@ Thank you for your interest in contributing! This project was built for the Linu
 
 3. **Be respectful** — We're all here because we love Linux and want better tools. Constructive feedback only.
 
-4. **Contributor credits ship with accepted work** — Every external human pull request must register its author in `src/nvbroadcast/contributors.py` and describe the accepted work in `CONTRIBUTORS.md` before merge. That cumulative registry appears in the app's About window under **Contributions to App** in this and every later release. Sponsors are credited separately under **Project Sponsors**; sponsorship does not imply code authorship.
+4. **Contributor credits follow accepted work** — Accepted external human contributions must register their author in `src/nvbroadcast/contributors.py` and describe the accepted work in `CONTRIBUTORS.md` before merge. The app shows **Core Maintainers**, **Major Feature Contributors**, and **Contributors**, with evidence-backed scope credit. Verified fixes are eligible for recognition; merely submitting a pull request or passing CI does not establish acceptance. Sponsors remain separate under **Project Sponsors**.
 
 ## How to Contribute
 
@@ -34,16 +34,42 @@ Thank you for your interest in contributing! This project was built for the Linu
 5. **Commit** with clear messages
 6. **Push** to your fork and open a **Pull Request**
 
+### Review and Merge Priorities
+
+Prioritize verified reliability, camera/audio, performance, security and
+installation problems over cosmetic work. Each pull request needs a
+reproducible problem or a meaningful benefit, a focused change and appropriate
+verification. A small diff that fixes an important verified bug remains
+eligible; contribution depth and merge priority are separate judgments.
+
+Unrequested cosmetic churn, duplicates and standalone self-credit requests
+without accepted work are not sufficient reasons to merge. Legitimate
+attribution corrections are still maintained. Passing CI or adding a credit
+entry does not establish acceptance or replace maintainer review.
+
 ### Contributor Credit
 
-For an external human contribution, add one `Contributor` entry with your
-public display name and GitHub login to `src/nvbroadcast/contributors.py`, unless
-you are already listed. Add or update the matching entry in `CONTRIBUTORS.md`
-with a factual summary and links to the accepted pull requests or commits. The
-pull-request checks enforce both records before merge.
-Maintainer and automated dependency-bot changes are exempt. Maintainers verify
-the name, profile link, and absence of duplicates during review; accepted
-credits remain cumulative in future releases.
+For accepted external human work, add one `Contributor` entry with your public
+display name and GitHub login to `src/nvbroadcast/contributors.py`, unless you
+are already listed, and describe the accepted work in `CONTRIBUTORS.md`.
+Include a concise scope, contribution areas and links to the accepted pull
+requests, commits or validated finding. Keep the README credit summary in sync.
+Pull-request checks verify the cumulative records before merge.
+
+Maintainers review the evidence and display group. Substantial features,
+architecture, integration work, and technically significant verified fixes can
+receive **Major Feature Contributors** recognition. Focused fixes, compatibility
+work, documentation and validated diagnoses receive concise **Contributors**
+scope credit. **Core Maintainers** describes ongoing project responsibility.
+No grouping is calculated from lines changed, pull-request totals, account age
+or sponsorship, and a display group grants no repository or review privileges.
+
+Technical depth, source acceptance and release delivery are separate facts.
+Unmerged proposals are not credited as delivered work; a validated finding can
+be credited even when its proposed implementation was superseded. Keep release
+and platform limits explicit. Maintainer and automated dependency-bot changes
+retain their existing credit-gate exemptions. All accepted credits remain
+cumulative in future releases.
 
 ### Code Style
 

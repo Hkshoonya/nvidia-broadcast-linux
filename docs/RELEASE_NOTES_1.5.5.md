@@ -54,6 +54,22 @@ not provide matching GTK/GStreamer bindings. Normal supported source
 installation remains CPython 3.11–3.14
 ([#183](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/183)).
 
+## Contribution recognition
+
+The About window presents Core Maintainers, Project Sponsors, Major Feature
+Contributors and Contributors, with concise scopes for accepted work and a
+separate sponsor section. Verified fixes remain eligible for recognition. Grouping
+reflects reviewed technical depth and impact rather than line counts,
+pull-request totals or sponsorship; it grants no repository permissions.
+
+All accepted external credits remain. The registry, README and
+[contributor record](../CONTRIBUTORS.md) retain public names, evidence and the
+distinction between source acceptance and delivery. In particular, the
+experimental Python 3.15 CPU tooling and native-model checks credited to
+Mradul Kumar were accepted outside the frozen v1.5.4 source; recognition does not claim
+that those changes were in that release or complete their pending platform
+and package acceptance.
+
 ## RPM signature compatibility
 
 The release signer requests an additional legacy header signature when
@@ -76,6 +92,20 @@ exact pixels and background-analysis state against the previous implementation
 ([PR #195](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/195)).
 Full live FPS acceptance remains pending; this change does not claim that all
 processing delays are resolved.
+
+## Respect the selected GPU during compositing
+
+Mixed CPU/GPU effects explicitly use the selected Compute GPU for uploads,
+compositing and GPU-matte bookkeeping, including on a fresh capture thread.
+Each operation restores the thread's previous device even after a failure;
+existing CPU fallback remains available. A separate cache boundary protects
+device switches without serializing rendering with asynchronous inference.
+
+Generated routing tests cover device selection, cache reuse/invalidation,
+concurrent switches and error recovery while preserving the existing pixel
+calculations. Native multi-GPU smoke and physical FPS acceptance remain pending.
+This corrects device ownership; it does not establish the cause of every slow
+background-processing frame or claim an FPS improvement.
 
 ## Preserve capture timing in recordings
 

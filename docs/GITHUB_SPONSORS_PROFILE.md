@@ -1,56 +1,38 @@
 # GitHub Sponsors Profile
 
-This document is the canonical copy for the NV Broadcast sponsorship goal,
-profile, tiers, and public policy.
+This document is the canonical copy for the NV Broadcast sponsorship profile,
+tiers, and public policy. Editing it prepares public copy; account-level
+GitHub Sponsors settings are managed separately.
 
-## Goal
+## Public invitation
 
-- Type: Number of monthly sponsors
-- Target: 10
+**If you like NV Broadcast and want to help me keep building at this pace,
+feel free to sponsor my work.**
 
-### Goal description
-
-I lead and maintain NV Broadcast for Linux, strengthened by community bug
-reports, testing, documentation, ideas, and code. My first goal is 10 monthly
-sponsors. Reaching it will help me reserve predictable time for compatibility
-fixes, package testing, contribution review, and reliable releases. Core
-features remain open source, and roadmap priorities continue to be based on
-impact, reproducibility, security, and community needs.
+Use this invitation in public project copy without sponsor-count targets or
+empty-wall appeals. Preserve active sponsor recognition and existing benefits.
 
 ## Short description
 
-I created and lead NV Broadcast for Linux, an open-source virtual camera and audio app. Community reports, testing, documentation, and code improve the project. Sponsorship funds dedicated time for compatibility, packaging, and reliable releases.
-
-Character count: **246/250**, including spaces.
+I build NV Broadcast, open-source camera and audio tools for Linux and macOS. If you value the project and want to help me keep building at this pace, feel free to sponsor my work.
 
 ## Full description
 
-I created and lead NV Broadcast because Linux users deserve a polished
-alternative to NVIDIA Broadcast without returning to Windows.
+I build and maintain NV Broadcast, open-source camera and audio tools for
+Linux and macOS.
 
-The project has grown through community bug reports, hardware testing, ideas,
-documentation, and code contributions. I remain responsible for reviewing
-changes, investigating difficult system-specific problems, maintaining
-packages, and verifying releases.
+**If you like the project and want to help me keep building at this pace,
+feel free to sponsor my work.**
 
-Every release must be tested across NVIDIA drivers, CPU and CUDA runtimes,
-physical cameras, PipeWire and PulseAudio, browsers, meeting applications,
-Linux distributions, Snap, native packages, and macOS. That maintenance
-requires substantial, recurring work.
+Your support gives me more time to improve effects and performance, resolve
+difficult bugs, and test cameras, audio, runtimes and packages across real
+systems. It supports the engineering behind each update.
 
-Recurring sponsorship helps me reserve dedicated time for bug triage,
-compatibility fixes, package testing, contribution review, and reliable
-releases. It allows the project to keep improving without putting core
-features behind a paywall.
+Support is optional, and core features remain open source. The project also
+benefits from community reports, testing, documentation, ideas and code.
 
-Financial supporters and project contributors help in different but equally
-valuable ways. Sponsors make sustained maintenance time possible, while
-contributors strengthen the project through reports, testing, documentation,
-ideas, and code.
-
-Sponsorship funds maintenance for the whole community. Roadmap and issue
-priority remain based on security, impact, reproducibility, community needs,
-and what is technically right for the project.
+Development priorities follow technical merit and community needs. Sponsor
+recognition and tier benefits are described below.
 
 ## Monthly tiers
 

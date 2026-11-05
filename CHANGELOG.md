@@ -12,6 +12,11 @@ candidate acceptance are recorded separately in
 [the release notes](docs/RELEASE_NOTES_1.5.5.md). Published v1.5.4 artifacts
 retain their recorded identities.
 
+- **Recognize contribution scope in app credits** - Show Core Maintainers,
+  Major Feature Contributors and Contributors with concise accepted-work
+  summaries and evidence, preserving cumulative authorship and separate
+  sponsorship. Recognition includes verified fixes and distinguishes source
+  acceptance from release delivery.
 - **Reduce Face Relighting frame cost** - Reuse face-region calculations and
   replace full-frame color temporaries with an exact masked reduction,
   preserving image output and the existing lighting-analysis cadence.
@@ -23,6 +28,10 @@ retain their recorded identities.
   capture event on the recorder's shared clock, so processing delay does not
   become an added video/audio offset. Preserve recordings started after the
   camera has been running, and reject frames from retired capture/Rec sessions.
+- **Respect the selected compositing GPU** - Bind mixed CPU/GPU uploads,
+  compositing and matte caches to the selected device on fresh capture threads.
+  Restore the previous device on success or failure, and serialize device-cache
+  changes without making rendering wait for asynchronous inference.
 - **Contain face-model initialization failures** - Check the MediaPipe face
   landmarker and Auto Frame detector in a separate process before enabling
   their native models. A failed, killed or timed-out check leaves the affected

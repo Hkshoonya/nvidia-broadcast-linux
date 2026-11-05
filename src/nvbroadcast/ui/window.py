@@ -18,7 +18,7 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("Pango", "1.0")
 from gi.repository import Gtk, Adw, Gio, GLib, Gdk, Pango
 
-from nvbroadcast.contributors import app_contributor_credits
+from nvbroadcast.contributors import app_credit_sections
 from nvbroadcast.core.constants import APP_ID, APP_NAME, APP_SUBTITLE, VIRTUAL_CAM_DEVICE
 from nvbroadcast.core.config import save_config
 from nvbroadcast.core.gpu import detect_gpus, select_compute_gpu
@@ -3578,11 +3578,11 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             ),
         )
         if hasattr(about, "add_credit_section"):
+            maintainers, *contributions = app_credit_sections()
+            about.add_credit_section(*maintainers)
             about.add_credit_section("Project Sponsors", _APP_SPONSORS)
-            about.add_credit_section(
-                "Contributions to App",
-                app_contributor_credits(),
-            )
+            for title, credits in contributions:
+                about.add_credit_section(title, credits)
         about.add_link("Sponsor on GitHub", "https://github.com/sponsors/Hkshoonya")
         about.present()
 
