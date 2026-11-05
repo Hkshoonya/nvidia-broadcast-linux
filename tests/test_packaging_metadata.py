@@ -2007,8 +2007,13 @@ printf '%s\\n' "$*" >> "$NVB_TEST_CALLS"
         self.assertIn('developers=["Code by doczeus https://github.com/Hkshoonya"]', window)
         self.assertIn('add_credit_section("Project Sponsors", _APP_SPONSORS)', window)
         self.assertIn("Mattsky — GitHub Sponsor https://github.com/Mattsky", window)
-        self.assertIn("from nvbroadcast.contributors import app_contributor_credits", window)
-        self.assertIn('"Contributions to App",\n                app_contributor_credits(),', window)
+        self.assertIn("from nvbroadcast.contributors import app_credit_sections", window)
+        self.assertIn("for title, credits in app_credit_sections():", window)
+        self.assertIn("about.add_credit_section(title, credits)", window)
+        self.assertLess(
+            window.index("for title, credits in app_credit_sections():"),
+            window.index('add_credit_section("Project Sponsors", _APP_SPONSORS)'),
+        )
         self.assertNotIn("_APP_CONTRIBUTORS", window)
         self.assertNotIn('add_credit_section("Backers & Supporters"', window)
 

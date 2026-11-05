@@ -54,6 +54,22 @@ not provide matching GTK/GStreamer bindings. Normal supported source
 installation remains CPython 3.11–3.14
 ([#183](https://github.com/Hkshoonya/nvidia-broadcast-linux/issues/183)).
 
+## Contribution recognition
+
+The About window groups Core Maintainers, Major Feature Contributors and
+Contributors, showing concise scopes for accepted work before the separate
+sponsor section. Verified fixes remain eligible for recognition. Grouping
+reflects reviewed technical depth and impact rather than line counts,
+pull-request totals or sponsorship; it grants no repository permissions.
+
+All seven accepted external credits remain. The registry, README and
+[contributor record](../CONTRIBUTORS.md) retain public names, evidence and the
+distinction between source acceptance and delivery. In particular, the
+experimental Python 3.15 CPU tooling and native-model checks credited to
+Mradul Kumar were accepted after published v1.5.4; recognition does not claim
+that those changes were in that release or complete their pending platform
+and package acceptance.
+
 ## RPM signature compatibility
 
 The release signer requests an additional legacy header signature when

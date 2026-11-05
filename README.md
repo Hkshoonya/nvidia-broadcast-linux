@@ -765,11 +765,13 @@ nvidia-broadcast-linux/
 
 Contributions, feedback, and ideas are **warmly welcome**.
 
-Recognized external contributors receive cumulative credit in every later app
-release and in [CONTRIBUTORS.md](CONTRIBUTORS.md), including a public record of
-the work or technical finding behind each credit. Original project authorship,
-external contributions, community testing, and financial sponsorship are
-recognized separately so that one form of support never replaces another.
+Accepted contributions receive cumulative credit in the application and in
+[CONTRIBUTORS.md](CONTRIBUTORS.md), including the work or verified technical
+finding behind each credit. The app distinguishes Core Maintainers, Major
+Feature Contributors, and Contributors, with a concise description of each
+person's accepted work. Verified fixes count: recognition reflects technical
+depth and impact, not line counts or pull-request counts. Original authorship,
+community testing, and financial sponsorship remain distinct.
 
 ### How to Contribute
 
@@ -797,13 +799,28 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 
 ### Recognized Contributors
 
-The permanent contributor record currently recognizes
-[John Maingi](https://github.com/JohnMaingi-IXP),
-[Jon Fuller](https://github.com/perfectra1n),
-[Cédric Prezelin](https://github.com/Tenshock), and
-[Cenkay Çoban](https://github.com/pastor0711). See
-[CONTRIBUTORS.md](CONTRIBUTORS.md) for the contribution summary and source
-references behind each credit.
+**Core Maintainers:** [DocZeus](https://github.com/Hkshoonya), the original
+project creator and maintainer.
+
+**Major Feature Contributors:** [Jon Fuller](https://github.com/perfectra1n)
+for GPU transport, audio processing and runtime reliability;
+[Cédric Prezelin](https://github.com/Tenshock) for camera recovery, runtime
+ownership and dependency security; and
+[Mradul Kumar](https://github.com/Nirusaki-Malaal) for experimental Python 3.15
+CPU tooling and native-model checks accepted after v1.5.4.
+
+**Contributors:** [John Maingi](https://github.com/JohnMaingi-IXP) for the
+validated Whisper installer diagnosis;
+[Cenkay Çoban](https://github.com/pastor0711) for explicit profile auto-start
+and safe failure recovery; [KadotyGamer](https://github.com/KadotyGamer) for
+Python 3.14 source installation and binding checks; and
+[Mauricio Zaffari](https://github.com/mauriciozaffari) for CUDA detection with
+system-provided ONNX Runtime packages.
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for the reviewed evidence and delivery
+status behind each credit. Recognizing accepted work does not imply that it
+was shipped in an earlier release or that an experimental route is supported
+on every platform.
 
 ## Future Upgrades
 
