@@ -15,14 +15,27 @@ from unittest import mock
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, GLib, Gtk
 
 from nvbroadcast.ui.controls import EffectSlider
 
 
-@unittest.skipUnless(Gtk.init_check(), "requires a GTK display")
+@unittest.skipUnless(
+    os.environ.get("NVBROADCAST_TEST_NATIVE_INPUT") == "1",
+    "run with NVBROADCAST_TEST_NATIVE_INPUT=1 and GDK_BACKEND=x11 under Xvfb",
+)
 class EffectSliderScrollTests(unittest.TestCase):
     """Controller checks create no windows on the user's desktop."""
+
+    @classmethod
+    def setUpClass(cls):
+        if (
+            os.environ.get("GDK_BACKEND") != "x11"
+            or not Gtk.init_check()
+            or Gdk.Display.get_default() is None
+        ):
+            raise unittest.SkipTest("requires the X11 backend under Xvfb")
 
     def test_scale_disables_only_its_scroll_controllers(self):
         slider = EffectSlider("Strength", 0.75)
@@ -68,7 +81,11 @@ class EffectSliderNativeInputTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if os.environ.get("GDK_BACKEND") != "x11" or not Gtk.init_check():
+        if (
+            os.environ.get("GDK_BACKEND") != "x11"
+            or not Gtk.init_check()
+            or Gdk.Display.get_default() is None
+        ):
             raise unittest.SkipTest("requires the X11 backend under Xvfb")
         gi.require_version("GdkX11", "4.0")
         from gi.repository import GdkX11
