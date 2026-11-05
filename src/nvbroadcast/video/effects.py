@@ -3693,7 +3693,7 @@ class VideoEffects:
                 if alpha is None:
                     if frame is None:
                         return None
-                    alpha = backend.infer(frame, width, height)
+                    alpha = self._infer_numpy_backend(backend, frame, width, height)
             if alpha is not None:
                 if self._bg_mode == "remove":
                     # Only source-mask geometry is needed to reopen exterior
@@ -3726,6 +3726,51 @@ class VideoEffects:
         except Exception as e:
             print(f"[NV Broadcast] Inference error: {e}")
             return None
+
+    def _infer_numpy_backend(self, backend, frame, width: int, height: int):
+        """Bind RVM's reused CUDA stream on replacement capture threads."""
+        cp = self._cupy
+        is_cuda_error = getattr(backend, "_is_cuda_runtime_error", None)
+        recover_cuda = getattr(backend, "_recover_cuda_session", None)
+        previous_device = None
+        try:
+            for attempt in range(2):
+                session = getattr(backend, "session", None)
+                get_providers = getattr(session, "get_providers", None)
+                if (cp is None or not callable(is_cuda_error)
+                        or not callable(recover_cuda) or not callable(get_providers)):
+                    return backend.infer(frame, width, height)
+                providers = get_providers()
+                if not providers or providers[0] not in (
+                    "CUDAExecutionProvider", "TensorrtExecutionProvider",
+                ):
+                    return backend.infer(frame, width, height)
+                try:
+                    if previous_device is None:
+                        previous_device = cp.cuda.runtime.getDevice()
+                    cp.cuda.runtime.setDevice(self._gpu_index)
+                except Exception as exc:
+                    # Reuse RVM's recovery if selection fails before infer().
+                    # A replacement CPU session must skip CUDA on the retry.
+                    if attempt == 0 and is_cuda_error(exc) and recover_cuda(exc):
+                        continue
+                    raise
+                # All of infer()'s shape/TRT/CUDA retries retain this binding.
+                return backend.infer(frame, width, height)
+        finally:
+            if previous_device is not None:
+                # Avoid Device.__enter__: it pushes CuPy's context stack even
+                # when setDevice fails. Recovery may itself change the device.
+                try:
+                    cp.cuda.runtime.setDevice(previous_device)
+                except Exception as exc:
+                    session = getattr(backend, "session", None)
+                    get_providers = getattr(session, "get_providers", None)
+                    providers = get_providers() if callable(get_providers) else []
+                    # A lost CUDA device must not defeat a working CPU fallback.
+                    if not (is_cuda_error(exc) and providers
+                            and providers[0] == "CPUExecutionProvider"):
+                        raise
 
     # ─── Alpha Refinement ────────────────────────────────────────────────
 
