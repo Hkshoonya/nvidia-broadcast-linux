@@ -14,6 +14,7 @@ Supported models:
 import os
 import platform as _platform
 import json
+from contextlib import nullcontext
 import subprocess
 import sys
 import tempfile
@@ -1748,6 +1749,9 @@ class VideoEffects:
         self._gpu_index = gpu_index
         self._initialized = False
         self._lock = threading.RLock()
+        # Inference may run asynchronously with composition. Only device/cache
+        # publication shares this lock; order is _lock -> this -> _state_lock.
+        self._gpu_cache_lock = threading.RLock()
         self._state_lock = threading.Lock()
         self._quality = "quality"
         self._model_type = "rvm"
@@ -1845,6 +1849,10 @@ class VideoEffects:
         self._refresh_temporal_strength()
 
     def reset_cached_mattes(self):
+        with self._gpu_cache_lock:
+            self._reset_cached_mattes_locked()
+
+    def _reset_cached_mattes_locked(self):
         """Reset cached mattes after mode, resolution, or backend changes."""
         with self._state_lock:
             self._matte_version += 1
@@ -1862,6 +1870,10 @@ class VideoEffects:
         self._reset_fused_gpu_caches(clear_bg=False)
 
     def _reset_gpu_device_state(self) -> None:
+        with self._gpu_cache_lock:
+            self._reset_gpu_device_state_locked()
+
+    def _reset_gpu_device_state_locked(self) -> None:
         """Drop every cached object that may belong to the selected GPU."""
         self.reset_cached_mattes()
         with self._state_lock:
@@ -1874,6 +1886,10 @@ class VideoEffects:
         self._reset_fused_gpu_caches(clear_bg=True)
 
     def _prepare_backend_handoff(self):
+        with self._gpu_cache_lock:
+            self._prepare_backend_handoff_locked()
+
+    def _prepare_backend_handoff_locked(self):
         """Invalidate temporal state while keeping the last matte visible."""
         with self._state_lock:
             self._matte_version += 1
@@ -1900,7 +1916,7 @@ class VideoEffects:
 
     def latest_final_matte_u8(self, width: int, height: int) -> np.ndarray | None:
         """Return the most recent per-frame final matte, if it matches this frame size."""
-        with self._state_lock:
+        with self._gpu_cache_lock, self._state_lock:
             if self._latest_final_matte_size != (width, height):
                 return None
             if self._latest_final_matte_u8 is None:
@@ -1908,8 +1924,9 @@ class VideoEffects:
                 # when a CPU consumer (e.g. relighting) actually asks for it.
                 if self._latest_final_matte_u8_gpu is None:
                     return None
-                self._latest_final_matte_u8 = self._cupy.asnumpy(
-                    self._latest_final_matte_u8_gpu)
+                with self._cupy.cuda.Device(self._gpu_index):
+                    self._latest_final_matte_u8 = self._cupy.asnumpy(
+                        self._latest_final_matte_u8_gpu)
             return self._latest_final_matte_u8.copy()
 
     def _remember_frame_size(self, width: int, height: int) -> None:
@@ -1927,6 +1944,15 @@ class VideoEffects:
         contrast: float = 0.0,
         warmth: float = 0.0,
     ) -> None:
+        with self._gpu_cache_lock:
+            self._set_fused_face_overlay_locked(
+                face_mask, vignette, enhance_intensity, vignette_intensity,
+                brightness, contrast, warmth)
+
+    def _set_fused_face_overlay_locked(
+        self, face_mask, vignette, enhance_intensity, vignette_intensity,
+        brightness, contrast, warmth,
+    ) -> None:
         """Provide optional face overlay inputs for the fused CUDA compositor."""
         self._fused_face_mask = face_mask
         self._fused_vignette = vignette
@@ -1943,6 +1969,10 @@ class VideoEffects:
             self._fused_vignette_source_id = None
 
     def _reset_fused_gpu_caches(self, clear_bg: bool = True) -> None:
+        with self._gpu_cache_lock:
+            self._reset_fused_gpu_caches_locked(clear_bg)
+
+    def _reset_fused_gpu_caches_locked(self, clear_bg: bool = True) -> None:
         self._fused_face_mask_gpu = None
         self._fused_face_mask_source_id = None
         self._fused_vignette_gpu = None
@@ -1955,6 +1985,13 @@ class VideoEffects:
             self._fused_green_bg_size = None
 
     def _commit_alpha(self, alpha: np.ndarray, matte_version: int) -> bool:
+        with self._gpu_cache_lock:
+            with self._state_lock:
+                if matte_version != self._matte_version:
+                    return False
+            return self._commit_alpha_on_device(alpha, matte_version)
+
+    def _commit_alpha_on_device(self, alpha: np.ndarray, matte_version: int) -> bool:
         """Store an alpha mask only if matte state has not been invalidated."""
         if self._alpha_is_degenerate(alpha):
             return False
@@ -1980,12 +2017,16 @@ class VideoEffects:
         inference is invisible; committing the degenerate one is not.
         """
         try:
-            lo = float(alpha.min())
-            if lo < 0.5:
-                return False
-            spread = float(alpha.max()) - lo
-            if spread > 0.005:
-                return False
+            is_gpu = isinstance(alpha, getattr(self._cupy, "ndarray", ()))
+            with self._gpu_cache_lock if is_gpu else nullcontext():
+                context = self._cupy.cuda.Device(self._gpu_index) if is_gpu else nullcontext()
+                with context:
+                    lo = float(alpha.min())
+                    if lo < 0.5:
+                        return False
+                    spread = float(alpha.max()) - lo
+                    if spread > 0.005:
+                        return False
         except Exception:
             return False
         now = time.monotonic()
@@ -2515,25 +2556,29 @@ class VideoEffects:
             return None
 
         try:
-            with cp.cuda.Device(gpu_index):
-                kernel = self._temporal_gpu_kernels.get(gpu_index)
-                if kernel is None:
-                    kernel = cp.ElementwiseKernel(
-                        "float32 a, float32 p, float32 bw, float32 ew, float32 fw, "
-                        "float32 emin, float32 emax, float32 fmin, float32 fmax, "
-                        "float32 cap, float32 drop, float32 ds, "
-                        "bool local_release, bool cap_first",
-                        "float32 out",
-                        _HOST_TEMPORAL_EMA_OPERATION,
-                        "nvb_host_temporal_ema",
-                        options=("--fmad=false",),
+            with self._gpu_cache_lock:
+                gpu_index = self._gpu_index
+                if gpu_index in self._temporal_gpu_failed_devices:
+                    return None
+                with cp.cuda.Device(gpu_index):
+                    kernel = self._temporal_gpu_kernels.get(gpu_index)
+                    if kernel is None:
+                        kernel = cp.ElementwiseKernel(
+                            "float32 a, float32 p, float32 bw, float32 ew, float32 fw, "
+                            "float32 emin, float32 emax, float32 fmin, float32 fmax, "
+                            "float32 cap, float32 drop, float32 ds, "
+                            "bool local_release, bool cap_first",
+                            "float32 out",
+                            _HOST_TEMPORAL_EMA_OPERATION,
+                            "nvb_host_temporal_ema",
+                            options=("--fmad=false",),
+                        )
+                        self._temporal_gpu_kernels[gpu_index] = kernel
+                    result = kernel(
+                        cp.asarray(alpha), cp.asarray(prev), *scalars,
+                        local_release, cap_first,
                     )
-                    self._temporal_gpu_kernels[gpu_index] = kernel
-                result = kernel(
-                    cp.asarray(alpha), cp.asarray(prev), *scalars,
-                    local_release, cap_first,
-                )
-                return cp.asnumpy(result)
+                    return cp.asnumpy(result)
         except Exception as exc:
             self._temporal_gpu_failed_devices.add(gpu_index)
             print(f"[NV Broadcast] GPU temporal blend failed on GPU {gpu_index}; "
@@ -2547,7 +2592,7 @@ class VideoEffects:
         (including the motion gate — no per-frame D2H sync).
         """
         cp = self._cupy
-        with cp.cuda.Device(self._gpu_index):
+        with self._gpu_cache_lock, cp.cuda.Device(self._gpu_index):
             with self._state_lock:
                 if matte_version is not None and matte_version != self._matte_version:
                     return alpha
@@ -3343,6 +3388,25 @@ class VideoEffects:
                          matte_version: int | None = None,
                          mirror: bool = False,
                          source_alpha: np.ndarray | None = None) -> np.ndarray:
+        cp = self._cupy
+        if cp is not None and isinstance(alpha, cp.ndarray):
+            with self._gpu_cache_lock:
+                with self._state_lock:
+                    if matte_version is not None and matte_version != self._matte_version:
+                        return frame
+                with cp.cuda.Device(self._gpu_index):
+                    return self._composite_array_on_device(
+                        frame, alpha, width, height, matte_version,
+                        mirror=mirror, source_alpha=source_alpha)
+        return self._composite_array_on_device(
+            frame, alpha, width, height, matte_version,
+            mirror=mirror, source_alpha=source_alpha)
+
+    def _composite_array_on_device(self, frame: np.ndarray, alpha: np.ndarray,
+                                   width: int, height: int,
+                                   matte_version: int | None = None,
+                                   mirror: bool = False,
+                                   source_alpha: np.ndarray | None = None) -> np.ndarray:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
         self.last_output_mirrored = False
         cp = self._cupy
@@ -3510,7 +3574,7 @@ class VideoEffects:
             return None
         cp = self._cupy
         try:
-            with cp.cuda.Device(self._gpu_index):
+            with self._gpu_cache_lock, cp.cuda.Device(self._gpu_index):
                 # blur mode: _final_matte is the identity, so the snapshot
                 # is already final — store it for CPU consumers and blend.
                 self._store_final_matte_gpu(alpha, width, height, matte_version)
@@ -3552,7 +3616,7 @@ class VideoEffects:
             return None
         cp = self._cupy
         try:
-            with cp.cuda.Device(self._gpu_index):
+            with self._gpu_cache_lock, cp.cuda.Device(self._gpu_index):
                 self._store_final_matte_gpu(alpha, width, height, matte_version)
                 output_gpu = self._composite_fused_gpu(
                     fg_gpu, alpha, width, height, mirror=mirror)
@@ -3723,7 +3787,7 @@ class VideoEffects:
         if self._gpu_matte_eligible():
             try:
                 cp = self._cupy
-                with cp.cuda.Device(self._gpu_index):
+                with self._gpu_cache_lock, cp.cuda.Device(self._gpu_index):
                     if not isinstance(alpha, cp.ndarray):
                         alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
                     else:
@@ -3735,7 +3799,8 @@ class VideoEffects:
                     print(f"[NV Broadcast] GPU matte refine failed, "
                           f"using CPU path: {e}", flush=True)
         if self._cupy is not None and isinstance(alpha, self._cupy.ndarray):
-            alpha = self._cupy.asnumpy(alpha)
+            with self._gpu_cache_lock, self._cupy.cuda.Device(self._gpu_index):
+                alpha = self._cupy.asnumpy(alpha)
         return self._refine_alpha_full(alpha, reference_shape=alpha.shape[:2])
 
     def _gpu_footprint(self, size: int):
@@ -4094,6 +4159,21 @@ class VideoEffects:
                          width: int, height: int,
                          mirror: bool = False,
                          source_alpha: np.ndarray | None = None) -> np.ndarray | None:
+        # Capture callbacks run on fresh GStreamer threads. A prior guarded
+        # upload restores that thread's device; it does not select ours here.
+        try:
+            with self._gpu_cache_lock, self._cupy.cuda.Device(self._gpu_index):
+                return self._composite_fused_on_device(
+                    frame, alpha, width, height, mirror=mirror,
+                    source_alpha=source_alpha)
+        except Exception as e:
+            print(f"[NV Broadcast] Fused kernel error: {e}")
+            return None
+
+    def _composite_fused_on_device(self, frame: np.ndarray, alpha: np.ndarray,
+                                   width: int, height: int,
+                                   mirror: bool = False,
+                                   source_alpha: np.ndarray | None = None) -> np.ndarray | None:
         """Single-pass GPU composite: CPU frame in, CPU frame out."""
         kernel = _get_fused_kernel()
         if kernel is None:
@@ -4537,8 +4617,9 @@ class VideoEffects:
             # No callback can pass gpu_output_eligible() while this lock is
             # held. Clear old-device arrays before publishing the new index;
             # _schedule_engine_reload then keeps inference barred until swap.
-            self._reset_gpu_device_state()
-            self._gpu_index = gpu_index
+            with self._gpu_cache_lock:
+                self._reset_gpu_device_state()
+                self._gpu_index = gpu_index
             self._edge_refiner.set_gpu_index(gpu_index)
             for refiner in self._learned_refiners.values():
                 refiner.set_gpu_index(gpu_index)
@@ -4569,6 +4650,16 @@ class VideoEffects:
         return cv2.add(fg_part, bg_part)
 
     def _blend_cupy(self, fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+        try:
+            with self._gpu_cache_lock, self._cupy.cuda.Device(self._gpu_index):
+                return self._blend_cupy_on_device(fg, bg, alpha)
+        except Exception as e:
+            if self._frame_counter <= 2:
+                print(f"[NV Broadcast] CuPy blend failed, falling back to CPU: {e}")
+            self._compositing = "cpu"
+            return self._blend_cpu(fg, bg, alpha)
+
+    def _blend_cupy_on_device(self, fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
         """GPU blend using CuPy CUDA arrays — near-zero CPU usage."""
         try:
             cp = self._cupy
