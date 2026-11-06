@@ -103,6 +103,21 @@ exact pixels and background-analysis state against the previous implementation
 Full live FPS acceptance remains pending; this change does not claim that all
 processing delays are resolved.
 
+## Keep Face Relighting aligned with movement
+
+Face Relighting uses a result completed for the current camera frame when it
+becomes available during background processing, rather than keeping the older
+snapshot taken before that work. With Relighting enabled, the shared face
+tracker requests analysis for every processed frame without waiting for the
+worker. A matching current-frame result with no face skips stale lighting
+([PR #206](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/206)).
+
+Lighting strength, quality, resolution and background-analysis cadence remain
+unchanged. If the worker has not completed the current frame, the existing
+cached fallback remains available. Tracking work can increase with Relighting
+enabled; this correction does not guarantee a particular FPS or eliminate all
+delay on slower hardware.
+
 ## Reduce repeated matte cleanup scans
 
 Matte cleanup compares each eligible hole within its existing component bounds
@@ -237,11 +252,18 @@ Source tests and prior package checks retain their exact original scope. The
 installed v1.5.4 Snap revision 192 and earlier Mac/device acceptance are
 historical evidence, not acceptance of these new app bytes.
 
-The earlier source preview passed the owner's responsive movement, clean-edge
-and complete audible, synchronized speech-recording checks. A subsequent
-Stop/Start exposed a CUDA session-reuse regression; the guarded restart check
-above applies to its patched preview. Physical movement and recording acceptance
-for the patched preview and final packages remain pending.
+The installed pretag Snap x13 from source `0887cd1` passed CPU/CUDA/CuPy
+execution and three normal Stop/Start cycles. The owner confirmed clean edges
+and a complete, audible speech recording with good lip sync, but reported that
+Relighting caught up late during movement.
+
+In the corrected preview at 720p / DocZeus / Ultra with Eye Contact and
+Relighting enabled, the owner reported that lighting followed movement much
+better. That preview uses the same application source as PR #206. This is a
+scoped movement improvement; it does not establish a particular FPS, elimination
+of every delay or acceptance of the rebuilt final packages. The earlier x13
+recording result retains its scope because the Relighting correction leaves
+recording, capture timing and audio routing unchanged.
 
 Before publication, record the frozen v1.5.5 commit and its actual package
 identities, current-head checks, dependency review, package source readback,

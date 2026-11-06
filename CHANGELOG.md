@@ -23,6 +23,13 @@ retain their recorded identities.
 - **Reduce Face Relighting frame cost** - Reuse face-region calculations and
   replace full-frame color temporaries with an exact masked reduction,
   preserving image output and the existing lighting-analysis cadence.
+- **Keep Face Relighting aligned with movement** - Adopt completed current-frame
+  face results at the lighting stage and request asynchronous analysis for
+  every processed frame while Relighting is enabled. A matching no-face result
+  skips stale lighting, preserving lighting strength, quality, resolution and
+  background-analysis cadence. The existing cached fallback remains when
+  analysis is not ready
+  ([PR #206](https://github.com/Hkshoonya/nvidia-broadcast-linux/pull/206)).
 - **Reduce repeated matte cleanup scans** - Compare each eligible hole within
   its existing component bounds instead of rescanning the whole image. Reuse
   edge calculations and avoid redundant conversions while preserving selected
