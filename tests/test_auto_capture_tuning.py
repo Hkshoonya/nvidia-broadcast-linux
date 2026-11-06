@@ -51,14 +51,15 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertTrue(app._compute_inline_inference())
 
-    def test_heavy_face_stack_reuses_landmarks_longer(self):
+    def test_heavy_face_stack_with_relighting_requests_fresh_landmarks(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app._beautifier = SimpleNamespace(enabled=True)
         app._eye_contact = SimpleNamespace(enabled=True)
         app._relighter = SimpleNamespace(enabled=True)
         app._autoframe = SimpleNamespace(enabled=False)
 
-        self.assertEqual(app._landmark_reuse_frames(), 4)
+        # Relighting prioritizes current pose over the heavy-stack reuse budget.
+        self.assertEqual(app._landmark_reuse_frames(), 1)
 
     def test_eye_contact_only_requests_fresh_landmarks(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
