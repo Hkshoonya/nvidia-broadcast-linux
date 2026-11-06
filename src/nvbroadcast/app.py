@@ -1621,8 +1621,14 @@ class NVBroadcastApp(Adw.Application):
                     self._eye_contact.set_tracking_status(
                         landmarker.detection_status.state if landmarker.ready else "unavailable"
                     )
-            if self._relighter.enabled and landmarks is not None:
-                result_frame = self._relighter.process_frame(result_frame, alpha_u8, landmarks=landmarks)
+            if self._relighter.enabled:
+                # Detection overlaps background work. Prefer a completion for
+                # this source frame, including no-face, without blocking.
+                matched, completed = landmarker.completed_for_frame(raw_frame)
+                relight_landmarks = completed if matched else landmarks
+                if relight_landmarks is not None:
+                    result_frame = self._relighter.process_frame(
+                        result_frame, alpha_u8, landmarks=relight_landmarks)
 
         if self._autoframe.enabled:
             result_frame = self._autoframe.process_frame_array(result_frame, width, height)
@@ -1654,6 +1660,10 @@ class NVBroadcastApp(Adw.Application):
 
     def _landmark_reuse_frames(self) -> int:
         """Choose how aggressively to reuse shared face landmarks."""
+        if self._relighter.enabled:
+            # A moving face must not keep a lighting mask from earlier frames.
+            # The existing worker remains asynchronous and keeps one pending job.
+            return 1
         score = self._face_effect_load_score()
         if self._eye_contact.enabled and score == 1:
             return 1
