@@ -129,6 +129,7 @@ class SharedFaceLandmarker:
         self._initialized = False
         self._last_frame_ref = None
         self._last_result = None
+        self._last_result_frame_ref = None
         self._frames_since_infer = 0
         self._lock = threading.Lock()
         self._detection_status = FaceTrackingStatus("waiting")
@@ -200,6 +201,18 @@ class SharedFaceLandmarker:
         """Return the most recent landmark result without running inference."""
         with self._lock:
             return self._last_result
+
+    def completed_for_frame(self, bgra_frame: np.ndarray):
+        """Return (matched, result) only for inference of this exact source.
+
+        A completed no-face result is (True, None). Cache reuse must not mark
+        another frame as inferred merely because it received cached landmarks.
+        """
+        with self._lock:
+            if (self._last_result_frame_ref is not None
+                    and self._last_result_frame_ref() is bgra_frame):
+                return True, self._last_result
+        return False, None
 
     def request_async(self, bgra_frame: np.ndarray, reuse_frames: int = 1):
         """Kick off background detection and return the latest available result.
@@ -273,6 +286,7 @@ class SharedFaceLandmarker:
         with self._lock:
             self._last_frame_ref = frame_ref
             self._last_result = landmarks
+            self._last_result_frame_ref = frame_ref
             self._frames_since_infer = 0
         return landmarks
 
@@ -298,6 +312,7 @@ class SharedFaceLandmarker:
                 with self._lock:
                     self._last_frame_ref = frame_ref
                     self._last_result = landmarks
+                    self._last_result_frame_ref = frame_ref
                     self._frames_since_infer = 0
 
             with self._lock:
