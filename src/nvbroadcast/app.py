@@ -1605,7 +1605,8 @@ class NVBroadcastApp(Adw.Application):
             frame = frame.copy()
         result_frame = frame
         landmarks = None
-        fused_beautify_overlay = False
+        beautify_cache_prepared = False
+        fused_enhance, fused_edge_darken = False, False
         if face_effects_active:
             landmarker = get_shared_landmarker()
             raw_frame = result_frame
@@ -1626,10 +1627,10 @@ class NVBroadcastApp(Adw.Application):
                     landmarks=landmarks,
                     allow_inline_landmarks=False,
                 )
+                beautify_cache_prepared = True
                 overlay = self._beautifier.fused_overlay_inputs(width, height)
                 if overlay is not None:
                     self._video_effects.set_fused_face_overlay(*overlay)
-                    fused_beautify_overlay = True
                 else:
                     self._video_effects.set_fused_face_overlay(None, None)
             elif self._video_effects.enabled:
@@ -1654,6 +1655,7 @@ class NVBroadcastApp(Adw.Application):
             else:
                 result_frame = self._video_effects.composite_only_array(
                     result_frame, width, height, mirror=gpu_mirror)
+            fused_enhance, fused_edge_darken = self._video_effects.last_output_face_overlay
 
         if face_effects_active:
             if self._beautifier.enabled:
@@ -1663,9 +1665,9 @@ class NVBroadcastApp(Adw.Application):
                     height,
                     landmarks=landmarks,
                     allow_inline_landmarks=False,
-                    skip_enhance=fused_beautify_overlay,
-                    skip_edge_darken=fused_beautify_overlay,
-                    cache_prepared=fused_beautify_overlay,
+                    skip_enhance=fused_enhance,
+                    skip_edge_darken=fused_edge_darken,
+                    cache_prepared=beautify_cache_prepared,
                 )
 
             alpha_u8 = None
