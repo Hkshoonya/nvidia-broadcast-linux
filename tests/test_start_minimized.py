@@ -1,8 +1,11 @@
+import subprocess
+import sys
+import textwrap
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from gi.repository import Gio, GLib
+from gi.repository import GLib
 
 from nvbroadcast.app import NVBroadcastApp
 from nvbroadcast.core.config import AppConfig
@@ -160,25 +163,44 @@ class StartMinimizedTests(unittest.TestCase):
 
 class MinimizedCommandLineTests(unittest.TestCase):
     def test_gapplication_parses_flag_and_activates_without_persisting_it(self):
-        class Application(Gio.Application):
-            def __init__(self):
-                super().__init__(flags=Gio.ApplicationFlags.NON_UNIQUE)
-                self.add_main_option(
-                    "minimized", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
-                    "Start hidden in the system tray", None,
-                )
-                self._start_minimized = False
-                self.activations = []
+        # Gio.Application.run dispatches the default GLib context, including
+        # callbacks queued by earlier tests after their mocks have expired.
+        # Exercise real option parsing in a fresh interpreter instead.
+        code = textwrap.dedent("""\
+            from gi.repository import Gio, GLib
+            from nvbroadcast.app import NVBroadcastApp
 
-            do_handle_local_options = NVBroadcastApp.do_handle_local_options
+            class Application(Gio.Application):
+                def __init__(self):
+                    super().__init__(flags=Gio.ApplicationFlags.NON_UNIQUE)
+                    self.add_main_option(
+                        "minimized", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+                        "Start hidden in the system tray", None,
+                    )
+                    self._start_minimized = False
+                    self.activations = []
 
-            def do_activate(self):
-                self.activations.append(self._start_minimized)
+                do_handle_local_options = NVBroadcastApp.do_handle_local_options
 
-        app = Application()
+                def do_activate(self):
+                    self.activations.append(self._start_minimized)
 
-        self.assertEqual(app.run(["nvbroadcast", "--minimized"]), 0)
-        self.assertEqual(app.activations, [True])
+            app = Application()
+            assert app.run(["nvbroadcast", "--minimized"]) == 0
+            assert app.activations == [True], app.activations
+        """)
+        pending_callbacks = []
+        source_id = GLib.idle_add(lambda: pending_callbacks.append(True) or False)
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(pending_callbacks, [])
+        finally:
+            if not pending_callbacks:
+                GLib.source_remove(source_id)
 
 
 class HiddenStartupPipelineTests(unittest.TestCase):
