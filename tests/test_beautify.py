@@ -1,11 +1,50 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
 
 from nvbroadcast.video.beautify import FaceBeautifier
+
+
+class _DeviceCupy:
+    """Execute the unchanged array math on CPU while observing CUDA ownership."""
+
+    def __init__(self, *, fail=None):
+        self.current = 0
+        self.fail = fail
+        self.uploads = []
+        self.downloads = []
+        self.cuda = SimpleNamespace(Device=self.device)
+
+    @contextmanager
+    def device(self, index):
+        if self.fail == "enter":
+            raise RuntimeError("Generated device-entry failure")
+        previous = self.current
+        self.current = index
+        try:
+            yield
+        finally:
+            self.current = previous
+
+    def __getattr__(self, name):
+        return getattr(np, name)
+
+    def asarray(self, value, **kwargs):
+        self.uploads.append(self.current)
+        if self.fail == "upload":
+            raise RuntimeError("Generated upload failure")
+        return np.asarray(value, **kwargs)
+
+    def asnumpy(self, value):
+        self.downloads.append(self.current)
+        if self.fail == "download":
+            raise RuntimeError("Generated download failure")
+        return np.array(value, copy=True)
 
 
 class BeautifyTests(unittest.TestCase):
@@ -184,6 +223,83 @@ class BeautifyTests(unittest.TestCase):
         beautifier._apply_gpu_batch.assert_not_called()
         beautifier._apply_enhance.assert_called_once_with(frame)
         beautifier._apply_sharpen.assert_called_once_with(frame)
+
+
+class BeautifyGpuSelectionTests(unittest.TestCase):
+    @staticmethod
+    def _face(cp):
+        face = FaceBeautifier()
+        face._cupy = cp
+        face._compositing = "cupy"
+        face._gpu_index = 1
+        face._face_bbox = (2, 2, 4, 4)
+        face._face_mask = np.full((8, 8), 255, np.uint8)
+        face._tone_mask = face._face_mask.copy()
+        face.enhance = 0.3
+        face.sharpen = 0.2
+        frame = np.arange(8 * 8 * 4, dtype=np.uint8).reshape(8, 8, 4)
+        return face, frame
+
+    def test_selected_device_owns_uploads_and_downloads_and_restores_caller(self):
+        cp = _DeviceCupy()
+        face, frame = self._face(cp)
+
+        result = face._apply_gpu_batch(frame.copy(), 8, 8)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(cp.uploads, [1, 1, 1])
+        self.assertEqual(cp.downloads, [1])
+        self.assertEqual(cp.current, 0)
+
+    def test_constructor_accepts_selected_device_without_loading_cuda(self):
+        face = FaceBeautifier(gpu_index=1)
+        self.assertEqual(face._gpu_index, 1)
+        self.assertIsNone(face._cupy)
+
+    def test_switch_routes_next_batch_without_resetting_cpu_face_history(self):
+        cp = _DeviceCupy()
+        face, frame = self._face(cp)
+        face._prev_frame = np.full((8, 8, 3), 17, np.uint8)
+        face._vignette_cache = np.ones((8, 8), np.float32)
+        caches = (face._face_mask, face._tone_mask, face._prev_frame, face._vignette_cache)
+        first = face._apply_gpu_batch(frame.copy(), 8, 8)
+        cp.uploads.clear()
+        cp.downloads.clear()
+
+        face.set_gpu_index(0)
+        second = face._apply_gpu_batch(frame.copy(), 8, 8)
+
+        self.assertEqual(cp.uploads, [0, 0, 0])
+        self.assertEqual(cp.downloads, [0])
+        self.assertEqual(cp.current, 0)
+        np.testing.assert_array_equal(first, second)
+        for previous, current in zip(caches, (
+            face._face_mask, face._tone_mask, face._prev_frame, face._vignette_cache,
+        )):
+            self.assertIs(previous, current)
+
+    def test_gpu_failure_restores_caller_before_unchanged_cpu_fallback(self):
+        for failure in ("enter", "upload", "download"):
+            with self.subTest(failure=failure):
+                cp = _DeviceCupy(fail=failure)
+                face, frame = self._face(cp)
+                reference, _frame = self._face(_DeviceCupy())
+                expected = reference._apply_enhance(frame.copy())
+                expected = reference._apply_sharpen(expected)
+                fallback_devices = []
+                original = face._apply_enhance
+
+                def cpu_enhance(value):
+                    fallback_devices.append(cp.current)
+                    return original(value)
+
+                with mock.patch.object(face, "_apply_enhance", side_effect=cpu_enhance):
+                    result = face._apply_gpu_batch(frame.copy(), 8, 8)
+
+                self.assertEqual(cp.current, 0)
+                self.assertEqual(fallback_devices, [0])
+                self.assertEqual(face._compositing, "cpu")
+                np.testing.assert_array_equal(result, expected)
 
 
 if __name__ == "__main__":

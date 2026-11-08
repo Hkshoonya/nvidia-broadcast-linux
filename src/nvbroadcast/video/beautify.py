@@ -41,7 +41,8 @@ class FaceBeautifier:
     - Eye/lip sharpening: Unsharp mask on detail regions
     """
 
-    def __init__(self, compositing: str = "cpu"):
+    def __init__(self, compositing: str = "cpu", gpu_index: int = 0):
+        self.set_gpu_index(gpu_index)
         self._initialized = False
         self._compositing = "cpu"
         self._cupy = None
@@ -147,6 +148,11 @@ class FaceBeautifier:
             except ImportError:
                 if backend == "cupy":
                     self._compositing = "cpu"
+
+    def set_gpu_index(self, gpu_index: int):
+        # Face masks, vignette and temporal history are CPU arrays. GPU ROI
+        # arrays are local to each batch, so switching preserves those caches.
+        self._gpu_index = max(0, int(gpu_index))
 
     def process_frame(
         self,
@@ -310,50 +316,10 @@ class FaceBeautifier:
         """
         cp = self._cupy
         try:
-            bbox = self._face_bbox
-            detail_mask = self._face_mask
-            tone_mask = self._tone_mask if self._tone_mask is not None else detail_mask
-            if bbox is None or detail_mask is None:
-                if apply_edge_darken and self._edge_darken > 0:
-                    return self._apply_edge_darken(frame, width, height)
-                return frame
-
-            x, y, w, h = bbox
-            pad = 20
-            y1, y2 = max(0, y - pad), min(height, y + h + pad)
-            x1, x2 = max(0, x - pad), min(width, x + w + pad)
-            if x2 <= x1 or y2 <= y1:
-                if apply_edge_darken and self._edge_darken > 0:
-                    return self._apply_edge_darken(frame, width, height)
-                return frame
-
-            roi = frame[y1:y2, x1:x2, :3]
-            roi_gpu = cp.asarray(roi, dtype=cp.float32)
-            detail_roi_mask = detail_mask[y1:y2, x1:x2]
-            tone_roi_mask = tone_mask[y1:y2, x1:x2] if tone_mask is not None else detail_roi_mask
-
-            if apply_enhance and self._enhance > 0:
-                intensity = self._enhance
-                mask_gpu = cp.asarray(tone_roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
-                enhanced = (roi_gpu - 128) * (1.0 + intensity * 0.2) + 128 + intensity * 15
-                enhanced[:, :, 2] += intensity * 8
-                enhanced[:, :, 1] += intensity * 8 * 0.3
-                cp.clip(enhanced, 0, 255, out=enhanced)
-                roi_gpu = roi_gpu * (1 - mask_gpu) + enhanced * mask_gpu
-
-            if self._sharpen > 0:
-                intensity = self._sharpen
-                blurred = cp.mean(roi_gpu.reshape(-1, roi_gpu.shape[-1]), axis=0)
-                amount = 0.5 + intensity * 1.5
-                roi_sharp = roi_gpu + (roi_gpu - blurred) * amount * 0.1
-                mask_gpu = cp.asarray(detail_roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
-                roi_gpu = roi_gpu * (1 - mask_gpu) + cp.clip(roi_sharp, 0, 255) * mask_gpu
-
-            frame[y1:y2, x1:x2, :3] = cp.asnumpy(cp.clip(roi_gpu, 0, 255).astype(cp.uint8))
-            if apply_edge_darken and self._edge_darken > 0:
-                frame = self._apply_edge_darken(frame, width, height)
-            return frame
-
+            with cp.cuda.Device(self._gpu_index):
+                return self._apply_gpu_batch_on_device(
+                    frame, width, height, apply_enhance, apply_edge_darken,
+                )
         except Exception as e:
             if self._frame_counter <= 2:
                 print(f"[NV Broadcast] GPU beautify failed, using CPU: {e}")
@@ -366,6 +332,55 @@ class FaceBeautifier:
             if apply_edge_darken and self._edge_darken > 0:
                 frame = self._apply_edge_darken(frame, width, height)
             return frame
+
+    def _apply_gpu_batch_on_device(self, frame: np.ndarray,
+                                   width: int, height: int,
+                                   apply_enhance: bool,
+                                   apply_edge_darken: bool) -> np.ndarray:
+        cp = self._cupy
+        bbox = self._face_bbox
+        detail_mask = self._face_mask
+        tone_mask = self._tone_mask if self._tone_mask is not None else detail_mask
+        if bbox is None or detail_mask is None:
+            if apply_edge_darken and self._edge_darken > 0:
+                return self._apply_edge_darken(frame, width, height)
+            return frame
+
+        x, y, w, h = bbox
+        pad = 20
+        y1, y2 = max(0, y - pad), min(height, y + h + pad)
+        x1, x2 = max(0, x - pad), min(width, x + w + pad)
+        if x2 <= x1 or y2 <= y1:
+            if apply_edge_darken and self._edge_darken > 0:
+                return self._apply_edge_darken(frame, width, height)
+            return frame
+
+        roi = frame[y1:y2, x1:x2, :3]
+        roi_gpu = cp.asarray(roi, dtype=cp.float32)
+        detail_roi_mask = detail_mask[y1:y2, x1:x2]
+        tone_roi_mask = tone_mask[y1:y2, x1:x2] if tone_mask is not None else detail_roi_mask
+
+        if apply_enhance and self._enhance > 0:
+            intensity = self._enhance
+            mask_gpu = cp.asarray(tone_roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
+            enhanced = (roi_gpu - 128) * (1.0 + intensity * 0.2) + 128 + intensity * 15
+            enhanced[:, :, 2] += intensity * 8
+            enhanced[:, :, 1] += intensity * 8 * 0.3
+            cp.clip(enhanced, 0, 255, out=enhanced)
+            roi_gpu = roi_gpu * (1 - mask_gpu) + enhanced * mask_gpu
+
+        if self._sharpen > 0:
+            intensity = self._sharpen
+            blurred = cp.mean(roi_gpu.reshape(-1, roi_gpu.shape[-1]), axis=0)
+            amount = 0.5 + intensity * 1.5
+            roi_sharp = roi_gpu + (roi_gpu - blurred) * amount * 0.1
+            mask_gpu = cp.asarray(detail_roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
+            roi_gpu = roi_gpu * (1 - mask_gpu) + cp.clip(roi_sharp, 0, 255) * mask_gpu
+
+        frame[y1:y2, x1:x2, :3] = cp.asnumpy(cp.clip(roi_gpu, 0, 255).astype(cp.uint8))
+        if apply_edge_darken and self._edge_darken > 0:
+            frame = self._apply_edge_darken(frame, width, height)
+        return frame
 
     def _build_vignette_cache(self, width: int, height: int):
         """Build vignette gradient and cache it."""

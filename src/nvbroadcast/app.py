@@ -173,7 +173,10 @@ class NVBroadcastApp(Adw.Application):
             compositing=self.config.compositing,
         )
         self._autoframe = AutoFrame(gpu_index=self.config.compute_gpu)
-        self._beautifier = FaceBeautifier(compositing=self.config.compositing)
+        self._beautifier = FaceBeautifier(
+            compositing=self.config.compositing,
+            gpu_index=self.config.compute_gpu,
+        )
         self._eye_contact = EyeContactCorrector()
         self._relighter = FaceRelighter()
         self._perf_monitor = PerfMonitor(gpu_index=self.config.compute_gpu)
@@ -1117,6 +1120,7 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects._model_type = c.video.model
         self._video_effects._quality = c.video.quality_preset
         self._video_effects.set_gpu_index(c.compute_gpu)
+        self._beautifier.set_gpu_index(c.compute_gpu)
         self._perf_monitor.set_gpu_index(c.compute_gpu)
         self._video_effects.set_compositing(c.compositing)
         self._beautifier.set_compositing(c.compositing)
@@ -2377,6 +2381,7 @@ class NVBroadcastApp(Adw.Application):
             # an explicit retry if a previous backend build failed.
             self._dependency_installer.set_compute_gpu(gpu_index)
             self._video_effects.set_gpu_index(gpu_index)
+            self._beautifier.set_gpu_index(gpu_index)
             self._perf_monitor.set_gpu_index(gpu_index)
             return
 
@@ -2409,6 +2414,7 @@ class NVBroadcastApp(Adw.Application):
         self.config.compute_gpu = gpu_index
         self._dependency_installer.set_compute_gpu(gpu_index)
         self._video_effects.set_gpu_index(gpu_index)
+        self._beautifier.set_gpu_index(gpu_index)
         self._perf_monitor.set_gpu_index(gpu_index)
         self._sync_gpu_frame_path()
         save_config(self.config)
