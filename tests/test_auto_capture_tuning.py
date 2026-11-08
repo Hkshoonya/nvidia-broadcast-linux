@@ -315,6 +315,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
     def test_restore_settings_normalizes_stale_named_mode_quality(self, save_config):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()
+        app.config.compute_gpu = 1
         app.config.mode_key = "killer"
         app.config.video.quality_preset = "quality"
         app.config.video.eye_contact_mode = "gaze_lock"
@@ -342,6 +343,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
             sharpen=0.0,
             edge_darken=0.0,
             set_compositing=mock.Mock(),
+            set_gpu_index=mock.Mock(),
         )
         app._perf_monitor = SimpleNamespace(set_gpu_index=mock.Mock())
         app._window = SimpleNamespace(
@@ -360,8 +362,10 @@ class AutoCaptureTuningTests(unittest.TestCase):
         app._refresh_inference_policy = mock.Mock()
         app._audio_pipeline_should_publish = lambda: False
 
-        NVBroadcastApp._restore_settings(app)
+        NVBroadcastApp.restore_current_config(app)
 
+        app._beautifier.set_gpu_index.assert_called_once_with(1)
+        self.assertFalse(app._restoring)
         self.assertEqual(app.config.video.quality_preset, "performance")
         self.assertEqual(app._video_effects._quality, "performance")
         self.assertEqual(app._eye_contact.mode, "gaze_lock")
@@ -383,6 +387,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
             set_engine_mode=mock.Mock(),
         )
         app._beautifier = SimpleNamespace(set_compositing=mock.Mock())
+        app._beautifier.set_gpu_index = mock.Mock()
         app._dependency_installer = SimpleNamespace(set_compute_gpu=mock.Mock())
         app._perf_monitor = SimpleNamespace(set_gpu_index=mock.Mock())
         app._window = SimpleNamespace(

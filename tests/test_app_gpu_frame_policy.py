@@ -1,5 +1,5 @@
 import unittest
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from types import SimpleNamespace
 from unittest import mock
 
@@ -9,6 +9,28 @@ from nvbroadcast.runtime.process_scope import ProviderProbeScope
 
 
 class AppGpuFramePolicyTests(unittest.TestCase):
+    def test_initial_saved_gpu_is_passed_to_beauty_without_starting_the_app(self):
+        config = AppConfig()
+        config.compute_gpu = 1
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.add_main_option = mock.Mock()
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch("nvbroadcast.app.Adw.Application.__init__", return_value=None))
+            stack.enter_context(mock.patch("nvbroadcast.app.apply_cuda_blocking_sync", return_value=False))
+            stack.enter_context(mock.patch("nvbroadcast.app.load_config", return_value=config))
+            dependencies = {name: stack.enter_context(mock.patch("nvbroadcast.app." + name))
+                            for name in (
+                                "VideoEffects", "AutoFrame", "FaceBeautifier", "EyeContactCorrector",
+                                "FaceRelighter", "PerfMonitor", "MeetingTranscriber", "MeetingSummarizer",
+                                "DependencyInstaller", "ProviderProbeScope",
+                            )}
+
+            NVBroadcastApp.__init__(app)
+
+        dependencies["FaceBeautifier"].assert_called_once_with(
+            compositing=config.compositing, gpu_index=1,
+        )
+
     @contextmanager
     def _controlled_mode_workers(self):
         app = self._make_app()
@@ -328,6 +350,7 @@ class AppGpuFramePolicyTests(unittest.TestCase):
         )
         app._perf_monitor = SimpleNamespace(set_gpu_index=mock.Mock())
         app._dependency_installer = SimpleNamespace(set_compute_gpu=mock.Mock(), busy=False)
+        app._beautifier = SimpleNamespace(set_gpu_index=mock.Mock())
         app._window = None
         app._mode_availability_generation = 0
         app._mode_availability_request = None
@@ -426,6 +449,7 @@ class AppGpuFramePolicyTests(unittest.TestCase):
         self.assertEqual(app.config.compute_gpu, 1)
         app._dependency_installer.set_compute_gpu.assert_called_once_with(1)
         app._video_effects.set_gpu_index.assert_called_once_with(1)
+        app._beautifier.set_gpu_index.assert_called_once_with(1)
         app._video_effects._cleanup_backend.assert_not_called()
         app._video_effects.initialize.assert_not_called()
         create.assert_called_once_with(app._video_effects, gpu_index=1)
@@ -496,6 +520,15 @@ class AppGpuFramePolicyTests(unittest.TestCase):
         self.assertFalse(app._window._mode_availability_ready)
         self.assertEqual(app._window._mode_availability_gpu, 1)
         app._refresh_mode_availability_async.assert_called_once_with(1)
+
+    def test_reapplying_current_gpu_realigns_beauty_without_restarting_pipeline(self):
+        app = self._make_app()
+        app._video_pipeline = mock.Mock()
+
+        app.set_compute_gpu(app.config.compute_gpu)
+
+        app._beautifier.set_gpu_index.assert_called_once_with(app.config.compute_gpu)
+        app._video_pipeline.set_frame_processor.assert_not_called()
 
     def test_mode_availability_worker_uses_captured_gpu_checker(self):
         app = self._make_app()
