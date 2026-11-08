@@ -157,6 +157,7 @@ class RelightingFrameFreshnessTests(unittest.TestCase):
         app._inline_inference = True
         app._video_effects = SimpleNamespace(
             enabled=True, _use_fused_kernel=False,
+            last_output_face_overlay=(False, False),
             set_fused_face_overlay=mock.Mock(),
             process_frame_array=mock.Mock(side_effect=background),
             latest_final_matte_u8=mock.Mock(return_value=alpha),

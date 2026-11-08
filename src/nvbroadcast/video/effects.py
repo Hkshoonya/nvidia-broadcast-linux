@@ -1830,6 +1830,9 @@ class VideoEffects:
         self._fused_green_bg_size = None
         # Whether the most recent composite already mirrored on-GPU
         self.last_output_mirrored = False
+        # Enhance/vignette applied to the current returned output, not merely
+        # overlay inputs offered before a possible fused-compositor fallback.
+        self.last_output_face_overlay = (False, False)
         # GPU-resident matte pipeline state (blur mode + fused kernel only)
         self._prev_alpha_gpu = None
         self._latest_final_matte_u8_gpu = None
@@ -3373,6 +3376,7 @@ class VideoEffects:
                              mirror: bool = False) -> np.ndarray:
         """Composite current frame with cached alpha and return an ndarray."""
         self.last_output_mirrored = False
+        self.last_output_face_overlay = (False, False)
         if not self._bg_removal_enabled or not self._initialized:
             return frame
         self._remember_frame_size(width, height)
@@ -3391,6 +3395,7 @@ class VideoEffects:
                          matte_version: int | None = None,
                          mirror: bool = False,
                          source_alpha: np.ndarray | None = None) -> np.ndarray:
+        self.last_output_face_overlay = (False, False)
         cp = self._cupy
         if cp is not None and isinstance(alpha, cp.ndarray):
             with self._gpu_cache_lock:
@@ -3412,6 +3417,7 @@ class VideoEffects:
                                    source_alpha: np.ndarray | None = None) -> np.ndarray:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
         self.last_output_mirrored = False
+        self.last_output_face_overlay = (False, False)
         cp = self._cupy
         alpha_is_gpu = cp is not None and isinstance(alpha, cp.ndarray)
         # The GPU matte only helps the blur-mode fused path; any other route
@@ -3486,6 +3492,7 @@ class VideoEffects:
     def process_frame_array(self, frame: np.ndarray, width: int, height: int,
                             mirror: bool = False) -> np.ndarray:
         self.last_output_mirrored = False
+        self.last_output_face_overlay = (False, False)
         if not self._bg_removal_enabled or not self._initialized:
             return frame
 
@@ -3569,6 +3576,7 @@ class VideoEffects:
                            mirror: bool = False):
         """Device-resident composite with the cached alpha (no inference)."""
         self.last_output_mirrored = False
+        self.last_output_face_overlay = (False, False)
         if not self.gpu_output_eligible():
             return None
         self._remember_frame_size(width, height)
@@ -3587,6 +3595,7 @@ class VideoEffects:
                     self.last_output_mirrored = mirror
                 return output_gpu
         except Exception as e:
+            self.last_output_face_overlay = (False, False)
             print(f"[NV Broadcast] GPU composite failed: {e}", flush=True)
             return None
 
@@ -3594,6 +3603,7 @@ class VideoEffects:
                           mirror: bool = False):
         """Device-resident inline inference + composite (blur mode)."""
         self.last_output_mirrored = False
+        self.last_output_face_overlay = (False, False)
         if not self.gpu_output_eligible():
             return None
         self._remember_frame_size(width, height)
@@ -3627,6 +3637,7 @@ class VideoEffects:
                     self.last_output_mirrored = mirror
                 return output_gpu
         except Exception as e:
+            self.last_output_face_overlay = (False, False)
             print(f"[NV Broadcast] GPU composite failed: {e}", flush=True)
             return None
 
@@ -4207,14 +4218,19 @@ class VideoEffects:
                          width: int, height: int,
                          mirror: bool = False,
                          source_alpha: np.ndarray | None = None) -> np.ndarray | None:
+        self.last_output_face_overlay = (False, False)
         # Capture callbacks run on fresh GStreamer threads. A prior guarded
         # upload restores that thread's device; it does not select ours here.
         try:
             with self._gpu_cache_lock, self._cupy.cuda.Device(self._gpu_index):
-                return self._composite_fused_on_device(
+                result = self._composite_fused_on_device(
                     frame, alpha, width, height, mirror=mirror,
                     source_alpha=source_alpha)
+                if result is None:
+                    self.last_output_face_overlay = (False, False)
+                return result
         except Exception as e:
+            self.last_output_face_overlay = (False, False)
             print(f"[NV Broadcast] Fused kernel error: {e}")
             return None
 
@@ -4263,6 +4279,7 @@ class VideoEffects:
         frame go through _composite_fused. ``bg_frame`` is the CPU frame,
         needed only by replace mode's background builder.
         """
+        self.last_output_face_overlay = (False, False)
         kernel = _get_fused_kernel()
         if kernel is None:
             return None
@@ -4342,6 +4359,12 @@ class VideoEffects:
         if mirror:
             # Horizontal flip on-device so the caller can skip cv2.flip.
             output_gpu = cp.ascontiguousarray(output_gpu[:, ::-1, :])
+        self.last_output_face_overlay = (
+            face_mask is not None and face_mask.shape[:2] == (height, width)
+            and self._fused_enhance_intensity > 0.0,
+            vignette is not None and vignette.shape[:2] == (height, width)
+            and self._fused_vignette_intensity > 0.0,
+        )
         return output_gpu
 
     def _gpu_clean_color_reference(self, fg_gpu, alpha_gpu):
