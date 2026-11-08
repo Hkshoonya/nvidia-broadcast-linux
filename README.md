@@ -536,6 +536,16 @@ model loader opening it. The hash check does not prevent that race.
 nvbroadcast          # Launch GUI (first time: setup wizard)
 ```
 
+Development source for the next maintenance release also supports
+`nvbroadcast --minimized`. For a desktop autostart entry, append `--minimized`
+to its `Exec` command. This option is not included in the v1.5.4 packages or
+the frozen v1.5.5 candidate.
+The saved automatic-start setting still controls broadcasting. First-run setup
+always opens normally. If a tray host is not available within 30 seconds, the
+window opens; it also opens if the tray disappears while startup-hidden.
+Launching `nvbroadcast` again shows the running app, including when the second
+command uses `--minimized`.
+
 1. **Setup wizard** detects your system and configures the best mode
 2. App starts and auto-begins streaming
 3. Configure effects, select resolution/FPS/mode
