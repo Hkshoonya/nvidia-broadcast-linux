@@ -337,6 +337,7 @@ class AppGpuFramePolicyTests(unittest.TestCase):
         app._setup_wizard_open = False
         app._mode_probe_scope = ProviderProbeScope()
         app._pending_auto_start_gpu = None
+        app._startup_tray_source_id = 0
         return app
 
     @mock.patch("nvbroadcast.app.IS_MACOS", False)

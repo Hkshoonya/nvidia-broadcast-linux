@@ -129,6 +129,14 @@ class NVBroadcastApp(Adw.Application):
             application_id=APP_ID,
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
+        self.add_main_option(
+            "minimized", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+            "Start hidden in the system tray (show the window if unavailable)", None,
+        )
+        self._start_minimized = False
+        self._startup_tray_source_id = 0
+        self._startup_tray_seen = False
+        self._startup_tray_deadline = 0.0
         # Must precede the first cupy/ORT CUDA call (primary-context creation)
         # or GPU waits keep busy-spinning a core.
         if apply_cuda_blocking_sync():
@@ -219,6 +227,12 @@ class NVBroadcastApp(Adw.Application):
         self._hotkey_status = "Global hotkeys are unavailable"
         self._hotkey_display: dict[str, str] = {}
         self._transcriber.set_segment_callback(self._on_transcript_segment)
+
+    def do_handle_local_options(self, options):
+        # Local options are not forwarded to the existing primary instance.
+        # A second launch, even with --minimized, therefore still presents it.
+        self._start_minimized = options.contains("minimized")
+        return -1
 
     def do_startup(self):
         startup_trace.mark("do_startup begin")
@@ -320,7 +334,8 @@ class NVBroadcastApp(Adw.Application):
 
     def do_activate(self):
         startup_trace.mark("do_activate begin")
-        if self._window is None:
+        initial_activation = self._window is None
+        if initial_activation:
             self._window = NVBroadcastWindow(self)
             startup_trace.mark("window constructed")
             self._window.bind_dependency_installer(self._dependency_installer)
@@ -352,6 +367,7 @@ class NVBroadcastApp(Adw.Application):
             # visible; each tick otherwise costs a full-frame copy plus a
             # GTK GPU upload.
             def _on_window_mapped(*_a):
+                self._cancel_startup_tray_wait()
                 if self._video_pipeline is not None:
                     self._video_pipeline.set_preview_enabled(True)
 
@@ -410,6 +426,46 @@ class NVBroadcastApp(Adw.Application):
                 self._preload_transcriber()
             self._maybe_check_for_updates()
 
+        self._present_startup_window(initial_activation=initial_activation)
+
+    def _present_startup_window(self, *, initial_activation):
+        if initial_activation and self._start_minimized and not self.config.first_run:
+            if self._tray and (
+                self._tray.available or getattr(self._tray, "bus_ready", False)
+            ):
+                # At login a watcher may appear after the app. Keep a bounded
+                # wait, then keep checking while hidden so a shell/tray restart
+                # cannot leave the startup window unreachable.
+                self._startup_tray_seen = self._tray.available
+                self._startup_tray_deadline = time.monotonic() + 30.0
+                self._startup_tray_source_id = GLib.timeout_add_seconds(
+                    1, self._check_startup_tray,
+                )
+                return
+        self._present_window()
+
+    def _cancel_startup_tray_wait(self):
+        if self._startup_tray_source_id:
+            GLib.source_remove(self._startup_tray_source_id)
+            self._startup_tray_source_id = 0
+
+    def _check_startup_tray(self):
+        if not self._startup_tray_source_id:
+            return False
+        if self._window.get_visible():
+            self._startup_tray_source_id = 0
+            return False
+        if self._tray and self._tray.available:
+            self._startup_tray_seen = True
+            return True
+        if self._startup_tray_seen or time.monotonic() >= self._startup_tray_deadline:
+            self._startup_tray_source_id = 0
+            self._present_window()
+            return False
+        return True
+
+    def _present_window(self):
+        self._cancel_startup_tray_wait()
         self._window.set_visible(True)
         self._window.present()
         startup_trace.mark("window presented")
@@ -754,6 +810,7 @@ class NVBroadcastApp(Adw.Application):
         Stop the live pipeline first so closing the window always releases the
         camera instead of keeping a hidden capture session running.
         """
+        self._cancel_startup_tray_wait()
         if self.config.minimize_on_close and self._tray and self._tray.available:
             if self._streaming:
                 self.stop_pipeline()
@@ -1376,6 +1433,7 @@ class NVBroadcastApp(Adw.Application):
         self._video_pipeline.set_preview_callback(
             lambda texture: self._window.update_preview(texture)
         )
+        self._video_pipeline.set_preview_enabled(self._window.get_visible())
 
         # Reset all resolution-dependent state BEFORE new pipeline processes frames
         self._video_effects.reset_cached_mattes()
@@ -3518,6 +3576,7 @@ class NVBroadcastApp(Adw.Application):
     # --- Lifecycle ---
 
     def do_shutdown(self):
+        self._cancel_startup_tray_wait()
         self._stop_mode_availability()
         save_config(self.config)
         if self._window is not None and hasattr(self._window, "stop_camera_refresh"):
