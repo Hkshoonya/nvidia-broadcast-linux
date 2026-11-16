@@ -144,12 +144,16 @@ def _stepwise_resolutions(line: str) -> list[tuple[int, int]]:
 
 def is_v4l2loopback_loaded() -> bool:
     """Check if v4l2loopback kernel module is loaded."""
+    # lsmod only reads /sys/module; read it directly. Strict Snap confinement
+    # denies exec of lsmod (PermissionError), which used to abort startup.
+    if os.path.isdir("/sys/module/v4l2loopback"):
+        return True
     try:
         result = subprocess.run(
             ["lsmod"], capture_output=True, text=True, check=True
         )
         return "v4l2loopback" in result.stdout
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, OSError):
         return False
 
 

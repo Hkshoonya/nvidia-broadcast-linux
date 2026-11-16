@@ -198,5 +198,30 @@ class VirtualCameraConfigTests(unittest.TestCase):
         )
 
 
+class V4l2LoopbackDetectionTests(unittest.TestCase):
+    def test_sysfs_module_dir_means_loaded_without_running_lsmod(self):
+        with mock.patch.object(virtual_camera.os.path, "isdir", return_value=True), \
+             mock.patch.object(virtual_camera.subprocess, "run") as run:
+            self.assertTrue(virtual_camera.is_v4l2loopback_loaded())
+        run.assert_not_called()
+
+    def test_confined_lsmod_permission_error_is_not_fatal(self):
+        # Strict Snap confinement denies exec of lsmod; startup must survive it.
+        with mock.patch.object(virtual_camera.os.path, "isdir", return_value=False), \
+             mock.patch.object(
+                 virtual_camera.subprocess, "run",
+                 side_effect=PermissionError(13, "Permission denied", "lsmod"),
+             ):
+            self.assertFalse(virtual_camera.is_v4l2loopback_loaded())
+
+    def test_lsmod_fallback_still_detects_module(self):
+        with mock.patch.object(virtual_camera.os.path, "isdir", return_value=False), \
+             mock.patch.object(
+                 virtual_camera.subprocess, "run",
+                 return_value=SimpleNamespace(stdout="v4l2loopback 49152 0\n"),
+             ):
+            self.assertTrue(virtual_camera.is_v4l2loopback_loaded())
+
+
 if __name__ == "__main__":
     unittest.main()
