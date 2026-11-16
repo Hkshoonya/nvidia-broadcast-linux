@@ -12,7 +12,7 @@ on keyboards, fans, and non-stationary noise.
 The model is the torchDF streaming export of DeepFilterNet3 (MIT/Apache-2.0):
 the whole feature pipeline (STFT, ERB, deep filtering, ISTFT) is inside the
 graph, so inference is one session.run per 480-sample (10ms) hop with an
-explicit recurrent state tensor. Output is delayed by exactly one hop.
+explicit recurrent state tensor. Output is delayed by MODEL_DELAY_HOPS hops.
 
 Provider choice is measured, not assumed: the network is tiny, so CPU
 inference costs ~0.6ms per 10ms hop while CUDA pays ~1.2ms in launch
@@ -48,6 +48,12 @@ MODEL_SHA256 = "fe5eb64fa2e4154c83f8e4935e82871c850c154387ee892e0ab65fe179e7d8c9
 
 HOP_SIZE = 480          # 10ms at 48kHz
 STATE_SIZE = 45304
+# The model's enhanced hop k is the clean version of input hop k-3 (30ms:
+# lookahead inside the graph). Measured by cross-correlating speech through
+# the pinned MODEL_SHA256 artifact. The strength blend must mix in dry audio
+# with this same delay; blending a 1-hop-old dry frame (the old assumption)
+# put two copies of the voice 20ms apart -- an audible echo at strength < 1.
+MODEL_DELAY_HOPS = 3
 SAMPLE_RATE = 48000
 
 
@@ -168,7 +174,8 @@ class DeepFilterDenoiser:
         self._atten = np.zeros(1, dtype=np.float32)
         self._in_buf = np.zeros(0, dtype=np.float32)
         self._out_buf = np.zeros(0, dtype=np.float32)
-        self._prev_dry = np.zeros(HOP_SIZE, dtype=np.float32)
+        self._dry_hist = np.zeros((MODEL_DELAY_HOPS, HOP_SIZE), dtype=np.float32)
+        self._dry_pos = 0
         self._initialized = False
 
     @property
@@ -238,7 +245,10 @@ class DeepFilterDenoiser:
         # deficit is bounded by (samples_in mod HOP_SIZE) < HOP_SIZE.
         self._out_buf[:HOP_SIZE] = 0.0
         self._out_len = HOP_SIZE
-        self._prev_dry = np.zeros(HOP_SIZE, dtype=np.float32)
+        # Ring of the last MODEL_DELAY_HOPS dry frames; slot _dry_pos always
+        # holds the frame from exactly MODEL_DELAY_HOPS hops ago.
+        self._dry_hist = np.zeros((MODEL_DELAY_HOPS, HOP_SIZE), dtype=np.float32)
+        self._dry_pos = 0
         self._frame_scratch = np.empty(HOP_SIZE, dtype=np.float32)
 
     @staticmethod
@@ -254,8 +264,8 @@ class DeepFilterDenoiser:
                       intensity: float = 1.0) -> np.ndarray:
         """Denoise a float32 mono block, preserving its length.
 
-        The enhanced signal lags the dry signal by one hop, so the
-        intensity blend uses a matching one-hop-delayed dry frame.
+        The enhanced signal lags the dry signal by MODEL_DELAY_HOPS hops, so
+        the intensity blend uses a dry frame delayed by the same amount.
         Returns an array owned by the caller (never a view of state).
         """
         if not self._initialized or sample_rate != SAMPLE_RATE:
@@ -274,10 +284,12 @@ class DeepFilterDenoiser:
             enhanced, self._state, _lsnr = self.session.run(
                 None, {"input_frame": frame, "states": self._state,
                        "atten_lim_db": self._atten})
+            delayed_dry = self._dry_hist[self._dry_pos]
             if intensity < 1.0:
                 np.multiply(enhanced, intensity, out=enhanced)
-                enhanced += (1.0 - intensity) * self._prev_dry
-            np.copyto(self._prev_dry, frame)
+                enhanced += (1.0 - intensity) * delayed_dry
+            np.copyto(delayed_dry, frame)
+            self._dry_pos = (self._dry_pos + 1) % MODEL_DELAY_HOPS
             self._out_buf = self._ensure_capacity(
                 self._out_buf, self._out_len, HOP_SIZE)
             self._out_buf[self._out_len:self._out_len + HOP_SIZE] = enhanced
