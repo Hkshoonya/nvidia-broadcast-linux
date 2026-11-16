@@ -138,6 +138,25 @@ QUALITY_PRESETS = {
 
 # ─── Model Backends ──────────────────────────────────────────────────────────
 
+_CPU_INTRA_OP_THREADS_DEFAULT = 4
+
+
+def _cpu_intra_op_threads() -> int:
+    """Intra-op thread count for CPU-EP video sessions.
+
+    NVBROADCAST_CPU_THREADS overrides the default; it is clamped to the
+    machine's logical CPU count.
+    """
+    cpus = os.cpu_count() or 1
+    try:
+        requested = int(os.environ.get("NVBROADCAST_CPU_THREADS", ""))
+    except ValueError:
+        requested = _CPU_INTRA_OP_THREADS_DEFAULT
+    if requested < 1:
+        requested = _CPU_INTRA_OP_THREADS_DEFAULT
+    return max(1, min(requested, cpus))
+
+
 def _create_session(model_path: str, gpu_index: int,
                     use_tensorrt: bool = False,
                     cpu_only: bool = False,
@@ -167,6 +186,14 @@ def _create_session(model_path: str, gpu_index: int,
             # Inference runs on the GPU EP; only trivial CPU nodes remain, so
             # a full-core intra-op pool is pure spin-wait waste at video rates.
             opts.intra_op_num_threads = 2
+            opts.inter_op_num_threads = 1
+        else:
+            # The CPU EP defaults to one intra-op thread per core. On a 32-thread
+            # host RVM-ResNet50 at 640x480 then costs ~231 ms CPU per frame
+            # (~7 cores at 30 fps) for 31 ms latency; 4 threads cost ~133 ms
+            # for 44 ms (22 fps), above every CPU mode's target, and leave the
+            # rest of the machine (audio denoise, games) able to run.
+            opts.intra_op_num_threads = _cpu_intra_op_threads()
             opts.inter_op_num_threads = 1
         # Live pipelines idle most of each frame budget; spinning workers
         # burn a core each while waiting for the next frame.
