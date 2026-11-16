@@ -265,6 +265,75 @@ class ArchSupportTests(unittest.TestCase):
                     mode=platform_mod.ctypes.RTLD_GLOBAL,
                 )
 
+    def test_preload_retries_libraries_whose_dependency_sorts_later(self):
+        # libcublas.so.12 sorts before libcublasLt.so.12 but needs its symbols;
+        # a single alphabetical pass left the wheel cuBLAS unloaded so the host
+        # libcublas12 package won the later soname lookup.
+        import nvbroadcast.core.platform as platform_mod
+
+        with TemporaryDirectory() as tmp:
+            pkg_root = Path(tmp)
+            lib_dir = pkg_root / "lib"
+            lib_dir.mkdir()
+            for name in ("libcublas.so.12", "libcublasLt.so.12"):
+                (lib_dir / name).touch()
+
+            loaded: list[str] = []
+
+            def fake_cdll(path: str, mode: int):
+                name = Path(path).name
+                if name == "libcublas.so.12" and "libcublasLt.so.12" not in loaded:
+                    raise OSError("undefined symbol: cublasLtGetEnvironmentMode")
+                loaded.append(name)
+
+            def fake_find_spec(name: str):
+                if name == "nvidia.cublas":
+                    return SimpleNamespace(submodule_search_locations=[str(pkg_root)])
+                return None
+
+            with mock.patch.object(platform_mod, "IS_LINUX", True), \
+                 mock.patch.dict(platform_mod.os.environ, {"CUDA_PATH": "/x"}, clear=True), \
+                 mock.patch("importlib.util.find_spec", side_effect=fake_find_spec), \
+                 mock.patch.object(platform_mod.ctypes, "CDLL", side_effect=fake_cdll):
+                preload_nvidia_runtime_libs()
+
+        self.assertEqual(loaded, ["libcublasLt.so.12", "libcublas.so.12"])
+
+    def test_preload_skips_blas_and_fftw_interposers(self):
+        import nvbroadcast.core.platform as platform_mod
+
+        with TemporaryDirectory() as tmp:
+            pkg_root = Path(tmp)
+            lib_dir = pkg_root / "lib"
+            lib_dir.mkdir()
+            for name in ("libcufft.so.11", "libcufftw.so.11", "libnvblas.so.12"):
+                (lib_dir / name).touch()
+
+            def fake_find_spec(name: str):
+                if name == "nvidia.cufft":
+                    return SimpleNamespace(submodule_search_locations=[str(pkg_root)])
+                return None
+
+            with mock.patch.object(platform_mod, "IS_LINUX", True), \
+                 mock.patch.dict(platform_mod.os.environ, {"CUDA_PATH": "/x"}, clear=True), \
+                 mock.patch("importlib.util.find_spec", side_effect=fake_find_spec), \
+                 mock.patch.object(platform_mod.ctypes, "CDLL") as cdll:
+                preload_nvidia_runtime_libs()
+
+        self.assertEqual(
+            [Path(call.args[0]).name for call in cdll.call_args_list],
+            ["libcufft.so.11"],
+        )
+
+    def test_preload_gives_up_when_no_progress_is_made(self):
+        import nvbroadcast.core.platform as platform_mod
+
+        libs = [Path("/nope/liba.so.1"), Path("/nope/libb.so.1")]
+        with mock.patch.object(platform_mod.ctypes, "CDLL", side_effect=OSError("missing")) as cdll:
+            platform_mod._load_in_dependency_order(libs)
+        # One full pass, then stop -- no infinite retry loop.
+        self.assertEqual(cdll.call_count, 2)
+
     def test_preload_preserves_explicit_cuda_path(self):
         import nvbroadcast.core.platform as platform_mod
 

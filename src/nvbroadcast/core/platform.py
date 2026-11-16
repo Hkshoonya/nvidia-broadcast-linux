@@ -318,19 +318,50 @@ def preload_nvidia_runtime_libs() -> None:
                 if (runtime_root / "include" / "cuda_runtime.h").is_file():
                     os.environ["CUDA_PATH"] = str(runtime_root)
 
+        pending: list[Path] = []
         for pkg in NVIDIA_RUNTIME_LIB_MODULES:
             spec = importlib.util.find_spec(pkg)
             if spec and spec.submodule_search_locations:
                 lib_dir = Path(spec.submodule_search_locations[0]) / "lib"
                 if not lib_dir.is_dir():
                     continue
-                for so in sorted(lib_dir.glob("*.so*")):
-                    try:
-                        ctypes.CDLL(str(so), mode=ctypes.RTLD_GLOBAL)
-                    except OSError:
-                        pass
+                pending.extend(
+                    so for so in sorted(lib_dir.glob("*.so*"))
+                    if so.name.split(".so")[0] not in _NVIDIA_PRELOAD_SKIP
+                )
+        _load_in_dependency_order(pending)
     except Exception:
         pass
+
+
+# Drop-in interposers for host BLAS/FFTW. Nothing in the inference stack
+# links them, and loading them RTLD_GLOBAL can hijack those symbols process-wide.
+_NVIDIA_PRELOAD_SKIP = frozenset({"libnvblas", "libcufftw"})
+
+
+def _load_in_dependency_order(libs: list[Path]) -> None:
+    """dlopen every library, retrying until no further progress is made.
+
+    Alphabetical order is not dependency order: libcublas.so.12 sorts before
+    libcublasLt.so.12 and fails with an undefined cublasLt symbol. Swallowing
+    that left the wheel's cuBLAS unloaded, so a later dlopen("libcublas.so.12")
+    resolved to whatever the library path offered -- on Ubuntu hosts with the
+    distro libcublas12 package, an older cuBLAS paired with the wheel's newer
+    cuBLASLt, which corrupts the heap when the CUDA EP session is destroyed.
+    """
+    remaining = list(libs)
+    while remaining:
+        failed: list[Path] = []
+        for so in remaining:
+            try:
+                ctypes.CDLL(str(so), mode=ctypes.RTLD_GLOBAL)
+            except OSError:
+                failed.append(so)
+        if len(failed) == len(remaining):
+            for so in failed:
+                print(f"[NV Broadcast] could not preload {so.name}", flush=True)
+            return
+        remaining = failed
 
 
 def cuda_inference_probe_result(device_id: int = 0):
