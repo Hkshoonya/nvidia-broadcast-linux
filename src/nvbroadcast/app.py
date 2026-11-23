@@ -1640,7 +1640,11 @@ class NVBroadcastApp(Adw.Application):
             self._reset_inference_stage()
             self._inference_stage_owner = owner
 
+        stats = self._inference_stage.stats
+        started = time.perf_counter()
         staged = self._inference_stage.advance(frame_data, width, height)
+        if stats.enabled:
+            stats.record("wait", time.perf_counter() - started)
         if staged is None:
             last = self._last_pipelined_output
             if (
@@ -1654,8 +1658,11 @@ class NVBroadcastApp(Adw.Application):
             # Cold start: finish this frame now so the very first output
             # already has its own matte.
             staged = self._inference_stage.take_oldest()
+        composite_started = time.perf_counter()
         output = self._process_frame(
             staged.frame, staged.width, staged.height, staged=staged)
+        if stats.enabled:
+            stats.record("composite", time.perf_counter() - composite_started)
         self._last_pipelined_output = (
             output, (staged.width, staged.height), time.monotonic())
         return output

@@ -335,6 +335,46 @@ def preload_nvidia_runtime_libs() -> None:
         pass
 
 
+def _parse_cpu_list(text: str) -> set[int]:
+    """Parse a sysfs CPU list such as ``0-15,32``."""
+    cpus: set[int] = set()
+    for part in text.strip().split(","):
+        if not part:
+            continue
+        start, _, end = part.partition("-")
+        cpus.update(range(int(start), int(end or start) + 1))
+    return cpus
+
+
+def prefer_performance_cores(
+    sysfs_root: Path = Path("/sys/devices"),
+) -> set[int] | None:
+    """Keep the process on the performance cores of a hybrid Intel CPU.
+
+    The video stages run on several Python threads at once. When the
+    scheduler parks one of them on an efficiency core, that stage runs far
+    slower and the whole pipeline paces to it (measured on an i9-13900KF:
+    ~31 fps on P-cores vs ~20 fps on E-cores, with much larger frame-time
+    spikes). Call before threads are created so they inherit the mask.
+    ``NVBROADCAST_CPU_AFFINITY=all`` keeps the scheduler's default.
+    Returns the applied CPU set, or None when nothing changed.
+    """
+    if not IS_LINUX or os.environ.get("NVBROADCAST_CPU_AFFINITY", "auto") == "all":
+        return None
+    try:
+        performance = _parse_cpu_list((sysfs_root / "cpu_core" / "cpus").read_text())
+        if not (sysfs_root / "cpu_atom" / "cpus").is_file():
+            return None
+        allowed = os.sched_getaffinity(0)
+        target = performance & allowed
+        if not target or target == allowed:
+            return None
+        os.sched_setaffinity(0, target)
+        return target
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def alias_cudnn_sublibraries(lib_dir: Path) -> list[Path]:
     """Keep cuDNN's versioned sub-library loads inside its own wheel.
 

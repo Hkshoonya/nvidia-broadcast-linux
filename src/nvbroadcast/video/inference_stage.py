@@ -21,6 +21,7 @@ exchange for throughput bounded by the slowest stage instead of their sum.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections import deque
@@ -45,6 +46,41 @@ class _Pending(NamedTuple):
     submitted: float
 
 
+class StageStats:
+    """Opt-in per-stage timing log (NVBROADCAST_STAGE_STATS=1), every 5 s."""
+
+    INTERVAL_S = 5.0
+
+    def __init__(self, enabled: bool | None = None):
+        if enabled is None:
+            enabled = os.getenv("NVBROADCAST_STAGE_STATS") == "1"
+        self.enabled = enabled
+        self._lock = threading.Lock()
+        self._totals: dict[str, list[float]] = {}
+        self._since = time.monotonic()
+
+    def record(self, name: str, seconds: float) -> None:
+        if not self.enabled:
+            return
+        with self._lock:
+            entry = self._totals.setdefault(name, [0.0, 0, 0.0])
+            entry[0] += seconds
+            entry[1] += 1
+            entry[2] = max(entry[2], seconds)
+            now = time.monotonic()
+            if now - self._since < self.INTERVAL_S:
+                return
+            parts = [
+                f"{key}={total / count * 1000:.1f}ms(max {peak * 1000:.0f})"
+                for key, (total, count, peak) in self._totals.items() if count
+            ]
+            frames = max((count for _t, count, _p in self._totals.values()), default=0)
+            fps = frames / (now - self._since)
+            self._totals = {}
+            self._since = now
+        print(f"[NV Broadcast] stage stats {fps:.1f}/s " + " ".join(parts), flush=True)
+
+
 class PipelinedInferenceStage:
     """Chain of single-worker stages with one frame in flight per stage."""
 
@@ -55,6 +91,7 @@ class PipelinedInferenceStage:
     def __init__(self, first: Callable[[Any, int, int], Any],
                  *rest: Callable[[Any], Any]):
         self._stages: Sequence[Callable] = (first, *rest)
+        self.stats = StageStats()
         self._lock = threading.Lock()
         self._executors: list[ThreadPoolExecutor] | None = None
         self._pending: deque[_Pending] = deque()
@@ -73,14 +110,25 @@ class PipelinedInferenceStage:
             ]
         return self._executors
 
+    def _timed(self, index: int, stage: Callable, *args):
+        if not self.stats.enabled:
+            return stage(*args)
+        start = time.perf_counter()
+        try:
+            return stage(*args)
+        finally:
+            self.stats.record(f"stage{index}", time.perf_counter() - start)
+
     def _submit(self, frame, width: int, height: int) -> Future:
         executors = self._ensure_executors()
-        future = executors[0].submit(self._stages[0], frame, width, height)
-        for executor, stage in zip(executors[1:], self._stages[1:]):
+        future = executors[0].submit(self._timed, 0, self._stages[0], frame, width, height)
+        for index, (executor, stage) in enumerate(
+                zip(executors[1:], self._stages[1:]), start=1):
             # Each worker waits on its predecessor's result for this frame;
             # single-worker executors keep every stage in frame order.
             future = executor.submit(
-                lambda previous=future, stage=stage: stage(previous.result()))
+                lambda previous=future, stage=stage, index=index:
+                    self._timed(index, stage, previous.result()))
         return future
 
     def advance(self, frame, width: int, height: int) -> StagedFrame | None:
