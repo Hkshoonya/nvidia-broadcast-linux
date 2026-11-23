@@ -324,6 +324,8 @@ def preload_nvidia_runtime_libs() -> None:
                 lib_dir = Path(spec.submodule_search_locations[0]) / "lib"
                 if not lib_dir.is_dir():
                     continue
+                if pkg == "nvidia.cudnn":
+                    alias_cudnn_sublibraries(lib_dir)
                 for so in sorted(lib_dir.glob("*.so*")):
                     try:
                         ctypes.CDLL(str(so), mode=ctypes.RTLD_GLOBAL)
@@ -331,6 +333,49 @@ def preload_nvidia_runtime_libs() -> None:
                         pass
     except Exception:
         pass
+
+
+def alias_cudnn_sublibraries(lib_dir: Path) -> list[Path]:
+    """Keep cuDNN's versioned sub-library loads inside its own wheel.
+
+    cuDNN 9 dlopens its sub-libraries by full version first, e.g.
+    ``libcudnn_graph.so.9.28.1``, then ``.so.9.28``, then ``.so.9``. The
+    wheel ships only ``.so.9``, so a distribution cuDNN of the *same* version
+    (Arch/CachyOS ``cudnn``, pulled in by ``onnxruntime-cuda``) satisfies the
+    versioned lookup from /usr/lib. Two cuDNN copies then share one process,
+    every convolution fails with CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED and
+    ONNX Runtime silently falls back to CPU inference.
+
+    Versioned symlinks next to the wheel libraries are found first through
+    cuDNN's ``$ORIGIN`` RUNPATH and resolve to the already-loaded files, so
+    no second copy is mapped. Read-only installs are left unchanged.
+    Returns the aliases created.
+    """
+    created: list[Path] = []
+    try:
+        cudnn = ctypes.CDLL(str(lib_dir / "libcudnn.so.9"))
+        version = int(cudnn.cudnnGetVersion())
+    except (OSError, AttributeError, ValueError):
+        return created
+    major, minor, patch = version // 10000, (version // 100) % 100, version % 100
+    if major != 9:
+        return created
+    suffixes = (f"{major}.{minor}.{patch}", f"{major}.{minor}")
+    for library in sorted(lib_dir.glob(f"libcudnn*.so.{major}")):
+        if library.is_symlink():
+            continue
+        stem = library.name[: -len(str(major))]  # "libcudnn_graph.so."
+        for suffix in suffixes:
+            alias = library.with_name(stem + suffix)
+            if alias.exists() or alias.is_symlink():
+                continue
+            try:
+                alias.symlink_to(library.name)
+            except OSError:
+                # Read-only runtime or a concurrent launch created it.
+                continue
+            created.append(alias)
+    return created
 
 
 def cuda_inference_probe_result(device_id: int = 0):

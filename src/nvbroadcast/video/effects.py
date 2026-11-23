@@ -641,6 +641,7 @@ class _RVMBackend:
         self._reset_retry_logged = False
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
+        self._cpu_fallback_logged = False
         # IOBinding state: device-resident recurrent tensors + alpha buffer.
         # Invalidated on every reset/session swap; the numpy _r1.._r4 mirrors
         # stay untouched so the fallback path re-seeds from zeros cleanly.
@@ -774,6 +775,18 @@ class _RVMBackend:
         if not providers:
             return
         active = providers[0]
+        if (
+            active == "CPUExecutionProvider"
+            and not self._cpu_only
+            and not self._cpu_fallback_logged
+        ):
+            # ONNX Runtime retries a failed GPU run on CPU and keeps that
+            # session; inference then runs many times slower while every
+            # other status still reports a GPU mode.
+            print("[NV Broadcast] WARNING: GPU inference failed at runtime; "
+                  "ONNX Runtime switched RVM to CPU (see the EP Error above)",
+                  flush=True)
+            self._cpu_fallback_logged = True
         if "TensorrtExecutionProvider" in active:
             return
         if not self._active_trt:
