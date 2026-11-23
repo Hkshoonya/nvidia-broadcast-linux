@@ -39,6 +39,7 @@ from nvbroadcast.core.updates import (
 )
 from nvbroadcast.video.pipeline import VideoPipeline
 from nvbroadcast.video.effects import VideoEffects
+from nvbroadcast.video.inference_stage import PipelinedInferenceStage
 from nvbroadcast.video.autoframe import AutoFrame
 from nvbroadcast.video.beautify import FaceBeautifier
 from nvbroadcast.video.virtual_camera import (
@@ -172,6 +173,15 @@ class NVBroadcastApp(Adw.Application):
             edge_config=self.config.video.edge,
             compositing=self.config.compositing,
         )
+        # Model inference -> alpha refinement -> replacement matte, each on
+        # its own worker, while the capture thread composites.
+        self._inference_stage = PipelinedInferenceStage(
+            self._infer_frame_alpha,
+            self._video_effects.finish_alpha,
+            self._video_effects.prepare_replace_matte,
+        )
+        self._inference_stage_owner = None
+        self._last_pipelined_output = None
         self._autoframe = AutoFrame(gpu_index=self.config.compute_gpu)
         self._beautifier = FaceBeautifier(
             compositing=self.config.compositing,
@@ -1427,7 +1437,7 @@ class NVBroadcastApp(Adw.Application):
             prefer_hw_decode=self._use_nvdec,
         )
 
-        self._video_pipeline.set_effect_callback(self._process_frame)
+        self._video_pipeline.set_effect_callback(self._process_effect_frame)
         self._video_pipeline.set_alpha_callback(self._update_alpha)
         self._video_pipeline.set_recording_error_callback(self._on_recording_error)
         self._video_pipeline.set_capture_error_callback(self._on_capture_error)
@@ -1586,9 +1596,85 @@ class NVBroadcastApp(Adw.Application):
         )
         return gpu_pure, self._mirror, self._inline_inference
 
-    def _process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
+    def _pipelined_inference_enabled(self) -> bool:
+        """Whether inline inference may overlap with the previous composite."""
+        return (
+            self._inline_inference
+            and self._video_effects.enabled
+            # A skip cadence reuses the previous committed matte; keep its
+            # serial ordering exact by not overlapping frames.
+            and getattr(self._video_effects, "_skip_interval", 1) <= 1
+            and os.getenv("NVBROADCAST_PIPELINED_INFERENCE", "1") != "0"
+        )
+
+    def _infer_frame_alpha(self, frame_data: bytes, width: int, height: int):
+        """First pipeline stage: model inference for one camera frame."""
+        import numpy as np
+
+        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
+        return self._video_effects.infer_alpha(frame, width, height)
+
+    def _reset_inference_stage(self) -> None:
+        """Drop in-flight frames (capture restart, policy change)."""
+        self._inference_stage.drain()
+        self._last_pipelined_output = None
+
+    def _process_effect_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
+        """Capture callback: overlap inference of this frame with the last composite.
+
+        Inline inference keeps every composite paired with its own frame's
+        matte. Serially, inference + matte refinement + compositing must all
+        fit into one frame interval or capture drops frames. Pipelined, newer
+        frames run inference and matte refinement on the stage workers while
+        an older frame composites here: each rendered frame is unchanged but
+        arrives a few frames later, at the rate of the slowest stage.
+        """
+        if not self._pipelined_inference_enabled():
+            if self._inference_stage.active or self._last_pipelined_output:
+                self._reset_inference_stage()
+            return self._process_frame(frame_data, width, height)
+
+        # A queued frame from a stopped/rebuilt capture must not lead this one.
+        owner = self._video_pipeline
+        if owner is not self._inference_stage_owner:
+            self._reset_inference_stage()
+            self._inference_stage_owner = owner
+
+        stats = self._inference_stage.stats
+        started = time.perf_counter()
+        staged = self._inference_stage.advance(frame_data, width, height)
+        if stats.enabled:
+            stats.record("wait", time.perf_counter() - started)
+        if staged is None:
+            last = self._last_pipelined_output
+            if (
+                last is not None
+                and last[1] == (width, height)
+                and time.monotonic() - last[2] <= self._inference_stage.MAX_PENDING_AGE_S
+            ):
+                # Refilling after a reset: repeat the newest output rather
+                # than expose an unprocessed camera frame.
+                return last[0]
+            # Cold start: finish this frame now so the very first output
+            # already has its own matte.
+            staged = self._inference_stage.take_oldest()
+        composite_started = time.perf_counter()
+        output = self._process_frame(
+            staged.frame, staged.width, staged.height, staged=staged)
+        if stats.enabled:
+            stats.record("composite", time.perf_counter() - composite_started)
+        self._last_pipelined_output = (
+            output, (staged.width, staged.height), time.monotonic())
+        return output
+
+    def _process_frame(self, frame_data: bytes, width: int, height: int,
+                       staged=None) -> bytes:
         """Inline callback — processes EVERY frame with ALL effects.
-        Runs composite + face effects + mirror on the current frame."""
+        Runs composite + face effects + mirror on the current frame.
+
+        ``staged`` carries this frame's alpha from the pipelined inference
+        stage; without it, inline inference runs here.
+        """
         import cv2
         import numpy as np
 
@@ -1652,7 +1738,12 @@ class NVBroadcastApp(Adw.Application):
             and not self._autoframe.enabled
             and self._video_effects.enabled
         )
-        if self._video_effects.enabled:
+        if staged is not None:
+            result_frame = self._video_effects.composite_prepared(
+                staged.prepared, width, height, mirror=gpu_mirror,
+                frame=result_frame)
+            fused_enhance, fused_edge_darken = self._video_effects.last_output_face_overlay
+        elif self._video_effects.enabled:
             if self._inline_inference:
                 result_frame = self._video_effects.process_frame_array(
                     result_frame, width, height, mirror=gpu_mirror)
@@ -1763,6 +1854,11 @@ class NVBroadcastApp(Adw.Application):
     def _refresh_inference_policy(self) -> None:
         inline = self._compute_inline_inference()
         self._inline_inference = inline
+        stage = getattr(self, "_inference_stage", None)
+        if not inline and stage is not None:
+            # The async alpha worker takes over inference; never let it run
+            # alongside frames still in flight on the pipelined stages.
+            stage.drain()
         if self._video_pipeline:
             self._video_pipeline.set_alpha_worker_enabled(not inline)
 
@@ -3618,6 +3714,7 @@ class NVBroadcastApp(Adw.Application):
         if self._speaker_monitor:
             self._speaker_monitor.stop()
         self._transcriber.cleanup()
+        self._inference_stage.shutdown()
         self._video_effects.cleanup()
         self._autoframe.cleanup()
         self._beautifier.cleanup()

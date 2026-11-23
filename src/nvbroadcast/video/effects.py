@@ -25,7 +25,9 @@ if _platform.system() != "Darwin":
     os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import cv2
@@ -639,6 +641,7 @@ class _RVMBackend:
         self._reset_retry_logged = False
         self._runtime_demote_logged = False
         self._cuda_recovery_logged = False
+        self._cpu_fallback_logged = False
         # IOBinding state: device-resident recurrent tensors + alpha buffer.
         # Invalidated on every reset/session swap; the numpy _r1.._r4 mirrors
         # stay untouched so the fallback path re-seeds from zeros cleanly.
@@ -772,6 +775,18 @@ class _RVMBackend:
         if not providers:
             return
         active = providers[0]
+        if (
+            active == "CPUExecutionProvider"
+            and not self._cpu_only
+            and not self._cpu_fallback_logged
+        ):
+            # ONNX Runtime retries a failed GPU run on CPU and keeps that
+            # session; inference then runs many times slower while every
+            # other status still reports a GPU mode.
+            print("[NV Broadcast] WARNING: GPU inference failed at runtime; "
+                  "ONNX Runtime switched RVM to CPU (see the EP Error above)",
+                  flush=True)
+            self._cpu_fallback_logged = True
         if "TensorrtExecutionProvider" in active:
             return
         if not self._active_trt:
@@ -1010,8 +1025,12 @@ class _RVMBackend:
         rgb = cv2.cvtColor(small, cv2.COLOR_BGRA2RGB)
         gamma = self._resolve_inference_gamma(rgb)
         rgb = self._apply_inference_gamma(rgb, gamma)
-        src = rgb.astype(np.float32) * (1.0 / 255.0)
-        src = src.transpose(2, 0, 1)[np.newaxis]  # HWC -> 1xCxHxW
+        # HWC uint8 -> contiguous 1xCxHxW float32 in one pass; the same
+        # float32 multiply as astype(float32) * (1/255), without the extra
+        # temporary and ORT's copy of a transposed view.
+        src = np.empty((1, 3, infer_h, infer_w), dtype=np.float32)
+        np.multiply(rgb.transpose(2, 0, 1), np.float32(1.0 / 255.0),
+                    out=src[0], dtype=np.float32)
         self._ensure_state_shape(infer_w, infer_h)
 
         inputs = {
@@ -1741,6 +1760,54 @@ class _LearnedMatteRefiner:
 
 # ─── Main VideoEffects Class ─────────────────────────────────────────────────
 
+# uint8 -> float32 via the exact products float32(v) * float32(1/255); a
+# table lookup returns bit-identical values to u8.astype(float32) * (1/255)
+# without a full-frame cast plus multiply.
+_U8_TO_UNIT_F32 = np.arange(256, dtype=np.float32) * np.float32(1.0 / 255.0)
+_U8_TO_UNIT_F32.flags.writeable = False
+
+
+def _u8_to_unit_float(values_u8: np.ndarray) -> np.ndarray:
+    """Equivalent of ``values_u8.astype(np.float32) * (1.0 / 255.0)``."""
+    if values_u8.dtype != np.uint8 or values_u8.ndim not in (2, 3) or values_u8.size == 0:
+        return values_u8.astype(np.float32) * (1.0 / 255.0)
+    return cv2.LUT(values_u8, _U8_TO_UNIT_F32)
+
+
+def _unit_float_to_u8(alpha: np.ndarray) -> np.ndarray:
+    """Equivalent of ``np.clip(alpha * 255, 0, 255).astype(np.uint8)``.
+
+    The same multiply and clip, done on one temporary instead of two.
+    """
+    scaled = np.multiply(alpha, 255)
+    np.clip(scaled, 0, 255, out=scaled)
+    return scaled.astype(np.uint8)
+
+
+class _InferredFrame(NamedTuple):
+    """Raw model output awaiting VideoEffects.finish_alpha()."""
+
+    frame: np.ndarray
+    width: int
+    height: int
+    matte_version: int | None
+    raw: tuple | None
+
+
+class PreparedFrame(NamedTuple):
+    """A camera frame paired with the alpha inferred for it (see prepare_alpha)."""
+
+    frame: np.ndarray
+    alpha: np.ndarray | None
+    source_alpha: np.ndarray | None
+    matte_version: int | None
+    # Serial of the committed alpha when it was snapshotted (pipelines only):
+    # later stages must not re-derive it after a newer frame has committed.
+    alpha_serial: int | None = None
+    # Alpha-only replacement matte, precomputed by prepare_replace_matte().
+    replace_matte: np.ndarray | None = None
+
+
 class VideoEffects:
     _DETAIL_QUALITY_PRESETS = frozenset({"quality", "ultra"})
 
@@ -1841,6 +1908,14 @@ class VideoEffects:
         self._gpu_infer_warned = False
         # (frame, frame_gpu) from GPU inference, reused by _composite_fused
         self._pending_frame_gpu = None
+        # Replace-mode fringe despill depends only on the camera frame and the
+        # model's source alpha, so it overlaps the final-matte pass on a helper
+        # thread. Both are pure functions of their inputs; output is unchanged.
+        self._despill_executor = None
+        self._despill_executor_lock = threading.Lock()
+        # Serializes the replacement-matte history (_stable_alpha and the
+        # replace cache) when it is computed on a pipeline stage thread.
+        self._replace_matte_lock = threading.RLock()
 
         # A saved GPU preference can fall back to CPU in a new runtime. The
         # provider transition reads reload/cache state, so initialize it first.
@@ -2433,8 +2508,10 @@ class VideoEffects:
             fringe_min, fringe_max = 0.03, 0.30
             drop_scale = 0.2
 
-        diff = np.abs(alpha - prev)
+        diff = np.subtract(alpha, prev)
+        np.abs(diff, out=diff)
         global_motion = diff.mean()
+        del diff
         result = self._temporal_smooth_region(
             alpha,
             prev,
@@ -2885,8 +2962,10 @@ class VideoEffects:
         if prev is None or prev.shape != alpha.shape:
             return alpha.copy()
 
-        diff = np.abs(alpha - prev)
+        diff = np.subtract(alpha, prev)
+        np.abs(diff, out=diff)
         global_motion = diff.mean()
+        del diff
         motion_gate = np.clip(1.0 - global_motion * 18.0, 0.2, 1.0)
 
         # Keep replace-mode stabilization lighter than blur/remove so
@@ -2923,11 +3002,19 @@ class VideoEffects:
         preserve_detail: bool,
         reference_shape: tuple[int, int] | None = None,
     ) -> np.ndarray:
-        matte = np.clip((stable - 0.05) / 0.95, 0.0, 1.0)
-        matte[matte < 0.012] = 0.0
-        matte[matte > 0.985] = 1.0
+        # Same float32 operations as clip((stable - 0.05) / 0.95, 0, 1) with
+        # the 0.012/0.985 snaps, done in place. Clipped values are >= +0.0,
+        # so multiplying by the keep-mask equals the masked zero assignment.
+        matte = np.subtract(stable, 0.05)
+        matte /= 0.95
+        np.clip(matte, 0.0, 1.0, out=matte)
+        np.multiply(matte, matte >= 0.012, out=matte)
+        np.putmask(matte, matte > 0.985, 1.0)
 
-        matte_u8 = np.clip(matte * 255.0, 0, 255).astype(np.uint8)
+        matte *= 255.0
+        np.clip(matte, 0, 255, out=matte)
+        matte_u8 = matte.astype(np.uint8)
+        del matte
         original_matte_u8 = matte_u8
         work_mask = matte_u8
         work_scale = 1
@@ -3007,20 +3094,36 @@ class VideoEffects:
             tone_lut.flags.writeable = False
             self._replacement_tone_lut = tone_lut
         matte = cv2.LUT(matte_u8, tone_lut)
-        solid = stable > 0.86
-        matte[solid] = np.maximum(matte[solid], 0.995)
+        # LUT values are >= +0.0, so raising solid pixels to 0.995 equals a
+        # plain elementwise maximum against a 0/0.995 floor.
+        np.maximum(matte, (stable > 0.86) * np.float32(0.995), out=matte)
         if preserve_holes.any():
             matte[preserve_holes] = np.minimum(matte[preserve_holes], alpha[preserve_holes])
         if preserve_slits is not None and preserve_slits.any():
             matte[preserve_slits] = np.minimum(matte[preserve_slits], alpha[preserve_slits])
-        matte[matte < 0.12] = 0.0
+        # Zero sub-0.12 values; "+= 0.0" turns any -0.0 from a negative
+        # source alpha into the +0.0 the masked assignment wrote.
+        np.multiply(matte, ~(matte < 0.12), out=matte)
+        matte += np.float32(0.0)
         return matte
 
     def _replacement_matte_cached(self, alpha: np.ndarray,
-                                  matte_version: int | None = None) -> np.ndarray:
-        """Reuse the alpha-only replacement matte while the cached alpha is unchanged."""
+                                  matte_version: int | None = None,
+                                  alpha_serial=None) -> np.ndarray:
+        """Reuse the alpha-only replacement matte while the cached alpha is unchanged.
+
+        ``alpha_serial`` is the committed serial captured with ``alpha``;
+        without it the serial is looked up now, as the serial path always has.
+        """
+        with self._replace_matte_lock:
+            return self._replacement_matte_cached_locked(
+                alpha, matte_version, alpha_serial)
+
+    def _replacement_matte_cached_locked(self, alpha: np.ndarray,
+                                         matte_version: int | None = None,
+                                         captured_serial=None) -> np.ndarray:
         with self._state_lock:
-            alpha_serial = self._cached_alpha_serial if self._cached_alpha is alpha else None
+            alpha_serial = self._current_alpha_serial(alpha, captured_serial)
             if (
                 alpha_serial is not None
                 and self._cached_replace_matte is not None
@@ -3033,10 +3136,16 @@ class VideoEffects:
         with self._state_lock:
             if matte_version is not None and matte_version != self._matte_version:
                 return alpha
-            alpha_serial = self._cached_alpha_serial if self._cached_alpha is alpha else None
+            alpha_serial = self._current_alpha_serial(alpha, captured_serial)
             self._cached_replace_matte = matte.copy()
             self._cached_replace_matte_source_serial = alpha_serial
         return matte
+
+    def _current_alpha_serial(self, alpha, captured_serial=None):
+        """Serial of ``alpha`` as the committed matte (caller holds _state_lock)."""
+        if captured_serial is not None:
+            return captured_serial
+        return self._cached_alpha_serial if self._cached_alpha is alpha else None
 
     @staticmethod
     def _mask_roi_bounds(mask: np.ndarray, pad: int = 0) -> tuple[int, int, int, int] | None:
@@ -3157,7 +3266,7 @@ class VideoEffects:
         downsample: bool,
     ) -> np.ndarray:
         h, w = matte.shape[:2]
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY).astype(np.float32) * (1.0 / 255.0)
+        gray = _u8_to_unit_float(cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY))
         if downsample:
             sw = max(8, w // 4)
             sh = max(8, h // 4)
@@ -3301,9 +3410,13 @@ class VideoEffects:
 
     def _final_matte(self, frame: np.ndarray, alpha: np.ndarray,
                      matte_version: int | None = None,
-                     source_alpha: np.ndarray | None = None) -> np.ndarray:
+                     source_alpha: np.ndarray | None = None,
+                     replace_matte: np.ndarray | None = None) -> np.ndarray:
         if self._bg_mode == "replace":
-            matte = self._replacement_matte_cached(alpha, matte_version)
+            if replace_matte is not None and replace_matte.shape == alpha.shape:
+                matte = replace_matte
+            else:
+                matte = self._replacement_matte_cached(alpha, matte_version)
             matte = self._edge_aware_replace_matte(frame, matte)
             matte = self._apply_learned_refiner("replace", frame, matte)
             return self._stabilize_replace_matte_edges(matte)
@@ -3394,7 +3507,8 @@ class VideoEffects:
                          width: int, height: int,
                          matte_version: int | None = None,
                          mirror: bool = False,
-                         source_alpha: np.ndarray | None = None) -> np.ndarray:
+                         source_alpha: np.ndarray | None = None,
+                         replace_matte: np.ndarray | None = None) -> np.ndarray:
         self.last_output_face_overlay = (False, False)
         cp = self._cupy
         if cp is not None and isinstance(alpha, cp.ndarray):
@@ -3405,16 +3519,19 @@ class VideoEffects:
                 with cp.cuda.Device(self._gpu_index):
                     return self._composite_array_on_device(
                         frame, alpha, width, height, matte_version,
-                        mirror=mirror, source_alpha=source_alpha)
+                        mirror=mirror, source_alpha=source_alpha,
+                        replace_matte=replace_matte)
         return self._composite_array_on_device(
             frame, alpha, width, height, matte_version,
-            mirror=mirror, source_alpha=source_alpha)
+            mirror=mirror, source_alpha=source_alpha,
+            replace_matte=replace_matte)
 
     def _composite_array_on_device(self, frame: np.ndarray, alpha: np.ndarray,
                                    width: int, height: int,
                                    matte_version: int | None = None,
                                    mirror: bool = False,
-                                   source_alpha: np.ndarray | None = None) -> np.ndarray:
+                                   source_alpha: np.ndarray | None = None,
+                                   replace_matte: np.ndarray | None = None) -> np.ndarray:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
         self.last_output_mirrored = False
         self.last_output_face_overlay = (False, False)
@@ -3438,8 +3555,15 @@ class VideoEffects:
             source_alpha = cv2.resize(
                 source_alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
-        alpha = self._final_matte(frame, alpha, matte_version,
-                                  source_alpha=source_alpha)
+        # Replace cleanup reads only the frame and the model's source alpha,
+        # never the final matte, so it can run while _final_matte works.
+        despill_future = self._submit_replace_despill(frame, source_alpha)
+        try:
+            alpha = self._final_matte(frame, alpha, matte_version,
+                                      source_alpha=source_alpha,
+                                      replace_matte=replace_matte)
+        finally:
+            prepared_fg = self._replace_despill_result(despill_future)
         with self._state_lock:
             if matte_version is None or matte_version == self._matte_version:
                 if alpha_is_gpu:
@@ -3449,7 +3573,7 @@ class VideoEffects:
                         alpha * 255.0, 0, 255).astype(cp.uint8)
                     self._latest_final_matte_u8 = None
                 else:
-                    self._latest_final_matte_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+                    self._latest_final_matte_u8 = _unit_float_to_u8(alpha)
                     self._latest_final_matte_u8_gpu = None
                 self._latest_final_matte_size = (width, height)
 
@@ -3457,7 +3581,8 @@ class VideoEffects:
         if (self._use_fused_kernel and self._cupy is not None
                 and self._compositing in ("cupy", "gstreamer_gl")):
             result = self._composite_fused(
-                frame, alpha, width, height, mirror=mirror, source_alpha=source_alpha)
+                frame, alpha, width, height, mirror=mirror,
+                source_alpha=source_alpha, prepared_fg=prepared_fg)
             if result is not None:
                 self.last_output_mirrored = mirror
                 return result
@@ -3473,8 +3598,60 @@ class VideoEffects:
             result = self._apply_green_screen(frame, alpha, width, height)
         else:
             result = self._apply_replace(frame, alpha, width, height,
-                                         source_alpha=source_alpha)
+                                         source_alpha=source_alpha,
+                                         prepared_fg=prepared_fg)
         return result
+
+    def _submit_replace_despill(self, frame: np.ndarray,
+                                source_alpha: np.ndarray | None):
+        """Start replace-mode fringe cleanup on the helper thread.
+
+        Only the source-alpha variant is independent of the final matte; the
+        rare fallback without a source alpha keeps the serial order.
+        """
+        if (
+            self._bg_mode != "replace"
+            or self._bg_image is None
+            or source_alpha is None
+            or source_alpha.shape != frame.shape[:2]
+        ):
+            return None
+        with self._despill_executor_lock:
+            executor = self._despill_executor
+            if executor is None:
+                executor = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="nvb-despill")
+                self._despill_executor = executor
+        try:
+            return (frame, source_alpha, executor.submit(
+                self._prepare_replace_foreground, frame, source_alpha))
+        except RuntimeError:
+            # Executor shut down during cleanup: compositors run it inline.
+            return None
+
+    @staticmethod
+    def _replace_despill_result(pending):
+        """Return (frame, source_alpha, cleaned) or None to clean inline."""
+        if pending is None:
+            return None
+        frame, source_alpha, future = pending
+        try:
+            return frame, source_alpha, future.result()
+        except Exception:
+            # Let the compositor repeat the cleanup inline so an error takes
+            # the same reporting and fallback path as before.
+            return None
+
+    def _replace_foreground(self, frame: np.ndarray, source_alpha: np.ndarray,
+                            prepared_fg=None) -> np.ndarray:
+        """Despilled foreground, reusing the overlapped result when it matches."""
+        if (
+            prepared_fg is not None
+            and prepared_fg[0] is frame
+            and prepared_fg[1] is source_alpha
+        ):
+            return prepared_fg[2]
+        return self._prepare_replace_foreground(frame, source_alpha)
 
     def _composite(self, frame: np.ndarray, alpha: np.ndarray,
                    width: int, height: int,
@@ -3493,8 +3670,32 @@ class VideoEffects:
                             mirror: bool = False) -> np.ndarray:
         self.last_output_mirrored = False
         self.last_output_face_overlay = (False, False)
-        if not self._bg_removal_enabled or not self._initialized:
+        prepared = self.prepare_alpha(frame, width, height)
+        if prepared is None:
             return frame
+        return self.composite_prepared(prepared, width, height, mirror=mirror)
+
+    def prepare_alpha(self, frame: np.ndarray, width: int,
+                      height: int) -> PreparedFrame | None:
+        """Inference stage of process_frame_array for one frame.
+
+        Returns None when background effects are inactive (pass the frame
+        through), otherwise the frame paired with the alpha computed for it.
+        Callers may run this for frame N+1 on a worker thread while
+        composite_prepared() finishes frame N: each stage still sees frames
+        in order, and every composite uses the matte of its own frame.
+        Pipelines may instead run finish_alpha(infer_alpha(...)) as two
+        consecutive stages; the result is the same.
+        """
+        frame = self._prepare_input_frame(frame, width, height)
+        if frame is None:
+            return None
+        return self._prepare_alpha_serial(frame, width, height)
+
+    def _prepare_input_frame(self, frame: np.ndarray, width: int,
+                             height: int) -> np.ndarray | None:
+        if not self._bg_removal_enabled or not self._initialized:
+            return None
 
         self._remember_frame_size(width, height)
         # Blur mode never writes into the source frame (GPU path uploads
@@ -3502,7 +3703,48 @@ class VideoEffects:
         # Remove/replace run in-place fringe cleanup and need their own copy.
         if not frame.flags.writeable and self._bg_mode != "blur":
             frame = frame.copy()
+        return frame
 
+    def infer_alpha(self, frame: np.ndarray, width: int, height: int):
+        """First pipeline half of prepare_alpha(): model inference only.
+
+        Splits _run_inference() at the model boundary so refinement of this
+        frame can overlap inference of the next one. With a skip interval the
+        inference decision reads the previous frame's committed matte, so that
+        cadence runs the whole serial stage here and finish_alpha() passes its
+        result through.
+        """
+        frame = self._prepare_input_frame(frame, width, height)
+        if frame is None:
+            return None
+        if self._skip_interval > 1:
+            return self._prepare_alpha_serial(frame, width, height)
+        self._frame_counter += 1
+        _alpha, _source_alpha, matte_version = self._matte_color_snapshot()
+        raw = self._infer_raw_alpha(frame, width, height)
+        return _InferredFrame(frame, width, height, matte_version, raw)
+
+    def finish_alpha(self, inferred) -> PreparedFrame | None:
+        """Second half of prepare_alpha(): refine, smooth and commit the alpha."""
+        if inferred is None or isinstance(inferred, PreparedFrame):
+            return inferred
+        frame, width, height, matte_version, raw = inferred
+        alpha = None
+        if raw is not None:
+            alpha = self._finish_raw_alpha(raw, frame, width, height, matte_version)
+        if alpha is not None:
+            self._commit_alpha(alpha, matte_version)
+        # Use the latest committed pair even when inference was rejected
+        # or another worker completed between inference and this snapshot.
+        with self._state_lock:
+            alpha = self._cached_alpha
+            source_alpha = self._cached_source_alpha
+            matte_version = self._matte_version
+            alpha_serial = self._cached_alpha_serial if alpha is not None else None
+        return PreparedFrame(frame, alpha, source_alpha, matte_version, alpha_serial)
+
+    def _prepare_alpha_serial(self, frame: np.ndarray, width: int,
+                              height: int) -> PreparedFrame:
         self._frame_counter += 1
         alpha, source_alpha, matte_version = self._matte_color_snapshot()
 
@@ -3518,11 +3760,51 @@ class VideoEffects:
             # Use the latest committed pair even when inference was rejected
             # or another worker completed between inference and this snapshot.
             alpha, source_alpha, matte_version = self._matte_color_snapshot()
-            if alpha is None:
-                return frame
 
-        return self._composite_array(frame, alpha, width, height, matte_version,
-                                     mirror=mirror, source_alpha=source_alpha)
+        return PreparedFrame(frame, alpha, source_alpha, matte_version)
+
+    def composite_prepared(self, prepared: PreparedFrame | None, width: int,
+                           height: int, mirror: bool = False,
+                           frame: np.ndarray | None = None) -> np.ndarray:
+        """Composite stage of process_frame_array for a prepare_alpha() result.
+
+        ``prepared`` is None when effects were inactive for this frame; the
+        caller's ``frame`` then passes through unchanged.
+        """
+        self.last_output_mirrored = False
+        self.last_output_face_overlay = (False, False)
+        if prepared is None:
+            return frame
+        if prepared.alpha is None:
+            return prepared.frame
+        return self._composite_array(
+            prepared.frame, prepared.alpha, width, height,
+            prepared.matte_version, mirror=mirror,
+            source_alpha=prepared.source_alpha,
+            replace_matte=prepared.replace_matte)
+
+    def prepare_replace_matte(self, prepared: PreparedFrame | None) -> PreparedFrame | None:
+        """Optional middle stage: the alpha-only replacement matte.
+
+        Replace mode's stabilized replacement matte depends on the alpha and
+        its own history, never on the camera frame, so a pipeline can build
+        it for frame N+1 while frame N composites. Frames still pass through
+        in order, so the matte history advances exactly as in the serial path.
+        """
+        if (
+            prepared is None
+            or prepared.alpha is None
+            or self._bg_mode != "replace"
+            or not isinstance(prepared.alpha, np.ndarray)
+            or prepared.alpha.shape != prepared.frame.shape[:2]
+        ):
+            return prepared
+        matte = self._replacement_matte_cached(
+            prepared.alpha, prepared.matte_version, prepared.alpha_serial)
+        if matte is prepared.alpha:
+            # Invalidated mid-flight; the compositor re-checks the version.
+            return prepared
+        return prepared._replace(replace_matte=matte)
 
     # ─── Device-resident frame path ──────────────────────────────────────
     #
@@ -3650,6 +3932,14 @@ class VideoEffects:
         uploaded BGRA frame; ``frame`` may then be None, which disables
         the CPU fallbacks (the caller handles fallback itself).
         """
+        raw = self._infer_raw_alpha(frame, width, height, frame_gpu)
+        if raw is None:
+            return None
+        return self._finish_raw_alpha(raw, frame, width, height, matte_version)
+
+    def _infer_raw_alpha(self, frame: np.ndarray | None, width: int, height: int,
+                         frame_gpu=None):
+        """Model inference only; returns (backend, alpha, lowres_refined) or None."""
         with self._lock:
             if self._engine_reload_in_progress:
                 return None
@@ -3705,6 +3995,20 @@ class VideoEffects:
                     if frame is None:
                         return None
                     alpha = self._infer_numpy_backend(backend, frame, width, height)
+                if alpha is None:
+                    return None
+                # Read with the alpha it describes: a pipelined next frame
+                # may run the backend again before this one is refined.
+                return backend, alpha, getattr(backend, '_lowres_refined', False)
+        except Exception as e:
+            print(f"[NV Broadcast] Inference error: {e}")
+            return None
+
+    def _finish_raw_alpha(self, raw, frame: np.ndarray | None, width: int,
+                          height: int, matte_version: int | None = None):
+        """Refinement and temporal smoothing for an _infer_raw_alpha() result."""
+        _backend, alpha, lowres_refined = raw
+        try:
             if alpha is not None:
                 if self._bg_mode == "remove":
                     # Only source-mask geometry is needed to reopen exterior
@@ -3718,7 +4022,7 @@ class VideoEffects:
                 # Refine first, then temporal smooth on the FINAL output.
                 # RVM's raw edges jitter 6-8% — smoothing the final result
                 # directly stabilizes what the user sees.
-                if not getattr(backend, '_lowres_refined', False):
+                if not lowres_refined:
                     alpha = self._refine_alpha(alpha)
                 # Edge refine: second pass at 720p for Zeus/Killer modes
                 if self._edge_refine_enabled:
@@ -4026,7 +4330,7 @@ class VideoEffects:
         alpha: np.ndarray,
         reference_shape: tuple[int, int] | None = None,
     ) -> np.ndarray:
-        a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
+        a8 = _unit_float_to_u8(alpha)
         original_a8 = a8
         is_replace = self._bg_mode == "replace"
         is_blur = self._bg_mode == "blur"
@@ -4165,7 +4469,7 @@ class VideoEffects:
             if not preserve_detail and softness_sizes[-1] > 1:
                 size = softness_sizes[-1]
                 r_u8 = cv2.GaussianBlur(r_u8, (size, size), 0)
-            result = r_u8.astype(np.float32) * (1.0 / 255.0)
+            result = _u8_to_unit_float(r_u8)
             if restored_slits is not None:
                 # Reopening a gap before feathering must not erase a thin
                 # finger alongside it. Retain strongly opaque source evidence
@@ -4208,7 +4512,7 @@ class VideoEffects:
             final_size = 3 if is_blur else softness_sizes[-1]
             if final_size > 1:
                 r_u8 = cv2.GaussianBlur(r_u8, (final_size, final_size), 0)
-            result = r_u8.astype(np.float32) * (1.0 / 255.0)
+            result = _u8_to_unit_float(r_u8)
 
         return result
 
@@ -4217,7 +4521,8 @@ class VideoEffects:
     def _composite_fused(self, frame: np.ndarray, alpha: np.ndarray,
                          width: int, height: int,
                          mirror: bool = False,
-                         source_alpha: np.ndarray | None = None) -> np.ndarray | None:
+                         source_alpha: np.ndarray | None = None,
+                         prepared_fg=None) -> np.ndarray | None:
         self.last_output_face_overlay = (False, False)
         # Capture callbacks run on fresh GStreamer threads. A prior guarded
         # upload restores that thread's device; it does not select ours here.
@@ -4225,7 +4530,7 @@ class VideoEffects:
             with self._gpu_cache_lock, self._cupy.cuda.Device(self._gpu_index):
                 result = self._composite_fused_on_device(
                     frame, alpha, width, height, mirror=mirror,
-                    source_alpha=source_alpha)
+                    source_alpha=source_alpha, prepared_fg=prepared_fg)
                 if result is None:
                     self.last_output_face_overlay = (False, False)
                 return result
@@ -4237,7 +4542,8 @@ class VideoEffects:
     def _composite_fused_on_device(self, frame: np.ndarray, alpha: np.ndarray,
                                    width: int, height: int,
                                    mirror: bool = False,
-                                   source_alpha: np.ndarray | None = None) -> np.ndarray | None:
+                                   source_alpha: np.ndarray | None = None,
+                                   prepared_fg=None) -> np.ndarray | None:
         """Single-pass GPU composite: CPU frame in, CPU frame out."""
         kernel = _get_fused_kernel()
         if kernel is None:
@@ -4249,8 +4555,9 @@ class VideoEffects:
             # cleanup runs inside the fused GPU compositor so this path can
             # still reuse the frame upload performed for inference.
             if self._bg_mode == "replace" and self._bg_image is not None:
-                frame = self._prepare_replace_foreground(
-                    frame, alpha if source_alpha is None else source_alpha)
+                frame = self._replace_foreground(
+                    frame, alpha if source_alpha is None else source_alpha,
+                    prepared_fg)
             pending = self._pending_frame_gpu
             self._pending_frame_gpu = None
             if pending is not None and pending[0] is frame:
@@ -5106,14 +5413,15 @@ class VideoEffects:
 
     def _apply_replace(self, frame: np.ndarray, alpha: np.ndarray,
                        width: int, height: int,
-                       source_alpha: np.ndarray | None = None) -> np.ndarray:
+                       source_alpha: np.ndarray | None = None,
+                       prepared_fg=None) -> np.ndarray:
         if self._bg_image is None:
             return self._apply_blur(frame, alpha)
         if self._frame_size != (width, height):
             self._resized_bg = self._resize_bg(self._bg_image, width, height)
             self._frame_size = (width, height)
-        frame = self._prepare_replace_foreground(
-            frame, alpha if source_alpha is None else source_alpha)
+        frame = self._replace_foreground(
+            frame, alpha if source_alpha is None else source_alpha, prepared_fg)
         return self._blend(frame, self._resized_bg, alpha)
 
     def _resize_bg(self, bg: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
@@ -5148,3 +5456,7 @@ class VideoEffects:
         self._edge_refiner.cleanup()
         for refiner in self._learned_refiners.values():
             refiner.cleanup()
+        with self._despill_executor_lock:
+            executor, self._despill_executor = self._despill_executor, None
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)

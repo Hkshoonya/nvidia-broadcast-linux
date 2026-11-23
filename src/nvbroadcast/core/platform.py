@@ -324,6 +324,8 @@ def preload_nvidia_runtime_libs() -> None:
                 lib_dir = Path(spec.submodule_search_locations[0]) / "lib"
                 if not lib_dir.is_dir():
                     continue
+                if pkg == "nvidia.cudnn":
+                    alias_cudnn_sublibraries(lib_dir)
                 for so in sorted(lib_dir.glob("*.so*")):
                     try:
                         ctypes.CDLL(str(so), mode=ctypes.RTLD_GLOBAL)
@@ -331,6 +333,89 @@ def preload_nvidia_runtime_libs() -> None:
                         pass
     except Exception:
         pass
+
+
+def _parse_cpu_list(text: str) -> set[int]:
+    """Parse a sysfs CPU list such as ``0-15,32``."""
+    cpus: set[int] = set()
+    for part in text.strip().split(","):
+        if not part:
+            continue
+        start, _, end = part.partition("-")
+        cpus.update(range(int(start), int(end or start) + 1))
+    return cpus
+
+
+def prefer_performance_cores(
+    sysfs_root: Path = Path("/sys/devices"),
+) -> set[int] | None:
+    """Keep the process on the performance cores of a hybrid Intel CPU.
+
+    The video stages run on several Python threads at once. When the
+    scheduler parks one of them on an efficiency core, that stage runs far
+    slower and the whole pipeline paces to it (measured on an i9-13900KF:
+    ~31 fps on P-cores vs ~20 fps on E-cores, with much larger frame-time
+    spikes). Call before threads are created so they inherit the mask.
+    ``NVBROADCAST_CPU_AFFINITY=all`` keeps the scheduler's default.
+    Returns the applied CPU set, or None when nothing changed.
+    """
+    if not IS_LINUX or os.environ.get("NVBROADCAST_CPU_AFFINITY", "auto") == "all":
+        return None
+    try:
+        performance = _parse_cpu_list((sysfs_root / "cpu_core" / "cpus").read_text())
+        if not (sysfs_root / "cpu_atom" / "cpus").is_file():
+            return None
+        allowed = os.sched_getaffinity(0)
+        target = performance & allowed
+        if not target or target == allowed:
+            return None
+        os.sched_setaffinity(0, target)
+        return target
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def alias_cudnn_sublibraries(lib_dir: Path) -> list[Path]:
+    """Keep cuDNN's versioned sub-library loads inside its own wheel.
+
+    cuDNN 9 dlopens its sub-libraries by full version first, e.g.
+    ``libcudnn_graph.so.9.28.1``, then ``.so.9.28``, then ``.so.9``. The
+    wheel ships only ``.so.9``, so a distribution cuDNN of the *same* version
+    (Arch/CachyOS ``cudnn``, pulled in by ``onnxruntime-cuda``) satisfies the
+    versioned lookup from /usr/lib. Two cuDNN copies then share one process,
+    every convolution fails with CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED and
+    ONNX Runtime silently falls back to CPU inference.
+
+    Versioned symlinks next to the wheel libraries are found first through
+    cuDNN's ``$ORIGIN`` RUNPATH and resolve to the already-loaded files, so
+    no second copy is mapped. Read-only installs are left unchanged.
+    Returns the aliases created.
+    """
+    created: list[Path] = []
+    try:
+        cudnn = ctypes.CDLL(str(lib_dir / "libcudnn.so.9"))
+        version = int(cudnn.cudnnGetVersion())
+    except (OSError, AttributeError, ValueError):
+        return created
+    major, minor, patch = version // 10000, (version // 100) % 100, version % 100
+    if major != 9:
+        return created
+    suffixes = (f"{major}.{minor}.{patch}", f"{major}.{minor}")
+    for library in sorted(lib_dir.glob(f"libcudnn*.so.{major}")):
+        if library.is_symlink():
+            continue
+        stem = library.name[: -len(str(major))]  # "libcudnn_graph.so."
+        for suffix in suffixes:
+            alias = library.with_name(stem + suffix)
+            if alias.exists() or alias.is_symlink():
+                continue
+            try:
+                alias.symlink_to(library.name)
+            except OSError:
+                # Read-only runtime or a concurrent launch created it.
+                continue
+            created.append(alias)
+    return created
 
 
 def cuda_inference_probe_result(device_id: int = 0):

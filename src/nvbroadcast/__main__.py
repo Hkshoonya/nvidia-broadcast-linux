@@ -67,8 +67,23 @@ def _redirect_output_to_log():
         pass  # Logging must never prevent startup.
 
 
+def _prefer_performance_cores():
+    try:
+        from nvbroadcast.core.platform import prefer_performance_cores
+
+        cpus = prefer_performance_cores()
+        if cpus:
+            print(f"[NV Broadcast] Hybrid CPU: using performance cores "
+                  f"{min(cpus)}-{max(cpus)} (NVBROADCAST_CPU_AFFINITY=all disables)",
+                  flush=True)
+    except Exception:
+        pass  # Scheduling preference must never prevent startup.
+
+
 def main():
     _redirect_output_to_log()
+    # Before GTK, GStreamer, CUDA or worker threads exist, so they inherit it.
+    _prefer_performance_cores()
     from nvbroadcast.core.startup_trace import mark
 
     mark("python entry")

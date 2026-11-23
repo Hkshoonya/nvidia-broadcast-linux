@@ -4,6 +4,27 @@
 
 Changes accepted after the v1.5.5 release freeze will be recorded here.
 
+- **Keep AI effects on the GPU when the system also ships cuDNN** - cuDNN
+  loads its sub-libraries by full version first, so a distribution cuDNN of
+  the same version (for example CachyOS/Arch `cudnn`, pulled in by
+  `onnxruntime-cuda`) was mixed into the bundled one. Every convolution then
+  failed and ONNX Runtime silently moved background inference to the CPU
+  (about 2 fps for DocZeus at 1080p). Versioned aliases now keep those loads
+  inside the bundled runtime, and a CPU fallback is logged as a warning.
+- **Prefer performance cores on hybrid Intel CPUs** - The video stages stay
+  off efficiency cores, which paced the whole pipeline to the slowest core.
+  Set `NVBROADCAST_CPU_AFFINITY=all` to keep the default scheduling.
+- **Smoother inline background replacement** - Inline-inference modes
+  (DocZeus, CUDA High Quality/Balanced, CUDA Fast replace) now overlap model
+  inference, matte refinement and the replacement matte of newer frames with
+  compositing an older one on dedicated worker threads, and replace-mode
+  fringe cleanup runs alongside the final matte. Every composite still uses
+  its own frame's matte and each stage keeps its history in frame order, so
+  rendered frames are unchanged; output trails capture by up to three frames.
+  Several full-frame matte steps also avoid redundant temporaries with
+  bit-identical arithmetic. Set `NVBROADCAST_PIPELINED_INFERENCE=0` to keep
+  the serial path.
+
 ## v1.5.5 - Responsive Startup and Face-Effect Recovery
 
 **Release preparation.** This version is not yet published. The changes below
