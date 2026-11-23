@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from pathlib import Path
 import threading
 from types import SimpleNamespace
+from typing import NamedTuple
 import unittest
 
 import cv2
@@ -25,6 +26,14 @@ def _methods(relative, class_name, names, namespace):
     ], type_ignores=[])
     exec(compile(ast.fix_missing_locations(module), relative, "exec"), namespace)
     return namespace[class_name]
+
+
+class _PreparedFrame(NamedTuple):
+    frame: object
+    alpha: object
+    source_alpha: object
+    matte_version: object
+    replace_matte: object = None
 
 
 class _Cupy:
@@ -76,11 +85,16 @@ class FusedOverlayFallbackTests(unittest.TestCase):
             "_composite_array", "_composite_array_on_device", "_composite_fused",
             "_composite_fused_on_device", "_composite_fused_gpu",
             "set_fused_face_overlay", "_set_fused_face_overlay_locked",
-            "process_frame_array", "composite_only_array",
-            "process_frame_gpu", "composite_only_gpu",
+            "process_frame_array", "prepare_alpha", "_prepare_input_frame",
+            "_prepare_alpha_serial", "composite_prepared",
+            "composite_only_array", "process_frame_gpu", "composite_only_gpu",
+            "_submit_replace_despill", "_replace_despill_result",
+            "_replace_foreground",
         }
         cls = _methods("src/nvbroadcast/video/effects.py", "VideoEffects", names,
-                       {"np": np, "cv2": cv2,
+                       {"np": np, "cv2": cv2, "PreparedFrame": _PreparedFrame,
+                        "_unit_float_to_u8": lambda alpha: np.clip(
+                            alpha * 255, 0, 255).astype(np.uint8),
                         "_get_fused_kernel": lambda: kernel if self.kernel_available else None})
         effects = cls()
         effects._gpu_cache_lock = threading.RLock()

@@ -229,6 +229,7 @@ class HiddenStartupPipelineTests(unittest.TestCase):
                     _active_vcam_device=mock.Mock(return_value="/dev/test-output"),
                     _use_nvdec=False,
                     _process_frame=mock.Mock(),
+                    _process_effect_frame=mock.Mock(),
                     _update_alpha=mock.Mock(),
                     _on_recording_error=mock.Mock(),
                     _on_capture_error=mock.Mock(),
